@@ -218,6 +218,72 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
     resources.reset_probes_pipeline = compute;
   }
   frame->reset_probes = resources.reset_probes_pipeline;
+  if (!resources.occlusion_pipeline) {
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->Initialize();
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->descriptor_set_layouts = {layout};
+    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HddagiOcclusionParams)});
+    pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, "", Resources::GetDefaultResourcesPath() / "Shaders/Compute/HddagiOcclusion.slang");
+    pipeline->Initialize();
+    if (!pipeline->Initialized())
+      throw std::runtime_error("HDDAGI occlusion pipeline creation failed");
+    resources.occlusion_pipeline = std::move(pipeline);
+  }
+  frame->occlusion = resources.occlusion_pipeline;
+  if (!resources.metadata_pipeline) {
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 7; ++binding)
+      layout->PushDescriptorBinding(binding,
+                                    binding < 3    ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+                                    : binding == 3 ? VK_DESCRIPTOR_TYPE_SAMPLER
+                                                   : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                    VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->Initialize();
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->descriptor_set_layouts = {layout};
+    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HddagiMetadataParams)});
+    pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, "", Resources::GetDefaultResourcesPath() / "Shaders/Compute/HddagiProbeMetadata.slang");
+    pipeline->Initialize();
+    if (!pipeline->Initialized())
+      throw std::runtime_error("HDDAGI probe-metadata pipeline creation failed");
+    resources.metadata_pipeline = std::move(pipeline);
+  }
+  if (!resources.linear_sampler) {
+    VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler.minFilter = sampler.magFilter = VK_FILTER_LINEAR;
+    sampler.addressModeU = sampler.addressModeV = sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    resources.linear_sampler = std::make_shared<Sampler>(sampler);
+  }
+  frame->sampler = resources.linear_sampler;
+  frame->metadata = resources.metadata_pipeline;
+  frame->metadata_set = std::make_shared<DescriptorSet>(frame->metadata->descriptor_set_layouts[0]);
+  const char* metadata_names[]{"Regions", "Occlusion0", "Occlusion1", "", "Neighbors", "Proximity", "CameraVisibility"};
+  for (uint32_t binding = 0; binding < 7; ++binding) {
+    VkDescriptorImageInfo info{};
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    if (binding == 3)
+      info.sampler = frame->sampler->GetVkSampler();
+    else {
+      const auto& image = resources.images.at(metadata_names[binding]);
+      info.imageView = (binding < 3 ? image.sampled : image.storage)->GetVkImageView();
+    }
+    frame->metadata_set->UpdateImageDescriptorBinding(binding, info);
+  }
+  for (uint32_t plane = 0; plane < 2; ++plane) {
+    auto& set = frame->occlusion_sets[plane];
+    set = std::make_shared<DescriptorSet>(frame->occlusion->descriptor_set_layouts[0]);
+    VkDescriptorImageInfo info{};
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    info.imageView = resources.images.at("NormalBits").sampled->GetVkImageView();
+    set->UpdateImageDescriptorBinding(0, info);
+    info.imageView = resources.images.at("Occlusion" + std::to_string(plane)).storage->GetVkImageView();
+    set->UpdateImageDescriptorBinding(1, info);
+  }
   frame->reset_set = std::make_shared<DescriptorSet>(frame->reset_probes->descriptor_set_layouts[0]);
   uint32_t reset_binding = 0;
   for (const auto name : {"History", "HistorySum", "Diffuse", "Specular", "FilteredDiffuse", "Ambient", "Neighbors",
@@ -324,7 +390,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
     pass.dependencies = {previous};
     previous = pass.name;
     pass.profiler_group = RenderPassProfilerGroup::FramePreparation;
-    pass.profiler_display_name = "HDDAGI Voxelize";
+    pass.profiler_display_name = "HDDAGI Field Update";
     pass.resources = reads;
     for (const auto name : {"Albedo", "Emission", "EmissionAniso", "NormalBits", "VoxelBits", "Regions", "Versions",
                             "Disocclusion", "LightNeighbors", "Light"})
@@ -338,7 +404,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                                 RenderResourceUsage::Read, RenderResourceState::General});
     for (const auto name : {"Occlusion0", "Occlusion1"})
       pass.resources.push_back(
-          {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+          {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
     graph.AddPass(pass, [frame = shared_from_this(), resources, cascade](const RenderGraphExecutionContext& context) {
       Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
         const RenderPassGpuTimestampScope timing(command, context);
@@ -396,6 +462,26 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
         }
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        frame->occlusion->Bind(command);
+        for (uint32_t plane = 0; plane < 2; ++plane) {
+          frame->occlusion->BindDescriptorSet(command, 0, frame->occlusion_sets[plane]->GetVkDescriptorSet());
+          for (const auto& entry : frame->update_plan.regions) {
+            const auto& region = entry.core;
+            if (region.cascade != cascade || region.size == glm::ivec3(0))
+              continue;
+            HddagiOcclusionParams params;
+            params.grid = frame->inputs->cascades[cascade].size;
+            params.cascade = cascade;
+            params.offset = region.offset;
+            // Reference host offsets (-4, 0) combine with Vulkan RGBA4's high-to-low component order.
+            params.layer_offset = (int32_t(plane) - 1) * 4;
+            params.region_world_offset = (frame->inputs->cascades[cascade].position - params.grid / 2) / 8;
+            frame->occlusion->PushConstant(command, 0, params);
+            frame->occlusion->Dispatch(command, region.size.x / 8, region.size.y / 8, region.size.z / 8);
+          }
+        }
+        resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
         frame->light_store->Bind(command);
         frame->light_store->BindDescriptorSet(command, 0, frame->light_sets[cascade]->GetVkDescriptorSet());
         for (uint32_t region_index = 0; region_index < frame->update_plan.regions.size(); ++region_index) {
@@ -421,6 +507,39 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
       });
     });
   }
+  RenderPassDescriptor metadata_pass{"HddagiProbeMetadata", RenderPassQueue::Graphics, RenderPassScope::Frame};
+  metadata_pass.dependencies = {previous};
+  for (const auto name : {"Regions", "Occlusion0", "Occlusion1"})
+    metadata_pass.resources.push_back(
+        {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+  for (const auto name : {"Neighbors", "Proximity", "CameraVisibility"})
+    metadata_pass.resources.push_back(
+        {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Write, RenderResourceState::General});
+  graph.AddPass(metadata_pass, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      ApplyGraphResourceBarriers(command, context);
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      frame->metadata->Bind(command);
+      frame->metadata->BindDescriptorSet(command, 0, frame->metadata_set->GetVkDescriptorSet());
+      for (uint32_t c = 0; c < resources->probes.cascade_count; ++c) {
+        if (!(frame->written_cascades & (1u << c)))
+          continue;
+        HddagiMetadataParams params;
+        params.grid = frame->inputs->cascades[c].size;
+        params.cascade = c;
+        params.region_offset = (frame->inputs->cascades[c].position - params.grid / 2) / 8;
+        params.cascade_count = resources->probes.cascade_count;
+        params.probe_size = resources->probes.ProbeSize();
+        frame->metadata->PushConstant(command, 0, params);
+        frame->metadata->Dispatch(command, (params.probe_size.x + 3) / 4, (params.probe_size.y + 3) / 4,
+                                  (params.probe_size.z + 3) / 4);
+      }
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                             VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    });
+  });
+  previous = metadata_pass.name;
   RenderResourceDescriptor descriptor;
   descriptor.name = "Frame.HDDAGI.StatusReadback";
   descriptor.type = RenderResourceType::Buffer;

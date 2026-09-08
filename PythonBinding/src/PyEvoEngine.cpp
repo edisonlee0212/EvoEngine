@@ -903,6 +903,16 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("CaptureCurrentSceneSdfgiDebug", [debug_runtime](const std::filesystem::path& path) {
     CaptureSdfgiDebugImage(*debug_runtime(), path);
   });
+  m.def(
+      "CaptureCurrentSceneHddagiDebug",
+      [](const std::filesystem::path& path, const std::string& image, const uint32_t layer, const uint32_t z_slice) {
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto runtime = scene ? scene->GetHddagiRuntime() : nullptr;
+        if (!runtime || !runtime->resources)
+          throw py::value_error("Automatic HDDAGI runtime unavailable");
+        runtime->resources->CaptureToPng(path, image, layer, z_slice);
+      },
+      py::arg("path"), py::arg("image"), py::arg("layer") = 0, py::arg("z_slice") = 0);
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = ResolveEnvironmentalLighting(scene);
@@ -917,9 +927,23 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["hddagi_voxelization_recorded"] = hddagi && hddagi->resources && hddagi->resources->voxelization_recorded;
     result["hddagi_voxel_failure"] = hddagi ? hddagi->voxel_failure : std::string{};
     result["hddagi_failure_flags"] = hddagi && hddagi->resources ? hddagi->resources->failure_flags : 0;
-    result["hddagi_light_cell_counts"] =
-        hddagi && hddagi->resources ? hddagi->resources->light_cell_counts : std::vector<uint32_t>{};
+    py::list hddagi_light_counts;
+    py::list hddagi_light_overflow;
+    if (hddagi && hddagi->resources) {
+      for (const auto count : hddagi->resources->light_cell_counts)
+        hddagi_light_counts.append(count);
+      for (const auto& overflow : hddagi->resources->light_overflow)
+        hddagi_light_overflow.append(py::make_tuple(overflow[0], overflow[1]));
+    }
+    result["hddagi_light_cell_counts"] = hddagi_light_counts;
     result["hddagi_last_updated_regions"] = hddagi ? hddagi->last_updated_regions : 0;
+    result["hddagi_transport_recorded"] = hddagi && hddagi->resources && hddagi->resources->transport_recorded;
+    result["hddagi_light_overflow"] = hddagi_light_overflow;
+    result["hddagi_transport_ready"] = hddagi && hddagi->resources && hddagi->resources->transport_ready;
+    result["hddagi_transport_generation"] = hddagi && hddagi->resources ? hddagi->resources->transport_generation : 0;
+    result["hddagi_transport_failure_flags"] =
+        hddagi && hddagi->resources ? hddagi->resources->transport_failure_flags : 0;
+    result["hddagi_transport_failure"] = hddagi ? hddagi->transport_failure : "";
     result["hddagi_total_updated_regions"] = hddagi ? hddagi->total_updated_regions : 0;
     result["hddagi_update_count"] = hddagi ? hddagi->update_count : 0;
     result["hddagi_region_version"] = hddagi ? hddagi->region_version : 0;

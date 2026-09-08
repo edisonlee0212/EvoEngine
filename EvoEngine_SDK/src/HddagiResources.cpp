@@ -1,14 +1,75 @@
 // Godot HDDAGI::create layouts, da1410fa3516d08cc31b6e86bd6673b9ce776316.
 // See docs/licenses/Godot-MIT.txt. EvoEngine owns validation and allocation lifetime.
 #include "HddagiResources.hpp"
+#include "HddagiLight.hpp"
+#include "HddagiProbe.hpp"
 #include "HddagiVoxelizer.hpp"
 
+#include <stb_image_write.h>
 #include <array>
 #include <stdexcept>
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
 using namespace evo_engine;
+
+void HddagiResources::CaptureToPng(const std::filesystem::path& path, const std::string& image_name,
+                                   const uint32_t layer, const uint32_t z_slice) const {
+  const bool radiance = image_name == "Light" || image_name == "StaticLight" || image_name == "Diffuse" ||
+                        image_name == "FilteredDiffuse" || image_name == "Specular" || image_name == "History";
+  const bool occlusion = image_name == "Occlusion0" || image_name == "Occlusion1";
+  if (!radiance && !occlusion && image_name != "ProcessFrame" && image_name != "HistorySum" &&
+      image_name != "Proximity")
+    throw std::invalid_argument("Unsupported HDDAGI diagnostic image");
+  const auto& texture = images.at(image_name);
+  const auto& requirement = texture.requirement;
+  if (!transport_recorded || layer >= requirement.layers || z_slice >= requirement.extent.depth)
+    throw std::invalid_argument("HDDAGI diagnostic generation or slice unavailable");
+  Platform::WaitForFrameSubmissions("HDDAGI explicit transport diagnostic readback");
+  const uint32_t count = requirement.extent.width * requirement.extent.height;
+  const uint32_t stride = occlusion ? 2 : image_name == "Proximity" ? 1 : 4;
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = count * stride;
+  info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  VmaAllocationCreateInfo allocation{};
+  allocation.usage = VMA_MEMORY_USAGE_AUTO;
+  allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+  allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer readback(info, allocation);
+  VkBufferImageCopy copy{};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
+  copy.imageOffset.z = z_slice;
+  copy.imageExtent = {requirement.extent.width, requirement.extent.height, 1};
+  readback.CopyFromImage(*texture.image, copy);
+  std::vector<uint8_t> raw;
+  readback.DownloadVector(raw, count * stride);
+  std::vector<uint8_t> pixels(count * 4, 255);
+  for (uint32_t i = 0; i < count; ++i) {
+    uint32_t packed = 0;
+    for (uint32_t byte = 0; byte < stride; ++byte)
+      packed |= uint32_t(raw[i * stride + byte]) << (byte * 8);
+    glm::vec3 color;
+    if (radiance) {
+      color =
+          glm::vec3(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511) * std::ldexp(1.0f, int(packed >> 27) - 24);
+      color = glm::pow(color / (1.0f + color), glm::vec3(1.0f / 2.2f));
+    } else if (occlusion) {
+      color = glm::vec3((packed >> 12) & 15, (packed >> 8) & 15, (packed >> 4) & 15) / 15.0f;
+      pixels[i * 4 + 3] = (packed & 15) * 17;
+    } else {
+      const float value = image_name == "HistorySum"     ? packed / float(16384 * settings.history_size)
+                          : image_name == "ProcessFrame" ? (packed & 0xfffffff) / float(settings.history_size)
+                                                         : packed / 255.0f;
+      color = glm::vec3(value);
+    }
+    for (uint32_t channel = 0; channel < 3; ++channel)
+      pixels[i * 4 + channel] = uint8_t(glm::clamp(color[channel], 0.0f, 1.0f) * 255);
+  }
+  stbi_flip_vertically_on_write(false);
+  if (!stbi_write_png(path.string().c_str(), requirement.extent.width, requirement.extent.height, 4, pixels.data(),
+                      requirement.extent.width * 4))
+    throw std::runtime_error("Could not write HDDAGI diagnostic PNG");
+}
 
 namespace {
 constexpr VkImageUsageFlags kUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -33,6 +94,8 @@ VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
                    ? 0
                    : VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
   info.imageType = r.type;
+  if (r.cube)
+    info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
   info.format = r.storage_format;
   info.extent = r.extent;
   info.mipLevels = 1;
@@ -50,6 +113,12 @@ uint64_t HddagiResources::AllocationBytes() const {
   for (const auto& [name, buffer] : buffers)
     bytes += buffer->GetVmaAllocationInfo().size;
   for (const auto& frame : voxel_frames)
+    if (frame)
+      bytes += frame->AllocationBytes();
+  for (const auto& frame : light_frames)
+    if (frame)
+      bytes += frame->AllocationBytes();
+  for (const auto& frame : probe_frames)
     if (frame)
       bytes += frame->AllocationBytes();
   return bytes;
@@ -143,6 +212,7 @@ std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const
   volume("Regions", VK_FORMAT_R8_UINT, {x / 8, c * y / 8, x / 8});
   volume("Versions", VK_FORMAT_R16_UINT, {x / 8, c * y / 8, x / 8});
   volume("Light", VK_FORMAT_R32_UINT, {x, c * y, x}, VK_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+  volume("StaticLight", VK_FORMAT_R32_UINT, {x, c * y, x});
   volume("Disocclusion", VK_FORMAT_R8_UINT, {x, c * y, x});
   volume("LightNeighbors", VK_FORMAT_R32_UINT, {x, c * y, x});
   volume("Albedo", VK_FORMAT_R16_UINT, {x / 2, y / 2, x * 3});
@@ -174,6 +244,16 @@ std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const
   probes("ProcessFrame", VK_FORMAT_R32_UINT, 1, c);
   probes("Proximity", VK_FORMAT_R8_UNORM, 1, c);
   probes("CameraVisibility", VK_FORMAT_R8_UNORM, 1, c);
+  result.push_back({"BlackSky",
+                    VK_FORMAT_R16G16B16A16_SFLOAT,
+                    VK_FORMAT_R16G16B16A16_SFLOAT,
+                    VK_IMAGE_TYPE_2D,
+                    {1, 1, 1},
+                    6,
+                    false,
+                    true,
+                    false,
+                    true});
   return result;
 }
 
@@ -244,7 +324,7 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
       return report;
     }
   }
-  for (const auto bytes : {uint64_t(LightCellCapacity(p)) * 16, uint64_t(20)}) {
+  for (const auto bytes : {uint64_t(LightCellCapacity(p)) * 16, uint64_t(20), uint64_t(16)}) {
     if (bytes > limits.maxStorageBufferRange) {
       report.failure = "HDDAGI light payload exceeds the storage-buffer range";
       return report;
@@ -258,7 +338,7 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
     VkMemoryRequirements memory{};
     vkGetBufferMemoryRequirements(Platform::GetVkDevice(), buffer, &memory);
     vkDestroyBuffer(Platform::GetVkDevice(), buffer, nullptr);
-    report.buffer_bytes += memory.size * p.cascade_count * 2;
+    report.buffer_bytes += memory.size * (bytes == 16 ? 1 : p.cascade_count * 2);
   }
   return report;
 }
@@ -291,7 +371,9 @@ std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSetting
         VkImageViewCreateInfo v{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         v.pNext = &view_usage;
         v.image = image->GetVkImage();
-        v.viewType = r.type == VK_IMAGE_TYPE_3D ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        v.viewType = r.type == VK_IMAGE_TYPE_3D                      ? VK_IMAGE_VIEW_TYPE_3D
+                     : r.cube && usage == VK_IMAGE_USAGE_SAMPLED_BIT ? VK_IMAGE_VIEW_TYPE_CUBE
+                                                                     : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         v.format = format;
         v.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, r.layers};
         return std::make_shared<ImageView>(v, image);
@@ -306,6 +388,9 @@ std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSetting
       result->images.emplace(r.name, HddagiImage{r, image, storage, sampled});
     }
     result->light_cell_capacity = LightCellCapacity(probes);
+    if (result->images.size() == fail_after_allocations)
+      throw std::runtime_error("Injected partial allocation failure");
+    result->buffers.emplace("Status", std::make_shared<Buffer>(BufferInfo(16)));
     for (uint32_t cascade = 0; cascade < probes.cascade_count; ++cascade)
       for (const auto name : {"Process", "Dispatch", "ProcessSpare", "DispatchSpare"}) {
         if (result->images.size() + result->buffers.size() == fail_after_allocations)

@@ -20,6 +20,11 @@ class EVOENGINE_API HddagiVoxelFrame : public std::enable_shared_from_this<Hddag
   std::vector<std::shared_ptr<DescriptorSet>> scroll_sets;
   std::shared_ptr<ComputePipeline> reset_probes;
   std::shared_ptr<DescriptorSet> reset_set;
+  std::shared_ptr<ComputePipeline> occlusion;
+  std::array<std::shared_ptr<DescriptorSet>, 2> occlusion_sets;
+  std::shared_ptr<ComputePipeline> metadata;
+  std::shared_ptr<DescriptorSet> metadata_set;
+  std::shared_ptr<Sampler> sampler;
   uint32_t written_cascades = 0;
   std::shared_ptr<Buffer> status_readback;
   uint64_t scene_frame = 0;

@@ -11,6 +11,8 @@
 namespace evo_engine {
 
 class HddagiVoxelFrame;
+class HddagiLightFrame;
+class HddagiProbeFrame;
 class GraphicsPipeline;
 class ComputePipeline;
 
@@ -24,6 +26,7 @@ struct HddagiImageRequirement {
   bool temporal = false;
   bool filtered = false;
   bool atomic = false;
+  bool cube = false;
 };
 
 struct EVOENGINE_API HddagiCapabilityReport {
@@ -65,7 +68,26 @@ class EVOENGINE_API HddagiResources {
   std::shared_ptr<ComputePipeline> light_store_pipeline;
   std::shared_ptr<ComputePipeline> light_scroll_pipeline;
   std::shared_ptr<ComputePipeline> reset_probes_pipeline;
+  std::shared_ptr<ComputePipeline> occlusion_pipeline;
+  std::shared_ptr<ComputePipeline> metadata_pipeline;
   std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
+  std::vector<std::shared_ptr<HddagiLightFrame>> light_frames;
+  std::array<std::shared_ptr<ComputePipeline>, 2> direct_pipelines;
+  std::shared_ptr<Sampler> linear_sampler;
+  std::vector<std::array<std::vector<SdfgiLight>, 2>> light_inputs;
+  std::vector<std::array<uint32_t, 2>> light_overflow;
+  bool transport_recorded = false;
+  SdfgiSkyInput sky_input;
+  uint32_t force_probe_frames = 0;
+  bool transport_ready = false;
+  uint32_t transport_generation = 0;
+  uint32_t transport_failure_flags = 0;
+  uint64_t last_transport_status_frame = UINT64_MAX;
+  std::array<std::shared_ptr<ComputePipeline>, 2> transport_status_pipelines;
+  std::shared_ptr<ComputePipeline> integrate_pipeline;
+  std::shared_ptr<ComputePipeline> filter_pipeline;
+  std::shared_ptr<Sampler> mip_sampler;
+  std::vector<std::shared_ptr<HddagiProbeFrame>> probe_frames;
   uint64_t last_voxel_frame = UINT64_MAX;
   bool voxelization_recorded = false;
   uint64_t last_status_frame = UINT64_MAX;
@@ -73,6 +95,8 @@ class EVOENGINE_API HddagiResources {
   uint32_t failure_flags = 0;
 
   [[nodiscard]] uint64_t AllocationBytes() const;
+  void CaptureToPng(const std::filesystem::path& path, const std::string& image_name, uint32_t layer = 0,
+                    uint32_t z_slice = 0) const;
   void Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const;
   [[nodiscard]] RenderPassDescriptor ClearDescriptor() const;
   void Clear(VkCommandBuffer command, const RenderGraphExecutionContext& context);
@@ -97,6 +121,7 @@ struct EVOENGINE_API HddagiRuntime {
   uint64_t total_updated_regions = 0;
   uint64_t update_count = 0;
   std::string voxel_failure;
+  std::string transport_failure;
   bool allocation_attempted = false;
   bool published = false;
   std::string fallback_reason = "HDDAGI transport is not ready";

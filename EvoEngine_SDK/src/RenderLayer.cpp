@@ -15,6 +15,8 @@
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiLight.hpp"
+#include "HddagiProbe.hpp"
 #include "HddagiResources.hpp"
 #include "HddagiVoxelizer.hpp"
 #include "Jobs.hpp"
@@ -5476,6 +5478,12 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         if (const auto& retired = resources->voxel_frames[current_frame_index])
           retired->ReadStatusAfterFence(*resources);
         resources->voxel_frames[current_frame_index].reset();
+        resources->light_frames.resize(Platform::GetMaxFramesInFlight());
+        resources->probe_frames.resize(Platform::GetMaxFramesInFlight());
+        if (const auto& retired = resources->probe_frames[current_frame_index])
+          retired->ReadStatusAfterFence(*resources);
+        resources->light_frames[current_frame_index].reset();
+        resources->probe_frames[current_frame_index].reset();
         const bool retry_voxelization = !runtime.voxel_failure.empty();
         resources->last_voxel_frame = scene_frame;
         runtime.last_updated_regions = 0;
@@ -5484,7 +5492,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         input_settings.probe_spacing_cells = 8;
         input_settings.static_entities_only = runtime.settings.static_entities_only;
         inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
-        runtime.contributors.Update(SnapshotSdfgiScene(scene, inputs_lighting).contributors);
+        const auto snapshot = SnapshotSdfgiScene(scene, inputs_lighting);
+        runtime.contributors.Update(snapshot.contributors);
         HddagiUpdatePlan plan;
         runtime.voxel_failure = BuildHddagiUpdatePlan(
             runtime.probes, runtime.settings, runtime.frame.anchor.world_position, runtime.cascades,
@@ -5508,10 +5517,33 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             runtime.voxel_failure = error.what();
           }
         }
+        runtime.transport_failure.clear();
+        if (runtime.voxel_failure.empty() && !runtime.cascades.empty()) {
+          try {
+            const auto& voxel_frame = resources->voxel_frames[current_frame_index];
+            const uint32_t written = voxel_frame ? voxel_frame->written_cascades : 0;
+            auto lights = HddagiLightFrame::Create(*resources, runtime.cascades, snapshot.lights, scene_frame, written);
+            auto probes = HddagiProbeFrame::Create(*resources, runtime.cascades, snapshot.sky, scene_frame,
+                                                   lights->lighting_changed, written);
+            probes->AddBeginPass(scene_graph, registry, resources, voxel_frame ? "HddagiVoxelComplete" : "");
+            lights->AddPasses(scene_graph, registry, resources, "HddagiTransportBegin");
+            probes->AddPasses(scene_graph, registry, resources, "HddagiDirectLight");
+            resources->light_frames[current_frame_index] = std::move(lights);
+            resources->probe_frames[current_frame_index] = std::move(probes);
+          } catch (const std::exception& error) {
+            runtime.transport_failure = error.what();
+          }
+        }
         if (!runtime.voxel_failure.empty())
           runtime.fallback_reason = runtime.voxel_failure;
         else if (resources->failure_flags)
           runtime.fallback_reason = "HDDAGI compact light-cell capacity exceeded";
+        else if (!runtime.transport_failure.empty())
+          runtime.fallback_reason = runtime.transport_failure;
+        else if (resources->transport_failure_flags)
+          runtime.fallback_reason = "HDDAGI transport generation failed GPU validation";
+        else if (resources->transport_ready)
+          runtime.fallback_reason = "HDDAGI camera integration is not ready";
       }
     }
     runtime.retiring_bytes = 0;

@@ -12,6 +12,8 @@
 #include "GltfMaterial.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiLight.hpp"
+#include "HddagiProbe.hpp"
 #include "HddagiResources.hpp"
 #include "HddagiTypes.hpp"
 #include "HddagiVoxelizer.hpp"
@@ -5253,7 +5255,7 @@ TEST(HddagiResources, PreflightAndPartialAllocationWithoutRayTracing) {
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->images.size(), GetHddagiImageRequirements(probes, settings).size());
   EXPECT_GE(field->temporal_bytes, HddagiLogicalTemporalBytes(probes, settings));
-  EXPECT_EQ(field->buffers.size(), 4u);
+  EXPECT_EQ(field->buffers.size(), 5u);
   EXPECT_GE(field->AllocationBytes(), report.image_bytes + report.buffer_bytes);
   const std::weak_ptr<HddagiResources> weak = field;
   auto retained = field;
@@ -5851,7 +5853,10 @@ TEST(HddagiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisable
       EXPECT_EQ(voxel.position >> 30, 3u);
       EXPECT_TRUE(payload_by_cell.emplace(voxel.position & 0xffffffu, voxel).second);
       EXPECT_EQ(voxel.albedo_normal & 0xffffu, 12u | (12u << 5) | (3u << 11));
-      EXPECT_EQ(voxel.occlusion, 0u);
+      uint32_t total_weight = 0;
+      for (uint32_t neighbor = 0; neighbor < 8; ++neighbor)
+        total_weight += (voxel.occlusion >> (neighbor * 4)) & 15;
+      EXPECT_LE(total_weight, 15u);
       if (iteration == 1)
         EXPECT_EQ(voxel.emission, 0u);
     }
@@ -6002,8 +6007,15 @@ TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithou
     if (phase == 5)
       EXPECT_EQ(runtime->region_version, previous_version);
     previous_version = runtime->region_version;
+    const auto probe_frame = runtime->resources->probe_frames[Platform::GetCurrentFrameIndex()];
     PlatformLifecycleTestAccess::LateUpdate();
     Platform::WaitForFrameSubmissions("HDDAGI scene occupancy readback");
+    ASSERT_TRUE(runtime->transport_failure.empty()) << runtime->transport_failure;
+    ASSERT_TRUE(runtime->resources->transport_recorded);
+    ASSERT_TRUE(probe_frame);
+    probe_frame->ReadStatusAfterFence(*runtime->resources);
+    EXPECT_TRUE(runtime->resources->transport_ready);
+    EXPECT_EQ(runtime->resources->transport_failure_flags, 0u);
     const auto& texture = runtime->resources->images.at("Regions");
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = 512;
@@ -6097,7 +6109,10 @@ TEST(HddagiVoxelization, CompactPayloadPreservesMaximumCoordinatesAcrossRectangu
       EXPECT_TRUE(glm::all(glm::lessThan(cell, grid)));
       EXPECT_EQ(voxel.albedo_normal & 65535u, 65535u);
       EXPECT_EQ(voxel.emission, 0u);
-      EXPECT_EQ(voxel.occlusion, 0u);
+      uint32_t total_weight = 0;
+      for (uint32_t neighbor = 0; neighbor < 8; ++neighbor)
+        total_weight += (voxel.occlusion >> (neighbor * 4)) & 15;
+      EXPECT_LE(total_weight, 15u);
       for (int axis = 0; axis < 3; ++axis)
         if (cell[axis] == grid[axis] - 1)
           ++counts[axis];
@@ -6302,12 +6317,13 @@ TEST(HddagiUpdates, ScrollingAndEditsMatchFreshHierarchyAndCompactPayloadWithout
       frames[kind]->ReadStatusAfterFence(*fields[kind]);
     ASSERT_EQ(incremental->failure_flags, 0u);
     ASSERT_EQ(fresh->failure_flags, 0u);
-    for (const auto name : {"VoxelBits", "Regions", "LightNeighbors", "Disocclusion"}) {
+    for (const auto name : {"VoxelBits", "Regions", "LightNeighbors", "Disocclusion", "Occlusion0", "Occlusion1"}) {
       std::array<std::vector<uint8_t>, 2> images;
       for (uint32_t kind = 0; kind < 2; ++kind) {
         const auto& image = fields[kind]->images.at(name);
         const auto extent = image.requirement.extent;
-        const auto pixel = image.requirement.storage_format == VK_FORMAT_R8_UINT       ? 1
+        const auto pixel = image.requirement.storage_format == VK_FORMAT_R16_UINT      ? 2
+                           : image.requirement.storage_format == VK_FORMAT_R8_UINT     ? 1
                            : image.requirement.storage_format == VK_FORMAT_R32G32_UINT ? 8
                                                                                        : 4;
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -6446,6 +6462,370 @@ TEST(HddagiUpdates, ScrollingAndEditsMatchFreshHierarchyAndCompactPayloadWithout
       ASSERT_EQ(payload[0].size(), payload[1].size());
       if (!payload[0].empty())
         EXPECT_EQ(std::memcmp(payload[0].data(), payload[1].data(), payload[0].size() * sizeof(HddagiProcessVoxel)), 0);
+    }
+  }
+}
+
+TEST(HddagiLighting, StaticEditsEmissionAndNativePhotometryWithoutRayTracing) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  GiProbeSettings probes;
+  probes.probe_count_x = probes.probe_count_y = 9;
+  probes.cascade_count = 1;
+  probes.base_probe_distance = 8;
+  probes.vertical_scale = GiProbeSettings::VerticalScale::Percent50;
+  std::string failure;
+  auto field = HddagiResources::TryCreate(probes, {}, failure);
+  ASSERT_TRUE(field) << failure;
+  HddagiUpdatePlan placement;
+  ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), {}, {}, true, placement).empty());
+  PlatformLifecycleTestAccess::PreUpdate();
+  RenderGraph initialize;
+  RenderGraphResourceRegistry initial_registry;
+  field->Import(initialize, initial_registry);
+  initialize.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->Clear(command, context);
+    });
+  });
+  initialize.Execute(initialize.Compile({}), initial_registry);
+  PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("HDDAGI light fixture initialization");
+  const auto encode = [](glm::vec3 v) {
+    const int exponent = std::max(-16, int(std::floor(std::log2(std::max(v.x, std::max(v.y, v.z)))))) + 16;
+    const float scale = std::ldexp(1.0f, exponent - 24);
+    const auto mantissa = glm::uvec3(glm::floor(v / scale + 0.5f));
+    return (uint32_t(exponent) << 27) | (mantissa.z << 18) | (mantissa.y << 9) | mantissa.x;
+  };
+  const auto decode = [](uint32_t packed) {
+    return glm::vec3(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511) *
+           std::ldexp(1.0f, int(packed >> 27) - 24);
+  };
+  HddagiProcessVoxel voxel;
+  voxel.position = 32 | (32 << 8) | (32 << 16) | 0xc0000000u;
+  voxel.albedo_normal = 0xffffu | (128u << 16) | (128u << 24);
+  voxel.emission = encode({0.125f, 0.25f, 0.5f});
+  voxel.occlusion = 15;
+  field->buffers.at("Process0")->Upload(voxel);
+  field->buffers.at("Dispatch0")->Upload(std::array<uint32_t, 5>{1, 1, 1, 1, 0});
+  const glm::vec3 emission = decode(voxel.emission);
+  const glm::vec3 normal = glm::normalize(glm::vec3(1, 1, 253));
+  SdfgiLightInput positional;
+  positional.id = 1;
+  positional.type = SdfgiLightInput::Type::Point;
+  positional.dynamic = false;
+  positional.color = {0.25f, 0.5f, 1};
+  positional.position = {0.5f, 0.25f, 4.5f};
+  positional.range = 10;
+  positional.world_bounds = {positional.position - positional.range, positional.position + positional.range};
+  SdfgiLightInput directional;
+  directional.id = 2;
+  directional.color = {0.5f, 0.25f, 0.125f};
+  directional.direction = {0, 0, -1};
+  VkBufferCreateInfo output_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  output_info.size = 4;
+  output_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  Buffer output(output_info);
+  for (uint32_t phase = 0; phase < 9; ++phase) {
+    SCOPED_TRACE(phase);
+    std::vector<SdfgiLightInput> lights;
+    glm::vec3 expected = emission;
+    if (phase <= 1) {
+      positional.color = phase == 0 ? glm::vec3(0.25f, 0.5f, 1) : glm::vec3(1, 0.25f, 0.5f);
+      lights.push_back(positional);
+      expected += positional.color * normal.z;
+      if (phase == 0) {
+        lights.push_back(directional);
+        expected += directional.color * normal.z;
+      }
+    } else if (phase >= 3 && phase < 7) {
+      positional.dynamic = true;
+      positional.attenuation = {1, 0, 1};
+      positional.type = phase == 3 ? SdfgiLightInput::Type::Point : SdfgiLightInput::Type::Spot;
+      positional.cos_inner = 0.95f;
+      positional.cos_outer = 0.8f;
+      positional.direction = {0, 0, -1};
+      positional.casts_shadow = phase == 5;
+      lights.push_back(positional);
+      if (phase != 5)
+        expected += positional.color * normal.z / 17.0f;
+    }
+    if (phase >= 7) {
+      field->transport_recorded = true;
+      field->buffers.at("Status")->Upload(std::array<uint32_t, 4>{1, 0, 1, phase == 7 ? 1u : 0u});
+      const glm::vec3 bounce(0.25f, 0.5f, 0.125f);
+      if (phase == 7)
+        expected += bounce;
+      Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkClearColorValue value{};
+        value.uint32[0] = encode(bounce);
+        Platform::ClearColorImage(command, *field->images.at("FilteredDiffuse").image, value, 1, &range);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+      });
+    }
+    if (phase == 5) {
+      Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkClearColorValue occupied{};
+        occupied.uint32[0] = occupied.uint32[1] = UINT32_MAX;
+        for (const auto name : {"VoxelBits", "Regions"})
+          Platform::ClearColorImage(command, *field->images.at(name).image, occupied, 1, &range);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+      });
+    }
+    PlatformLifecycleTestAccess::PreUpdate();
+    auto frame = HddagiLightFrame::Create(*field, placement.cascades, lights, phase, 0);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    frame->AddPasses(graph, registry, field, "");
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI direct-light reference fixture");
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {1, 1, 1};
+    output.CopyFromImage(*field->images.at("Light").image, copy);
+    uint32_t packed;
+    output.Download(packed);
+    const auto actual = decode(packed);
+    for (uint32_t axis = 0; axis < 3; ++axis)
+      EXPECT_NEAR(actual[axis], expected[axis], 0.009f);
+    HddagiProcessVoxel retained;
+    field->buffers.at("Process0")->Download(retained);
+    EXPECT_EQ(retained.emission, voxel.emission);
+    EXPECT_EQ(retained.position & 0xc0000000u, 0u);
+  }
+}
+
+TEST(HddagiLighting, ProbeHistoryRingsConserveSkyEnergyAcrossCascadesAndRemoveOldRadiance) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  GiProbeSettings probes;
+  probes.probe_count_x = 9;
+  probes.probe_count_y = 11;
+  probes.cascade_count = 2;
+  HddagiSettings settings;
+  settings.history_size = 6;
+  std::string failure;
+  auto field = HddagiResources::TryCreate(probes, settings, failure);
+  ASSERT_TRUE(field) << failure;
+  HddagiUpdatePlan placement;
+  ASSERT_TRUE(BuildHddagiUpdatePlan(probes, settings, glm::vec3(-3), {}, {}, true, placement).empty());
+  const auto read = [&](const char* name, const uint32_t bytes) {
+    const auto& image = field->images.at(name);
+    const auto extent = image.requirement.extent;
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = size_t(extent.width) * extent.height * image.requirement.layers * bytes;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    Buffer output(info);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, image.requirement.layers};
+    copy.imageExtent = extent;
+    output.CopyFromImage(*image.image, copy);
+    std::vector<uint32_t> data;
+    output.DownloadVector(data, info.size / 4);
+    return data;
+  };
+  SdfgiSkyInput sky;
+  sky.constant_color = true;
+  sky.color = {0.25f, 0.5f, 1};
+  for (uint32_t frame_index = 0; frame_index < 12; ++frame_index) {
+    SCOPED_TRACE(frame_index);
+    if (frame_index == 6)
+      sky.color = glm::vec3(0);
+    PlatformLifecycleTestAccess::PreUpdate();
+    auto frame = HddagiProbeFrame::Create(*field, placement.cascades, sky, frame_index, true);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    if (!frame_index)
+      graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    frame->AddBeginPass(graph, registry, field, frame_index ? "" : "HddagiInitialize");
+    frame->AddPasses(graph, registry, field, "HddagiTransportBegin");
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI probe temporal fixture");
+    frame->ReadStatusAfterFence(*field);
+    ASSERT_TRUE(field->transport_ready);
+    ASSERT_EQ(field->transport_failure_flags, 0u);
+    EXPECT_EQ(field->transport_generation, frame_index + 1);
+    const auto history = read("History", 4);
+    const auto sum = read("HistorySum", 4);
+    const auto ambient = read("Ambient", 8);
+    const auto specular = read("Specular", 4);
+    const auto diffuse = read("Diffuse", 4);
+    EXPECT_EQ(read("FilteredDiffuse", 4), diffuse);
+    const auto counters = read("ProcessFrame", 4);
+    const uint32_t width = probes.probe_count_x * 5;
+    const uint32_t height = probes.probe_count_y * probes.probe_count_x * 5;
+    for (uint32_t c = 0; c < probes.cascade_count; ++c) {
+      for (uint32_t y = 0; y < height; ++y)
+        for (uint32_t x = 0; x < width; ++x) {
+          glm::uvec3 expected(0);
+          for (uint32_t phase = 0; phase < settings.history_size; ++phase) {
+            const uint32_t packed = history[((c * settings.history_size + phase) * height + y) * width + x];
+            glm::uvec3 mantissa(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511);
+            const int shift = int(packed >> 27) - 10;
+            expected += shift >= 0 ? mantissa << uint32_t(shift) : mantissa >> uint32_t(-shift);
+          }
+          for (uint32_t channel = 0; channel < 3; ++channel)
+            ASSERT_EQ(sum[((c * height + y) * width + x) * 3 + channel], expected[channel]);
+        }
+      const uint32_t probe_count = probes.probe_count_x * probes.probe_count_y * probes.probe_count_x;
+      const float fill = frame_index < 6 ? float(frame_index + 1) / 6 : float(11 - frame_index) / 6;
+      for (uint32_t probe = 0; probe < probe_count; ++probe) {
+        ASSERT_EQ(counters[c * probe_count + probe], frame_index + 1);
+        const auto rg = glm::unpackHalf2x16(ambient[(c * probe_count + probe) * 2]);
+        const auto ba = glm::unpackHalf2x16(ambient[(c * probe_count + probe) * 2 + 1]);
+        ASSERT_NEAR(rg.x, 0.25f * fill, 0.003f);
+        ASSERT_NEAR(rg.y, 0.5f * fill, 0.003f);
+        ASSERT_NEAR(ba.x, fill, 0.003f);
+        ASSERT_EQ(ba.y, 1);
+      }
+    }
+    if (frame_index == 11) {
+      const auto dark = [](uint32_t packed) {
+        return (packed & 0x07ffffffu) == 0;
+      };
+      EXPECT_TRUE(std::all_of(specular.begin(), specular.end(), dark));
+      EXPECT_TRUE(std::all_of(diffuse.begin(), diffuse.end(), dark));
+      EXPECT_TRUE(std::all_of(sum.begin(), sum.end(), [](uint32_t value) {
+        return value == 0;
+      }));
+    }
+  }
+  for (uint32_t phase = 0; phase < 3; ++phase) {
+    SCOPED_TRACE(phase);
+    field->buffers.at("Dispatch1")->Upload(std::array<uint32_t, 5>{0, 0, 0, 0, phase == 0 ? 1u : 0u});
+    sky.color = phase == 1 ? glm::vec3(NAN) : glm::vec3(1);
+    PlatformLifecycleTestAccess::PreUpdate();
+    auto frame = HddagiProbeFrame::Create(*field, placement.cascades, sky, 12 + phase, true);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    frame->AddBeginPass(graph, registry, field, "");
+    frame->AddPasses(graph, registry, field, "HddagiTransportBegin");
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI publication failure and recovery fixture");
+    frame->ReadStatusAfterFence(*field);
+    EXPECT_EQ(field->transport_ready, phase == 2);
+    EXPECT_EQ(field->transport_failure_flags, phase == 0 ? 1u : phase == 1 ? 2u : 0u);
+    if (phase == 2) {
+      const auto counters = read("ProcessFrame", 4);
+      EXPECT_TRUE(std::all_of(counters.begin(), counters.end(), [](uint32_t value) {
+        return value == 1;
+      }));
+    }
+  }
+}
+
+TEST(HddagiLighting, OcclusionSeparatesWallSidesAndPreservesWrappedMarginsAndPackedChannels) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  GiProbeSettings probes;
+  probes.probe_count_x = probes.probe_count_y = 9;
+  probes.cascade_count = 1;
+  std::string failure;
+  auto field = HddagiResources::TryCreate(probes, {}, failure);
+  ASSERT_TRUE(field) << failure;
+  HddagiUpdatePlan placement;
+  ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), {}, {}, true, placement).empty());
+  auto frame = HddagiVoxelFrame::Create(
+      *field, SdfgiTestAccess::HostLayouts(*ApplicationContext::Get().GetLayer<RenderLayer>())[0], {}, placement, 1);
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, std::string(R"(
+struct Params { uint pattern; };
+[[vk::push_constant]] ConstantBuffer<Params> params;
+[[vk::binding(0, 0)]] [vk::image_format("r32ui")] RWTexture3D<uint> normals;
+[numthreads(8, 8, 8)]
+void main(uint3 id : SV_DispatchThreadID) { normals[id] = params.pattern == 1 || (params.pattern == 2 && id.x % 8 == 4) ? 1 : 0;
+})")));
+  ComputePipeline fill;
+  fill.compute_shader = shader;
+  fill.descriptor_set_layouts = {layout};
+  fill.push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, 4});
+  fill.Initialize();
+  auto set = std::make_shared<DescriptorSet>(layout);
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  image_info.imageView = field->images.at("NormalBits").storage->GetVkImageView();
+  set->UpdateImageDescriptorBinding(0, image_info);
+  PlatformLifecycleTestAccess::PreUpdate();
+  RenderGraph graph;
+  RenderGraphResourceRegistry registry;
+  field->Import(graph, registry);
+  graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->Clear(command, context);
+    });
+  });
+  graph.Execute(graph.Compile({}), registry);
+  PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("HDDAGI occlusion fixture initialization");
+  for (uint32_t pattern = 0; pattern < 3; ++pattern) {
+    SCOPED_TRACE(pattern);
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+      fill.Bind(command);
+      fill.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+      fill.PushConstant(command, 0, pattern);
+      fill.Dispatch(command, 8, 8, 8);
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      frame->occlusion->Bind(command);
+      for (uint32_t plane = 0; plane < 2; ++plane) {
+        frame->occlusion->BindDescriptorSet(command, 0, frame->occlusion_sets[plane]->GetVkDescriptorSet());
+        HddagiOcclusionParams params;
+        params.grid = glm::ivec3(64);
+        params.region_world_offset = glm::ivec3(-4);
+        params.layer_offset = (int32_t(plane) - 1) * 4;
+        frame->occlusion->PushConstant(command, 0, params);
+        frame->occlusion->Dispatch(command, 8, 8, 8);
+      }
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                         VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    });
+    for (uint32_t plane = 0; plane < 2; ++plane) {
+      VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      info.size = 66 * 66 * 66 * 2;
+      info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+      Buffer output(info);
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageExtent = {66, 66, 66};
+      output.CopyFromImage(*field->images.at("Occlusion" + std::to_string(plane)).image, copy);
+      std::vector<uint16_t> data;
+      output.DownloadVector(data, 66 * 66 * 66);
+      for (uint32_t z = 0; z < 66; ++z)
+        for (uint32_t y = 0; y < 66; ++y)
+          for (uint32_t x = 0; x < 66; ++x) {
+            const uint32_t physical_x = (x + 63) % 64;
+            if (pattern == 2 && (physical_x % 8 == 3 || physical_x % 8 == 4))
+              continue;
+            const bool high_x = (physical_x % 8 >= 5) != (physical_x / 8 % 2 != 0);
+            const uint16_t expected = pattern == 0 ? 0xffff : pattern == 1 ? 0 : high_x ? 0x0f0f : 0xf0f0;
+            ASSERT_EQ(data[x + 66 * (y + 66 * z)], expected) << "xyz " << x << "," << y << "," << z;
+          }
     }
   }
 }
