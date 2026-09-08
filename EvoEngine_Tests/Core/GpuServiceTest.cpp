@@ -74,6 +74,12 @@ class SdfgiTestAccess {
     return !render.ddgi_cascade_runtime_states_.empty() || render.ddgi_probe_update_pipeline_ ||
            render.ddgi_probe_update_layout_ || render.ddgi_probe_ray_output_layout_ || render.ddgi_atlas_sampler_;
   }
+
+  static void RetireHddagiFrame(RenderLayer& render) {
+    const auto slot = Platform::GetCurrentFrameIndex();
+    if (slot < render.hddagi_frame_resources_.size())
+      render.hddagi_frame_resources_[slot].clear();
+  }
   static uint64_t CaptureImmediately(RenderLayer& render, const std::shared_ptr<Scene>& scene,
                                      const glm::vec3 position) {
     const auto camera = render.GetOrCreateReflectionProbeCaptureCameras(1).front();
@@ -5288,4 +5294,116 @@ TEST(HddagiRuntime, ProviderSwitchRetainsSettingsAndNeverPublishesUnreadyTranspo
   EXPECT_FALSE(next_scene->GetHddagiRuntime()->resources);
   EXPECT_FALSE(next_scene->GetHddagiRuntime()->published);
   EXPECT_EQ(unsupported->gi_probe_settings.probe_count_x, 7u);
+}
+
+TEST(HddagiResources, GraphClearsEveryImageAndArrayLayerBeforeReadback) {
+  ScopedGpuPlatform platform(false);
+  GiProbeSettings probes;
+  probes.probe_count_x = probes.probe_count_y = 9;
+  probes.cascade_count = 2;
+  std::string failure;
+  auto field = HddagiResources::TryCreate(probes, {}, failure);
+  ASSERT_TRUE(field) << failure;
+  VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.size = field->images.size() * 8;
+  buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  VmaAllocationCreateInfo readback{};
+  readback.usage = VMA_MEMORY_USAGE_AUTO;
+  readback.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+  readback.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  Buffer output(buffer_info, readback);
+  PlatformLifecycleTestAccess::PreUpdate();
+  RenderGraph graph;
+  RenderGraphResourceRegistry registry;
+  field->Import(graph, registry);
+  graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->Clear(command, context);
+    });
+  });
+  const auto plan = graph.Compile({});
+  ASSERT_TRUE(plan.valid);
+  EXPECT_FALSE(plan.uses_compute_queue);
+  EXPECT_FALSE(plan.uses_ray_tracing_queue);
+  EXPECT_TRUE(plan.allocations.empty());
+  graph.Execute(plan, registry);
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+    field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    VkClearColorValue sentinel{};
+    for (auto& channel : sentinel.uint32)
+      channel = 0x3f800001;
+    for (const auto& [name, texture] : field->images) {
+      const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, texture.requirement.layers};
+      Platform::ClearColorImage(command, *texture.image, sentinel, 1, &range);
+    }
+  });
+  graph.Execute(plan, registry);
+  PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("HDDAGI initialized image readback");
+  size_t copy_index = 0;
+  for (const auto& [name, texture] : field->images) {
+    const auto& r = texture.requirement;
+    VkBufferImageCopy copy{};
+    copy.bufferOffset = copy_index++ * 8;
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, r.layers - 1, 1};
+    copy.imageOffset = {int32_t(r.extent.width - 1), int32_t(r.extent.height - 1), int32_t(r.extent.depth - 1)};
+    copy.imageExtent = {1, 1, 1};
+    output.CopyFromImage(*texture.image, copy);
+  }
+  EXPECT_TRUE(field->initialization_recorded);
+  std::vector<uint8_t> values;
+  output.DownloadVector(values, buffer_info.size);
+  size_t index = 0;
+  for (const auto& [name, texture] : field->images) {
+    const auto format = texture.requirement.storage_format;
+    const uint32_t bytes = format == VK_FORMAT_R8_UINT || format == VK_FORMAT_R8_UNORM                  ? 1
+                           : format == VK_FORMAT_R16_UINT                                               ? 2
+                           : format == VK_FORMAT_R32G32_UINT || format == VK_FORMAT_R16G16B16A16_SFLOAT ? 8
+                                                                                                        : 4;
+    for (uint32_t byte = 0; byte < bytes; ++byte)
+      EXPECT_EQ(values[index * 8 + byte], 0) << name << " byte " << byte;
+    ++index;
+  }
+}
+
+TEST(HddagiRuntime, SubmittedFieldSurvivesProviderSwitchUntilItsFrameSlotRetires) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  app.Initialize(initialization);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 9;
+  lighting->gi_probe_settings.cascade_count = 1;
+  scene->environmental_lighting = lighting;
+  scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("GI anchor")).lock();
+  PlatformLifecycleTestAccess::PreUpdate();
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  ASSERT_TRUE(scene->GetHddagiRuntime());
+  ASSERT_TRUE(scene->GetHddagiRuntime()->resources) << scene->GetHddagiRuntime()->fallback_reason;
+  EXPECT_TRUE(scene->GetHddagiRuntime()->resources->initialization_recorded);
+  EXPECT_FALSE(scene->GetHddagiRuntime()->published);
+  const std::weak_ptr<HddagiResources> field = scene->GetHddagiRuntime()->resources;
+  PlatformLifecycleTestAccess::LateUpdate();
+  EXPECT_GT(Platform::GetPendingFrameSubmissionCount(), 0u);
+  lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  EXPECT_FALSE(scene->GetHddagiRuntime());
+  EXPECT_FALSE(field.expired());
+  for (uint32_t frame = 0; frame < Platform::GetMaxFramesInFlight(); ++frame) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    SdfgiTestAccess::RetireHddagiFrame(*render);
+    PlatformLifecycleTestAccess::LateUpdate();
+  }
+  EXPECT_TRUE(field.expired());
 }

@@ -5,6 +5,7 @@
 #include <array>
 #include <stdexcept>
 #include "Platform.hpp"
+#include "RenderPasses/RenderPassUtilities.hpp"
 
 using namespace evo_engine;
 
@@ -30,6 +31,58 @@ VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
   return info;
 }
 }  // namespace
+
+void HddagiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const {
+  for (const auto& [name, texture] : images) {
+    const auto& r = texture.requirement;
+    RenderResourceDescriptor descriptor;
+    descriptor.name = "Frame.HDDAGI." + name;
+    descriptor.type = RenderResourceType::Image;
+    descriptor.lifetime = RenderResourceLifetime::Persistent;
+    descriptor.dimensions = {
+        RenderResourceSizeMode::Absolute, r.extent.width, r.extent.height, r.extent.depth, r.layers, 1};
+    descriptor.format_name = std::to_string(r.storage_format);
+    descriptor.byte_size = texture.image->GetVmaAllocationInfo().size;
+    graph.AddResource(descriptor);
+    registry.BindImage(descriptor.name, texture.image);
+  }
+}
+
+RenderPassDescriptor HddagiResources::ClearDescriptor() const {
+  RenderPassDescriptor result{"HddagiInitialize", RenderPassQueue::Graphics, RenderPassScope::Frame};
+  result.profiler_group = RenderPassProfilerGroup::FramePreparation;
+  result.profiler_display_name = "HDDAGI Initialize";
+  for (const auto& [name, texture] : images)
+    result.resources.push_back(
+        {"Frame.HDDAGI." + name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
+  return result;
+}
+
+void HddagiResources::OrderAccess(const VkCommandBuffer command, const VkPipelineStageFlags2 stages,
+                                  const VkAccessFlags2 access) const {
+  VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+  barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+  barrier.dstStageMask = stages;
+  barrier.dstAccessMask = access;
+  VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency.memoryBarrierCount = 1;
+  dependency.pMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command, &dependency);
+}
+
+void HddagiResources::Clear(const VkCommandBuffer command, const RenderGraphExecutionContext& context) {
+  OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+  ApplyGraphResourceBarriers(command, context);
+  const VkClearColorValue zero{};
+  for (const auto& [name, texture] : images) {
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, texture.requirement.layers};
+    Platform::ClearColorImage(command, *texture.image, zero, 1, &range);
+  }
+  OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+              VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+  initialization_recorded = true;
+}
 
 uint64_t evo_engine::HddagiLogicalTemporalBytes(const GiProbeSettings& p, const HddagiSettings& s) {
   if (!s.Validate(p).empty())

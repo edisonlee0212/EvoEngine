@@ -720,6 +720,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::weak_ptr<Scene> presented_scene_;
   std::weak_ptr<Scene> sdfgi_scene_;
   std::vector<std::vector<std::shared_ptr<class SdfgiResources>>> sdfgi_frame_resources_;
+  std::vector<std::vector<std::shared_ptr<class HddagiResources>>> hddagi_frame_resources_;
   [[nodiscard]] bool IsSceneLightingReadyForPresentation(
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;

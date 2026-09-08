@@ -2834,6 +2834,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           }
         } else if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
           if (const auto runtime = active_scene->GetHddagiRuntime()) {
+            ImGui::Text("Image memory: %.1f MiB; retiring: %.1f MiB",
+                        runtime->resources ? runtime->resources->allocation_bytes / 1048576.0 : 0.0,
+                        runtime->retiring_bytes / 1048576.0);
             if (runtime->published)
               effective_provider = IndirectGiProvider::AutomaticHddagi;
             else

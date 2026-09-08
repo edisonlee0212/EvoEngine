@@ -5434,8 +5434,19 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     runtime->settings = lighting.hddagi_settings;
     const auto& shared = PrepareGiProbeFrame(scene, lighting.gi_probe_settings);
     runtime->frame = shared;
+    if (!(runtime->frame.settings == runtime->probes))
+      runtime->frame.failure = "GI settings change takes effect at the next scene frame";
     runtime->fallback_reason =
         runtime->capabilities.Supported() ? "HDDAGI transport is not ready" : runtime->capabilities.failure;
+    if (runtime->capabilities.Supported() && !runtime->frame.failure.empty())
+      runtime->fallback_reason = runtime->frame.failure;
+    if (runtime->capabilities.Supported() && runtime->frame.failure.empty() && !runtime->allocation_attempted) {
+      runtime->allocation_attempted = true;
+      std::string failure;
+      runtime->resources = HddagiResources::TryCreate(runtime->probes, runtime->settings, failure);
+      if (!runtime->resources)
+        runtime->capabilities.failure = runtime->fallback_reason = failure;
+    }
   } else if (scene) {
     scene->hddagi_runtime_.reset();
   }
@@ -5445,6 +5456,26 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   AddAdvancedFrameResources(scene_graph);
   auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
   sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+  hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+  if (scene && scene->hddagi_runtime_) {
+    auto& runtime = *scene->hddagi_runtime_;
+    if (const auto resources = runtime.resources) {
+      hddagi_frame_resources_[current_frame_index].push_back(resources);
+      resources->Import(scene_graph, registry);
+      if (!resources->initialization_recorded)
+        scene_graph.AddPass(resources->ClearDescriptor(), [resources](const RenderGraphExecutionContext& context) {
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            resources->Clear(command, context);
+          });
+        });
+    }
+    runtime.retiring_bytes = 0;
+    std::set<const HddagiResources*> counted;
+    for (const auto& slot : hddagi_frame_resources_)
+      for (const auto& field : slot)
+        if (field != runtime.resources && counted.insert(field.get()).second)
+          runtime.retiring_bytes += field->allocation_bytes;
+  }
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
     const auto sdfgi_cpu_start = std::chrono::steady_clock::now();
     auto& runtime = scene->sdfgi_runtime_;
@@ -5759,6 +5790,8 @@ void RenderLayer::RenderAll() {
   current_frame_transient_resources.clear();
   if (current_frame_index < sdfgi_frame_resources_.size())
     sdfgi_frame_resources_[current_frame_index].clear();
+  if (current_frame_index < hddagi_frame_resources_.size())
+    hddagi_frame_resources_[current_frame_index].clear();
   if (!ddgi_fallback_probe_state_buffer_) {
     ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer(sizeof(glm::vec4));
   }
@@ -8030,6 +8063,7 @@ void RenderLayer::OnDestroy() {
   }
   sdfgi_scene_.reset();
   sdfgi_frame_resources_.clear();
+  hddagi_frame_resources_.clear();
   for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {
     PublishSubmittedReflectionProbeBake(frame_index);
     PublishSubmittedDynamicReflectionProbeUpdate(frame_index);

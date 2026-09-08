@@ -914,6 +914,9 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["hddagi_fallback_reason"] = hddagi ? hddagi->fallback_reason : std::string{};
     result["hddagi_image_bytes"] = hddagi && hddagi->resources ? hddagi->resources->allocation_bytes : 0;
     result["hddagi_temporal_bytes"] = hddagi && hddagi->resources ? hddagi->resources->temporal_bytes : 0;
+    result["hddagi_retiring_bytes"] = hddagi ? hddagi->retiring_bytes : 0;
+    result["hddagi_initialization_recorded"] =
+        hddagi && hddagi->resources && hddagi->resources->initialization_recorded;
     auto effective = IndirectGiProvider::Environment;
     if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi && runtime && runtime->published)
       effective = IndirectGiProvider::AutomaticSdfgi;

@@ -2,6 +2,7 @@
 
 #include "GraphicsResources.hpp"
 #include "HddagiSettings.hpp"
+#include "RenderGraph.hpp"
 
 #include <map>
 #include <memory>
@@ -50,6 +51,12 @@ class EVOENGINE_API HddagiResources {
   std::map<std::string, HddagiImage> images;
   uint64_t allocation_bytes = 0;
   uint64_t temporal_bytes = 0;
+  bool initialization_recorded = false;
+
+  void Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const;
+  [[nodiscard]] RenderPassDescriptor ClearDescriptor() const;
+  void Clear(VkCommandBuffer command, const RenderGraphExecutionContext& context);
+  void OrderAccess(VkCommandBuffer command, VkPipelineStageFlags2 stages, VkAccessFlags2 access) const;
 
   static std::shared_ptr<HddagiResources> TryCreate(const GiProbeSettings& probes, const HddagiSettings& settings,
                                                     std::string& failure, uint32_t fail_after_allocations = UINT32_MAX);
@@ -61,6 +68,7 @@ struct EVOENGINE_API HddagiRuntime {
   GiProbeFrame frame;
   HddagiCapabilityReport capabilities;
   std::shared_ptr<HddagiResources> resources;
+  uint64_t retiring_bytes = 0;
   bool allocation_attempted = false;
   bool published = false;
   std::string fallback_reason = "HDDAGI transport is not ready";
