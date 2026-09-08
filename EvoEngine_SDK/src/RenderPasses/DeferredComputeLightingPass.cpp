@@ -4,6 +4,7 @@
 #include "ComputePipeline.hpp"
 #include "Console.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiResources.hpp"
 #include "Platform.hpp"
 #include "RenderInstanceStorage.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -54,6 +55,9 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
       parameters.sdfgi_resources->OrderAccess(vk_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                               VK_ACCESS_2_SHADER_READ_BIT);
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    if (parameters.hddagi_resources)
+      parameters.hddagi_resources->OrderAccess(vk_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                               VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
     const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
                                                     parameters.camera->GetHandle().GetValue(),
                                                     static_cast<uint64_t>(parameters.camera_index));
@@ -89,7 +93,10 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 3,
                                            parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 4, descriptor_set->GetVkDescriptorSet());
-    if (parameters.sdfgi_descriptor_set) {
+    if (parameters.hddagi_descriptor_set)
+      parameters.pipeline->BindDescriptorSet(vk_command_buffer, 5,
+                                             parameters.hddagi_descriptor_set->GetVkDescriptorSet());
+    else if (parameters.sdfgi_descriptor_set) {
       parameters.pipeline->BindDescriptorSet(vk_command_buffer, 5,
                                              parameters.sdfgi_descriptor_set->GetVkDescriptorSet());
       parameters.sdfgi_resources->gather_camera_ids.push_back(parameters.camera->GetHandle().GetValue());
@@ -102,8 +109,11 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     push_constant.meshlet_culling_flags = (parameters.scene_camera ? 1u : 0u) | (parameters.sdfgi_debug_view << 8u);
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto extent = parameters.camera->GetRenderTexture()->GetExtent();
-    parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),
-                                  Platform::DivUp(extent.height, 16));
+    const auto dimensions = parameters.dispatch_size.x && parameters.dispatch_size.y
+                                ? parameters.dispatch_size
+                                : glm::uvec2(extent.width, extent.height);
+    parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(dimensions.x, 16),
+                                  Platform::DivUp(dimensions.y, 16));
     parameters.transient_resources->RetainDescriptorSet(descriptor_set);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });

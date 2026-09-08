@@ -4,6 +4,9 @@ import EvoEngine.LightingFixedSet3;
 #ifdef EE_AUTOMATIC_SDFGI
 import EvoEngine.SdfgiLighting;
 #endif
+#ifdef EE_AUTOMATIC_HDDAGI
+import EvoEngine.HddagiLighting;
+#endif
 
 [[vk::binding(17, 1)]]
 Sampler2D inDepth;
@@ -12,26 +15,19 @@ Sampler2D inDepth;
 Sampler2D inAmbientOcclusion;
 
 [[vk::binding(0, 4)]]
-[vk::image_format("rgba16f")]
-RWTexture2D<float4> inOutUvBaseColorAo;
+[vk::image_format("rgba16f")] RWTexture2D<float4> inOutUvBaseColorAo;
 [[vk::binding(1, 4)]]
-[vk::image_format("rgba16f")]
-RWTexture2D<float4> inOutFrameNormalRoughness;
+[vk::image_format("rgba16f")] RWTexture2D<float4> inOutFrameNormalRoughness;
 [[vk::binding(2, 4)]]
-[vk::image_format("rgba16f")]
-RWTexture2D<float4> inOutDdxPbrFlags;
+[vk::image_format("rgba16f")] RWTexture2D<float4> inOutDdxPbrFlags;
 [[vk::binding(3, 4)]]
-[vk::image_format("rgba16f")]
-RWTexture2D<float4> inOutDdyEmissive;
+[vk::image_format("rgba16f")] RWTexture2D<float4> inOutDdyEmissive;
 [[vk::binding(4, 4)]]
 Texture2D<uint4> inMetadata;
 [[vk::binding(5, 4)]]
-[vk::image_format("rgba32f")]
-RWTexture2D<float4> outColor;
+[vk::image_format("rgba32f")] RWTexture2D<float4> outColor;
 
-[shader("compute")]
-[numthreads(16, 16, 1)]
-void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint width;
   uint height;
   inOutUvBaseColorAo.GetDimensions(width, height);
@@ -49,7 +45,8 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   if (!isfinite(depth) || depth >= 1.0f) {
     const float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, 1.0f);
     const float3 sky_color = EE_SKY_COLOR(world_position - EE_CAMERA_POSITION(camera_index));
-    outColor[pixel] = float4(indirect_lighting_debug_view == 0 && sdfgi_debug_view == 0u ? sky_color : float3(0.0f), 1.0f);
+    outColor[pixel] =
+        float4(indirect_lighting_debug_view == 0 && sdfgi_debug_view == 0u ? sky_color : float3(0.0f), 1.0f);
     return;
   }
 
@@ -59,8 +56,8 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   const float4 raw_ddx = inOutDdxPbrFlags[pixel];
   const float4 raw_ddy = inOutDdyEmissive[pixel];
   const EeGBufferMetadata metadata = EE_GBUFFER_UNPACK_METADATA(packed_metadata);
-  const GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(
-      raw_uv.xy, raw_uv.zw, raw_ddx.xy, raw_ddx.zw, raw_ddy.xy, raw_ddy.zw);
+  const GltfTexCoords tex_coords =
+      EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(raw_uv.xy, raw_uv.zw, raw_ddx.xy, raw_ddx.zw, raw_ddy.xy, raw_ddy.zw);
   GltfRasterMaterial surface =
       EE_EVALUATE_GLTF_RASTER_SURFACE(metadata.material_index, tex_coords, metadata.vertex_color);
 
@@ -71,17 +68,16 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
                                                                tangent, tangent_handedness);
   if (metadata.vertex_color_replaces_base_color) {
     const float3 replacement_base_color = max(metadata.vertex_color.rgb, float3(0.0f));
-    surface.specular_f0 =
-        EE_GLTF_RASTER_REBASE_SPECULAR_F0(metadata.material_index, surface, replacement_base_color);
+    surface.specular_f0 = EE_GLTF_RASTER_REBASE_SPECULAR_F0(metadata.material_index, surface, replacement_base_color);
     surface.base_color.rgb = replacement_base_color;
   }
 
   const float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, depth);
   const float3 camera_position = EE_CAMERA_POSITION(camera_index);
   const float3 view_direction = normalize(camera_position - world_position);
-  const float3 coated_emissive = EE_GLTF_RASTER_COATED_EMISSION(metadata.material_index, surface, tex_coords,
-                                                                geometric_normal, tangent, tangent_handedness, 1.0f,
-                                                                view_direction);
+  const float3 coated_emissive =
+      EE_GLTF_RASTER_COATED_EMISSION(metadata.material_index, surface, tex_coords, geometric_normal, tangent,
+                                     tangent_handedness, 1.0f, view_direction);
   const float encoded_specular_f90 =
       EE_GLTF_MATERIALS[metadata.material_index].unlit != 0 ? -1.0f : surface.specular_f90;
 
@@ -96,9 +92,10 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     float3 isolated = sdfgi_debug_view == 9u ? float3(1, 0, 0) : float3(0);
 #ifdef EE_AUTOMATIC_SDFGI
     if (encoded_specular_f90 >= 0.0f)
-      isolated = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(resolved_base_color, shading_normal,
-          view_direction, world_position, surface.metallic, surface.roughness, surface.specular_f0,
-          encoded_specular_f90, resolved_material_ao, inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);
+      isolated = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
+          resolved_base_color, shading_normal, view_direction, world_position, surface.metallic, surface.roughness,
+          surface.specular_f0, encoded_specular_f90, resolved_material_ao,
+          inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);
 #endif
     outColor[pixel] = float4(isolated, 1);
     return;
@@ -130,20 +127,22 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     const float mode1 = float(debug_visualization == 1);
     const float mode2 = float(debug_visualization == 2);
     const float mode3 = float(debug_visualization == 3);
-    const float any_debug =
-        indirect_lighting_debug_view == 0 ? clamp(mode0 + mode1 + mode2 + mode3, 0.0f, 1.0f) : 0.0f;
-    const float3 debug_color = resolved_base_color * mode0 + material_kernel * mode1 + instance_kernel * mode2 +
-                               info_kernel * mode3;
+    const float any_debug = indirect_lighting_debug_view == 0 ? clamp(mode0 + mode1 + mode2 + mode3, 0.0f, 1.0f) : 0.0f;
+    const float3 debug_color =
+        resolved_base_color * mode0 + material_kernel * mode1 + instance_kernel * mode2 + info_kernel * mode3;
     albedo = lerp(resolved_base_color, debug_color, any_debug);
   }
 
   float3 output_color = indirect_lighting_debug_view == 0 ? albedo : float3(0.0f);
   if (encoded_specular_f90 >= 0.0f) {
-    const float3 direct = EE_FUNC_CALCULATE_LIGHTS(
-        true, albedo, 1.0f, linear_depth, shading_normal, view_direction, world_position, surface.metallic,
-        surface.roughness, surface.specular_f0, encoded_specular_f90);
+    const float3 direct =
+        EE_FUNC_CALCULATE_LIGHTS(true, albedo, 1.0f, linear_depth, shading_normal, view_direction, world_position,
+                                 surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90);
 #ifdef EE_AUTOMATIC_SDFGI
     const float3 ambient = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
+#elif defined(EE_AUTOMATIC_HDDAGI)
+    const float3 ambient = EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(
+        pixel,
 #else
     const float3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
 #endif
@@ -167,8 +166,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   const float fade_start = far_distance * fade_ratio;
   if (linear_depth > fade_start) {
     const float fade = (linear_depth - fade_start) / (far_distance * (1.0f - fade_ratio));
-    output_color = lerp(output_color, sky_color,
-                        scene_camera ? clamp(fade, 0.0f, 1.0f) : fade);
+    output_color = lerp(output_color, sky_color, scene_camera ? clamp(fade, 0.0f, 1.0f) : fade);
   }
   outColor[pixel] = float4(output_color, 1.0f);
 }

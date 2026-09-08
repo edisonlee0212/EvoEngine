@@ -1,8 +1,39 @@
 #include <gtest/gtest.h>
 #include "EvoEngine_SDK_PCH.hpp"
+#include "HddagiGather.hpp"
 #include "HddagiScene.hpp"
 
 using namespace evo_engine;
+
+TEST(HddagiGather, CameraResolutionAndSharedAnchorMetadata) {
+  const auto half = BuildHddagiCameraLayout({2560, 1440}, true);
+  EXPECT_EQ(half.gi, glm::uvec2(1280, 720));
+  EXPECT_EQ(half.pixel_stride, 2u);
+  EXPECT_EQ(half.reflection_filter_radius, 6u);
+  EXPECT_EQ(BuildHddagiCameraLayout({2561, 1441}, true).gi, half.gi);
+  EXPECT_EQ(BuildHddagiCameraLayout({1, 1}, true).gi, glm::uvec2(1));
+  EXPECT_EQ(BuildHddagiCameraLayout({2561, 1441}, false).gi, glm::uvec2(2561, 1441));
+  GiProbeSettings probes;
+  probes.probe_count_x = 25;
+  probes.probe_count_y = 11;
+  probes.cascade_count = 2;
+  probes.vertical_scale = GiProbeSettings::VerticalScale::Percent50;
+  const glm::vec3 anchor(-37, 15, -101);
+  HddagiUpdatePlan plan;
+  ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, anchor, {}, {}, true, plan).empty());
+  const auto data = BuildHddagiGatherData(probes, {}, plan.cascades, anchor);
+  EXPECT_EQ(data.grid, glm::ivec3(192, 80, 192));
+  EXPECT_EQ(data.anchor_origin, glm::vec3(-37, 30, -101));
+  for (uint32_t c = 0; c < probes.cascade_count; ++c) {
+    const auto& input = plan.cascades[c];
+    const auto& output = data.cascades.data[c];
+    const auto minimum = input.position - input.size / 2;
+    EXPECT_EQ(output.region_world_offset * 8, minimum);
+    const glm::vec3 world_point = glm::vec3(minimum + glm::ivec3(11, 13, 17)) * input.cell_size;
+    const glm::vec3 local = (world_point - data.anchor_origin - output.offset) * output.to_cell;
+    EXPECT_LT(glm::length(local - glm::vec3(11, 13, 17)), 0.0001f);
+  }
+}
 
 TEST(HddagiUpdates, EnteringRegionUnionHasNoOverlapAndRetainsWorldCells) {
   GiProbeSettings probes;

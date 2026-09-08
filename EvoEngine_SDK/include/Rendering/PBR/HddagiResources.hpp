@@ -13,6 +13,8 @@ namespace evo_engine {
 class HddagiVoxelFrame;
 class HddagiLightFrame;
 class HddagiProbeFrame;
+class HddagiCameraFrame;
+struct HddagiCameraImages;
 class GraphicsPipeline;
 class ComputePipeline;
 
@@ -88,6 +90,11 @@ class EVOENGINE_API HddagiResources {
   std::shared_ptr<ComputePipeline> filter_pipeline;
   std::shared_ptr<Sampler> mip_sampler;
   std::vector<std::shared_ptr<HddagiProbeFrame>> probe_frames;
+  std::map<uint64_t, std::shared_ptr<HddagiCameraImages>> camera_images;
+  std::vector<std::vector<std::shared_ptr<HddagiCameraFrame>>> camera_frames;
+  std::map<std::string, std::shared_ptr<ComputePipeline>> camera_pipelines;
+  std::shared_ptr<const HddagiResources> capture_source;
+  std::shared_ptr<struct FrameSubmissionState> submission;
   uint64_t last_voxel_frame = UINT64_MAX;
   bool voxelization_recorded = false;
   uint64_t last_status_frame = UINT64_MAX;

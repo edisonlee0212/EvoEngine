@@ -15,6 +15,7 @@
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiCamera.hpp"
 #include "HddagiLight.hpp"
 #include "HddagiProbe.hpp"
 #include "HddagiResources.hpp"
@@ -4479,13 +4480,15 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
 }
 
 void RenderLayer::EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<SdfgiResources>& sdfgi_resources,
-                                                          RenderGraphResourceRegistry& registry) {
+                                                          RenderGraphResourceRegistry& registry,
+                                                          const std::shared_ptr<HddagiRuntime>& hddagi_snapshot) {
   const auto publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
   if (sdfgi_resources) {
     sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
     sdfgi_frame_resources_[Platform::GetCurrentFrameIndex()].push_back(sdfgi_resources);
   }
-  if (reflection_probe_capture_render_graph_plan_.valid &&
+  if (!hddagi_snapshot && reflection_probe_capture_hddagi_snapshot_.expired() &&
+      reflection_probe_capture_render_graph_plan_.valid &&
       reflection_probe_capture_publication_.lock() == publication &&
       reflection_probe_capture_render_graph_.HasResource("Frame.SDFGI.Atlas") == bool(publication)) {
     if (publication)
@@ -4493,6 +4496,7 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<
     return;
   }
   reflection_probe_capture_publication_ = publication;
+  reflection_probe_capture_hddagi_snapshot_ = hddagi_snapshot;
   reflection_probe_capture_render_graph_.Clear();
   AddDefaultRasterCameraResources(reflection_probe_capture_render_graph_);
   if (publication)
@@ -4531,21 +4535,62 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<
                       capture.record_commands});
       });
   auto lighting_descriptor = DeferredComputeLightingPass::CreateDescriptor(false, false);
+  std::shared_ptr<HddagiCameraFrame> hddagi_frame;
+  if (hddagi_snapshot) {
+    const auto slot = Platform::GetCurrentFrameIndex();
+    const auto extent = reflection_probe_capture_cameras_.front()->GetRenderTexture()->GetExtent();
+    hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+    hddagi_frame_resources_[slot].push_back(hddagi_snapshot->resources);
+    hddagi_frame = HddagiCameraFrame::Create(*hddagi_snapshot, *render_instances_list_[slot],
+                                             {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                              raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                             {extent.width, extent.height},
+                                             reflection_probe_capture_cameras_.front()->GetHandle().GetValue(), true);
+    hddagi_frame->input_uploads.Record(hddagi_frame->uploads);
+    hddagi_frame->uploaded = true;
+    hddagi_snapshot->resources->camera_frames.resize(Platform::GetMaxFramesInFlight());
+    hddagi_snapshot->resources->camera_frames[slot].push_back(hddagi_frame);
+    hddagi_frame->ImportCamera(reflection_probe_capture_render_graph_, registry, *hddagi_snapshot->resources);
+    hddagi_frame->AddPasses(
+        reflection_probe_capture_render_graph_, hddagi_snapshot->resources,
+        [this]() {
+          const auto& capture = *reflection_probe_capture_graph_context_;
+          return DeferredComputeLightingPass::Parameters{capture.camera,
+                                                         per_frame_descriptor_sets_[capture.current_frame_index],
+                                                         capture.lighting_descriptor_set,
+                                                         capture.raster_lighting_texture_descriptor_set,
+                                                         deferred_compute_lighting_pipeline_,
+                                                         deferred_compute_lighting_layout_,
+                                                         capture.transient_resources,
+                                                         capture.camera_index,
+                                                         capture.directional_shadow_camera_index,
+                                                         true,
+                                                         false,
+                                                         capture.record_commands};
+        },
+        lighting_descriptor.dependencies.front());
+    lighting_descriptor.dependencies = {"HddagiCameraGather"};
+    for (const auto name : {"Diffuse", "Specular", "Blend"})
+      lighting_descriptor.resources.push_back(
+          {"Camera.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+  }
   if (publication)
     for (const auto& access : publication->CameraReads())
       lighting_descriptor.resources.push_back(access);
   reflection_probe_capture_render_graph_.AddPass(
-      lighting_descriptor, [this](const RenderGraphExecutionContext& context) {
+      lighting_descriptor, [this, hddagi_snapshot, hddagi_frame](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
         DeferredComputeLightingPass::Execute(
             context,
             {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index], capture.lighting_descriptor_set,
              capture.raster_lighting_texture_descriptor_set,
-             capture.sdfgi_publication ? capture.sdfgi_resources->pipelines.at("DeferredSdfgi")
-                                       : deferred_compute_lighting_pipeline_,
+             hddagi_frame                ? hddagi_frame->pipelines.at("Deferred")
+             : capture.sdfgi_publication ? capture.sdfgi_resources->pipelines.at("DeferredSdfgi")
+                                         : deferred_compute_lighting_pipeline_,
              deferred_compute_lighting_layout_, capture.transient_resources, capture.camera_index,
              capture.directional_shadow_camera_index, true, false, capture.record_commands, capture.sdfgi_resources,
-             capture.sdfgi_publication ? capture.sdfgi_publication->descriptor_set : nullptr});
+             capture.sdfgi_publication ? capture.sdfgi_publication->descriptor_set : nullptr, 0,
+             hddagi_snapshot ? hddagi_snapshot->resources : nullptr, hddagi_frame ? hddagi_frame->set : nullptr});
       });
   if (!reflection_probe_capture_render_graph_.Validate()) {
     throw std::runtime_error("Invalid reflection probe capture render graph.");
@@ -4579,8 +4624,12 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
   const auto camera = reflection_probe_capture_cameras_.front();
   const auto sdfgi_resources = SelectSdfgiCaptureResources(
       prepared.scene->GetSdfgiRuntime(), ResolveEnvironmentalLighting(prepared.scene).indirect_gi_provider);
+  const auto hddagi_snapshot = SnapshotHddagiCapture(
+      ResolveEnvironmentalLighting(prepared.scene).indirect_gi_provider == IndirectGiProvider::AutomaticHddagi
+          ? prepared.scene->GetHddagiRuntime()
+          : nullptr);
   auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
-  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources);
+  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources, hddagi_snapshot);
   resources.BindImages(RenderResourceNames::camera_g_buffer,
                        {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
                         camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
@@ -4799,6 +4848,7 @@ void RenderLayer::RetireDynamicReflectionProbeRuntime() {
   dynamic_reflection_probe_queue_.clear();
   dynamic_reflection_probe_filter_queue_.clear();
   for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+    slot.hddagi_snapshot.reset();
     slot.stable_id = 0u;
     slot.capture_revision = 0u;
     slot.output_generation = 0;
@@ -4956,6 +5006,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     dynamic_reflection_probe_queue_.clear();
     dynamic_reflection_probe_filter_queue_.clear();
     for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capture_revision = 0u;
       slot.output_generation = 0;
@@ -5020,6 +5071,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     if (state == dynamic_reflection_probe_runtime_states_.end() || !state->second.filtering) {
       dynamic_reflection_probe_filter_queue_.pop_front();
       auto& invalid_slot = dynamic_reflection_probe_raw_slots_[raw_slot];
+      invalid_slot.hddagi_snapshot.reset();
       invalid_slot.stable_id = 0u;
       invalid_slot.capture_revision = 0u;
       invalid_slot.output_generation = 0;
@@ -5084,6 +5136,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
   if (cameras.size() < glm::max(camera_count, 1u) || !cameras.front()) {
     if (newly_assigned_slot >= 0) {
       auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capturing = false;
     }
@@ -5103,6 +5156,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
       !PrepareDynamicReflectionProbeCaptureResources(camera->GetRenderTexture()->GetColorImage()->GetFormat())) {
     if (newly_assigned_slot >= 0) {
       auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capturing = false;
     }
@@ -5183,14 +5237,37 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
   if (lighting_ && lighting_->directional_light_shadow_map_) {
     resources.BindImage(RenderResourceNames::lighting_directional_shadow_map, lighting_->directional_light_shadow_map_);
   }
-  auto& transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
-  transient_resources.Allocate(reflection_probe_capture_render_graph_.GetResources(),
-                               reflection_probe_capture_render_graph_plan_);
-  transient_resources.Bind(resources);
   const auto capture_lighting_descriptor_set =
       prepared.jobs.empty()
           ? nullptr
           : GetRasterLightingTextureDescriptorSet(current_frame_index, face_camera_indices.front(), render_instances);
+
+  struct CaptureGraph {
+    RenderGraph graph;
+    RenderGraphExecutionPlan plan;
+    RenderGraphResourceRegistry resources;
+    RenderGraphTransientResourceStore* transient = nullptr;
+  };
+  std::vector<CaptureGraph> capture_graphs;
+  capture_graphs.reserve(prepared.jobs.size());
+  auto& stores = render_graph_transient_resource_stores_.at(current_frame_index);
+  stores.reserve(stores.size() + prepared.jobs.size());
+  for (const auto& job : prepared.jobs) {
+    auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
+    if (job.first_face == 0)
+      slot.hddagi_snapshot = SnapshotHddagiCapture(scene && ResolveEnvironmentalLighting(scene).indirect_gi_provider ==
+                                                                IndirectGiProvider::AutomaticHddagi
+                                                       ? scene->GetHddagiRuntime()
+                                                       : nullptr);
+    auto registry = resources;
+    EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, registry, slot.hddagi_snapshot);
+    auto& transient = stores.emplace_back();
+    transient.Allocate(reflection_probe_capture_render_graph_.GetResources(),
+                       reflection_probe_capture_render_graph_plan_);
+    transient.Bind(registry);
+    capture_graphs.push_back({reflection_probe_capture_render_graph_, reflection_probe_capture_render_graph_plan_,
+                              std::move(registry), &transient});
+  }
 
   std::vector<std::shared_ptr<Cubemap>> filter_outputs(prepared.filter_jobs.size());
   for (size_t index = 0; index < prepared.filter_jobs.size(); ++index) {
@@ -5220,13 +5297,14 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
       }
       for (uint32_t face_offset = 0; face_offset < job.face_count; ++face_offset) {
         const auto camera_offset = job.first_camera + face_offset;
+        const auto& capture_graph = capture_graphs[job_index];
         ReflectionProbeCaptureGraphContext capture_context{
             camera,
             render_instances,
             lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr,
             capture_lighting_descriptor_set,
             recorder,
-            &transient_resources,
+            capture_graph.transient,
             face_camera_indices[camera_offset],
             directional_shadow_camera_index,
             current_frame_index,
@@ -5234,7 +5312,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
             sdfgi_resources,
             sdfgi_resources ? sdfgi_resources->publication : nullptr};
         reflection_probe_capture_graph_context_ = &capture_context;
-        reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
+        capture_graph.graph.Execute(capture_graph.plan, capture_graph.resources);
         reflection_probe_capture_graph_context_ = nullptr;
         source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         VkImageCopy copy{};
@@ -5306,6 +5384,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
       auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
       slot.capturing = false;
       slot.filtering = true;
+      slot.hddagi_snapshot.reset();
       dynamic_reflection_probe_filter_queue_.emplace_back(job.raw_slot);
     }
   }
@@ -5329,6 +5408,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     }
     submitted->completions.push_back(
         {slot.stable_id, slot.output_generation, slot.capture_revision, filter_outputs[index]});
+    slot.hddagi_snapshot.reset();
     slot.stable_id = 0u;
     slot.capture_revision = 0u;
     slot.output_generation = 0;
@@ -5428,11 +5508,18 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
     auto& runtime = scene->hddagi_runtime_;
     if (!runtime || !(runtime->probes == lighting.gi_probe_settings) ||
-        !(runtime->settings == lighting.hddagi_settings)) {
+        runtime->settings.history_size != lighting.hddagi_settings.history_size) {
       runtime = std::make_shared<HddagiRuntime>();
       runtime->probes = lighting.gi_probe_settings;
       runtime->settings = lighting.hddagi_settings;
       runtime->capabilities = QueryHddagiCapabilities(runtime->probes, runtime->settings);
+    }
+    runtime->force_full_update |= runtime->settings.probe_bias != lighting.hddagi_settings.probe_bias;
+    if (runtime->resources) {
+      if (runtime->settings.read_sky_light != lighting.hddagi_settings.read_sky_light ||
+          runtime->settings.bounce_feedback != lighting.hddagi_settings.bounce_feedback)
+        runtime->resources->force_probe_frames = 4;
+      runtime->resources->settings = lighting.hddagi_settings;
     }
     runtime->settings = lighting.hddagi_settings;
     const auto& shared = PrepareGiProbeFrame(scene, lighting.gi_probe_settings);
@@ -5454,6 +5541,11 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     }
   } else if (scene) {
     scene->hddagi_runtime_.reset();
+    if (reflection_probe_capture_render_graph_.HasResource("Frame.HDDAGI.FilteredDiffuse")) {
+      reflection_probe_capture_render_graph_.Clear();
+      reflection_probe_capture_render_graph_plan_ = {};
+      reflection_probe_capture_hddagi_snapshot_.reset();
+    }
   }
 
   RenderGraph scene_graph;
@@ -5464,6 +5556,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
   if (scene && scene->hddagi_runtime_) {
     auto& runtime = *scene->hddagi_runtime_;
+    runtime.published = false;
     if (const auto resources = runtime.resources) {
       hddagi_frame_resources_[current_frame_index].push_back(resources);
       resources->Import(scene_graph, registry);
@@ -5484,8 +5577,11 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           retired->ReadStatusAfterFence(*resources);
         resources->light_frames[current_frame_index].reset();
         resources->probe_frames[current_frame_index].reset();
+        resources->camera_frames.resize(Platform::GetMaxFramesInFlight());
+        resources->camera_frames[current_frame_index].clear();
         const bool retry_voxelization = !runtime.voxel_failure.empty();
         resources->last_voxel_frame = scene_frame;
+        resources->submission = Platform::TrackCurrentFrameSubmission();
         runtime.last_updated_regions = 0;
         auto inputs_lighting = lighting;
         auto input_settings = SdfgiSettings{};
@@ -5542,16 +5638,27 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           runtime.fallback_reason = runtime.transport_failure;
         else if (resources->transport_failure_flags)
           runtime.fallback_reason = "HDDAGI transport generation failed GPU validation";
+        else if (runtime.published)
+          runtime.fallback_reason.clear();
         else if (resources->transport_ready)
           runtime.fallback_reason = "HDDAGI camera integration is not ready";
       }
     }
     runtime.retiring_bytes = 0;
     std::set<const HddagiResources*> counted;
+    const auto count = [&](std::shared_ptr<const HddagiResources> field) {
+      while (field && counted.insert(field.get()).second) {
+        if (field != runtime.resources)
+          runtime.retiring_bytes += field->AllocationBytes();
+        field = field->capture_source;
+      }
+    };
     for (const auto& slot : hddagi_frame_resources_)
       for (const auto& field : slot)
-        if (field != runtime.resources && counted.insert(field.get()).second)
-          runtime.retiring_bytes += field->AllocationBytes();
+        count(field);
+    for (const auto& slot : dynamic_reflection_probe_raw_slots_)
+      if (slot.hddagi_snapshot)
+        count(slot.hddagi_snapshot->resources);
   }
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
     const auto sdfgi_cpu_start = std::chrono::steady_clock::now();
@@ -7435,6 +7542,43 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       : sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources
                                                                     : nullptr;
   const auto sdfgi_publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
+  auto hddagi_runtime =
+      scene && ResolveEnvironmentalLighting(scene).indirect_gi_provider == IndirectGiProvider::AutomaticHddagi
+          ? scene->hddagi_runtime_
+          : nullptr;
+  if (reflection_probe_capture)
+    hddagi_runtime = SnapshotHddagiCapture(hddagi_runtime, immediate);
+  std::shared_ptr<HddagiCameraFrame> hddagi_camera;
+  if (hddagi_runtime && hddagi_runtime->resources && hddagi_runtime->resources->transport_ready &&
+      hddagi_runtime->resources->transport_failure_flags == 0 && hddagi_runtime->frame.failure.empty() &&
+      hddagi_runtime->voxel_failure.empty() && hddagi_runtime->transport_failure.empty() &&
+      (sdfgi_eligible || (reflection_probe_capture && camera->IsEnabled() &&
+                          camera->camera_render_mode == Camera::CameraRenderMode::Rasterization))) {
+    try {
+      const auto extent = camera->GetRenderTexture()->GetExtent();
+      hddagi_camera = HddagiCameraFrame::Create(*hddagi_runtime, *current_render_instances,
+                                                {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                                 raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                                {extent.width, extent.height}, camera->GetHandle().GetValue(),
+                                                reflection_probe_capture);
+      if (immediate) {
+        hddagi_camera->input_uploads.SubmitImmediate();
+        hddagi_camera->uploaded = true;
+      }
+      auto& frames = hddagi_runtime->resources->camera_frames;
+      frames.resize(Platform::GetMaxFramesInFlight());
+      frames[current_frame_index].push_back(hddagi_camera);
+      if (reflection_probe_capture) {
+        hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+        hddagi_frame_resources_[current_frame_index].push_back(hddagi_runtime->resources);
+      }
+      hddagi_runtime->published = true;
+      hddagi_runtime->fallback_reason.clear();
+    } catch (const std::exception& error) {
+      hddagi_runtime->published = false;
+      hddagi_runtime->fallback_reason = error.what();
+    }
+  }
   const bool sdfgi_debug_camera = sdfgi_runtime && sdfgi_runtime->debug->MatchesCamera(camera->GetHandle().GetValue(),
                                                                                        is_scene_camera, sdfgi_eligible);
   const auto sdfgi_debug_view = sdfgi_debug_camera ? static_cast<uint32_t>(sdfgi_runtime->debug->view) : 0u;
@@ -7705,19 +7849,44 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     }
     auto deferred_descriptor =
         DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture);
+    const auto deferred_inputs = [&]() {
+      DeferredComputeLightingPass::Parameters inputs{
+          camera,
+          per_frame_descriptor_sets_[current_frame_index],
+          lighting_descriptor_set,
+          raster_lighting_texture_descriptor_set,
+          sdfgi_publication ? sdfgi_resources->pipelines.at("DeferredSdfgi") : deferred_compute_lighting_pipeline_,
+          deferred_compute_lighting_layout_,
+          active_camera_transient_resources,
+          camera_index,
+          directional_shadow_camera_index,
+          reflection_probe_capture,
+          is_scene_camera,
+          record_commands,
+          sdfgi_publication ? sdfgi_resources : nullptr,
+          sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr,
+          sdfgi_isolation ? sdfgi_debug_view : 0u};
+      if (hddagi_camera) {
+        inputs.pipeline = hddagi_camera->pipelines.at("Deferred");
+        inputs.hddagi_resources = hddagi_runtime->resources;
+        inputs.hddagi_descriptor_set = hddagi_camera->set;
+      }
+      return inputs;
+    };
+    if (hddagi_camera) {
+      hddagi_camera->AddPasses(camera_render_graph, hddagi_runtime->resources, deferred_inputs,
+                               deferred_descriptor.dependencies.front());
+      deferred_descriptor.dependencies = {hddagi_camera->filter_reflections ? "HddagiCameraFilterVertical"
+                                                                            : "HddagiCameraGather"};
+      for (const auto name : {"Diffuse", "Specular", "Blend"})
+        deferred_descriptor.resources.push_back(
+            {"Camera.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+    }
     if (sdfgi_publication)
       for (const auto& access : sdfgi_publication->CameraReads())
         deferred_descriptor.resources.push_back(access);
     camera_render_graph.AddPass(deferred_descriptor, [&](const RenderGraphExecutionContext& context) {
-      DeferredComputeLightingPass::Execute(
-          context,
-          {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
-           raster_lighting_texture_descriptor_set,
-           sdfgi_publication ? sdfgi_resources->pipelines.at("DeferredSdfgi") : deferred_compute_lighting_pipeline_,
-           deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
-           directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands,
-           sdfgi_publication ? sdfgi_resources : nullptr,
-           sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr, sdfgi_isolation ? sdfgi_debug_view : 0u});
+      DeferredComputeLightingPass::Execute(context, deferred_inputs());
     });
     const bool forward_external_rendering_enabled =
         !reflection_probe_capture && !sdfgi_isolation && !forward_rendering_external_functions.empty();
@@ -7905,6 +8074,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
         CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (sdfgi_publication)
       sdfgi_publication->ImportCamera(camera_render_graph, camera_render_graph_resources, *sdfgi_resources);
+    if (hddagi_camera)
+      hddagi_camera->ImportCamera(camera_render_graph, camera_render_graph_resources, *hddagi_runtime->resources);
     if (sdfgi_debug_camera) {
       try {
         AddSdfgiCameraDebug(

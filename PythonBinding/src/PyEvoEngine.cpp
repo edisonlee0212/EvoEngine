@@ -2,6 +2,7 @@
 #include "Cubemap.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
+#include "HddagiCamera.hpp"
 #include "HddagiResources.hpp"
 #include "ImGuiLayer.hpp"
 #include "Lights.hpp"
@@ -921,6 +922,16 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["requested_provider"] = GetIndirectGiProviderName(lighting.indirect_gi_provider);
     const auto hddagi = scene ? scene->GetHddagiRuntime() : nullptr;
     result["hddagi_state_active"] = hddagi != nullptr;
+    py::list hddagi_cameras;
+    if (hddagi && hddagi->resources)
+      for (const auto& [id, images] : hddagi->resources->camera_images) {
+        py::dict camera;
+        camera["id"] = id;
+        camera["viewport"] = py::make_tuple(images->layout.viewport.x, images->layout.viewport.y);
+        camera["gi_resolution"] = py::make_tuple(images->layout.gi.x, images->layout.gi.y);
+        hddagi_cameras.append(camera);
+      }
+    result["hddagi_cameras"] = hddagi_cameras;
     result["hddagi_fallback_reason"] = hddagi ? hddagi->fallback_reason : std::string{};
     result["hddagi_image_bytes"] = hddagi && hddagi->resources ? hddagi->resources->allocation_bytes : 0;
     result["hddagi_allocation_bytes"] = hddagi && hddagi->resources ? hddagi->resources->AllocationBytes() : 0;
@@ -952,6 +963,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["hddagi_initialization_recorded"] =
         hddagi && hddagi->resources && hddagi->resources->initialization_recorded;
     auto effective = IndirectGiProvider::Environment;
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi && hddagi && hddagi->published)
+      effective = IndirectGiProvider::AutomaticHddagi;
     if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi && runtime && runtime->published)
       effective = IndirectGiProvider::AutomaticSdfgi;
     if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
@@ -1045,6 +1058,21 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         }
       }
     result["sdfgi_gpu_timings"] = timings;
+    py::list gpu_frames;
+    for (const auto& frame : Platform::GetGpuTimestampFrameHistory())
+      if (frame.results_available) {
+        py::dict value, stages;
+        for (const auto& sample : frame.samples) {
+          const auto key = py::str(sample.metadata.stable_pass_id);
+          const auto previous = stages.contains(key) ? py::cast<double>(stages[key]) : 0.0;
+          stages[key] = previous + sample.duration_milliseconds;
+        }
+        value["application_frame"] = frame.application_frame_index;
+        value["stages_ms"] = stages;
+        value["span_ms"] = frame.span_milliseconds;
+        gpu_frames.append(value);
+      }
+    result["gpu_timings"] = gpu_frames;
     py::list light_counts;
     if (resources && resources->last_light_frame != UINT32_MAX)
       for (const auto& frame : resources->light_frames)

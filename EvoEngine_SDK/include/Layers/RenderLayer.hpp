@@ -473,6 +473,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     int output_generation = 0;
     bool capturing = false;
     bool filtering = false;
+    std::shared_ptr<struct HddagiRuntime> hddagi_snapshot;
   };
 
   struct PreparedDynamicReflectionProbeUpdate {
@@ -720,7 +721,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::weak_ptr<Scene> presented_scene_;
   std::weak_ptr<Scene> sdfgi_scene_;
   std::vector<std::vector<std::shared_ptr<class SdfgiResources>>> sdfgi_frame_resources_;
-  std::vector<std::vector<std::shared_ptr<class HddagiResources>>> hddagi_frame_resources_;
+  mutable std::vector<std::vector<std::shared_ptr<class HddagiResources>>> hddagi_frame_resources_;
   [[nodiscard]] bool IsSceneLightingReadyForPresentation(
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
@@ -759,6 +760,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   RenderGraphExecutionPlan reflection_probe_capture_render_graph_plan_{};
   ReflectionProbeCaptureGraphContext* reflection_probe_capture_graph_context_ = nullptr;
   std::weak_ptr<class SdfgiGatherFrame> reflection_probe_capture_publication_;
+  std::weak_ptr<struct HddagiRuntime> reflection_probe_capture_hddagi_snapshot_;
   std::deque<ReflectionProbeBakeBatch> reflection_probe_bake_queue_{};
   std::optional<PreparedReflectionProbeBake> prepared_reflection_probe_bake_{};
   std::vector<std::optional<SubmittedReflectionProbeBake>> submitted_reflection_probe_bakes_{};
@@ -880,7 +882,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void UpdateDynamicReflectionProbeTransitions(uint64_t face_serial);
   void FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error, bool timed_out);
   void EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<class SdfgiResources>& sdfgi_resources,
-                                               RenderGraphResourceRegistry& registry);
+                                               RenderGraphResourceRegistry& registry,
+                                               const std::shared_ptr<struct HddagiRuntime>& hddagi_snapshot = {});
 
   /**
    * \brief Performs all rendering operations for this render layer.

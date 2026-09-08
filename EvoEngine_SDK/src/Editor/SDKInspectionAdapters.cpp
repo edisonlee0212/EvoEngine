@@ -2837,8 +2837,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             if (const auto field = runtime->resources)
               ImGui::Text("Completed transport: %u; ready: %s; failure flags: %u", field->transport_generation,
                           field->transport_ready ? "yes" : "no", field->transport_failure_flags);
-            ImGui::Text("Image memory: %.1f MiB; retiring: %.1f MiB",
-                        runtime->resources ? runtime->resources->allocation_bytes / 1048576.0 : 0.0,
+            ImGui::Text("Live allocation: %.1f MiB; retiring: %.1f MiB",
+                        runtime->resources ? runtime->resources->AllocationBytes() / 1048576.0 : 0.0,
                         runtime->retiring_bytes / 1048576.0);
             if (runtime->published)
               effective_provider = IndirectGiProvider::AutomaticHddagi;
@@ -2962,7 +2962,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         gi_changed |= ImGui::Checkbox("Filter reflections", &hddagi.filter_reflections);
         gi_changed |= ImGui::Checkbox("Static entities only", &hddagi.static_entities_only);
         gi_changed |= ImGui::Checkbox("Read sky light", &hddagi.read_sky_light);
-        ImGui::TextWrapped("Eight cells per probe. HDDAGI transport is not ready; Environment is used.");
+        ImGui::TextWrapped(
+            "Eight cells per probe. Half resolution applies to both diffuse GI and sharp reflections. Reflection "
+            "captures use diffuse GI only.");
       } else if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
         ImGui::SeparatorText("Automatic DDGI settings");
         auto& runtime = candidate.ddgi_settings.runtime;

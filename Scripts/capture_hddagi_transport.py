@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--resources", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--frames", type=int, default=120)
+    parser.add_argument("--beauty", action="store_true")
     args = parser.parse_args()
     module_dir, resources, output = (p.resolve() for p in (args.module_dir, args.resources, args.output))
     if args.frames < 32:
@@ -39,6 +40,7 @@ def main():
         engine.ResizeCurrentSceneCameraForCapture(2560, 1440)
         engine.SetCurrentSceneGiProvider(engine.IndirectGiProvider.AutomaticHddagi)
         settings = engine.GetCurrentSceneGiSettings()
+        engine.SetGpuTimingCaptureEnabled(True)
         for _ in range(300):
             if not engine.Loop():
                 raise RuntimeError("Demo ended before transport initialization")
@@ -50,10 +52,16 @@ def main():
         for _ in range(args.frames):
             if not engine.Loop():
                 raise RuntimeError("Demo ended during warmup")
+        if args.beauty and not engine.CaptureCurrentScene(2560, 1440, output / "beauty.png", 1):
+            raise RuntimeError("HDDAGI camera capture failed")
         state = engine.GetCurrentSceneGiStatus()
         if not state["hddagi_transport_ready"] or state["hddagi_transport_failure_flags"]:
             raise RuntimeError(f"Invalid transport: {state}")
+        if args.beauty and state["effective_provider"] != "Automatic HDDAGI":
+            raise RuntimeError(f"Camera capture used fallback: {state}")
         captures = {}
+        if args.beauty:
+            captures["beauty"] = {"sha256": hashlib.sha256((output / "beauty.png").read_bytes()).hexdigest()}
         for name in ("Light", "StaticLight", "Diffuse", "FilteredDiffuse", "Specular", "Occlusion0", "Occlusion1",
                      "History", "HistorySum", "ProcessFrame", "Proximity"):
             path = output / f"{name}.png"
@@ -69,11 +77,17 @@ def main():
                     "warmup_frames": args.frames, "camera_resolution": [2560, 1440],
                     "probe_settings": {name: getattr(settings.probes, name) for name in
                                        ("probe_count_x", "probe_count_y", "cascade_count", "base_probe_distance")},
+                    "hddagi_settings": {name: getattr(settings.hddagi, name) for name in
+                                        ("history_size", "light_update_frames", "half_resolution", "filter_probes",
+                                         "filter_ambient", "filter_reflections", "read_sky_light", "static_entities_only",
+                                         "bounce_feedback", "energy", "normal_bias", "probe_bias", "reflection_bias", "occlusion_bias")},
+                    "binary_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in
+                                      [*module_dir.glob("PyEvoEngine*.pyd"), module_dir / "EvoEngine_SDK.dll"] if p.is_file()},
                     "history_size": settings.hddagi.history_size,
                     "light_update_frames": settings.hddagi.light_update_frames,
                     "bounce_feedback": settings.hddagi.bounce_feedback,
                     "status": after, "captures": captures,
-                    "interpretation": "Physical circular storage, layer 0. Radiance uses Reinhard and gamma 2.2; occlusion is packed RGBA parity. Camera integration is pending."}
+                    "interpretation": "Physical circular storage, layer 0. Radiance uses Reinhard and gamma 2.2; occlusion is packed RGBA parity. Optional beauty is a separate camera capture."}
         (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         print(json.dumps(manifest), flush=True)
     finally:

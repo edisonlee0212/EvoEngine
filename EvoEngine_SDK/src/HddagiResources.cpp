@@ -1,6 +1,7 @@
 // Godot HDDAGI::create layouts, da1410fa3516d08cc31b6e86bd6673b9ce776316.
 // See docs/licenses/Godot-MIT.txt. EvoEngine owns validation and allocation lifetime.
 #include "HddagiResources.hpp"
+#include "HddagiCamera.hpp"
 #include "HddagiLight.hpp"
 #include "HddagiProbe.hpp"
 #include "HddagiVoxelizer.hpp"
@@ -121,6 +122,19 @@ uint64_t HddagiResources::AllocationBytes() const {
   for (const auto& frame : probe_frames)
     if (frame)
       bytes += frame->AllocationBytes();
+  std::set<const HddagiCameraImages*> counted;
+  const auto count_images = [&](const std::shared_ptr<HddagiCameraImages>& camera) {
+    if (camera && counted.insert(camera.get()).second)
+      for (const auto& [name, image] : camera->images)
+        bytes += image.image->GetVmaAllocationInfo().size;
+  };
+  for (const auto& [id, camera] : camera_images)
+    count_images(camera);
+  for (const auto& slot : camera_frames)
+    for (const auto& frame : slot) {
+      bytes += frame->AllocationBytes();
+      count_images(frame->images);
+    }
   return bytes;
 }
 
