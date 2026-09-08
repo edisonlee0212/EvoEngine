@@ -15,6 +15,18 @@ constexpr VkImageUsageFlags kUsage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE
                                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 constexpr uint64_t kTemporalLimit = uint64_t{4} << 30;
 
+uint32_t LightCellCapacity(const GiProbeSettings& p) {
+  return (p.probe_count_x - 1) * (p.probe_count_y - 1) * (p.probe_count_x - 1) * 256;
+}
+
+VkBufferCreateInfo BufferInfo(const uint64_t bytes) {
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = bytes;
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+               VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  return info;
+}
+
 VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
   VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.flags = r.storage_format == r.sampled_format
@@ -35,9 +47,11 @@ VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
 
 uint64_t HddagiResources::AllocationBytes() const {
   uint64_t bytes = allocation_bytes;
+  for (const auto& [name, buffer] : buffers)
+    bytes += buffer->GetVmaAllocationInfo().size;
   for (const auto& frame : voxel_frames)
     if (frame)
-      bytes += frame->inputs->AllocationBytes();
+      bytes += frame->AllocationBytes();
   return bytes;
 }
 
@@ -55,6 +69,15 @@ void HddagiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& re
     graph.AddResource(descriptor);
     registry.BindImage(descriptor.name, texture.image);
   }
+  for (const auto& [name, buffer] : buffers) {
+    RenderResourceDescriptor descriptor;
+    descriptor.name = "Frame.HDDAGI." + name;
+    descriptor.type = RenderResourceType::Buffer;
+    descriptor.lifetime = RenderResourceLifetime::Persistent;
+    descriptor.byte_size = buffer->GetSize();
+    graph.AddResource(descriptor);
+    registry.BindBuffer(descriptor.name, buffer);
+  }
 }
 
 RenderPassDescriptor HddagiResources::ClearDescriptor() const {
@@ -62,6 +85,9 @@ RenderPassDescriptor HddagiResources::ClearDescriptor() const {
   result.profiler_group = RenderPassProfilerGroup::FramePreparation;
   result.profiler_display_name = "HDDAGI Initialize";
   for (const auto& [name, texture] : images)
+    result.resources.push_back(
+        {"Frame.HDDAGI." + name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
+  for (const auto& [name, buffer] : buffers)
     result.resources.push_back(
         {"Frame.HDDAGI." + name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   return result;
@@ -88,6 +114,8 @@ void HddagiResources::Clear(const VkCommandBuffer command, const RenderGraphExec
     const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, texture.requirement.layers};
     Platform::ClearColorImage(command, *texture.image, zero, 1, &range);
   }
+  for (const auto& [name, buffer] : buffers)
+    buffer->Fill(command, 0, buffer->GetSize(), 0);
   OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
               VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
   initialization_recorded = true;
@@ -115,6 +143,7 @@ std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const
   volume("Regions", VK_FORMAT_R8_UINT, {x / 8, c * y / 8, x / 8});
   volume("Versions", VK_FORMAT_R16_UINT, {x / 8, c * y / 8, x / 8});
   volume("Light", VK_FORMAT_R32_UINT, {x, c * y, x}, VK_FORMAT_E5B9G9R9_UFLOAT_PACK32);
+  volume("Disocclusion", VK_FORMAT_R8_UINT, {x, c * y, x});
   volume("LightNeighbors", VK_FORMAT_R32_UINT, {x, c * y, x});
   volume("Albedo", VK_FORMAT_R16_UINT, {x / 2, y / 2, x * 3});
   volume("NormalBits", VK_FORMAT_R32_UINT, {x, y, x}, VK_FORMAT_UNDEFINED, true);
@@ -215,6 +244,22 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
       return report;
     }
   }
+  for (const auto bytes : {uint64_t(LightCellCapacity(p)) * 16, uint64_t(20)}) {
+    if (bytes > limits.maxStorageBufferRange) {
+      report.failure = "HDDAGI light payload exceeds the storage-buffer range";
+      return report;
+    }
+    const auto info = BufferInfo(bytes);
+    VkBuffer buffer = VK_NULL_HANDLE;
+    if (vkCreateBuffer(Platform::GetVkDevice(), &info, nullptr, &buffer) != VK_SUCCESS) {
+      report.failure = "HDDAGI could not query buffer memory";
+      return report;
+    }
+    VkMemoryRequirements memory{};
+    vkGetBufferMemoryRequirements(Platform::GetVkDevice(), buffer, &memory);
+    vkDestroyBuffer(Platform::GetVkDevice(), buffer, nullptr);
+    report.buffer_bytes += memory.size * p.cascade_count;
+  }
   return report;
 }
 
@@ -260,6 +305,15 @@ std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSetting
         result->temporal_bytes += image->GetVmaAllocationInfo().size;
       result->images.emplace(r.name, HddagiImage{r, image, storage, sampled});
     }
+    result->light_cell_capacity = LightCellCapacity(probes);
+    for (uint32_t cascade = 0; cascade < probes.cascade_count; ++cascade)
+      for (const auto name : {"Process", "Dispatch"}) {
+        if (result->images.size() + result->buffers.size() == fail_after_allocations)
+          throw std::runtime_error("Injected partial allocation failure");
+        auto info = BufferInfo(std::string(name) == "Process" ? uint64_t(result->light_cell_capacity) * 16 : 20);
+        auto buffer = std::make_shared<Buffer>(info);
+        result->buffers.emplace(std::string(name) + std::to_string(cascade), std::move(buffer));
+      }
     if (result->temporal_bytes >= kTemporalLimit)
       throw std::runtime_error("HDDAGI allocated temporal storage must remain below 4 GiB");
     return result;

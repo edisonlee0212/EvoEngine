@@ -31,6 +31,7 @@ struct EVOENGINE_API HddagiCapabilityReport {
   std::string failure = "HDDAGI capabilities have not been queried";
   uint64_t temporal_bytes = 0;
   uint64_t image_bytes = 0;
+  uint64_t buffer_bytes = 0;
   [[nodiscard]] bool Supported() const {
     return failure.empty();
   }
@@ -54,14 +55,20 @@ class EVOENGINE_API HddagiResources {
   GiProbeSettings probes;
   HddagiSettings settings;
   std::map<std::string, HddagiImage> images;
+  std::map<std::string, std::shared_ptr<Buffer>> buffers;
+  uint32_t light_cell_capacity = 0;
   uint64_t allocation_bytes = 0;
   uint64_t temporal_bytes = 0;
   bool initialization_recorded = false;
   std::shared_ptr<GraphicsPipeline> voxel_pipeline;
   std::shared_ptr<ComputePipeline> region_pipeline;
+  std::shared_ptr<ComputePipeline> light_store_pipeline;
   std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
   uint64_t last_voxel_frame = UINT64_MAX;
   bool voxelization_recorded = false;
+  uint64_t last_status_frame = UINT64_MAX;
+  std::vector<uint32_t> light_cell_counts;
+  uint32_t failure_flags = 0;
 
   [[nodiscard]] uint64_t AllocationBytes() const;
   void Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const;

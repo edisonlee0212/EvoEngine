@@ -5237,7 +5237,8 @@ TEST(HddagiResources, PreflightAndPartialAllocationWithoutRayTracing) {
   const auto default_report = QueryHddagiCapabilities({}, settings);
   ASSERT_TRUE(default_report.Supported()) << default_report.failure;
   std::cout << "HDDAGI device: " << report.device_name << "; default image bytes: " << default_report.image_bytes
-            << "; temporal bytes: " << default_report.temporal_bytes << std::endl;
+            << "; temporal bytes: " << default_report.temporal_bytes
+            << "; buffer bytes: " << default_report.buffer_bytes << std::endl;
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
@@ -5245,10 +5246,15 @@ TEST(HddagiResources, PreflightAndPartialAllocationWithoutRayTracing) {
   std::string failure;
   EXPECT_FALSE(HddagiResources::TryCreate(probes, settings, failure, 3));
   EXPECT_NE(failure.find("Injected"), std::string::npos);
+  EXPECT_FALSE(
+      HddagiResources::TryCreate(probes, settings, failure, GetHddagiImageRequirements(probes, settings).size() + 1));
+  EXPECT_NE(failure.find("Injected"), std::string::npos);
   auto field = HddagiResources::TryCreate(probes, settings, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->images.size(), GetHddagiImageRequirements(probes, settings).size());
   EXPECT_GE(field->temporal_bytes, HddagiLogicalTemporalBytes(probes, settings));
+  EXPECT_EQ(field->buffers.size(), 2u);
+  EXPECT_GE(field->AllocationBytes(), report.image_bytes + report.buffer_bytes);
   const std::weak_ptr<HddagiResources> weak = field;
   auto retained = field;
   field.reset();
@@ -5660,6 +5666,39 @@ void main(uint3 id : SV_DispatchThreadID) {
       EXPECT_EQ(results[4], glm::uvec4(1, 0, 0, 1));
       EXPECT_EQ(results[7].w, 0u);
     }
+    std::vector<HddagiRay> segments;
+    for (uint32_t first_cascade : {0u, 1u})
+      for (const auto direction :
+           {glm::vec3(1, 0, 0), glm::normalize(glm::vec3(1, 0, 1)), glm::normalize(glm::vec3(1, 0, 0.00001f))}) {
+        const float hit_distance = grid.x * 0.5f / direction.x;
+        for (const float delta : {-0.01f, 0.01f})
+          segments.push_back({crossing[0].origin, first_cascade, direction, hit_distance + delta});
+        const float reverse_distance = (grid.x * 0.125f - 2) / direction.x;
+        for (const float delta : {-0.01f, 0.01f})
+          segments.push_back({crossing[1].origin, first_cascade, -direction, reverse_distance + delta});
+      }
+    segments.push_back({crossing[0].origin, 0, {1, 0, 0}, 0});
+    ray_buffer->UploadVector(segments);
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+      trace->Bind(command);
+      trace->BindDescriptorSet(command, 0, trace_set->GetVkDescriptorSet());
+      HddagiTraceParams params;
+      params.grid = grid;
+      params.ray_count = segments.size();
+      params.cascade_count = 2;
+      params.fractional_bits = 10;
+      params.padding.x = 1;
+      trace->PushConstant(command, 0, params);
+      trace->Dispatch(command, 1);
+      Platform::BufferMemoryBarrier(command, *result_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                    VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                    VK_ACCESS_2_TRANSFER_READ_BIT);
+    });
+    std::vector<glm::uvec4> segment_results;
+    result_buffer->DownloadVector(segment_results, segments.size() * 3);
+    for (size_t i = 0; i < segments.size(); ++i)
+      EXPECT_EQ(segment_results[i * 3 + 1].w, i + 1 < segments.size() ? i % 2 : 0u) << "segment " << i;
   }
 }
 
@@ -5730,13 +5769,20 @@ TEST(HddagiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisable
       contributors.entries.emplace(contributor.id, std::move(contributor));
     }
   GeometryStorage::WaitForPendingUploads();
-  for (uint32_t iteration = 0; iteration < 2; ++iteration) {
+  for (uint32_t iteration = 0; iteration < 3; ++iteration) {
     PlatformLifecycleTestAccess::PreUpdate();
     if (iteration == 1)
       for (auto& [id, contributor] : contributors.entries) {
         contributor.material.masked = false;
         contributor.material.emission = glm::vec3(0);
       }
+    if (iteration == 2) {
+      field->light_cell_capacity = 1;
+      Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        field->buffers.at("Process0")->Fill(command, 0, 32, 0xdeadbeefu);
+      });
+    }
     auto frame = HddagiVoxelFrame::Create(*field, SdfgiTestAccess::HostLayouts(*render)[0], contributors, cascades,
                                           pending, iteration + 1);
     RenderGraph graph;
@@ -5788,10 +5834,64 @@ TEST(HddagiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisable
       } else
         output.DownloadVector(data[name], count * bytes / 4);
     }
+    frame->ReadStatusAfterFence(*field);
+    std::vector<uint32_t> dispatch;
+    field->buffers.at("Dispatch0")->DownloadVector(dispatch, 5);
+    EXPECT_EQ(field->failure_flags, dispatch[4]);
+    ASSERT_EQ(field->light_cell_counts.size(), 1u);
+    EXPECT_EQ(field->light_cell_counts[0], dispatch[3]);
+    ASSERT_EQ(dispatch[4], iteration == 2 ? 1u : 0u);
+    EXPECT_EQ(dispatch[0], (std::min(dispatch[3], field->light_cell_capacity) + 63) / 64);
+    EXPECT_EQ(dispatch[1], 1u);
+    EXPECT_EQ(dispatch[2], 1u);
+    std::vector<HddagiProcessVoxel> payload;
+    field->buffers.at("Process0")->DownloadVector(payload, std::min(dispatch[3], field->light_cell_capacity));
+    std::map<uint32_t, HddagiProcessVoxel> payload_by_cell;
+    for (const auto& voxel : payload) {
+      EXPECT_EQ(voxel.position >> 30, 3u);
+      EXPECT_TRUE(payload_by_cell.emplace(voxel.position & 0xffffffu, voxel).second);
+      EXPECT_EQ(voxel.albedo_normal & 0xffffu, 12u | (12u << 5) | (3u << 11));
+      EXPECT_EQ(voxel.occlusion, 0u);
+      if (iteration == 1)
+        EXPECT_EQ(voxel.emission, 0u);
+    }
     const auto value = [&](const std::string& name, const glm::ivec3 cell) {
       const auto e = field->images.at(name).requirement.extent;
       return data.at(name).at(cell.x + e.width * (cell.y + e.height * cell.z));
     };
+    size_t expected_payload_count = 0;
+    for (int z = 0; z < 128; ++z)
+      for (int y = 0; y < 128; ++y)
+        for (int x = 0; x < 128; ++x) {
+          const glm::ivec3 cell(x, y, z);
+          if (value("NormalBits", cell))
+            continue;
+          bool expected = false;
+          for (int face = 0; face < 6; ++face) {
+            auto neighbor = cell;
+            neighbor[face / 2] += face % 2 ? -1 : 1;
+            if (glm::any(glm::lessThan(neighbor, glm::ivec3(0))) ||
+                glm::any(glm::greaterThanEqual(neighbor, glm::ivec3(128))))
+              continue;
+            expected |= (value("NormalBits", neighbor) & (1u << face)) != 0;
+          }
+          if (!expected)
+            continue;
+          ++expected_payload_count;
+          if (iteration < 2)
+            EXPECT_EQ(payload_by_cell.count(uint32_t(x | (y << 8) | (z << 16))), 1u);
+        }
+    EXPECT_EQ(dispatch[3], expected_payload_count);
+    EXPECT_EQ(payload.size(), std::min<size_t>(expected_payload_count, field->light_cell_capacity));
+    if (iteration == 2) {
+      std::vector<HddagiProcessVoxel> prefix;
+      field->buffers.at("Process0")->DownloadVector(prefix, 2);
+      EXPECT_EQ(prefix[1].position, 0xdeadbeefu);
+      EXPECT_EQ(prefix[1].albedo_normal, 0xdeadbeefu);
+      EXPECT_EQ(prefix[1].emission, 0xdeadbeefu);
+      EXPECT_EQ(prefix[1].occlusion, 0xdeadbeefu);
+    }
+
     for (uint32_t axis = 0; axis < 3; ++axis)
       for (uint32_t kind = 0; kind < 4; ++kind) {
         SCOPED_TRACE(::testing::Message() << "frame=" << iteration << " axis=" << axis << " kind=" << kind);
@@ -5924,5 +6024,84 @@ TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithou
                             return v != 0;
                           }),
               phase != 1 && phase < 4);
+  }
+}
+
+TEST(HddagiVoxelization, CompactPayloadPreservesMaximumCoordinatesAcrossRectangularFields) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  for (const auto grid : {glm::ivec3(64), glm::ivec3(192, 80, 192), glm::ivec3(256, 128, 256), glm::ivec3(256)}) {
+    SCOPED_TRACE(::testing::Message() << grid.x << "x" << grid.y << "x" << grid.z);
+    SdfgiSettings settings;
+    settings.voxel_count_x = grid.x;
+    settings.voxel_count_y = grid.y;
+    settings.probe_spacing_cells = 8;
+    settings.cascade_count = 1;
+    settings.min_cell_size = 1;
+    settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+    std::string failure;
+    auto field = HddagiResources::TryCreate(GiProbesFromSdfgi(settings), HddagiSettings{}, failure);
+    ASSERT_TRUE(field) << failure;
+    std::vector<SdfgiCascade> cascades;
+    ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+    SdfgiContributorRegistry contributors;
+    for (uint32_t axis = 0; axis < 3; ++axis) {
+      SdfgiContributor contributor;
+      contributor.id = {axis + 1, 1};
+      contributor.mesh = std::make_shared<Mesh>();
+      contributor.mesh->OnCreate();
+      std::vector<Vertex> vertices(4);
+      for (uint32_t corner = 0; corner < 4; ++corner) {
+        auto& vertex = vertices[corner];
+        vertex.position[axis] = grid[axis] * 0.5f - 1.5f;
+        vertex.position[(axis + 1) % 3] = corner & 1 ? 2.25f : 0.25f;
+        vertex.position[(axis + 2) % 3] = corner & 2 ? 2.25f : 0.25f;
+        vertex.normal[axis] = 1;
+        vertex.color = glm::vec4(1);
+      }
+      VertexAttributes attributes{};
+      attributes.normal = attributes.color = true;
+      contributor.mesh->SetVertices(attributes, vertices, std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}});
+      contributor.world_bounds = contributor.mesh->GetBound();
+      contributors.entries.emplace(contributor.id, std::move(contributor));
+    }
+    GeometryStorage::WaitForPendingUploads();
+    PlatformLifecycleTestAccess::PreUpdate();
+    const auto frame = HddagiVoxelFrame::Create(*field, SdfgiTestAccess::HostLayouts(*render)[0], contributors,
+                                                cascades, GetSdfgiPendingRegions(cascades, 1), 1);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
+    });
+    frame->AddPasses(graph, registry, field);
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI maximum-coordinate payload readback");
+    frame->ReadStatusAfterFence(*field);
+    ASSERT_EQ(field->failure_flags, 0u);
+    ASSERT_EQ(field->light_cell_counts.size(), 1u);
+    ASSERT_EQ(field->light_cell_counts[0], 12u);
+    std::vector<HddagiProcessVoxel> payload;
+    field->buffers.at("Process0")->DownloadVector(payload, 12);
+    glm::uvec3 counts(0);
+    for (const auto& voxel : payload) {
+      EXPECT_EQ(voxel.position >> 30, 3u);
+      const glm::ivec3 cell(voxel.position & 255u, (voxel.position >> 8) & 255u, (voxel.position >> 16) & 255u);
+      EXPECT_TRUE(glm::all(glm::lessThan(cell, grid)));
+      EXPECT_EQ(voxel.albedo_normal & 65535u, 65535u);
+      EXPECT_EQ(voxel.emission, 0u);
+      EXPECT_EQ(voxel.occlusion, 0u);
+      for (int axis = 0; axis < 3; ++axis)
+        if (cell[axis] == grid[axis] - 1)
+          ++counts[axis];
+    }
+    EXPECT_EQ(counts, glm::uvec3(4));
   }
 }

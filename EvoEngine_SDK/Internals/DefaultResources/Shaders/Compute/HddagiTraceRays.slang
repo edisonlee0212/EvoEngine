@@ -5,7 +5,7 @@ struct HddagiRay {
   float3 origin;
   uint cascade;
   float3 direction;
-  uint padding;
+  float distance;
 };
 struct HddagiTraceParams {
   int3 grid;
@@ -30,7 +30,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   uint cascade, iterations;
   bool hit = HddagiTrace(voxels, regions, cascades, params.grid, params.cascade_count,
                         ray.origin, ray.direction, ray.cascade, params.fractional_bits,
-                        cell, side, cascade, iterations);
+                        cell, side, cascade, iterations, params.padding.x != 0 ? ray.distance : -1);
   results[id.x * 3] = uint4(uint3(cell), cascade);
   results[id.x * 3 + 1] = uint4(uint3(side), hit ? 1u : 0u);
   results[id.x * 3 + 2] = uint4(iterations, 0, 0, 0);

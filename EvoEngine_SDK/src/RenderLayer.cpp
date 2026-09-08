@@ -5471,6 +5471,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         });
       if (runtime.frame.failure.empty() && resources->last_voxel_frame != scene_frame) {
         resources->voxel_frames.resize(Platform::GetMaxFramesInFlight());
+        if (const auto& retired = resources->voxel_frames[current_frame_index])
+          retired->ReadStatusAfterFence(*resources);
         resources->voxel_frames[current_frame_index].reset();
         const bool retry_voxelization = !runtime.voxel_failure.empty();
         resources->last_voxel_frame = scene_frame;
@@ -5511,6 +5513,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         }
         if (!runtime.voxel_failure.empty())
           runtime.fallback_reason = runtime.voxel_failure;
+        else if (resources->failure_flags)
+          runtime.fallback_reason = "HDDAGI compact light-cell capacity exceeded";
       }
     }
     runtime.retiring_bytes = 0;

@@ -27,7 +27,7 @@ struct alignas(16) HddagiRay {
   glm::vec3 origin{0};
   uint32_t cascade = 0;
   glm::vec3 direction{0};
-  uint32_t padding = 0;
+  float distance = 0;
 };
 struct alignas(16) HddagiTraceParams {
   glm::ivec3 grid{0};
@@ -36,6 +36,23 @@ struct alignas(16) HddagiTraceParams {
   uint32_t fractional_bits = 8;
   glm::uvec2 padding{0};
 };
+struct alignas(16) HddagiLightStoreParams {
+  glm::ivec3 grid{0};
+  uint32_t capacity = 0;
+  glm::ivec3 offset{0};
+  uint32_t cascade = 0;
+  glm::ivec3 limit{0};
+  uint32_t padding = 0;
+  glm::ivec3 region_world_offset{0};
+  uint32_t padding2 = 0;
+};
+struct HddagiProcessVoxel {
+  uint32_t position = 0;
+  uint32_t albedo_normal = 0;
+  uint32_t emission = 0;
+  uint32_t occlusion = 0;
+};
+static_assert(sizeof(HddagiLightStoreParams) == 64 && sizeof(HddagiProcessVoxel) == 16);
 static_assert(sizeof(HddagiCascadeData) == 32 && sizeof(HddagiCascadeBlock) == 256);
 static_assert(sizeof(HddagiRegionParams) == 48 && sizeof(HddagiRay) == 32 && sizeof(HddagiTraceParams) == 32);
 }  // namespace evo_engine

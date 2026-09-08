@@ -43,6 +43,20 @@ uint HddagiPackAlbedo(float3 color) {
   return packed.r | (packed.g << 5) | (packed.b << 11);
 }
 
+uint HddagiEncodeRadiance(float3 rgb) {
+  rgb = clamp(rgb, float3(0),
+    float3(asfloat(0x477F8000u)));
+  float maximum = max(max(asfloat(0x37800000u), rgb.r), max(rgb.g, rgb.b));
+  float bias = asfloat((asuint(maximum) + 0x07804000u) & 0x7F800000u);
+  uint3 mantissa = asuint(rgb + bias);
+  uint exponent = (asuint(bias) << 4) + 0x10000000u;
+  return exponent | (mantissa.b << 18) | (mantissa.g << 9) | (mantissa.r & 0x1FFu);
+}
+
+float3 HddagiDecodeRadiance(uint packed) {
+  return float3(packed & 511u, (packed >> 9) & 511u, (packed >> 18) & 511u) * exp2(float(packed >> 27) - 24);
+}
+
 uint2 HddagiPackEmission(float3 emitted, float3 normal) {
   float lumas[6];
   float3 total = float3(0);
@@ -55,11 +69,5 @@ uint2 HddagiPackEmission(float3 emitted, float3 normal) {
   uint aniso = 0;
   for (uint i = 0; i < 6; ++i)
     aniso |= min(31u, uint(lumas[i] / max(luma, 1e-20) * 31.0)) << (i * 5);
-  float3 rgb = clamp(total, float3(0),
-    float3(asfloat(0x477F8000u)));
-  float maximum = max(max(asfloat(0x37800000u), rgb.r), max(rgb.g, rgb.b));
-  float bias = asfloat((asuint(maximum) + 0x07804000u) & 0x7F800000u);
-  uint3 mantissa = asuint(rgb + bias);
-  uint exponent = (asuint(bias) << 4) + 0x10000000u;
-  return uint2(exponent | (mantissa.b << 18) | (mantissa.g << 9) | (mantissa.r & 0x1FFu), aniso);
+  return uint2(HddagiEncodeRadiance(total), aniso);
 }
