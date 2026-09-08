@@ -6,6 +6,7 @@ public interface IDdgiGatherResources {
   float4 sampleIrradiance(uint volume_index, float2 uv);
   float4 sampleVisibility(uint volume_index, float2 uv);
 }
+
 public struct EeDdgiGatherResult {
   public float3 irradiance;
   public float3 linear_irradiance;
@@ -45,7 +46,7 @@ public float EE_DDGI_VOLUME_BOUNDARY_WEIGHT(const DdgiVolumeInfo volume, const f
   }
   const float3 distance_to_boundary = min(probe_coordinate, max_probe_coordinate - probe_coordinate);
   const float nearest_boundary = min(distance_to_boundary.x, min(distance_to_boundary.y, distance_to_boundary.z));
-  return clamp(1.0f - nearest_boundary, 0.0f, 1.0f);
+  return clamp(1.0f - nearest_boundary * 0.5f, 0.0f, 1.0f);
 }
 public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResources>(T resources, const uint volume_index, const DdgiVolumeInfo volume,
                                                     const float3 normal, const float3 view_direction,

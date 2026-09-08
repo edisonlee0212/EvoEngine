@@ -3,6 +3,8 @@
 #include "AssetRef.hpp"
 #include "DdgiSettings.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "HddagiSettings.hpp"
+#include "SdfgiSettings.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -33,7 +35,7 @@ struct ResolvedEnvironmentalLighting {
   };
 
   static constexpr uint32_t kMaxLocalReflectionProbeCount = 32u;
-  static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
+  static constexpr uint32_t kMaxDdgiCascadeCount = 8u;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
   static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
   static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
@@ -65,23 +67,12 @@ struct ResolvedEnvironmentalLighting {
     bool enabled = true;
   };
 
-  struct DdgiVolume {
-    std::string name{};
-    glm::mat4 transform = glm::mat4(1.0f);
-    glm::ivec3 probe_counts = glm::ivec3(10, 6, 16);
-    glm::vec3 probe_spacing = glm::vec3(1.5f);
-    glm::vec3 volume_origin = glm::vec3(0.0f, 3.0f, 3.0f);
+  struct DdgiCascade {
+    glm::ivec3 probe_center{0};
+    std::string name;
+    glm::ivec3 probe_counts{0};
+    glm::vec3 probe_spacing{0};
     uint64_t stable_id = 0;
-    int artist_priority = 0;
-    int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
-    int emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit);
-    bool enabled = true;
-    bool enable_probe_relocation = true;
-    bool enable_probe_classification = false;
-    float relocation_distance = 0.25f;
-    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int variability_reset_trigger_conditions =
-        DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
   };
 
   AssetRef scene_global_reflection_probe_fallback;
@@ -90,14 +81,17 @@ struct ResolvedEnvironmentalLighting {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  GiProbeSettings gi_probe_settings{};
+  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+  SdfgiSettings sdfgi_settings{};
+  HddagiSettings hddagi_settings{};
   DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
-  std::vector<DdgiVolume> ddgi_volumes;
+  std::vector<DdgiCascade> ddgi_cascades;
   bool environmental_lighting_asset_assigned = false;
   bool environmental_lighting_asset_missing = false;
   bool uses_engine_default_indirect_environment_source = true;
   uint32_t truncated_local_reflection_probe_count = 0;
-  uint32_t truncated_ddgi_volume_count = 0;
 
   [[nodiscard]] static constexpr bool LightingUsageUsesEnvironmentLightingIntensity(const LightingUsage usage) {
     switch (usage) {

@@ -51,10 +51,22 @@ void RecordProbeTrace(const VkCommandBuffer vk_command_buffer, const RenderGraph
   VkDescriptorImageInfo atlas_info{};
   atlas_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   atlas_info.sampler = parameters.atlas_sampler->GetVkSampler();
-  atlas_info.imageView = irradiance_view->GetVkImageView();
-  ray_output_descriptor_set->UpdateImageDescriptorBinding(17, atlas_info);
-  atlas_info.imageView = visibility_view->GetVkImageView();
-  ray_output_descriptor_set->UpdateImageDescriptorBinding(18, atlas_info);
+  for (uint32_t cascade = 0; cascade < parameters.cascades.size(); ++cascade) {
+    const auto& resources = parameters.cascades[cascade];
+    const auto irradiance = resources.irradiance ? CreateGraphImageMipView(resources.irradiance, 0) : irradiance_view;
+    const auto visibility = resources.visibility ? CreateGraphImageMipView(resources.visibility, 0) : visibility_view;
+    const auto state = resources.probe_state ? resources.probe_state : state_binding->buffer;
+    parameters.transient_resources->RetainImageView(irradiance);
+    parameters.transient_resources->RetainImageView(visibility);
+    parameters.transient_resources->RetainImage(resources.irradiance);
+    parameters.transient_resources->RetainImage(resources.visibility);
+    parameters.transient_resources->RetainBuffer(state);
+    atlas_info.imageView = irradiance->GetVkImageView();
+    ray_output_descriptor_set->UpdateImageDescriptorBinding(17, atlas_info, cascade);
+    atlas_info.imageView = visibility->GetVkImageView();
+    ray_output_descriptor_set->UpdateImageDescriptorBinding(18, atlas_info, cascade);
+    ray_output_descriptor_set->UpdateBufferDescriptorBinding(19, state, cascade);
+  }
   ApplyGraphResourceBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
   parameters.pipeline->Bind(vk_command_buffer);
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,

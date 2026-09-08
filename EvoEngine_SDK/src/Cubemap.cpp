@@ -165,9 +165,9 @@ void Cubemap::UploadLocalData() const {
   }
   const auto copy_regions = BuildCubemapCopyRegions(resolution_, mip_levels_, bytes_per_texel);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     storage.image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer(), copy_regions);
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
   local_data_dirty_ = false;
   MarkGpuContentValid();
@@ -281,8 +281,8 @@ void Cubemap::GetRgbaChannelData(std::vector<glm::vec4>& pixels, const bool forc
   const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels(), sizeof(glm::vec4));
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     const auto previous_layout = storage.image->GetLayout();
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
                            image_buffer.GetVkBuffer(), static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
     storage.image->TransitImageLayout(vk_command_buffer, previous_layout);
   });
@@ -312,8 +312,8 @@ void Cubemap::GetRgba16fData(std::vector<uint16_t>& pixels, const bool force_gpu
   const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels(), sizeof(uint16_t) * 4);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     const auto previous_layout = storage.image->GetLayout();
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
                            image_buffer.GetVkBuffer(), static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
     storage.image->TransitImageLayout(vk_command_buffer, previous_layout);
   });
@@ -375,7 +375,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
 
   const auto depth_image = std::make_shared<Image>(depth_image_info);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
   VkImageViewCreateInfo depth_view_info{};
@@ -442,7 +442,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
   }
   BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -468,7 +468,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
       VkRenderingAttachmentInfo attachment{};
       attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -478,7 +478,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
       VkRenderingAttachmentInfo depth_attachment{};
       depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -511,7 +511,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
 #pragma endregion
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     storage.image->GenerateMipmaps(vk_command_buffer);
   });
   MarkGpuContentValid();
@@ -548,7 +548,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 
   const auto depth_image = std::make_shared<Image>(depth_image_info);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
   VkImageViewCreateInfo depth_view_info{};
@@ -608,7 +608,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
   }
   BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -634,7 +634,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       VkRenderingAttachmentInfo attachment{};
       attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -644,7 +644,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
       VkRenderingAttachmentInfo depth_attachment{};
       depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -681,7 +681,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     storage.image->GenerateMipmaps(vk_command_buffer);
   });
   MarkGpuContentValid();

@@ -3,9 +3,11 @@
 #include "AssetRef.hpp"
 #include "CameraSettings.hpp"
 #include "DdgiSettings.hpp"
-#include "DdgiVolumePack.hpp"
+#include "GiSettings.hpp"
+#include "HddagiSettings.hpp"
 #include "IAsset.hpp"
 #include "ReflectionProbePack.hpp"
+#include "SdfgiSettings.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -28,7 +30,7 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   };
 
   static constexpr uint32_t kMaxLocalReflectionProbeCount = 32u;
-  static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
+  static constexpr uint32_t kMaxDdgiCascadeCount = 8u;
   static constexpr int kMaxExactLocalReflectionProbePriority = 1 << 24;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
   static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
@@ -63,7 +65,6 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   };
 
   using LocalReflectionProbe = ReflectionProbePack::Probe;
-  using DdgiVolume = DdgiVolumePack::Volume;
 
   IndirectEnvironmentSource indirect_environment_source{};
   ReflectionProbeBakeBackground reflection_probe_bake_background{};
@@ -72,14 +73,19 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  GiProbeSettings gi_probe_settings{};
+  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+  SdfgiSettings sdfgi_settings{};
+  HddagiSettings hddagi_settings{};
   bool local_reflection_probes_enabled = true;
   AssetRef reflection_probe_pack;
-  AssetRef ddgi_volume_pack;
+
+  [[nodiscard]] GiSettings GetGiSettings() const;
+  void ApplyGiSettings(const GiSettings& settings);
+  bool TrySetGiSettings(const GiSettings& settings, std::string& error);
 
   [[nodiscard]] std::shared_ptr<ReflectionProbePack> GetReflectionProbePack() const;
-  [[nodiscard]] std::shared_ptr<DdgiVolumePack> GetDdgiVolumePack() const;
   [[nodiscard]] std::shared_ptr<ReflectionProbePack> GetOrCreateReflectionProbePack();
-  [[nodiscard]] std::shared_ptr<DdgiVolumePack> GetOrCreateDdgiVolumePack();
   void CollectAssetRef(std::vector<AssetRef>& list);
 
   [[nodiscard]] static float EvaluateRoughSpecularVisibility(float material_occlusion, float screen_space_visibility,

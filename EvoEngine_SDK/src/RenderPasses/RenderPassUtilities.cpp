@@ -72,26 +72,13 @@ RenderPassGpuTimestampScope::~RenderPassGpuTimestampScope() {
 namespace {
 VkImageLayout ToVkImageLayout(const RenderResourceState state) {
   switch (state) {
-    case RenderResourceState::ColorAttachment:
-    case RenderResourceState::DepthAttachment:
-      return VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
-    case RenderResourceState::ShaderRead:
-      return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    case RenderResourceState::StorageReadWrite:
-    case RenderResourceState::TransferDestinationGeneral:
-    case RenderResourceState::AccelerationStructureRead:
-    case RenderResourceState::General:
-      return VK_IMAGE_LAYOUT_GENERAL;
-    case RenderResourceState::Present:
-      return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    case RenderResourceState::TransferSource:
-      return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    case RenderResourceState::TransferDestination:
-      return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
     case RenderResourceState::Undefined:
       return VK_IMAGE_LAYOUT_UNDEFINED;
+    case RenderResourceState::Present:
+      return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    default:
+      return VK_IMAGE_LAYOUT_GENERAL;
   }
-  return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 uint32_t GetRenderPassQueueFamilyIndex(const RenderPassQueue queue) {
@@ -212,8 +199,8 @@ void ApplyGraphImageBarrier(const VkCommandBuffer vk_command_buffer, const std::
   image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   image_barrier.image = image->GetVkImage();
-  image_barrier.subresourceRange.aspectMask = barrier.previous_state == RenderResourceState::DepthAttachment ||
-                                                      barrier.next_state == RenderResourceState::DepthAttachment
+  image_barrier.subresourceRange.aspectMask = image->GetFormat() == Platform::Constants::render_texture_depth ||
+                                                      image->GetFormat() == Platform::Constants::shadow_map
                                                   ? VK_IMAGE_ASPECT_DEPTH_BIT
                                                   : VK_IMAGE_ASPECT_COLOR_BIT;
   if ((image_barrier.subresourceRange.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0 && image->HasStencilComponent()) {

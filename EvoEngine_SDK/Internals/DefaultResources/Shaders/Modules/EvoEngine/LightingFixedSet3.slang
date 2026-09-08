@@ -1,6 +1,6 @@
 __exported import EvoEngine.Lighting;
 
-struct EeLightingResources : ILightingResources {
+public struct EeLightingResources : ILightingResources {
   float3 sampleSky(float3 direction) {
     const int texture_index = EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].skybox_tex_index;
     return EE_CUBEMAPS[NonUniformResourceIndex(texture_index)].SampleLevel(direction, 0.0f).rgb;

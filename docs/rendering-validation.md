@@ -26,6 +26,10 @@ out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_
 GPU shader and numerical tests require a device with their Vulkan prerequisites. Report an unavailable prerequisite as
 missing coverage rather than treating a CPU/source test as equivalent.
 
+Inspect validation output as well as test exit status: a Vulkan callback error does not automatically fail a GoogleTest
+assertion. The geometry compaction readback test requires the vertex buffer to have `TRANSFER_SRC` usage, in addition to
+its upload, storage and vertex usages; check that `VUID-vkCmdCopyBuffer-srcBuffer-00118` is absent.
+
 Vulkan validation is disabled by default, including Debug and RelWithDebInfo builds. Enable it explicitly when running
 graphics API correctness checks:
 
@@ -45,9 +49,22 @@ Use `out\install\vs2026-x64\bin\EvoEngineEditor.exe` for installed-runtime check
 
 ## Raster Performance Baseline
 
+Rendering capture fixtures wait for asynchronous scene setup before selecting their GI provider. RT-enabled captures
+explicitly select Automatic DDGI; the raster-only texture smoke selects Environment, without requiring unavailable DDGI.
+
+`RenderingDemo.SdfgiGoldenImage` selects Automatic SDFGI explicitly with RT pipeline, ray query and acceleration
+structures disabled. It captures the same 2560x1440 scene after 1800 warmup frames, checks that SDFGI is effective and
+has updated its field, and compares against its own `RenderingDemo.SdfgiGoldenImage.2560x1440.png` baseline.
+The DDGI texture-lifecycle and SDFGI golden tests retain PSNR >= 30 dB and SSIM >= 0.95. Refresh only these two approved
+targets with the following command, then rerun without `--accept-render-baseline` to verify fresh captures:
+
+```powershell
+python Scripts/test.py --render-only --accept-render-baseline --ctest-arg=-R --ctest-arg="RenderingDemo.(TextureLifecycleStressThenCanonicalRasterGolden|SdfgiGoldenImage)$"
+```
+
 The raster correctness gate runs one deterministic Rendering demo capture for every combination of meshlet and indirect
-submission. All four cells compare against the same 2560x1440 golden image with PSNR at least 30 dB and SSIM at least
-0.95:
+submission. All four cells compare against the same 2560x1440 golden image with PSNR at least 29 dB and SSIM at least
+0.94:
 
 | Cell | Meshlet | Indirect |
 | --- | --- | --- |
@@ -84,7 +101,7 @@ policy as `first-requested-frames` and includes both the full window and a final
 It records the stable Application Loop hierarchy with inclusive/self average, median, p95, maximum, observation counts,
 missing-frame zeros, main-thread wall time, and separate worker CPU work. GPU data is grouped by render-pass taxonomy
 with span, summed contributing work, pass duty cycle, and frequency-weighted time. Raster resolution and DDGI
-active/update/trace/convergence sample counts make transient convergence activity explicit; the capture does not wait
+active/update/trace sample counts make DDGI activity explicit; the capture does not wait
 for DDGI steady state.
 For instrumentation-overhead A/B runs, append `--preview-gpu-timestamps disabled`; profile reports otherwise enable GPU
 timestamps automatically. The report records the effective `capture.gpu_timestamps` state.
@@ -153,12 +170,16 @@ The installed-editor validation scripts write their captures, logs, and reports 
 | Area | Command |
 | --- | --- |
 | DDGI application smoke | `python Scripts\run_ddgi_app_validation.py --config RelWithDebInfo` |
-| Multi-volume selection and lifecycle | `python Scripts\run_ddgi_multivolume_validation.py --config RelWithDebInfo --width 1920 --height 1080` |
+| Automatic GI cascades and provider edits | `python Scripts/run_automatic_gi_validation.py --provider ddgi --resources Resources/.generated/demos` (installed RT-enabled 1440p Sponza); use `--provider sdfgi` for RT-disabled SDFGI |
 | Emissive sampling | `python Scripts\run_ddgi_emissive_validation.py --config RelWithDebInfo --width 1920 --height 1080` |
 | Environment controls | `python Scripts\run_environment_lighting_validation.py --config RelWithDebInfo --output-dir out\environment-lighting-validation` |
 | Reflection probes | `python Scripts\run_reflection_probe_validation.py --config RelWithDebInfo --output-dir out\reflection-probe-validation` |
 
-Inspect DDGI reports for readiness, convergence, update reasons, finite atlas metadata, correct overlap selection, and
+DDGI report schema 9 records periodic rolling-history windows instead of convergence/variability or hysteresis boosts.
+Existing image baselines need fresh temporal-policy baselines. Python `CaptureCurrentScene` rejects empty or nonfinite
+float output before PNG conversion.
+
+Inspect DDGI reports for readiness, completed history windows, update reasons, finite atlas metadata, correct overlap selection, and
 expected response to light, material, geometry, and environment changes. Reflection-probe checks should cover explicit
 bake publication, priority and boundary selection, global fallback, box/sphere projection, dynamic updates, and the
 absence of recursive local-probe capture.

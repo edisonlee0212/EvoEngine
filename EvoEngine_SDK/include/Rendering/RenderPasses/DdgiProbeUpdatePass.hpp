@@ -1,4 +1,5 @@
 #pragma once
+#include "DdgiHistory.hpp"
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
@@ -28,13 +29,15 @@ class EVOENGINE_API DdgiProbeUpdatePass final {
     std::shared_ptr<Buffer> metadata_readback_buffer;
     bool* metadata_readback_recorded = nullptr;
     uint32_t* recorded_probe_update_count = nullptr;
-    bool* path_reported = nullptr;
     bool use_emissive_sampling = false;
+    bool clear_history = false;
+    bool invalidate_moved_history = false;
   };
 
   [[nodiscard]] static DispatchSize CalculateDispatchSize(uint32_t probe_count, bool parallel,
                                                           uint32_t max_group_count_x, uint32_t max_group_count_y);
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool use_emissive_sampling = false);
+  [[nodiscard]] static RenderPassDescriptor CreateHistoryInvalidationDescriptor(bool relocation, bool classification);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine

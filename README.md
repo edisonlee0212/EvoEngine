@@ -70,6 +70,8 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
 | CPU and GPU profiler | [docs/profiler.md](docs/profiler.md) |
 | Rendering | [docs/rendering.md](docs/rendering.md) |
+| Automatic SDFGI development | [docs/sdfgi.md](docs/sdfgi.md) |
+| Automatic HDDAGI | [Guide](docs/hddagi.md), [validation results](docs/hddagi-results.md) |
 | Projects, assets, and serialization | [docs/projects-assets-serialization.md](docs/projects-assets-serialization.md) |
 | Runtime packages | [docs/runtime-packages.md](docs/runtime-packages.md) |
 | Extending EvoEngine | [docs/extending-evoengine.md](docs/extending-evoengine.md) |

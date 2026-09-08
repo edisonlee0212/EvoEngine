@@ -89,18 +89,12 @@ def validate_phase(phase: object, name: str, enabled: bool, measure_frames: int)
         raise RuntimeError(f"DDGI emissive report is missing phase {name!r}.")
     if phase.get("requested_enabled") is not enabled or phase.get("effective_enabled") is not enabled:
         raise RuntimeError(f"DDGI emissive phase {name!r} did not report its requested effective state.")
-    if not isinstance(phase.get("convergence_frames"), int) or not 0 < phase["convergence_frames"] <= 1024:
-        raise RuntimeError(f"DDGI emissive phase {name!r} has invalid convergence evidence.")
+    if not isinstance(phase.get("history_window_frames"), int) or not 0 < phase["history_window_frames"] <= 1024:
+        raise RuntimeError(f"DDGI emissive phase {name!r} has invalid history-window evidence.")
     if not isinstance(phase.get("emissive_triangle_count"), int) or phase["emissive_triangle_count"] <= 0:
         raise RuntimeError(f"DDGI emissive phase {name!r} has an empty shared triangle inventory.")
     if phase.get("enabled_volume_count") != (1 if enabled else 0):
         raise RuntimeError(f"DDGI emissive phase {name!r} has the wrong enabled-volume count.")
-    variability = phase.get("variability")
-    variability_samples = phase.get("variability_samples")
-    if not isinstance(variability, (int, float)) or not math.isfinite(variability) or variability < 0:
-        raise RuntimeError(f"DDGI emissive phase {name!r} has invalid variability.")
-    if not isinstance(variability_samples, int) or variability_samples <= 0:
-        raise RuntimeError(f"DDGI emissive phase {name!r} has invalid variability sample accounting.")
     candidate_rays = phase.get("candidate_ray_count")
     if not isinstance(candidate_rays, int) or (candidate_rays <= 0 if enabled else candidate_rays != 0):
         raise RuntimeError(f"DDGI emissive phase {name!r} has invalid candidate-ray accounting.")
@@ -275,7 +269,6 @@ def main() -> int:
                     "median": phases[0]["probe_trace"]["median_ms"] - phases[1]["probe_trace"]["median_ms"],
                     "p95": phases[0]["probe_trace"]["p95_ms"] - phases[1]["probe_trace"]["p95_ms"],
                 },
-                "variability_delta": phases[0]["variability"] - phases[1]["variability"],
                 "hard_performance_and_variance_gate": "four frozen M2 holdouts",
             },
             "artifacts": artifacts,

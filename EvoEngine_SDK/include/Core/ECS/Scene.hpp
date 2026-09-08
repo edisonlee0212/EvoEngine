@@ -16,6 +16,10 @@
 
 namespace evo_engine {
 
+struct SdfgiRuntime;
+struct HddagiRuntime;
+struct GiProbeFrame;
+
 /**
  * @brief Enum for categorizing system groups in the engine.
  */
@@ -64,7 +68,21 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
  * @brief Represents a scene in the engine, including entities, systems, and environmental properties.
  */
 class EVOENGINE_API Scene final : public IAsset {
+  friend class RenderLayer;
+  std::shared_ptr<SdfgiRuntime> sdfgi_runtime_;
+  std::shared_ptr<HddagiRuntime> hddagi_runtime_;
+  std::shared_ptr<GiProbeFrame> gi_probe_frame_;
+
  public:
+  [[nodiscard]] std::shared_ptr<const HddagiRuntime> GetHddagiRuntime() const {
+    return hddagi_runtime_;
+  }
+  [[nodiscard]] std::shared_ptr<const SdfgiRuntime> GetSdfgiRuntime() const {
+    return sdfgi_runtime_;
+  }
+  [[nodiscard]] std::shared_ptr<const GiProbeFrame> GetGiProbeFrame() const {
+    return gi_probe_frame_;
+  }
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**

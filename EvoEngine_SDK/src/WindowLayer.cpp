@@ -116,7 +116,7 @@ void CopySwapchainImageToBuffer(const VkCommandBuffer vk_command_buffer, const s
   image_copy_info.imageSubresource.layerCount = 1;
   image_copy_info.imageOffset = {0, 0, 0};
   image_copy_info.imageExtent = {swapchain->GetImageExtent().width, swapchain->GetImageExtent().height, 1};
-  vkCmdCopyImageToBuffer(vk_command_buffer, swapchain->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+  vkCmdCopyImageToBuffer(vk_command_buffer, swapchain->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
                          readback_buffer.GetVkBuffer(), 1, &image_copy_info);
 }
 }  // namespace
@@ -331,13 +331,13 @@ void WindowLayer::Render() {
                                                 const std::shared_ptr<Swapchain>& swapchain,
                                                 const std::shared_ptr<Buffer>& screenshot_buffer) {
     if (!screenshot_buffer) {
-      transition_to_present(vk_command_buffer, swapchain, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+      transition_to_present(vk_command_buffer, swapchain, VK_IMAGE_LAYOUT_GENERAL);
       return;
     }
     Platform::TransitImageLayout(vk_command_buffer, swapchain->GetVkImage(), swapchain->GetImageFormat(), 1,
-                                 VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+                                 VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
     CopySwapchainImageToBuffer(vk_command_buffer, swapchain, *screenshot_buffer);
-    transition_to_present(vk_command_buffer, swapchain, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    transition_to_present(vk_command_buffer, swapchain, VK_IMAGE_LAYOUT_GENERAL);
   };
   if (const auto imgui_layer = ApplicationContext::Get().GetLayer<ImGuiLayer>()) {
     const auto swapchain = Platform::GetSwapchain();
@@ -345,7 +345,7 @@ void WindowLayer::Render() {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
       Platform::EverythingBarrier(vk_command_buffer);
       Platform::TransitImageLayout(vk_command_buffer, swapchain->GetVkImage(), swapchain->GetImageFormat(), 1,
-                                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+                                   VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
       constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
       VkRect2D render_area;
@@ -355,7 +355,7 @@ void WindowLayer::Render() {
       VkRenderingAttachmentInfo color_attachment_info{};
       color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
       color_attachment_info.imageView = swapchain->GetVkImageView();
-      color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
+      color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
       color_attachment_info.clearValue = clear_color;
@@ -391,7 +391,7 @@ void WindowLayer::Render() {
         Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
           Platform::EverythingBarrier(vk_command_buffer);
           Platform::TransitImageLayout(vk_command_buffer, swapchain->GetVkImage(), swapchain->GetImageFormat(), 1,
-                                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+                                       VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
           constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
           VkRect2D render_area;
@@ -401,7 +401,7 @@ void WindowLayer::Render() {
           VkRenderingAttachmentInfo color_attachment_info{};
           color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
           color_attachment_info.imageView = swapchain->GetVkImageView();
-          color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
+          color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
           color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
           color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
           color_attachment_info.clearValue = clear_color;
@@ -457,13 +457,13 @@ void WindowLayer::Render() {
       const auto screenshot_buffer = prepare_screenshot_capture(swapchain);
       Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
         Platform::TransitImageLayout(vk_command_buffer, swapchain->GetVkImage(), swapchain->GetImageFormat(), 1,
-                                     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR);
+                                     VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
         constexpr VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
         VkRenderingAttachmentInfo color_attachment_info{};
         color_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         color_attachment_info.imageView = swapchain->GetVkImageView();
-        color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
+        color_attachment_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         color_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         color_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         color_attachment_info.clearValue = clear_color;

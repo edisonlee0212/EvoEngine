@@ -12,8 +12,10 @@ public float3 EE_DDGI_SAFE_NORMALIZE(float3 value, float3 fallback) {
 }
 
 public float EE_DDGI_AXIS_COORDINATE(float3 delta, float3 axis) {
-  float axis_length_squared = dot(axis, axis);
-  return axis_length_squared > 1e-6f ? dot(delta, axis) / axis_length_squared : 0.0f;
+  float scale = max(abs(axis.x), max(abs(axis.y), abs(axis.z)));
+  if (!(scale > 0.0f)) return 0.0f;
+  float3 normalized = axis / scale;
+  return dot(delta, normalized) / scale / dot(normalized, normalized);
 }
 
 public float EE_DDGI_VOLUME_BLEND_WEIGHT(float3 probe_coordinate, uint3 probe_counts, float3 probe_step_x,
@@ -21,17 +23,7 @@ public float EE_DDGI_VOLUME_BLEND_WEIGHT(float3 probe_coordinate, uint3 probe_co
   float3 max_probe_coordinate = float3(probe_counts - uint3(1u));
   bool inside_volume =
       !any(probe_coordinate < float3(0.0f)) && !any(probe_coordinate > max_probe_coordinate);
-  if (inside_volume) {
-    return 1.0f;
-  }
-
-  float3 step_lengths =
-      max(float3(length(probe_step_x), length(probe_step_y), length(probe_step_z)), float3(0.0001f));
-  float3 lower_distance = max(-probe_coordinate * step_lengths, float3(0.0f));
-  float3 upper_distance = max((probe_coordinate - max_probe_coordinate) * step_lengths, float3(0.0f));
-  float3 outside_distance = max(lower_distance, upper_distance);
-  float3 axis_weight = float3(1.0f) - clamp(outside_distance / step_lengths, float3(0.0f), float3(1.0f));
-  return axis_weight.x * axis_weight.y * axis_weight.z;
+  return inside_volume && all(isfinite(probe_coordinate)) ? 1.0f : 0.0f;
 }
 
 public float3 EE_DDGI_PROBE_COORDINATE(float3 position, float3 first_probe, float3 probe_step_x, float3 probe_step_y,
@@ -46,10 +38,11 @@ public uint EE_DDGI_PROBE_INDEX(uint3 probe_grid, uint3 probe_counts) {
 }
 
 public uint3 EE_DDGI_WRAP_PROBE_GRID(int3 probe_grid, uint3 probe_counts) {
-  int3 counts = int3(max(probe_counts, uint3(1u)));
-  int3 wrapped = probe_grid % counts;
-  wrapped = (wrapped + counts) % counts;
-  return uint3(wrapped);
+  uint3 counts = max(probe_counts, uint3(1u));
+  // Keep remainder operands nonnegative across shader compiler backends.
+  uint3 positive = uint3(max(probe_grid, int3(0))) % counts;
+  uint3 negative = uint3(max(-probe_grid, int3(0))) % counts;
+  return (positive + counts - negative) % counts;
 }
 
 public uint3 EE_DDGI_SCROLL_PROBE_GRID(uint3 probe_grid, int3 scroll_offset, uint3 probe_counts) {

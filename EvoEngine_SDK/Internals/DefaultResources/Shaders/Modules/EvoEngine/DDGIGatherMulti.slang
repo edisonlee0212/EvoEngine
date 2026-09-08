@@ -20,66 +20,32 @@ struct EeDdgiMultiVolumeResources : IDdgiGatherResources {
 public EeDdgiGatherResult EE_DDGI_GATHER_IRRADIANCE(const float3 normal, const float3 view_direction,
                                                     const float3 position, const bool gather_linear_irradiance) {
   EeDdgiMultiVolumeResources resources;
-  const uint volume_count = min(EE_RENDER_INFO.ddgi_volume_header.x, EE_DDGI_MAX_VOLUME_COUNT);
-  uint primary_index = EE_DDGI_MAX_VOLUME_COUNT;
-  for (uint i = 0u; i < volume_count; ++i) {
-    const DdgiVolumeInfo volume = EE_RENDER_INFO.ddgi_volumes[i];
-    if (volume.lighting_parameters.x > 0.0f && EE_DDGI_VOLUME_COVERAGE(volume, position) > 0.0f) {
-      primary_index = i;
-      break;
-    }
-  }
-  if (primary_index == EE_DDGI_MAX_VOLUME_COUNT) return EE_DDGI_EMPTY_GATHER();
-
-  const DdgiVolumeInfo primary_volume = EE_RENDER_INFO.ddgi_volumes[primary_index];
-  EeDdgiGatherResult primary =
-      EE_DDGI_GATHER_VOLUME_IRRADIANCE(resources, primary_index, primary_volume, normal, view_direction, position,
-                                       gather_linear_irradiance);
-  const float boundary_weight = EE_DDGI_VOLUME_BOUNDARY_WEIGHT(primary_volume, position);
-  if (!(boundary_weight > 0.0f)) return primary;
-
-  uint secondary_index = EE_DDGI_MAX_VOLUME_COUNT;
-  float secondary_coverage = 0.0f;
-  for (uint i = 0u; i < volume_count; ++i) {
-    if (i == primary_index) continue;
-    const DdgiVolumeInfo volume = EE_RENDER_INFO.ddgi_volumes[i];
-    if (!(volume.lighting_parameters.x > 0.0f)) continue;
-    const float coverage = EE_DDGI_VOLUME_COVERAGE(volume, position);
-    if (coverage > 0.0f) {
-      secondary_index = i;
-      secondary_coverage = coverage;
-      break;
-    }
-  }
-  if (secondary_index == EE_DDGI_MAX_VOLUME_COUNT) return primary;
-
-  EeDdgiGatherResult secondary = EE_DDGI_GATHER_VOLUME_IRRADIANCE(
-      resources, secondary_index, EE_RENDER_INFO.ddgi_volumes[secondary_index], normal, view_direction, position,
-      gather_linear_irradiance);
-  const float primary_coverage = max(primary.coverage, 0.0f);
-  const float weighted_secondary_coverage = max(secondary_coverage, 0.0f) * boundary_weight;
-  const float coverage_sum = primary_coverage + weighted_secondary_coverage;
-  if (!(coverage_sum > 0.0f) || isnan(coverage_sum) || isinf(coverage_sum)) return primary;
-
-  const float primary_effective_weight = primary_coverage / coverage_sum * primary.confidence;
-  const float secondary_effective_weight =
-      weighted_secondary_coverage / coverage_sum * secondary.confidence;
-  const float confidence = primary_effective_weight + secondary_effective_weight;
+  const uint cascade_count = min(EE_RENDER_INFO.ddgi_volume_header.x, EE_DDGI_MAX_VOLUME_COUNT);
   EeDdgiGatherResult result = EE_DDGI_EMPTY_GATHER();
-  result.coverage = clamp(coverage_sum, 0.0f, 1.0f);
-  result.confidence = clamp(confidence, 0.0f, 1.0f);
-  if (confidence > 0.0f && !isnan(confidence) && !isinf(confidence)) {
-    result.irradiance =
-        (primary.irradiance * primary_effective_weight + secondary.irradiance * secondary_effective_weight) /
-        confidence;
-    result.linear_irradiance =
-        (primary.linear_irradiance * primary_effective_weight +
-         secondary.linear_irradiance * secondary_effective_weight) /
-        confidence;
-    result.visibility =
-        clamp((primary.visibility * primary_effective_weight + secondary.visibility * secondary_effective_weight) /
-                  confidence,
-              0.0f, 1.0f);
+  float remaining = 1.0f;
+  float weight_sum = 0.0f;
+  float visibility_sum = 0.0f;
+  for (uint cascade = 0u; cascade < cascade_count && remaining > 0.0f; ++cascade) {
+    const DdgiVolumeInfo volume = EE_RENDER_INFO.ddgi_volumes[cascade];
+    if (EE_DDGI_VOLUME_COVERAGE(volume, position) <= 0.0f) continue;
+    float interior = 1.0f - EE_DDGI_VOLUME_BOUNDARY_WEIGHT(volume, position);
+    float allocation = remaining * interior;
+    remaining *= 1.0f - interior;
+    if (!(allocation > 0.0f) || !(volume.lighting_parameters.x > 0.0f)) continue;
+    EeDdgiGatherResult sample = EE_DDGI_GATHER_VOLUME_IRRADIANCE(
+        resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
+    float weight = allocation * sample.confidence;
+    result.irradiance += sample.irradiance * weight;
+    result.linear_irradiance += sample.linear_irradiance * weight;
+    visibility_sum += sample.visibility * weight;
+    weight_sum += weight;
+  }
+  if (weight_sum > 0.0f && isfinite(weight_sum)) {
+    result.irradiance /= weight_sum;
+    result.linear_irradiance /= weight_sum;
+    result.visibility = visibility_sum / weight_sum;
+    result.coverage = 1.0f;
+    result.confidence = saturate(weight_sum);
   }
   return result;
 }

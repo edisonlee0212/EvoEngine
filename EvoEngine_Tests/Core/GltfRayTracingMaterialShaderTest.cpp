@@ -369,8 +369,8 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(render_storage.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"),
             std::string::npos);
   EXPECT_NE(render_layer.find("Shaders/RayTracing/AnyHit/DDGIProbeTrace.slang"), std::string::npos);
-  EXPECT_NE(render_layer.find("emissive_dispatch_seed"), std::string::npos);
-  EXPECT_NE(render_layer.find("probe_scroll_offset.w = static_cast<int32_t>(emissive_dispatch_seed & 0x7fffffffu)"),
+  EXPECT_NE(render_layer.find("CreateDdgiSamplingPhase("), std::string::npos);
+  EXPECT_NE(render_layer.find("probe_scroll_offset.w = static_cast<int32_t>(sampling.emissive_seed)"),
             std::string::npos);
 }
 

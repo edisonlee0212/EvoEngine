@@ -11,7 +11,6 @@
 #include "AssetRef.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
-#include "DdgiVolumePack.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
@@ -158,7 +157,6 @@ void RegisterBuiltInAssetIoHandlers() {
   RegisterYamlStagedAssetIoHandler<LightProbe>("LightProbe");
   RegisterYamlStagedAssetIoHandler<EnvironmentalMap>("EnvironmentalMap");
   RegisterYamlStagedAssetIoHandler<EnvironmentalLighting>("EnvironmentalLighting");
-  RegisterYamlStagedAssetIoHandler<DdgiVolumePack>("DdgiVolumePack");
   GlobalReflectionProbe::RegisterAssetIoHandlers();
   ReflectionProbePack::RegisterAssetIoHandlers();
   Shader::RegisterAssetIoHandlers();
@@ -1973,8 +1971,6 @@ void RegisterBuiltInSerializationHandlers() {
       SerializeGlobalReflectionProbe, DeserializeGlobalReflectionProbe, {}, "GlobalReflectionProbe");
   Serialization::RegisterSerializationHandler<ReflectionProbePack>(
       SerializeReflectionProbePack, DeserializeReflectionProbePack, {}, "ReflectionProbePack");
-  Serialization::RegisterSerializationHandler<DdgiVolumePack>(SerializeDdgiVolumePack, DeserializeDdgiVolumePack, {},
-                                                              "DdgiVolumePack");
   Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
                                                                 {}, "EnvironmentalMap");
   Serialization::RegisterSerializationHandler<EnvironmentalLighting>(
@@ -2406,7 +2402,6 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<LightProbe>("LightProbe", {".evelightprobe"});
   RegisterAsset<GlobalReflectionProbe>("GlobalReflectionProbe", {".evereflectionprobe"});
   RegisterAsset<ReflectionProbePack>("ReflectionProbePack", {".evereflectionprobepack"});
-  RegisterAsset<DdgiVolumePack>("DdgiVolumePack", {".eveddgivolumepack"});
   RegisterAsset<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
   RegisterAsset<EnvironmentalLighting>("EnvironmentalLighting", {".eveenvironmentallighting"});
   RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});

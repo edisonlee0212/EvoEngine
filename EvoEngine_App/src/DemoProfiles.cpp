@@ -33,9 +33,6 @@ namespace evo_engine {
 namespace {
 const glm::ivec2 kDdgiCornellBoxExtent = {1024, 1024};
 const glm::vec3 kDdgiCornellBoxCameraPosition = {0.0f, 0.0f, 0.8f};
-const glm::ivec3 kDdgiCornellBoxProbeCounts = {13, 13, 14};
-const glm::vec3 kDdgiCornellBoxVolumeOrigin = {0.0f, 0.0f, 0.0f};
-constexpr float kDdgiCornellBoxProbeSpacing = 0.14333334f;
 constexpr float kDdgiCornellBoxCeilingLightEmission = 6.0f;
 constexpr float kDdgiCornellBoxNormalBias = 0.02f;
 constexpr float kDdgiCornellBoxViewBias = 0.05f;
@@ -205,39 +202,15 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
   if (!lighting) {
     return false;
   }
-  auto* asset_volume = [&]() -> EnvironmentalLighting::DdgiVolume* {
-    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-      if (volume.enabled && volume.name == "DDGI Probe Volume") {
-        return &volume;
-      }
-    }
-    return nullptr;
-  }();
-  if (!asset_volume) {
-    return false;
-  }
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
 
   auto& settings = lighting->ddgi_settings;
-  settings.runtime.enabled = true;
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     auto& session = render_layer->GetDdgiSessionState();
     session.show_probes = true;
     session.show_selected_probe = true;
-    session.selected_volume_id = asset_volume->stable_id;
-    session.selected_probe_grid = DdgiRuntime::GetProbeGridIndex(asset_volume->probe_counts, 129u);
-  }
-
-  if (asset_volume->probe_spacing.x < 0.05f) {
-    asset_volume->probe_spacing.x = 0.05f;
-  }
-  if (asset_volume->probe_spacing.y < 0.05f) {
-    asset_volume->probe_spacing.y = 0.05f;
-  }
-  if (asset_volume->probe_spacing.z < 0.05f) {
-    asset_volume->probe_spacing.z = 0.05f;
-  }
-  if (asset_volume->relocation_distance < 0.0f) {
-    asset_volume->relocation_distance = 0.0f;
+    session.selected_cascade_id = 1u;
+    session.selected_probe_grid = DdgiRuntime::GetProbeGridIndex(lighting->gi_probe_settings.ProbeSize(), 129u);
   }
 
   const glm::vec3 camera_position(0.0f, 0.0f, 3.0f);
@@ -704,13 +677,11 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   lighting->specular_fallback_intensity = 0.0f;
 
   auto& ddgi_settings = lighting->ddgi_settings;
-  ddgi_settings.runtime.enabled = true;
-  ddgi_settings.runtime.ray_count = 192;
-  ddgi_settings.runtime.emissive_ray_count = 64;
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
+  ddgi_settings.runtime.ray_count = DdgiSettings{}.runtime.ray_count;
+  ddgi_settings.runtime.emissive_ray_count = DdgiSettings{}.runtime.emissive_ray_count;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
-  ddgi_settings.storage.max_probe_count =
-      kDdgiCornellBoxProbeCounts.x * kDdgiCornellBoxProbeCounts.y * kDdgiCornellBoxProbeCounts.z;
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     render_layer->GetDdgiSessionState().pause_updates = false;
     render_layer->RequestDdgiHistoryReset();
@@ -729,21 +700,9 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   }
 
   if (lighting) {
-    auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
-    ddgi_pack->volumes.clear();
-    auto& target_volume = ddgi_pack->volumes.emplace_back();
-    target_volume.name = "DDGI Probe Volume";
-    target_volume.stable_id = StableEnvironmentalLightingId(target_volume.name);
-    target_volume.enabled = true;
-    target_volume.probe_counts = kDdgiCornellBoxProbeCounts;
-    target_volume.probe_spacing = glm::vec3(kDdgiCornellBoxProbeSpacing);
-    target_volume.volume_origin = kDdgiCornellBoxVolumeOrigin;
-    target_volume.relocation_distance = kDdgiCornellBoxProbeSpacing * 0.5f;
-    target_volume.enable_probe_relocation = settings.enable_probe_relocation;
-    target_volume.enable_probe_classification = settings.enable_probe_classification;
-    Transform ddgi_volume_transform;
-    ddgi_volume_transform.SetPosition(glm::vec3(0.0f, 0.0f, -3.0f));
-    target_volume.transform = ddgi_volume_transform.value;
+    lighting->gi_probe_settings = {};
+    ddgi_settings.runtime.enable_probe_relocation = settings.enable_probe_relocation;
+    ddgi_settings.runtime.enable_probe_classification = settings.enable_probe_classification;
   }
 
   if (const auto* point_light_owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {

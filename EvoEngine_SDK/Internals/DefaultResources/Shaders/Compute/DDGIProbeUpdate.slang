@@ -1,5 +1,6 @@
 import EvoEngine.DDGI;
 import EvoEngine.DDGIProbeRayData;
+import EvoEngine.DDGIProbeHistory;
 
 #ifndef EE_DDGI_PROBE_UPDATE_MODE
 #  define EE_DDGI_PROBE_UPDATE_MODE 0
@@ -45,9 +46,6 @@ RWStructuredBuffer<float4> EE_DDGI_PROBE_METADATA;
 
 [[vk::binding(4, 1)]]
 StructuredBuffer<float4> EE_DDGI_PROBE_STATE;
-
-[[vk::binding(5, 1)]]
-[vk::image_format("r16f")] RWTexture2D<float> EE_DDGI_PROBE_VARIABILITY_ATLAS;
 
 [[vk::binding(6, 1)]]
 StructuredBuffer<DdgiProbeRaySampleInfo> EE_DDGI_PROBE_RAY_SAMPLE_INFO;
@@ -103,14 +101,6 @@ uint2 EE_DDGI_BORDER_COPY_TEXEL(uint2 tile_origin, uint tile_size, uint2 border_
   return copy_texel;
 }
 
-float EE_DDGI_MAX_COMPONENT(float3 value) {
-  return max(value.x, max(value.y, value.z));
-}
-
-float EE_DDGI_LUMINANCE(float3 value) {
-  return dot(value, float3(0.2126f, 0.7152f, 0.0722f));
-}
-
 struct EeDdgiIrradianceAccumulator {
   float3 irradiance;
   float weight_sum;
@@ -129,6 +119,11 @@ void EE_DDGI_ACCUMULATE_IRRADIANCE(inout EeDdgiIrradianceAccumulator accumulator
                                    float3 ray_direction, float inverse_pdf, float3 texel_direction,
                                    uint max_backface_count, bool count_backface) {
   if (!accumulator.valid) {
+    return;
+  }
+  if (!all(isfinite(ray_data.radiance_and_signed_distance)) || !all(isfinite(ray_direction)) ||
+      !isfinite(inverse_pdf) || inverse_pdf < 0.0f) {
+    accumulator.valid = false;
     return;
   }
   if (EE_DDGI_PROBE_RAY_BACKFACE_HIT(ray_data)) {
@@ -151,7 +146,7 @@ void EE_DDGI_ACCUMULATE_IRRADIANCE(inout EeDdgiIrradianceAccumulator accumulator
 float4 EE_DDGI_FINALIZE_IRRADIANCE(EeDdgiIrradianceAccumulator uniform_accumulator,
                                    EeDdgiIrradianceAccumulator emissive_accumulator, uint uniform_ray_count,
                                    uint emissive_ray_count) {
-  if (!uniform_accumulator.valid) {
+  if (!uniform_accumulator.valid || !emissive_accumulator.valid) {
     return float4(0.0f);
   }
   float uniform_epsilon = max(float(uniform_ray_count), 1.0f) * 1e-9f;
@@ -161,9 +156,7 @@ float4 EE_DDGI_FINALIZE_IRRADIANCE(EeDdgiIrradianceAccumulator uniform_accumulat
     irradiance += emissive_accumulator.irradiance *
                   (1.0f / (2.0f * EE_DDGI_PI * float(emissive_ray_count)));
   }
-  float irradiance_gamma = max(constants.update_parameters.z, 1.0f);
-  irradiance = pow(min(max(irradiance, float3(0.0f)), float3(64.0f)), float3(1.0f / irradiance_gamma));
-  return float4(irradiance, 1.0f);
+  return all(isfinite(irradiance)) ? float4(clamp(irradiance, float3(0.0f), float3(64.0f)), 1.0f) : float4(0.0f);
 }
 
 float4 EE_DDGI_DIRECTIONAL_IRRADIANCE(uint ray_offset, uint fixed_ray_count, uint uniform_ray_count,
@@ -199,52 +192,6 @@ float4 EE_DDGI_DIRECTIONAL_IRRADIANCE(uint ray_offset, uint fixed_ray_count, uin
                                      emissive_ray_count);
 }
 
-float4 EE_DDGI_BLEND_IRRADIANCE_HISTORY(float4 current_irradiance, float4 history_irradiance, float history_weight) {
-  if (current_irradiance.a <= 0.0f) {
-    return history_irradiance;
-  }
-
-  float hysteresis = clamp(history_weight, 0.0f, 1.0f);
-  float previous_bright_response_confidence = clamp(history_irradiance.a - 1.0f, 0.0f, 1.0f);
-  if (history_irradiance.a <= 0.0f) {
-    hysteresis = 0.0f;
-  }
-
-  float3 delta = current_irradiance.rgb - history_irradiance.rgb;
-  if (EE_DDGI_MAX_COMPONENT(history_irradiance.rgb - current_irradiance.rgb) > constants.blend_parameters.w) {
-    hysteresis = max(0.0f, hysteresis - 0.75f);
-  }
-  bool bright_response = EE_DDGI_LUMINANCE(delta) > constants.blend_parameters.z;
-  float response_confidence2 = 0.0f;
-  if (bright_response) {
-    response_confidence2 = previous_bright_response_confidence * previous_bright_response_confidence;
-    hysteresis = lerp(hysteresis, min(hysteresis, 0.5f), response_confidence2);
-    delta *= lerp(0.25f, 1.0f, response_confidence2);
-  }
-
-  float min_darkening_step = 1.0f / 1024.0f;
-  float3 lerp_delta = (1.0f - hysteresis) * delta;
-  if (bright_response) {
-    float maximum_bright_step = constants.blend_parameters.z * lerp(1.0f, 1.75f, response_confidence2);
-    float bright_step_luminance = EE_DDGI_LUMINANCE(max(lerp_delta, float3(0.0f)));
-    lerp_delta *= min(1.0f, maximum_bright_step / max(bright_step_luminance, 1e-6f));
-  }
-  if (EE_DDGI_MAX_COMPONENT(current_irradiance.rgb) < EE_DDGI_MAX_COMPONENT(history_irradiance.rgb)) {
-    lerp_delta = min(max(float3(min_darkening_step), abs(lerp_delta)), abs(delta)) * sign(lerp_delta);
-  }
-  float bright_response_confidence = bright_response ? min(previous_bright_response_confidence + 0.25f, 1.0f)
-                                                     : max(previous_bright_response_confidence - 0.0625f, 0.0f);
-  return float4(history_irradiance.rgb + lerp_delta, 1.0f + bright_response_confidence);
-}
-
-float EE_DDGI_ENERGY_AWARE_VARIABILITY(float luminance_sigma2, float mean_luminance) {
-  if (mean_luminance <= (1.0f / 1024.0f)) {
-    return 0.0f;
-  }
-  float coefficient_of_variation = sqrt(max(luminance_sigma2, 0.0f)) / mean_luminance;
-  return coefficient_of_variation * min(mean_luminance / 0.25f, 1.0f);
-}
-
 float EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE() {
   return max(length(float3(length(constants.probe_step_x.xyz), length(constants.probe_step_y.xyz),
                            length(constants.probe_step_z.xyz))) *
@@ -256,16 +203,22 @@ struct EeDdgiVisibilityAccumulator {
   float weight_sum;
   float first_moment;
   float second_moment;
+  bool valid;
 };
 
 void EE_DDGI_INITIALIZE_VISIBILITY_ACCUMULATOR(out EeDdgiVisibilityAccumulator accumulator) {
   accumulator.weight_sum = 0.0f;
   accumulator.first_moment = 0.0f;
   accumulator.second_moment = 0.0f;
+  accumulator.valid = true;
 }
 
 void EE_DDGI_ACCUMULATE_VISIBILITY(inout EeDdgiVisibilityAccumulator accumulator, DdgiProbeRayData ray_data,
                                    float3 ray_direction, float3 texel_direction, float max_visibility_distance) {
+  if (!isfinite(EE_DDGI_PROBE_RAY_SIGNED_DISTANCE(ray_data)) || !all(isfinite(ray_direction))) {
+    accumulator.valid = false;
+    return;
+  }
   float weight =
       pow(EE_DDGI_DIRECTIONAL_WEIGHT(ray_direction, texel_direction), max(constants.blend_parameters.y, 0.0f));
   if (weight <= 0.0f) {
@@ -278,6 +231,8 @@ void EE_DDGI_ACCUMULATE_VISIBILITY(inout EeDdgiVisibilityAccumulator accumulator
 }
 
 float2 EE_DDGI_FINALIZE_VISIBILITY(EeDdgiVisibilityAccumulator accumulator, float max_visibility_distance) {
+  if (!accumulator.valid)
+    return float2(-1.0f);
   if (accumulator.weight_sum <= 0.0f) {
     return float2(max_visibility_distance * 0.5f, max_visibility_distance * max_visibility_distance * 0.5f);
   }
@@ -367,7 +322,54 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
   EE_DDGI_PROBE_METADATA[metadata_offset + 2u] = float4(relocation_offset, 1.0f - previous_inactive);
 }
 
+uint EE_DDGI_HISTORY_TEXEL(uint2 tile_origin, uint tile_size, uint columns, uint texel_index) {
+  uint2 tile = tile_origin / EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  return (tile.y * columns + tile.x) * tile_size * tile_size + texel_index;
+}
+
+void EE_DDGI_STORE_IRRADIANCE_TEXEL(uint2 tile_origin, uint tile_size, uint texel_index,
+                                    float4 sample, float retain_history) {
+  uint texel = EE_DDGI_HISTORY_TEXEL(tile_origin, tile_size,
+                                      constants.atlas_columns_fixed_ray_count_and_update_mode.x, texel_index);
+  float4 average = EE_DDGI_ROLL_IRRADIANCE(texel, uint(constants.blend_parameters.z),
+                                          uint(constants.blend_parameters.w), sample, retain_history < 0.5f);
+  average.xyz = pow(average.xyz, float3(1.0f / max(constants.update_parameters.z, 1.0f)));
+  EE_DDGI_IRRADIANCE_ATLAS[int2(tile_origin + uint2(1u) + uint2(texel_index % tile_size, texel_index / tile_size))] = average;
+}
+
+void EE_DDGI_STORE_VISIBILITY_TEXEL(uint2 tile_origin, uint tile_size, uint texel_index, float2 sample,
+                                    float retain_history, float2 unused) {
+  int2 pixel = int2(tile_origin + uint2(1u) + uint2(texel_index % tile_size, texel_index / tile_size));
+  uint texel = EE_DDGI_HISTORY_TEXEL(tile_origin, tile_size,
+      constants.atlas_columns_fixed_ray_count_and_update_mode.y, texel_index);
+  EE_DDGI_VISIBILITY_ATLAS[pixel] = min(EE_DDGI_ROLL_VISIBILITY(texel, uint(constants.blend_parameters.z),
+      uint(constants.blend_parameters.w), sample, EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE(), retain_history < 0.5f), float2(65504.0f));
+}
+
 #if EE_DDGI_PROBE_UPDATE_MODE == EE_DDGI_PROBE_UPDATE_SERIAL
+void EE_DDGI_INVALIDATE_MOVED_HISTORY(uint probe_index) {
+  float4 state = EE_DDGI_PROBE_STATE[probe_index];
+  if (all(state == EE_DDGI_HISTORY_ORIGINS[probe_index]))
+    return;
+  uint count = uint(constants.blend_parameters.z);
+  uint irradiance_size = constants.probe_count_ray_count_and_tile_sizes.z;
+  uint visibility_size = constants.probe_count_ray_count_and_tile_sizes.w;
+  for (uint i = 0u; i < irradiance_size * irradiance_size; ++i)
+    EE_DDGI_CLEAR_IRRADIANCE_HISTORY(probe_index * irradiance_size * irradiance_size + i, count);
+  for (uint i = 0u; i < visibility_size * visibility_size; ++i)
+    EE_DDGI_CLEAR_VISIBILITY_HISTORY(probe_index * visibility_size * visibility_size + i, count);
+  uint2 columns = constants.atlas_columns_fixed_ray_count_and_update_mode.xy;
+  uint2 irradiance_origin = uint2(probe_index % columns.x, probe_index / columns.x) * (irradiance_size + 2u);
+  uint2 visibility_origin = uint2(probe_index % columns.y, probe_index / columns.y) * (visibility_size + 2u);
+  for (uint y = 0u; y < irradiance_size + 2u; ++y)
+    for (uint x = 0u; x < irradiance_size + 2u; ++x)
+      EE_DDGI_IRRADIANCE_ATLAS[int2(irradiance_origin + uint2(x, y))] = float4(0.0f);
+  for (uint y = 0u; y < visibility_size + 2u; ++y)
+    for (uint x = 0u; x < visibility_size + 2u; ++x)
+      EE_DDGI_VISIBILITY_ATLAS[int2(visibility_origin + uint2(x, y))] = float2(0.0f);
+  EE_DDGI_HISTORY_ORIGINS[probe_index] = state;
+}
+
 [shader("compute")][numthreads(64, 1, 1)] void main(uint3 group_id : SV_GroupID, uint lane_index : SV_GroupIndex) {
   uint group_index = group_id.x + group_id.y * EE_DDGI_UPDATE_DISPATCH_GROUP_COUNT_X();
   uint probe_index = group_index * EE_DDGI_PROBE_UPDATE_GROUP_SIZE + lane_index;
@@ -383,6 +385,10 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
   uint3 physical_probe_grid =
       EE_DDGI_SCROLL_PROBE_GRID(logical_probe_grid, constants.probe_scroll_offset.xyz, total_probe_counts);
   uint physical_probe_index = EE_DDGI_PROBE_INDEX(physical_probe_grid, total_probe_counts);
+  if (constants.atlas_columns_fixed_ray_count_and_update_mode.w == 3u) {
+    EE_DDGI_INVALIDATE_MOVED_HISTORY(physical_probe_index);
+    return;
+  }
   uint ray_count = max(constants.probe_count_ray_count_and_tile_sizes.y, 1u);
   uint uniform_ray_count = min(max(EE_DDGI_UPDATE_UNIFORM_RAY_COUNT(), 1u), ray_count);
   uint irradiance_tile_size = max(constants.probe_count_ray_count_and_tile_sizes.z, 1u);
@@ -396,9 +402,6 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
   uint2 irradiance_tile_origin =
       uint2(physical_probe_index % irradiance_columns, physical_probe_index / irradiance_columns) *
       EE_DDGI_ATLAS_TILE_STRIDE(irradiance_tile_size);
-  uint2 variability_tile_origin =
-      uint2(physical_probe_index % irradiance_columns, physical_probe_index / irradiance_columns) *
-      irradiance_tile_size;
   uint2 visibility_tile_origin =
       uint2(physical_probe_index % visibility_columns, physical_probe_index / visibility_columns) *
       EE_DDGI_ATLAS_TILE_STRIDE(visibility_tile_size);
@@ -415,7 +418,7 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
   bool blend_previous_probe_state = previous_inactive <= 0.5f;
   bool newly_exposed_probe =
       EE_DDGI_PROBE_IS_NEWLY_EXPOSED(logical_probe_grid, constants.probe_scroll_delta.xyz, total_probe_counts);
-  float history_weight =
+  float retain_history =
       blend_previous_probe_state && !newly_exposed_probe ? clamp(constants.update_parameters.y, 0.0f, 1.0f) : 0.0f;
   if (update_irradiance) {
     EE_DDGI_WRITE_PROBE_METADATA(ray_offset, physical_probe_index, uniform_ray_count, max_ray_distance,
@@ -429,22 +432,8 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
           float3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(uint2(x, y), irradiance_tile_size);
           float4 directional_irradiance = EE_DDGI_DIRECTIONAL_IRRADIANCE(ray_offset, first_blend_ray_index,
                                                                          uniform_ray_count, ray_count, texel_direction);
-          int2 atlas_texel = int2(irradiance_tile_origin + uint2(1u + x, 1u + y));
-          int2 variability_texel = int2(variability_tile_origin + uint2(x, y));
-          float4 history_irradiance = EE_DDGI_IRRADIANCE_ATLAS.Load(atlas_texel);
-          if (directional_irradiance.a <= 0.0f) {
-            continue;
-          }
-          float3 irradiance_sample = directional_irradiance.rgb;
-          directional_irradiance =
-              EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, history_irradiance, history_weight);
-          float3 irradiance_sigma2 =
-              (irradiance_sample - history_irradiance.rgb) * (irradiance_sample - directional_irradiance.rgb);
-          float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);
-          float mean_luminance = EE_DDGI_LUMINANCE(directional_irradiance.rgb);
-          float coefficient_of_variation = EE_DDGI_ENERGY_AWARE_VARIABILITY(luminance_sigma2, mean_luminance);
-          EE_DDGI_IRRADIANCE_ATLAS[atlas_texel] = directional_irradiance;
-          EE_DDGI_PROBE_VARIABILITY_ATLAS[variability_texel] = coefficient_of_variation;
+          EE_DDGI_STORE_IRRADIANCE_TEXEL(irradiance_tile_origin, irradiance_tile_size,
+                                         y * irradiance_tile_size + x, directional_irradiance, retain_history);
         }
       }
       DeviceMemoryBarrier();
@@ -457,20 +446,13 @@ void EE_DDGI_WRITE_PROBE_METADATA(uint ray_offset, uint physical_probe_index, ui
           float3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(uint2(x, y), visibility_tile_size);
           float2 directional_visibility = EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS(ray_offset, first_blend_ray_index,
                                                                                  uniform_ray_count, texel_direction);
-          int2 atlas_texel = int2(visibility_tile_origin + uint2(1u + x, 1u + y));
-          float2 history_visibility = EE_DDGI_VISIBILITY_ATLAS.Load(atlas_texel);
-          float2 visibility_moments = lerp(directional_visibility, history_visibility, history_weight);
-          EE_DDGI_VISIBILITY_ATLAS[atlas_texel] = visibility_moments;
+          EE_DDGI_STORE_VISIBILITY_TEXEL(visibility_tile_origin, visibility_tile_size,
+                                         y * visibility_tile_size + x, directional_visibility, retain_history,
+                                         float2(0.0f));
         }
       }
       DeviceMemoryBarrier();
       EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS(visibility_tile_origin, visibility_tile_size);
-    }
-  } else if (update_irradiance) {
-    for (uint y = 0u; y < irradiance_tile_size; ++y) {
-      for (uint x = 0u; x < irradiance_tile_size; ++x) {
-        EE_DDGI_PROBE_VARIABILITY_ATLAS[int2(variability_tile_origin + uint2(x, y))] = 0.0f;
-      }
     }
   }
 }
@@ -512,51 +494,22 @@ void EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS_PARALLEL(uint2 tile_origin, uint tile
   }
 }
 
-void EE_DDGI_STORE_IRRADIANCE_TEXEL(uint2 tile_origin, uint2 variability_origin, uint tile_size, uint texel_index,
-                                    float4 directional_irradiance, float history_weight) {
-  if (directional_irradiance.a <= 0.0f) {
-    return;
-  }
-  uint2 texel = uint2(texel_index % tile_size, texel_index / tile_size);
-  int2 atlas_texel = int2(tile_origin + uint2(1u) + texel);
-  int2 variability_texel = int2(variability_origin + texel);
-  float4 history_irradiance = EE_DDGI_IRRADIANCE_ATLAS.Load(atlas_texel);
-  float3 irradiance_sample = directional_irradiance.rgb;
-  directional_irradiance = EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, history_irradiance, history_weight);
-  float3 irradiance_sigma2 =
-      (irradiance_sample - history_irradiance.rgb) * (irradiance_sample - directional_irradiance.rgb);
-  float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);
-  float mean_luminance = EE_DDGI_LUMINANCE(directional_irradiance.rgb);
-  float coefficient_of_variation = EE_DDGI_ENERGY_AWARE_VARIABILITY(luminance_sigma2, mean_luminance);
-  EE_DDGI_IRRADIANCE_ATLAS[atlas_texel] = directional_irradiance;
-  EE_DDGI_PROBE_VARIABILITY_ATLAS[variability_texel] = coefficient_of_variation;
-}
-
-void EE_DDGI_STORE_VISIBILITY_TEXEL(uint2 tile_origin, uint tile_size, uint texel_index, float2 directional_visibility,
-                                    float history_weight, float2 visibility_auxiliary) {
-  uint2 texel = uint2(texel_index % tile_size, texel_index / tile_size);
-  int2 atlas_texel = int2(tile_origin + uint2(1u) + texel);
-  float2 history_visibility = EE_DDGI_VISIBILITY_ATLAS.Load(atlas_texel);
-  float2 visibility_moments = lerp(directional_visibility, history_visibility, history_weight);
-  EE_DDGI_VISIBILITY_ATLAS[atlas_texel] = visibility_moments;
-}
-
 void EE_DDGI_UPDATE_IRRADIANCE_DIRECT(uint ray_offset, uint fixed_ray_count, uint uniform_ray_count,
-                                      uint total_ray_count, uint2 tile_origin, uint2 variability_origin, uint tile_size,
-                                      float history_weight, uint lane_index) {
+                                      uint total_ray_count, uint2 tile_origin, uint tile_size,
+                                      float retain_history, uint lane_index) {
   uint texel_count = tile_size * tile_size;
   for (uint texel_index = lane_index; texel_index < texel_count; texel_index += EE_DDGI_PROBE_UPDATE_GROUP_SIZE) {
     uint2 texel = uint2(texel_index % tile_size, texel_index / tile_size);
     float3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(texel, tile_size);
     float4 directional_irradiance = EE_DDGI_DIRECTIONAL_IRRADIANCE(ray_offset, fixed_ray_count, uniform_ray_count,
                                                                    total_ray_count, texel_direction);
-    EE_DDGI_STORE_IRRADIANCE_TEXEL(tile_origin, variability_origin, tile_size, texel_index, directional_irradiance,
-                                   history_weight);
+    EE_DDGI_STORE_IRRADIANCE_TEXEL(tile_origin, tile_size, texel_index, directional_irradiance,
+                                   retain_history);
   }
 }
 
 void EE_DDGI_UPDATE_VISIBILITY_DIRECT(uint ray_offset, uint first_blend_ray_index, uint ray_count, uint2 tile_origin,
-                                      uint tile_size, float history_weight, float2 visibility_auxiliary,
+                                      uint tile_size, float retain_history, float2 visibility_auxiliary,
                                       uint lane_index) {
   uint texel_count = tile_size * tile_size;
   for (uint texel_index = lane_index; texel_index < texel_count; texel_index += EE_DDGI_PROBE_UPDATE_GROUP_SIZE) {
@@ -564,7 +517,7 @@ void EE_DDGI_UPDATE_VISIBILITY_DIRECT(uint ray_offset, uint first_blend_ray_inde
     float3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(texel, tile_size);
     float2 directional_visibility =
         EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS(ray_offset, first_blend_ray_index, ray_count, texel_direction);
-    EE_DDGI_STORE_VISIBILITY_TEXEL(tile_origin, tile_size, texel_index, directional_visibility, history_weight,
+    EE_DDGI_STORE_VISIBILITY_TEXEL(tile_origin, tile_size, texel_index, directional_visibility, retain_history,
                                    visibility_auxiliary);
   }
 }
@@ -591,8 +544,8 @@ void EE_DDGI_CACHE_RAY_CHUNK(uint ray_offset, uint chunk_base, uint chunk_count,
 }
 
 void EE_DDGI_UPDATE_IRRADIANCE_SHARED(uint ray_offset, uint fixed_ray_count, uint uniform_ray_count,
-                                      uint total_ray_count, uint2 tile_origin, uint2 variability_origin, uint tile_size,
-                                      float history_weight, uint lane_index) {
+                                      uint total_ray_count, uint2 tile_origin, uint tile_size,
+                                      float retain_history, uint lane_index) {
   uint texel_count = tile_size * tile_size;
   uint uniform_blend_ray_count = uniform_ray_count > fixed_ray_count ? uniform_ray_count - fixed_ray_count : 0u;
   uint emissive_ray_count = total_ray_count > uniform_ray_count ? total_ray_count - uniform_ray_count : 0u;
@@ -632,16 +585,16 @@ void EE_DDGI_UPDATE_IRRADIANCE_SHARED(uint ray_offset, uint fixed_ray_count, uin
       GroupMemoryBarrierWithGroupSync();
     }
     if (active_texel) {
-      EE_DDGI_STORE_IRRADIANCE_TEXEL(tile_origin, variability_origin, tile_size, texel_index,
+      EE_DDGI_STORE_IRRADIANCE_TEXEL(tile_origin, tile_size, texel_index,
                                      EE_DDGI_FINALIZE_IRRADIANCE(uniform_accumulator, emissive_accumulator,
                                                                  uniform_blend_ray_count, emissive_ray_count),
-                                     history_weight);
+                                     retain_history);
     }
   }
 }
 
 void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_index, uint ray_count, uint2 tile_origin,
-                                      uint tile_size, float history_weight, float2 visibility_auxiliary,
+                                      uint tile_size, float retain_history, float2 visibility_auxiliary,
                                       uint lane_index) {
   uint texels_per_lane = 4u;
   uint texel_count = tile_size * tile_size;
@@ -681,7 +634,7 @@ void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_inde
       if (active_texels[texel_slot]) {
         EE_DDGI_STORE_VISIBILITY_TEXEL(tile_origin, tile_size, texel_indices[texel_slot],
                                        EE_DDGI_FINALIZE_VISIBILITY(accumulators[texel_slot], max_visibility_distance),
-                                       history_weight, visibility_auxiliary);
+                                       retain_history, visibility_auxiliary);
       }
     }
   }
@@ -717,7 +670,7 @@ void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_inde
   bool blend_previous_probe_state = previous_inactive <= 0.5f;
   bool newly_exposed_probe =
       EE_DDGI_PROBE_IS_NEWLY_EXPOSED(logical_probe_grid, constants.probe_scroll_delta.xyz, total_probe_counts);
-  float history_weight =
+  float retain_history =
       blend_previous_probe_state && !newly_exposed_probe ? clamp(constants.update_parameters.y, 0.0f, 1.0f) : 0.0f;
 
 #  if EE_DDGI_PROBE_UPDATE_MODE == EE_DDGI_PROBE_UPDATE_IRRADIANCE
@@ -725,8 +678,6 @@ void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_inde
   uint atlas_columns = max(constants.atlas_columns_fixed_ray_count_and_update_mode.x, 1u);
   uint2 tile_origin = uint2(physical_probe_index % atlas_columns, physical_probe_index / atlas_columns) *
                       EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
-  uint2 variability_origin =
-      uint2(physical_probe_index % atlas_columns, physical_probe_index / atlas_columns) * tile_size;
   if (lane_index == 0u) {
     EE_DDGI_WRITE_PROBE_METADATA(ray_offset, physical_probe_index, uniform_ray_count,
                                  max(constants.update_parameters.x, 0.001f), relocation_distance, relocation_offset,
@@ -735,19 +686,13 @@ void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_inde
   if (blend_previous_probe_state) {
 #    if EE_DDGI_PROBE_USE_SHARED_RAYS
     EE_DDGI_UPDATE_IRRADIANCE_SHARED(ray_offset, first_blend_ray_index, uniform_ray_count, ray_count, tile_origin,
-                                     variability_origin, tile_size, history_weight, lane_index);
+                                     tile_size, retain_history, lane_index);
 #    else
     EE_DDGI_UPDATE_IRRADIANCE_DIRECT(ray_offset, first_blend_ray_index, uniform_ray_count, ray_count, tile_origin,
-                                     variability_origin, tile_size, history_weight, lane_index);
+                                     tile_size, retain_history, lane_index);
 #    endif
-    GroupMemoryBarrierWithGroupSync();
+    AllMemoryBarrierWithGroupSync();
     EE_DDGI_COPY_IRRADIANCE_BORDER_TEXELS_PARALLEL(tile_origin, tile_size, lane_index);
-  } else {
-    uint texel_count = tile_size * tile_size;
-    for (uint texel_index = lane_index; texel_index < texel_count; texel_index += EE_DDGI_PROBE_UPDATE_GROUP_SIZE) {
-      uint2 texel = uint2(texel_index % tile_size, texel_index / tile_size);
-      EE_DDGI_PROBE_VARIABILITY_ATLAS[int2(variability_origin + texel)] = 0.0f;
-    }
   }
 #  elif EE_DDGI_PROBE_UPDATE_MODE == EE_DDGI_PROBE_UPDATE_VISIBILITY
   uint tile_size = max(constants.probe_count_ray_count_and_tile_sizes.w, 1u);
@@ -757,12 +702,12 @@ void EE_DDGI_UPDATE_VISIBILITY_SHARED(uint ray_offset, uint first_blend_ray_inde
   if (blend_previous_probe_state) {
 #    if EE_DDGI_PROBE_USE_SHARED_RAYS
     EE_DDGI_UPDATE_VISIBILITY_SHARED(ray_offset, first_blend_ray_index, uniform_ray_count, tile_origin, tile_size,
-                                     history_weight, visibility_auxiliary, lane_index);
+                                     retain_history, visibility_auxiliary, lane_index);
 #    else
     EE_DDGI_UPDATE_VISIBILITY_DIRECT(ray_offset, first_blend_ray_index, uniform_ray_count, tile_origin, tile_size,
-                                     history_weight, visibility_auxiliary, lane_index);
+                                     retain_history, visibility_auxiliary, lane_index);
 #    endif
-    GroupMemoryBarrierWithGroupSync();
+    AllMemoryBarrierWithGroupSync();
     EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS_PARALLEL(tile_origin, tile_size, lane_index);
   }
 #  endif

@@ -141,6 +141,8 @@ function(evoengine_install_runtime_files dst_dir)
 endfunction()
 
 function(evoengine_install_runtime_resources dst_dir)
+	install(FILES "${CMAKE_SOURCE_DIR}/docs/licenses/Godot-MIT.txt"
+		DESTINATION "${dst_dir}/licenses")
 	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/"
 		DESTINATION "${dst_dir}")
 	foreach(folder_i IN LISTS EVOENGINE_RESOURCES)

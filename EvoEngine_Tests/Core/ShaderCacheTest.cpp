@@ -1,3 +1,4 @@
+#include "DdgiHistory.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include "Application.hpp"
@@ -1417,8 +1418,10 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
   ddgi_probe_update_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_update_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_update_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  ddgi_probe_update_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_update_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  for (uint32_t binding = 7; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
+    ddgi_probe_update_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                    VK_SHADER_STAGE_COMPUTE_BIT, 0);
   auto ddgi_probe_relocation_layout = std::make_shared<DescriptorSetLayout>();
   ddgi_probe_relocation_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
                                                       0);
@@ -1429,13 +1432,6 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
                                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_classification_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  auto ddgi_probe_variability_layout = std::make_shared<DescriptorSetLayout>();
-  ddgi_probe_variability_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                       0);
-  ddgi_probe_variability_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                       VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  ddgi_probe_variability_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                       0);
   const VkPushConstantRange scroll_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                          static_cast<uint32_t>(sizeof(DdgiProbeScrollPushConstant))};
   const VkPushConstantRange update_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
@@ -1444,8 +1440,6 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
                                              static_cast<uint32_t>(sizeof(DdgiProbeRelocationPushConstant))};
   const VkPushConstantRange classification_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
                                                  static_cast<uint32_t>(sizeof(DdgiProbeClassificationPushConstant))};
-  const VkPushConstantRange variability_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                              static_cast<uint32_t>(sizeof(DdgiProbeVariabilityPushConstant))};
   struct Case {
     std::filesystem::path path;
     std::string defines;
@@ -1456,7 +1450,7 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
   const auto ddgi_path = [](const char* name) {
     return RepoPath(std::filesystem::path("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute") / name);
   };
-  const std::array<Case, 10> cases = {{
+  const std::array<Case, 8> cases = {{
       {ddgi_path("DDGIProbeScroll.slang"), {}, {ddgi_probe_update_layout}, {scroll_range}, {64, 1, 1}},
       {ddgi_path("DDGIProbeUpdate.slang"), {}, {nullptr, ddgi_probe_update_layout}, {update_range}, {64, 1, 1}},
       {ddgi_path("DDGIProbeUpdate.slang"),
@@ -1485,16 +1479,6 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
        {ddgi_probe_classification_layout},
        {classification_range},
        {32, 1, 1}},
-      {ddgi_path("DDGIProbeVariabilityReduce.slang"),
-       {},
-       {ddgi_probe_variability_layout},
-       {variability_range},
-       {8, 8, 1}},
-      {ddgi_path("DDGIProbeVariabilityExtraReduce.slang"),
-       {},
-       {ddgi_probe_variability_layout},
-       {variability_range},
-       {8, 8, 1}},
   }};
 
   for (const auto& test_case : cases) {

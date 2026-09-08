@@ -2344,11 +2344,15 @@ bool Prefab::LoadInternal(const std::filesystem::path& path) {
       std::vector<std::shared_ptr<IAsset>> local_assets;
       for (const auto& i : in_local_assets) {
         Handle handle = i["Handle"].as<uint64_t>();
-        local_assets.push_back(AssetManager::CreateTemporaryAssetImpl(i["TypeName"].as<std::string>(), handle));
+        const auto type_name = i["TypeName"].as<std::string>();
+        local_assets.push_back(Serialization::HasSerializableType(type_name)
+                                   ? AssetManager::CreateTemporaryAssetImpl(type_name, handle)
+                                   : nullptr);
       }
       int index = 0;
       for (const auto& i : in_local_assets) {
-        Serialization::DeserializeObject(i, *local_assets[index++]);
+        if (const auto& asset = local_assets[index++])
+          Serialization::DeserializeObject(i, *asset);
       }
     }
 
@@ -2426,11 +2430,15 @@ bool Prefab::ApplyStagedPayloadInternal(const std::filesystem::path&,
       std::vector<std::shared_ptr<IAsset>> local_assets;
       for (const auto& i : in_local_assets) {
         Handle handle = i["Handle"].as<uint64_t>();
-        local_assets.push_back(AssetManager::CreateTemporaryAssetImpl(i["TypeName"].as<std::string>(), handle));
+        const auto type_name = i["TypeName"].as<std::string>();
+        local_assets.push_back(Serialization::HasSerializableType(type_name)
+                                   ? AssetManager::CreateTemporaryAssetImpl(type_name, handle)
+                                   : nullptr);
       }
       int index = 0;
       for (const auto& i : in_local_assets) {
-        Serialization::DeserializeObject(i, *local_assets[index++]);
+        if (const auto& asset = local_assets[index++])
+          Serialization::DeserializeObject(i, *asset);
       }
     }
     Serialization::DeserializeObject(in, *this);

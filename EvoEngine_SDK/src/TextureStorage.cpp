@@ -32,8 +32,7 @@ bool AreViewFormatsCompatible(const VkFormat image_format, const VkFormat view_f
 }
 
 bool IsSampledDescriptorImageLayout(const VkImageLayout layout) {
-  return layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || layout == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL ||
-         layout == VK_IMAGE_LAYOUT_GENERAL;
+  return layout == VK_IMAGE_LAYOUT_GENERAL;
 }
 
 uint64_t MixTextureContentSignature(const uint64_t seed, const uint64_t value) {
@@ -311,7 +310,7 @@ GpuWorkHandle EnqueueTextureUpload(const std::shared_ptr<Image>& target_image,
             vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
             gpu_service.SubmitImmediate([target_image, staging_vk_buffer = staging_buffer.vk_buffer, generate_mipmaps,
                                          copy_regions](const VkCommandBuffer vk_command_buffer) {
-              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+              target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
               if (copy_regions.empty()) {
                 target_image->CopyFromBuffer(vk_command_buffer, staging_vk_buffer);
               } else {
@@ -320,7 +319,7 @@ GpuWorkHandle EnqueueTextureUpload(const std::shared_ptr<Image>& target_image,
               if (generate_mipmaps) {
                 target_image->GenerateMipmaps(vk_command_buffer);
               } else {
-                target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
               }
             });
             gpu_service.ReleaseStagingBuffer(staging_buffer);
@@ -395,7 +394,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const 
 
   if (transition_to_shader_read) {
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-      image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     });
   }
 
@@ -417,7 +416,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const 
   im_texture_ids.resize(6);
   for (int i = 0; i < 6; i++) {
     EditorLayer::UpdateTextureId(im_texture_ids[i], sampler->GetVkSampler(), face_views[i]->GetVkImageView(),
-                                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                                 VK_IMAGE_LAYOUT_GENERAL);
   }
   TextureStorage::SetCubemapSlotState(
       *this, transition_to_shader_read ? SampledViewSlotState::Ready : SampledViewSlotState::AllocatedPending);
@@ -560,7 +559,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat f
   sampler = std::make_shared<Sampler>(sampler_info);
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
   EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
@@ -667,7 +666,7 @@ void Texture2DStorage::RetireCurrentResources() {
 bool Texture2DStorage::ShareImage(const Texture2DStorage& source, const VkFormat view_format,
                                   const VkSamplerCreateInfo& sampler_create_info) {
   if (this == &source || !Platform::Initialized() || !source.image || source.IsGpuUploadPending() ||
-      source.GetLayout() != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ||
+      source.GetLayout() != VK_IMAGE_LAYOUT_GENERAL ||
       !AreViewFormatsCompatible(source.image->GetFormat(), view_format)) {
     return false;
   }

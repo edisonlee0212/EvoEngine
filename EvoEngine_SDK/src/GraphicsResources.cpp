@@ -578,39 +578,6 @@ Semaphore::~Semaphore() {
 const VkSemaphore& Semaphore::GetVkSemaphore() const {
   return vk_semaphore_;
 }
-#ifdef _WIN64
-void* Semaphore::GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR external_semaphore_handle_type) const {
-  void* handle;
-
-  VkSemaphoreGetWin32HandleInfoKHR vulkan_semaphore_get_win32_handle_info_khr = {};
-  vulkan_semaphore_get_win32_handle_info_khr.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR;
-  vulkan_semaphore_get_win32_handle_info_khr.pNext = nullptr;
-  vulkan_semaphore_get_win32_handle_info_khr.semaphore = vk_semaphore_;
-  vulkan_semaphore_get_win32_handle_info_khr.handleType = external_semaphore_handle_type;
-  auto func =
-      PFN_vkGetSemaphoreWin32HandleKHR(vkGetDeviceProcAddr(Platform::GetVkDevice(), "vkGetSemaphoreWin32HandleKHR"));
-  func(Platform::GetVkDevice(), &vulkan_semaphore_get_win32_handle_info_khr, &handle);
-
-  return handle;
-}
-#else
-int Semaphore::GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR externalSemaphoreHandleType) const {
-  if (externalSemaphoreHandleType == VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT) {
-    int fd;
-
-    VkSemaphoreGetFdInfoKHR vulkanSemaphoreGetFdInfoKHR = {};
-    vulkanSemaphoreGetFdInfoKHR.sType = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR;
-    vulkanSemaphoreGetFdInfoKHR.pNext = NULL;
-    vulkanSemaphoreGetFdInfoKHR.semaphore = vk_semaphore_;
-    vulkanSemaphoreGetFdInfoKHR.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-
-    vkGetSemaphoreFdKHR(Platform::GetVkDevice(), &vulkanSemaphoreGetFdInfoKHR, &fd);
-
-    return fd;
-  }
-  return -1;
-}
-#endif
 Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
   if (!Platform::Initialized())
     return;
@@ -806,17 +773,6 @@ uint32_t Image::GetMipLevels() const {
 Image::Image(VkImageCreateInfo image_create_info) {
   if (!Platform::Initialized())
     return;
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
-  vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = image_create_info.pNext;
-#  ifdef _WIN64
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-  image_create_info.pNext = &vk_external_mem_image_create_info;
-#endif
   VmaAllocationCreateInfo alloc_info = {};
   alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
   if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &alloc_info, &vk_image_,
@@ -841,18 +797,6 @@ Image::Image(VkImageCreateInfo image_create_info) {
 Image::Image(VkImageCreateInfo image_create_info, const VmaAllocationCreateInfo& vma_allocation_create_info) {
   if (!Platform::Initialized())
     return;
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryImageCreateInfo vk_external_mem_image_create_info = {};
-  vk_external_mem_image_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-  vk_external_mem_image_create_info.pNext = image_create_info.pNext;
-#  ifdef _WIN64
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_image_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-
-  image_create_info.pNext = &vk_external_mem_image_create_info;
-#endif
   if (Platform::CheckVk(vmaCreateImage(Platform::GetVmaAllocator(), &image_create_info, &vma_allocation_create_info,
                                        &vk_image_, &vma_allocation_, &vma_allocation_info_))) {
     throw std::runtime_error("Failed to create image!");
@@ -888,7 +832,7 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
   region.imageSubresource.layerCount = 1;
   region.imageOffset = {0, 0, 0};
   region.imageExtent = extent_;
-  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 }
 
 void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
@@ -896,7 +840,7 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
   if (regions.empty()) {
     return;
   }
-  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL,
                          static_cast<uint32_t>(regions.size()), regions.data());
 }
 
@@ -926,8 +870,8 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
 
   for (uint32_t i = 1; i < mip_levels_; i++) {
     barrier.subresourceRange.baseMipLevel = i - 1;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
@@ -948,11 +892,11 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
     blit.dstSubresource.baseArrayLayer = 0;
     blit.dstSubresource.layerCount = array_layers_;
 
-    vkCmdBlitImage(vk_command_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk_image_,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    vkCmdBlitImage(vk_command_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL, vk_image_, VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
+                   VK_FILTER_LINEAR);
 
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
@@ -965,14 +909,14 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
       mip_height /= 2;
   }
   barrier.subresourceRange.baseMipLevel = mip_levels_ - 1;
-  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
   vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
                        nullptr, 0, nullptr, 1, &barrier);
-  layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  layout_ = VK_IMAGE_LAYOUT_GENERAL;
 }
 
 VkImage Image::GetVkImage() const {
@@ -1008,7 +952,7 @@ Image::~Image() {
 }
 
 void Image::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImageLayout new_layout) {
-  // if (newLayout == layout_) return;
+  // Equal layouts still need a memory dependency between successive accesses.
   Platform::TransitImageLayout(vk_command_buffer, vk_image_, format_, array_layers_, layout_, new_layout, mip_levels_);
   layout_ = new_layout;
 }
@@ -1033,45 +977,6 @@ VkMemoryRequirements Image::GetMemoryRequirements() const {
   return memory_requirements;
 }
 
-#ifdef _WIN64
-void* Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const {
-#  if ENABLE_EXTERNAL_MEMORY
-  void* handle;
-
-  VkMemoryGetWin32HandleInfoKHR vk_memory_get_win32_handle_info_khr = {};
-  vk_memory_get_win32_handle_info_khr.sType = VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR;
-  vk_memory_get_win32_handle_info_khr.pNext = nullptr;
-  vk_memory_get_win32_handle_info_khr.memory = vma_allocation_info_.deviceMemory;
-  vk_memory_get_win32_handle_info_khr.handleType =
-      static_cast<VkExternalMemoryHandleTypeFlagBitsKHR>(external_memory_handle_type);
-  Platform::CheckVk(vkGetMemoryWin32HandleKHR(Platform::GetVkDevice(), &vk_memory_get_win32_handle_info_khr, &handle));
-  return handle;
-#  else
-  return nullptr;
-#  endif
-}
-#else
-int Image::GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR externalMemoryHandleType) const {
-#  if ENABLE_EXTERNAL_MEMORY
-  if (externalMemoryHandleType == VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR) {
-    int fd;
-
-    VkMemoryGetFdInfoKHR vkMemoryGetFdInfoKHR = {};
-    vkMemoryGetFdInfoKHR.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
-    vkMemoryGetFdInfoKHR.pNext = NULL;
-    vkMemoryGetFdInfoKHR.memory = vma_allocation_info_.deviceMemory;
-    vkMemoryGetFdInfoKHR.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-
-    vkGetMemoryFdKHR(Platform::GetVkDevice(), &vkMemoryGetFdInfoKHR, &fd);
-
-    return fd;
-  }
-  return -1;
-#  else
-  return -1;
-#  endif
-}
-#endif
 Sampler::Sampler(const VkSamplerCreateInfo& sampler_create_info) {
   if (!Platform::Initialized())
     return;
@@ -1300,18 +1205,6 @@ void Buffer::Allocate(VkBufferCreateInfo buffer_create_info,
 
 void Buffer::AllocateOnGpuThread(const std::shared_ptr<GpuState>& state, VkBufferCreateInfo buffer_create_info,
                                  const VmaAllocationCreateInfo& vma_allocation_create_info) {
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryBufferCreateInfo vk_external_mem_buffer_create_info;
-  vk_external_mem_buffer_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-  vk_external_mem_buffer_create_info.pNext = NULL;
-#  ifdef _WIN64
-  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-
-  buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
-#endif
   if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info, &vma_allocation_create_info,
                                         &state->vk_buffer, &state->vma_allocation, &state->vma_allocation_info))) {
     throw std::runtime_error("Failed to create buffer!");
@@ -1375,18 +1268,6 @@ void Buffer::ResizeOnGpuThread(const std::shared_ptr<GpuState>& state, const VkD
   buffer_create_info.sharingMode = state->sharing_mode;
   buffer_create_info.queueFamilyIndexCount = state->queue_family_indices.size();
   buffer_create_info.pQueueFamilyIndices = state->queue_family_indices.data();
-#if ENABLE_EXTERNAL_MEMORY
-  VkExternalMemoryBufferCreateInfo vk_external_mem_buffer_create_info = {};
-  vk_external_mem_buffer_create_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO;
-  vk_external_mem_buffer_create_info.pNext = nullptr;
-#  ifdef _WIN64
-  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  vk_external_mem_buffer_create_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-
-  buffer_create_info.pNext = &vk_external_mem_buffer_create_info;
-#endif
   if (Platform::CheckVk(vmaCreateBuffer(Platform::GetVmaAllocator(), &buffer_create_info,
                                         &state->vma_allocation_create_info, &state->vk_buffer, &state->vma_allocation,
                                         &state->vma_allocation_info))) {
@@ -1509,12 +1390,12 @@ void Buffer::CopyFromImageOnGpuThread(const std::shared_ptr<GpuState>& state, Im
   Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
     const auto tracked_layout = src_image.GetLayout();
     const auto prev_layout = tracked_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_GENERAL : tracked_layout;
-    src_image.TransitImageLayout(vk_command_buffer, prev_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    src_image.TransitImageLayout(vk_command_buffer, prev_layout, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED,
+                                 VK_QUEUE_FAMILY_IGNORED, true);
     vkCmdCopyImageToBuffer(vk_command_buffer, src_image.GetVkImage(), src_image.GetLayout(), state->vk_buffer, 1,
                            &image_copy_info);
-    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, prev_layout,
-                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL, prev_layout, VK_QUEUE_FAMILY_IGNORED,
+                                 VK_QUEUE_FAMILY_IGNORED, true);
   });
 }
 
@@ -1667,6 +1548,13 @@ BufferUploadArena::~BufferUploadArena() {
       vmaUnmapMemory(Platform::GetVmaAllocator(), block.buffer->GetVmaAllocation());
     }
   }
+}
+
+VkDeviceSize BufferUploadArena::GetAllocationBytes() const {
+  VkDeviceSize result = 0;
+  for (const auto& block : state_->blocks)
+    result += block.buffer->GetVmaAllocationInfo().size;
+  return result;
 }
 
 void BufferUploadBatch::Add(const std::shared_ptr<Buffer>& destination, const void* source, const size_t size,

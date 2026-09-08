@@ -2,8 +2,10 @@
 
 #include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
+#include "StarCluster.hpp"
 #include "UniverseInspectionAdapters.hpp"
 #include "UniverseLayer.hpp"
+#include "UniverseProfiler.hpp"
 #include "UniverseSerializationAdapters.hpp"
 
 using namespace evo_engine;
@@ -15,12 +17,15 @@ PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "Universe", "0.1.0",
 
 void RegisterUniverseInspectors(const std::string& owner_name) {
   InspectorRegistry::GetInstance().RegisterInspector<PlanetTerrain>(InspectPlanetTerrain, owner_name, "PlanetTerrain");
+  InspectorRegistry::GetInstance().RegisterInspector<StarCluster>(InspectStarCluster, owner_name, "Star Cluster");
   InspectorRegistry::GetInstance().RegisterInspector<UniverseLayer>(InspectUniverseLayer, owner_name, "Universe Layer");
 }
 
 void RegisterUniverseSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<PlanetTerrain>(SerializePlanetTerrain, DeserializePlanetTerrain,
                                                              owner_name, "PlanetTerrain");
+  Serialization::RegisterSerializationHandler<StarCluster>(SerializeStarCluster, DeserializeStarCluster, owner_name,
+                                                           "Star Cluster");
 }
 }  // namespace
 
@@ -33,16 +38,7 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
     return false;
   }
 
-  const bool registered = registrar->RegisterDataComponent<StarPosition>("StarPosition") &&
-                          registrar->RegisterDataComponent<SelectionStatus>("SelectionStatus") &&
-                          registrar->RegisterDataComponent<StarInfo>("StarInfo") &&
-                          registrar->RegisterDataComponent<SurfaceColor>("SurfaceColor") &&
-                          registrar->RegisterDataComponent<DisplayColor>("DisplayColor") &&
-                          registrar->RegisterDataComponent<OriginalColor>("OriginalColor") &&
-                          registrar->RegisterDataComponent<StarOrbitOffset>("StarOrbitOffset") &&
-                          registrar->RegisterDataComponent<StarOrbitProportion>("StarOrbitProportion") &&
-                          registrar->RegisterDataComponent<StarOrbit>("StarOrbit") &&
-                          registrar->RegisterDataComponent<StarClusterIndex>("StarClusterIndex") &&
+  const bool registered = registrar->RegisterPrivateComponent<StarCluster>("Star Cluster") &&
                           registrar->RegisterPrivateComponent<PlanetTerrain>("PlanetTerrain") &&
                           registrar->RegisterLayer<UniverseLayer>("Universe Layer");
   if (registered) {
@@ -52,8 +48,8 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
   return registered;
 }
 
-EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar*) {
-  return true;
+EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar* registrar) {
+  return registrar && universe_profiler::RegisterItems(*registrar);
 }
 
 EVOENGINE_PACKAGE_EXPORT void EvoEnginePackageUnload(PackageRegistrar*) {

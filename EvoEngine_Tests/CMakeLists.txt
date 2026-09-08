@@ -41,6 +41,8 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp
+	Core/SdfgiRuntimeTest.cpp
+	Core/HddagiSceneTest.cpp
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
 	Core/StrandsMeshShaderTest.cpp
@@ -52,6 +54,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/EntityBatchInspectorTest.cpp
 	Core/StaticSceneRenderTest.cpp
 	Core/EditorConsoleContractTest.cpp
+	Core/EditorViewportInputTest.cpp
 	Core/RenderingDocumentationTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
@@ -114,6 +117,28 @@ if(TARGET DigitalAgriculturePackage)
 		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DigitalAgriculture_Tests>"
 		PROPERTIES LABELS "digital-agriculture,serialization"
 		)
+endif()
+
+if(TARGET UniversePackage)
+	add_executable(UniversePackage_Tests Core/UniverseStarClusterTest.cpp Core/UniverseStarPickingTest.cpp Core/UniverseStarFollowTest.cpp Core/UniverseStarDemoTest.cpp)
+	target_link_libraries(UniversePackage_Tests PRIVATE UniversePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
+	target_include_directories(UniversePackage_Tests PRIVATE
+		${EVOENGINE_SDK_INCLUDES}
+		${CMAKE_SOURCE_DIR}/EvoEngine_Packages/Universe/include
+		)
+	target_compile_definitions(UniversePackage_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
+	target_precompile_headers(UniversePackage_Tests PRIVATE
+		${EVOENGINE_SDK_PCH}
+		${EVOENGINE_PACKAGE_PCH}
+		)
+	add_custom_command(TARGET UniversePackage_Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:EvoEngine_SDK>
+			$<TARGET_FILE:UniversePackage>
+			$<TARGET_FILE_DIR:UniversePackage_Tests>
+		VERBATIM)
+	set_property(TARGET UniversePackage_Tests PROPERTY FOLDER Tests)
+	gtest_discover_tests(UniversePackage_Tests)
 endif()
 
 if(TARGET EcoSysLabPackage)
@@ -299,6 +324,16 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER SdfgiCapabilities.*:SdfgiRuntime.*:SdfgiResources.*:SdfgiScene.*:SdfgiVoxelization.*:SdfgiPreprocess.*:SdfgiLighting.*:SdfgiTransport.*:SdfgiGather.*
+	PROPERTIES LABELS "render,sdfgi"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER Hddagi*.*
+	PROPERTIES LABELS "render,hddagi"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER RenderGraph.*
 	PROPERTIES LABELS "core,render"
 	)
@@ -341,6 +376,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER EditorConsole.*
 	PROPERTIES LABELS "core,editor,console"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER EditorViewportInput.*
+	PROPERTIES LABELS "core,editor,input"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

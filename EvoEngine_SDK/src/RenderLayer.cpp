@@ -4,6 +4,7 @@
 #include "AssetManager.hpp"
 #include "ComputePipeline.hpp"
 #include "DdgiProbeRayData.hpp"
+#include "DdgiSampling.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalLightingResolver.hpp"
@@ -14,6 +15,11 @@
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiCamera.hpp"
+#include "HddagiLight.hpp"
+#include "HddagiProbe.hpp"
+#include "HddagiResources.hpp"
+#include "HddagiVoxelizer.hpp"
 #include "Jobs.hpp"
 #include "LodGroup.hpp"
 #include "MeshRenderer.hpp"
@@ -32,7 +38,6 @@
 #include "RenderPasses/DdgiProbeScrollPass.hpp"
 #include "RenderPasses/DdgiProbeTracePass.hpp"
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
-#include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
 #include "RenderPasses/DeferredComputeLightingPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
@@ -48,6 +53,14 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiDebug.hpp"
+#include "SdfgiGather.hpp"
+#include "SdfgiLight.hpp"
+#include "SdfgiPreprocess.hpp"
+#include "SdfgiProbe.hpp"
+#include "SdfgiResources.hpp"
+#include "SdfgiRuntime.hpp"
+#include "SdfgiVoxelizer.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -170,45 +183,6 @@ std::vector<VkFormat> CreateDeferredGBufferColorAttachmentFormats() {
   return {Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_utility};
-}
-
-uint32_t HashDdgiProbeRayRotationSeed(uint32_t value) {
-  value ^= value >> 16u;
-  value *= 0x7feb352du;
-  value ^= value >> 15u;
-  value *= 0x846ca68bu;
-  value ^= value >> 16u;
-  return value;
-}
-
-float DdgiProbeRayRotationUnitFloat(const uint32_t seed) {
-  return static_cast<float>(HashDdgiProbeRayRotationSeed(seed) >> 8u) * (1.0f / 16777216.0f);
-}
-
-glm::vec4 CreateDdgiProbeRayRotationQuaternion(const uint32_t frame_index, const uint32_t volume_index,
-                                               const uint32_t base_seed) {
-  constexpr float two_pi = 6.28318530718f;
-  const auto seed = base_seed ^ frame_index ^ (volume_index * 0x9e3779b9u);
-  const float u1 = DdgiProbeRayRotationUnitFloat(seed ^ 0x68bc21ebu);
-  const float u2 = DdgiProbeRayRotationUnitFloat(seed ^ 0x02e5be93u);
-  const float u3 = DdgiProbeRayRotationUnitFloat(seed ^ 0x967a889bu);
-  const float r1 = std::sqrt(glm::max(0.0f, 1.0f - u1));
-  const float r2 = std::sqrt(glm::max(0.0f, u1));
-  return {r1 * std::sin(two_pi * u2), r1 * std::cos(two_pi * u2), r2 * std::sin(two_pi * u3),
-          r2 * std::cos(two_pi * u3)};
-}
-
-DdgiProbeVariabilityObservation ReadDdgiProbeVariabilityObservation(const std::shared_ptr<Buffer>& buffer) {
-  if (!buffer || buffer->GetSize() < sizeof(glm::vec4)) {
-    return {};
-  }
-  glm::vec4 result(0.0f);
-  buffer->Download(result);
-  if (!std::isfinite(result.x) || !std::isfinite(result.y) || !std::isfinite(result.z) || !std::isfinite(result.w) ||
-      result.x < 0.0f || result.y < 0.0f || result.z < 0.0f || result.w <= 0.0f || result.z > result.w) {
-    return {};
-  }
-  return {true, result.x / result.w, result.y, result.z / result.w, result.w};
 }
 
 void AddExternalRenderResources(RenderGraph& graph, const std::vector<RenderResourceDescriptor>& descriptors) {
@@ -538,7 +512,7 @@ void BindRayCameraOptionalOutputResources(RenderGraphResourceRegistry& registry,
 }
 
 bool ShouldRenderDdgiProbeVisualization(const RenderLayer::DdgiSessionState& session) {
-  return session.show_probes || (session.show_selected_probe && session.selected_volume_id != 0u);
+  return session.show_probes || (session.show_selected_probe && session.selected_cascade_id != 0u);
 }
 
 uint32_t GetDdgiProbeVisualizationMode(const RenderLayer::DdgiSessionState& session) {
@@ -546,7 +520,7 @@ uint32_t GetDdgiProbeVisualizationMode(const RenderLayer::DdgiSessionState& sess
 }
 
 glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
-  return {glm::clamp(value.x, 1, 256), glm::clamp(value.y, 1, 256), glm::clamp(value.z, 1, 256)};
+  return glm::clamp(value, glm::ivec3(1), glm::ivec3(257));
 }
 
 glm::ivec3 WrapDdgiProbeGrid(const glm::ivec3& probe_grid, const glm::ivec3& probe_counts) {
@@ -564,10 +538,6 @@ uint32_t GetDdgiProbeIndexFromGrid(const glm::ivec3& probe_grid, const glm::ivec
 uint32_t GetScrolledDdgiProbeIndex(const glm::uvec3& logical_probe_grid, const glm::ivec3& probe_scroll_offset,
                                    const glm::ivec3& probe_counts) {
   return GetDdgiProbeIndexFromGrid(glm::ivec3(logical_probe_grid) + probe_scroll_offset, probe_counts);
-}
-
-glm::vec3 ClampDdgiProbeSpacing(const glm::vec3& value) {
-  return glm::clamp(value, glm::vec3(0.05f), glm::vec3(10000.0f));
 }
 
 RenderResourceDescriptor CreateDdgiImageResourceDescriptor(const std::string& name, const DdgiAtlasLayout& layout,
@@ -627,7 +597,18 @@ std::shared_ptr<Image> CreateDdgiAtlasImage(const DdgiAtlasLayout& layout, const
   } else {
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   }
-  return std::make_shared<Image>(image_info);
+  auto image = std::make_shared<Image>(image_info);
+  // Descriptors can expose this atlas before its deferred prepare pass is submitted.
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+    image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+    VkClearColorValue clear{};
+    if (format == VK_FORMAT_R16G16_SFLOAT)
+      clear.float32[0] = 1.0f;
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    Platform::ClearColorImage(command, *image, clear, 1, &range);
+    image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+  });
+  return image;
 }
 
 std::shared_ptr<Sampler> CreateDdgiAtlasSampler() {
@@ -667,72 +648,18 @@ struct DdgiProbeRayDiagnosticSource {
   glm::vec3 probe_step_y = glm::vec3(0.0f);
   glm::vec3 probe_step_z = glm::vec3(0.0f);
   uint32_t selected_volume_index = 0;
+  uint64_t stable_volume_id = 0;
   float relocation_distance = 0.0f;
   float random_ray_backface_threshold = 0.1f;
   float fixed_ray_backface_threshold = 0.25f;
-  float probe_variability_threshold = 0.03f;
-  int probe_variability_maximum_frames = 128;
-  int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
-  int variability_reset_trigger_conditions =
-      DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
-  int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
   glm::ivec3 probe_scroll_offset = glm::ivec3(0);
   glm::ivec3 probe_scroll_clear = glm::ivec3(0);
   glm::ivec3 probe_scroll_directions = glm::ivec3(1);
   glm::ivec3 probe_scroll_delta = glm::ivec3(0);
   bool enable_probe_relocation = false;
   bool enable_probe_classification = false;
-  bool enable_probe_variability = true;
-  bool enable_probe_variability_gating = true;
-  bool pause_probe_updates_after_convergence = true;
   bool emissive_mesh_sampling_enabled = true;
 };
-
-glm::vec3 TransformPoint(const glm::mat4& transform, const glm::vec3& point) {
-  return glm::vec3(transform * glm::vec4(point, 1.0f));
-}
-
-glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector) {
-  return glm::vec3(transform * glm::vec4(vector, 0.0f));
-}
-
-float AxisCoordinate(const glm::vec3& delta, const glm::vec3& axis) {
-  const auto axis_length_squared = glm::dot(axis, axis);
-  return axis_length_squared > 1e-6f ? glm::dot(delta, axis) / axis_length_squared : 0.0f;
-}
-
-glm::ivec3 CalculateDdgiProbeScrollDelta(const glm::vec3& first_probe_delta, const glm::vec3& probe_step_x,
-                                         const glm::vec3& probe_step_y, const glm::vec3& probe_step_z) {
-  const auto abs_floor = [](const float value) {
-    return value >= 0.0f ? static_cast<int>(std::floor(value)) : static_cast<int>(std::ceil(value));
-  };
-  return {abs_floor(AxisCoordinate(first_probe_delta, probe_step_x)),
-          abs_floor(AxisCoordinate(first_probe_delta, probe_step_y)),
-          abs_floor(AxisCoordinate(first_probe_delta, probe_step_z))};
-}
-
-glm::vec3 CalculateDdgiEffectiveFirstProbe(const glm::vec3& base_first_probe, const glm::vec3& probe_step_x,
-                                           const glm::vec3& probe_step_y, const glm::vec3& probe_step_z,
-                                           const glm::ivec3& probe_scroll_offset) {
-  return base_first_probe + probe_step_x * static_cast<float>(probe_scroll_offset.x) +
-         probe_step_y * static_cast<float>(probe_scroll_offset.y) +
-         probe_step_z * static_cast<float>(probe_scroll_offset.z);
-}
-
-void NormalizeDdgiProbeScrollOrigin(glm::vec3& base_first_probe, glm::ivec3& probe_scroll_offset,
-                                    const glm::ivec3& probe_counts, const glm::vec3& probe_step_x,
-                                    const glm::vec3& probe_step_y, const glm::vec3& probe_step_z) {
-  const auto counts = ClampDdgiProbeCounts(probe_counts);
-  const glm::vec3 probe_steps[3] = {probe_step_x, probe_step_y, probe_step_z};
-  for (int axis = 0; axis < 3; ++axis) {
-    const int complete_wraps = probe_scroll_offset[axis] / counts[axis];
-    if (complete_wraps != 0) {
-      const int normalized_probes = complete_wraps * counts[axis];
-      base_first_probe += probe_steps[axis] * static_cast<float>(normalized_probes);
-      probe_scroll_offset[axis] -= normalized_probes;
-    }
-  }
-}
 
 int PackDdgiProbeScrollFlags(const glm::ivec3& probe_scroll_clear, const glm::ivec3& probe_scroll_directions) {
   int flags = 0;
@@ -750,36 +677,23 @@ glm::ivec4 CreateDdgiProbeScrollPushConstant(const DdgiProbeRayDiagnosticSource&
           PackDdgiProbeScrollFlags(source.probe_scroll_clear, source.probe_scroll_directions)};
 }
 
-DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(
-    const ResolvedEnvironmentalLighting::DdgiVolume& volume, const DdgiSettings& settings,
-    const RenderSettings& render_settings) {
+DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromCascade(
+    const ResolvedEnvironmentalLighting::DdgiCascade& volume, const DdgiSettings& settings) {
   DdgiProbeRayDiagnosticSource source;
   source.probe_counts = volume.probe_counts;
   const auto counts = ClampDdgiProbeCounts(volume.probe_counts);
-  const auto spacing = ClampDdgiProbeSpacing(volume.probe_spacing);
-  const auto first_probe_local = volume.volume_origin - glm::vec3(counts - glm::ivec3(1)) * spacing * 0.5f;
-  source.first_probe = TransformPoint(volume.transform, first_probe_local);
-  source.probe_step_x = TransformVector(volume.transform, {spacing.x, 0.0f, 0.0f});
-  source.probe_step_y = TransformVector(volume.transform, {0.0f, spacing.y, 0.0f});
-  source.probe_step_z = TransformVector(volume.transform, {0.0f, 0.0f, spacing.z});
-  source.relocation_distance = glm::max(volume.relocation_distance, 0.0f);
-  source.random_ray_backface_threshold = glm::clamp(render_settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
-  source.fixed_ray_backface_threshold = glm::clamp(render_settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
-  source.probe_variability_threshold = glm::clamp(render_settings.ddgi_probe_variability_threshold, 0.0f, 10.0f);
-  source.probe_variability_maximum_frames = glm::clamp(render_settings.ddgi_probe_variability_maximum_frames, 1, 4096);
-  source.hysteresis_boost_trigger_conditions =
-      volume.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll;
-  source.variability_reset_trigger_conditions =
-      volume.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll;
-  source.movement_type = glm::clamp(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
-                                    static_cast<int>(DdgiVolumeMovementType::Scrolling));
-  source.enable_probe_relocation = volume.enable_probe_relocation;
-  source.enable_probe_classification = volume.enable_probe_classification;
-  source.enable_probe_variability = render_settings.ddgi_enable_probe_variability;
-  source.enable_probe_variability_gating = render_settings.ddgi_enable_probe_variability_gating;
-  source.pause_probe_updates_after_convergence = render_settings.ddgi_pause_probe_updates_after_convergence;
-  source.emissive_mesh_sampling_enabled = DdgiRuntime::ResolveEmissiveMeshSampling(
-      settings.runtime.enable_emissive_mesh_sampling, volume.emissive_mesh_sampling_mode);
+  const auto spacing = volume.probe_spacing;
+  const auto first_probe_local = (glm::vec3(volume.probe_center) - glm::vec3(counts - glm::ivec3(1)) * 0.5f) * spacing;
+  source.first_probe = first_probe_local;
+  source.probe_step_x = glm::vec3{spacing.x, 0.0f, 0.0f};
+  source.probe_step_y = glm::vec3{0.0f, spacing.y, 0.0f};
+  source.probe_step_z = glm::vec3{0.0f, 0.0f, spacing.z};
+  source.relocation_distance = glm::max(settings.runtime.relocation_distance, 0.0f);
+  source.random_ray_backface_threshold = glm::clamp(settings.runtime.random_ray_backface_threshold, 0.0f, 1.0f);
+  source.fixed_ray_backface_threshold = glm::clamp(settings.runtime.fixed_ray_backface_threshold, 0.0f, 1.0f);
+  source.enable_probe_relocation = settings.runtime.enable_probe_relocation;
+  source.enable_probe_classification = settings.runtime.enable_probe_classification;
+  source.emissive_mesh_sampling_enabled = settings.runtime.enable_emissive_mesh_sampling;
   return source;
 }
 
@@ -804,14 +718,10 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
     const bool skip_recursive_ddgi, const uint32_t volume_index, const uint32_t environment_cubemap_index,
     const uint32_t deterministic_sequence_index, const uint32_t emissive_triangle_count) {
   DdgiProbeRayTracingPushConstant push_constant;
-  const auto frame_index = settings.runtime.deterministic_ray_seed_enabled
-                               ? deterministic_sequence_index
-                               : static_cast<uint32_t>(Platform::GetFrameCount() & 0x00ffffffu);
-  const auto base_seed = settings.runtime.deterministic_ray_seed_enabled ? settings.runtime.deterministic_ray_seed : 0u;
-  const auto emissive_dispatch_seed = HashDdgiProbeRayRotationSeed(base_seed ^ (frame_index * 0x9e3779b9u) ^
-                                                                   (deterministic_sequence_index * 0x85ebca6bu) ^
-                                                                   (source.selected_volume_index * 0xc2b2ae35u));
-  const auto ray_rotation = CreateDdgiProbeRayRotationQuaternion(frame_index, source.selected_volume_index, base_seed);
+  const auto sampling = CreateDdgiSamplingPhase(
+      source.stable_volume_id, deterministic_sequence_index, static_cast<uint32_t>(settings.runtime.history_count),
+      settings.runtime.deterministic_ray_seed_enabled ? settings.runtime.deterministic_ray_seed : 0u);
+  const auto ray_rotation = sampling.rotation;
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
   const auto emissive_ray_count = source.emissive_mesh_sampling_enabled && emissive_triangle_count > 0u
                                       ? static_cast<uint32_t>(glm::max(settings.runtime.emissive_ray_count, 0))
@@ -834,15 +744,16 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
                                     glm::max(settings.runtime.normal_bias, 0.001f),
                                     glm::uintBitsToFloat(packed_ray_population), skip_recursive_ddgi ? 1.0f : 0.0f};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
-  push_constant.probe_scroll_offset.w = static_cast<int32_t>(emissive_dispatch_seed & 0x7fffffffu);
+  push_constant.probe_scroll_offset.w = static_cast<int32_t>(sampling.emissive_seed);
   return push_constant;
 }
 
-DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
-    const DdgiSettings& settings, const DdgiFrameResourceLayout& layout, const DdgiProbeRayDiagnosticSource& source,
-    const float history_hysteresis, const float brightness_threshold, const uint32_t emissive_triangle_count) {
+DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(const DdgiSettings& settings,
+                                                                        const DdgiFrameResourceLayout& layout,
+                                                                        const DdgiProbeRayDiagnosticSource& source,
+                                                                        const uint32_t history_phase,
+                                                                        const uint32_t emissive_triangle_count) {
   const auto total_probe_count = layout.probe_count;
-  const auto history_weight = glm::clamp(history_hysteresis, 0.0f, 1.0f);
   DdgiProbeAtlasUpdatePushConstant push_constant;
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
   const auto emissive_ray_count = source.emissive_mesh_sampling_enabled && emissive_triangle_count > 0u
@@ -858,12 +769,12 @@ DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
   push_constant.atlas_columns_fixed_ray_count_and_update_mode = {
       layout.irradiance_atlas.columns, layout.visibility_atlas.columns, packed_ray_population, 0u};
   push_constant.probe_counts_and_rotation = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), 0u);
-  push_constant.update_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings), history_weight,
+  push_constant.update_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings), 1.0f,
                                      glm::max(settings.runtime.irradiance_gamma, 1.0f),
                                      glm::max(source.relocation_distance, 0.0f)};
   push_constant.blend_parameters = {
       glm::clamp(source.random_ray_backface_threshold, 0.0f, 1.0f), glm::max(settings.runtime.distance_exponent, 0.0f),
-      glm::max(brightness_threshold, 0.0f), glm::clamp(settings.runtime.irradiance_threshold, 0.0f, 1.0f)};
+      static_cast<float>(settings.runtime.history_count), static_cast<float>(history_phase)};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
   push_constant.probe_scroll_delta = glm::ivec4(source.probe_scroll_delta, 0);
   push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
@@ -1480,6 +1391,9 @@ std::shared_ptr<Buffer> CreateDdgiFallbackProbeStateBuffer(const uint64_t byte_s
 }
 
 void AddDdgiFrameResources(RenderGraph& graph, const DdgiFrameResourceLayout& layout) {
+  for (size_t i = 0; i < layout.history.buffer_bytes.size(); ++i)
+    graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_history[i],
+                                                                 layout.history.buffer_bytes[i]));
   graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_metadata,
                                                                layout.probe_metadata_byte_size));
   graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_probe_state,
@@ -1496,12 +1410,6 @@ void AddDdgiFrameResources(RenderGraph& graph, const DdgiFrameResourceLayout& la
                                                               layout.irradiance_atlas, "RGBA16F"));
   graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_visibility_atlas,
                                                               layout.visibility_atlas, "RG16F"));
-  graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_atlas,
-                                                              layout.variability_atlas, "R16F"));
-  graph.AddResource(CreateDdgiImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_reduction_a,
-                                                      layout.variability_reduction_extent, "RGBA32F"));
-  graph.AddResource(CreateDdgiImageResourceDescriptor(RenderResourceNames::frame_ddgi_variability_reduction_b,
-                                                      layout.variability_reduction_extent, "RGBA32F"));
 }
 
 void AddDdgiRayTracingFrameResources(RenderGraph& graph) {
@@ -1745,22 +1653,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                            VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ray_tracing_point_cloud_layout_->Initialize();
   }
-  if (Platform::RayTracingEnabled() && !ddgi_probe_ray_output_layout_) {
-    ddgi_probe_ray_output_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(
-        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->Initialize();
-  }
   if (!particle_instanced_data_layout_) {
     particle_instanced_data_layout_ = std::make_shared<DescriptorSetLayout>();
     particle_instanced_data_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL,
@@ -1855,66 +1747,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     volumetric_clouds_layout_->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
                                                      0);
     volumetric_clouds_layout_->Initialize();
-  }
-  if (!ddgi_probe_update_layout_) {
-    ddgi_probe_update_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_update_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                                     0);
-    ddgi_probe_update_layout_->Initialize();
-  }
-  if (!ddgi_probe_relocation_layout_) {
-    ddgi_probe_relocation_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_relocation_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_relocation_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_relocation_layout_->Initialize();
-  }
-  if (!ddgi_probe_classification_layout_) {
-    ddgi_probe_classification_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_classification_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_classification_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_classification_layout_->Initialize();
-  }
-  if (!ddgi_probe_variability_layout_) {
-    ddgi_probe_variability_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_variability_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_variability_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_variability_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                          VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    ddgi_probe_variability_layout_->Initialize();
-  }
-  if (!ddgi_probe_visualization_layout_) {
-    ddgi_probe_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_visualization_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                            VK_SHADER_STAGE_VERTEX_BIT, 0);
-    ddgi_probe_visualization_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                            VK_SHADER_STAGE_VERTEX_BIT, 0);
-    ddgi_probe_visualization_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                            VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    ddgi_probe_visualization_layout_->Initialize();
-  }
-  if (!ddgi_probe_ray_visualization_layout_) {
-    ddgi_probe_ray_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
-    ddgi_probe_ray_visualization_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                                VK_SHADER_STAGE_VERTEX_BIT, 0);
-    ddgi_probe_ray_visualization_layout_->Initialize();
   }
   if (!gaussian_splat_layout_) {
     gaussian_splat_layout_ = std::make_shared<DescriptorSetLayout>();
@@ -2065,9 +1897,6 @@ void RenderLayer::OnCreate() {
   peak_live_ray_camera_history_byte_size_ = 0;
   peak_live_ray_camera_output_descriptor_count_ = 0;
   enable_inspection = false;
-  if (!ddgi_atlas_sampler_) {
-    ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
-  }
   if (!ApplicationContext::Get().GetApplicationInfo().prewarm_render_pipelines) {
     initialize_render_instance_storage();
     log_startup(false);
@@ -2176,142 +2005,6 @@ void RenderLayer::OnCreate() {
                                        gaussian_splat_compute_path / "GaussianSplatRadixSpine.slang");
   create_gaussian_splat_radix_pipeline(gaussian_splat_radix_downsweep_pipeline_,
                                        gaussian_splat_compute_path / "GaussianSplatRadixDownsweep.slang");
-  if (!ddgi_probe_scroll_pipeline_) {
-    ddgi_probe_scroll_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_scroll_pipeline_->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeScroll.slang");
-    ddgi_probe_scroll_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
-    auto& push_constant_range = ddgi_probe_scroll_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeScrollPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_scroll_pipeline_->Initialize();
-  }
-  if (!ddgi_probe_update_pipeline_) {
-    ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_update_pipeline_->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
-    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
-    auto& push_constant_range = ddgi_probe_update_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeAtlasUpdatePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_update_pipeline_->Initialize();
-  }
-  {
-    const char* environment_variant = std::getenv("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT");
-    const std::string requested_name =
-        environment_variant && environment_variant[0] != '\0' ? environment_variant : "parallel-shared";
-    const auto requested_variant = DdgiRuntime::ParseProbeUpdateVariant(requested_name);
-    DdgiProbeUpdateDeviceLimits limits;
-    const auto& capabilities = Platform::GetInstance().GetCapabilities();
-    limits.max_work_group_invocations = capabilities.max_compute_work_group_invocations;
-    limits.max_shared_memory_bytes = capabilities.max_shared_memory_size;
-    if (const auto physical_device = Platform::GetSelectedPhysicalDevice()) {
-      limits.max_work_group_size_x = physical_device->properties.limits.maxComputeWorkGroupSize[0];
-      limits.max_work_group_count_x = physical_device->properties.limits.maxComputeWorkGroupCount[0];
-      limits.max_work_group_count_y = physical_device->properties.limits.maxComputeWorkGroupCount[1];
-    }
-
-    const auto supported_variant = DdgiRuntime::ResolveProbeUpdateVariant(requested_variant, limits, 1u, true, true);
-    const auto create_parallel_pipeline = [&](std::shared_ptr<ComputePipeline>& pipeline, const uint32_t mode) {
-      pipeline = std::make_shared<ComputePipeline>();
-      const bool use_shared_rays = requested_variant == DdgiProbeUpdateVariant::ParallelShared;
-      const auto shader_header = Platform::GetShaderGlobalDefines() + "\n#define EE_DDGI_PROBE_UPDATE_MODE " +
-                                 std::to_string(mode) + "\n#define EE_DDGI_PROBE_USE_SHARED_RAYS " +
-                                 (use_shared_rays ? "1\n" : "0\n");
-      pipeline->compute_shader =
-          Shader::CreateTemporary(ShaderType::Compute, shader_header,
-                                  Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
-      pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-      pipeline->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
-      auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-      push_constant_range.size = sizeof(DdgiProbeAtlasUpdatePushConstant);
-      push_constant_range.offset = 0;
-      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-      pipeline->Initialize();
-    };
-    if (supported_variant != DdgiProbeUpdateVariant::Serial) {
-      create_parallel_pipeline(ddgi_probe_update_irradiance_pipeline_, 1u);
-      create_parallel_pipeline(ddgi_probe_update_visibility_pipeline_, 2u);
-    } else {
-      ddgi_probe_update_irradiance_pipeline_.reset();
-      ddgi_probe_update_visibility_pipeline_.reset();
-    }
-    ddgi_probe_update_variant_ = DdgiRuntime::ResolveProbeUpdateVariant(
-        requested_variant, limits, 1u,
-        ddgi_probe_update_irradiance_pipeline_ && ddgi_probe_update_irradiance_pipeline_->Initialized(),
-        ddgi_probe_update_visibility_pipeline_ && ddgi_probe_update_visibility_pipeline_->Initialized());
-    if (ddgi_probe_update_variant_ == DdgiProbeUpdateVariant::Serial) {
-      ddgi_probe_update_irradiance_pipeline_.reset();
-      ddgi_probe_update_visibility_pipeline_.reset();
-    }
-    ddgi_probe_update_path_reported_ = false;
-    const auto variant_name = [](const DdgiProbeUpdateVariant variant) {
-      switch (variant) {
-        case DdgiProbeUpdateVariant::Serial:
-          return "serial";
-        case DdgiProbeUpdateVariant::ParallelShared:
-          return "parallel-shared";
-        default:
-          return "parallel-direct";
-      }
-    };
-    EVOENGINE_WARNING("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT requested=" + requested_name +
-                      " selected=" + variant_name(ddgi_probe_update_variant_) +
-                      " required_shared_bytes=" + std::to_string(DdgiRuntime::kProbeUpdateSharedMemoryBytes))
-  }
-  if (!ddgi_probe_relocation_pipeline_) {
-    ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_relocation_pipeline_->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeRelocation.slang");
-    ddgi_probe_relocation_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_relocation_layout_);
-    auto& push_constant_range = ddgi_probe_relocation_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeRelocationPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_relocation_pipeline_->Initialize();
-  }
-  if (!ddgi_probe_classification_pipeline_) {
-    ddgi_probe_classification_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_classification_pipeline_->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeClassification.slang");
-    ddgi_probe_classification_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_classification_layout_);
-    auto& push_constant_range = ddgi_probe_classification_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeClassificationPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_classification_pipeline_->Initialize();
-  }
-  if (!ddgi_probe_variability_reduce_pipeline_) {
-    ddgi_probe_variability_reduce_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_variability_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityReduce.slang");
-    ddgi_probe_variability_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
-    auto& push_constant_range = ddgi_probe_variability_reduce_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_variability_reduce_pipeline_->Initialize();
-  }
-  if (!ddgi_probe_variability_extra_reduce_pipeline_) {
-    ddgi_probe_variability_extra_reduce_pipeline_ = std::make_shared<ComputePipeline>();
-    ddgi_probe_variability_extra_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityExtraReduce.slang");
-    ddgi_probe_variability_extra_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
-    auto& push_constant_range = ddgi_probe_variability_extra_reduce_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    ddgi_probe_variability_extra_reduce_pipeline_->Initialize();
-  }
 #pragma region Graphics Pipelines
   const auto shadow_empty_fragment_shader_path =
       Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang";
@@ -2761,49 +2454,6 @@ void RenderLayer::OnCreate() {
 
     gizmos_instanced_colored->Initialize();
   }
-  if (!ddgi_probe_visualization_pipeline_) {
-    ddgi_probe_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
-    ddgi_probe_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeVisualization.slang");
-    ddgi_probe_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.slang");
-    ddgi_probe_visualization_pipeline_->geometry_type = GeometryType::Mesh;
-    ddgi_probe_visualization_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionNormal;
-    ddgi_probe_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
-    ddgi_probe_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    ddgi_probe_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_visualization_layout_);
-    auto& push_constant_range = ddgi_probe_visualization_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeVisualizationPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    ddgi_probe_visualization_pipeline_->Initialize();
-  }
-  if (!ddgi_probe_ray_visualization_pipeline_) {
-    ddgi_probe_ray_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
-    ddgi_probe_ray_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeRayVisualization.slang");
-    ddgi_probe_ray_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeRayVisualization.slang");
-    ddgi_probe_ray_visualization_pipeline_->geometry_type = GeometryType::Mesh;
-    ddgi_probe_ray_visualization_pipeline_->vertex_input_enabled = false;
-    ddgi_probe_ray_visualization_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-    ddgi_probe_ray_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
-    ddgi_probe_ray_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    ddgi_probe_ray_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_visualization_layout_);
-    auto& push_constant_range = ddgi_probe_ray_visualization_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeRayVisualizationPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    ddgi_probe_ray_visualization_pipeline_->Initialize();
-  }
   if (!gaussian_splat_pipeline_) {
     gaussian_splat_pipeline_ = CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_,
                                                            Platform::Constants::render_texture_depth);
@@ -2861,9 +2511,6 @@ void RenderLayer::OnCreate() {
   }
 #pragma endregion
 #pragma region Ray Tracing Pipelines
-  constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
-                                                    VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-                                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
   if (Platform::RayTracingEnabled() && !ray_tracing_camera_fallback_pipeline_) {
     ray_tracing_camera_fallback_pipeline_ =
         CreateRayTracingCameraPipeline(per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_,
@@ -2919,29 +2566,6 @@ void RenderLayer::OnCreate() {
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout_);
     ray_tracing_point_cloud_pipeline->Initialize();
-  }
-  if (Platform::RayTracingEnabled() && !ddgi_probe_trace_pipeline_) {
-    ddgi_probe_trace_pipeline_ = std::make_shared<RayTracingPipeline>();
-    ddgi_probe_trace_pipeline_->raygen_shader = Shader::CreateTemporary(
-        ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeTrace.slang");
-    ddgi_probe_trace_pipeline_->miss_shader =
-        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeTrace.slang");
-    ddgi_probe_trace_pipeline_->closest_hit_shader = Shader::CreateTemporary(
-        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeTrace.slang");
-    ddgi_probe_trace_pipeline_->any_hit_shader = Shader::CreateTemporary(
-        ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeTrace.slang");
-    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
-    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
-    auto& push_constant_range = ddgi_probe_trace_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(DdgiProbeRayTracingPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
-    ddgi_probe_trace_pipeline_->Initialize();
   }
 #pragma endregion
 
@@ -3009,6 +2633,249 @@ void RenderLayer::OnCreate() {
   log_startup(true);
 }
 
+void RenderLayer::EnsureDdgiPipelines() {
+  if (ddgi_probe_update_pipeline_ || !Platform::RayTracingEnabled())
+    return;
+  if (!ddgi_atlas_sampler_)
+    ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
+  constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
+                                                    VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+                                                    VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+  if (Platform::RayTracingEnabled() && !ddgi_probe_ray_output_layout_) {
+    ddgi_probe_ray_output_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(
+        1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    ddgi_probe_ray_output_layout_->Initialize();
+  }
+  if (!ddgi_probe_update_layout_) {
+    ddgi_probe_update_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_update_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    ddgi_probe_update_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                     0);
+    for (uint32_t binding = 7; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
+      ddgi_probe_update_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                       VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_update_layout_->Initialize();
+  }
+  if (!ddgi_probe_relocation_layout_) {
+    ddgi_probe_relocation_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_relocation_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_relocation_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_relocation_layout_->Initialize();
+  }
+  if (!ddgi_probe_classification_layout_) {
+    ddgi_probe_classification_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_classification_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_classification_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ddgi_probe_classification_layout_->Initialize();
+  }
+  if (!ddgi_probe_visualization_layout_) {
+    ddgi_probe_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_VERTEX_BIT, 0);
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                            VK_SHADER_STAGE_VERTEX_BIT, 0);
+    ddgi_probe_visualization_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                            VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    ddgi_probe_visualization_layout_->Initialize();
+  }
+  if (!ddgi_probe_ray_visualization_layout_) {
+    ddgi_probe_ray_visualization_layout_ = std::make_shared<DescriptorSetLayout>();
+    ddgi_probe_ray_visualization_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                                VK_SHADER_STAGE_VERTEX_BIT, 0);
+    ddgi_probe_ray_visualization_layout_->Initialize();
+  }
+  if (!ddgi_probe_scroll_pipeline_) {
+    ddgi_probe_scroll_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_scroll_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeScroll.slang");
+    ddgi_probe_scroll_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
+    auto& push_constant_range = ddgi_probe_scroll_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeScrollPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_scroll_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_update_pipeline_) {
+    ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_update_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
+    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
+    auto& push_constant_range = ddgi_probe_update_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeAtlasUpdatePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_update_pipeline_->Initialize();
+  }
+  {
+    const char* environment_variant = std::getenv("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT");
+    const std::string requested_name =
+        environment_variant && environment_variant[0] != '\0' ? environment_variant : "parallel-shared";
+    const auto requested_variant = DdgiRuntime::ParseProbeUpdateVariant(requested_name);
+    DdgiProbeUpdateDeviceLimits limits;
+    const auto& capabilities = Platform::GetInstance().GetCapabilities();
+    limits.max_work_group_invocations = capabilities.max_compute_work_group_invocations;
+    limits.max_shared_memory_bytes = capabilities.max_shared_memory_size;
+    if (const auto physical_device = Platform::GetSelectedPhysicalDevice()) {
+      limits.max_work_group_size_x = physical_device->properties.limits.maxComputeWorkGroupSize[0];
+      limits.max_work_group_count_x = physical_device->properties.limits.maxComputeWorkGroupCount[0];
+      limits.max_work_group_count_y = physical_device->properties.limits.maxComputeWorkGroupCount[1];
+    }
+
+    const auto supported_variant = DdgiRuntime::ResolveProbeUpdateVariant(requested_variant, limits, 1u, true, true);
+    const auto create_parallel_pipeline = [&](std::shared_ptr<ComputePipeline>& pipeline, const uint32_t mode) {
+      pipeline = std::make_shared<ComputePipeline>();
+      const bool use_shared_rays = requested_variant == DdgiProbeUpdateVariant::ParallelShared;
+      const auto shader_header = Platform::GetShaderGlobalDefines() + "\n#define EE_DDGI_PROBE_UPDATE_MODE " +
+                                 std::to_string(mode) + "\n#define EE_DDGI_PROBE_USE_SHARED_RAYS " +
+                                 (use_shared_rays ? "1\n" : "0\n");
+      pipeline->compute_shader =
+          Shader::CreateTemporary(ShaderType::Compute, shader_header,
+                                  Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
+      pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+      pipeline->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
+      auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(DdgiProbeAtlasUpdatePushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+      pipeline->Initialize();
+    };
+    if (supported_variant != DdgiProbeUpdateVariant::Serial) {
+      create_parallel_pipeline(ddgi_probe_update_irradiance_pipeline_, 1u);
+      create_parallel_pipeline(ddgi_probe_update_visibility_pipeline_, 2u);
+    } else {
+      ddgi_probe_update_irradiance_pipeline_.reset();
+      ddgi_probe_update_visibility_pipeline_.reset();
+    }
+    ddgi_probe_update_variant_ = DdgiRuntime::ResolveProbeUpdateVariant(
+        requested_variant, limits, 1u,
+        ddgi_probe_update_irradiance_pipeline_ && ddgi_probe_update_irradiance_pipeline_->Initialized(),
+        ddgi_probe_update_visibility_pipeline_ && ddgi_probe_update_visibility_pipeline_->Initialized());
+    if (ddgi_probe_update_variant_ == DdgiProbeUpdateVariant::Serial) {
+      ddgi_probe_update_irradiance_pipeline_.reset();
+      ddgi_probe_update_visibility_pipeline_.reset();
+    }
+  }
+  if (!ddgi_probe_relocation_pipeline_) {
+    ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_relocation_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeRelocation.slang");
+    ddgi_probe_relocation_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_relocation_layout_);
+    auto& push_constant_range = ddgi_probe_relocation_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRelocationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_relocation_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_classification_pipeline_) {
+    ddgi_probe_classification_pipeline_ = std::make_shared<ComputePipeline>();
+    ddgi_probe_classification_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeClassification.slang");
+    ddgi_probe_classification_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_classification_layout_);
+    auto& push_constant_range = ddgi_probe_classification_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeClassificationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    ddgi_probe_classification_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_visualization_pipeline_) {
+    ddgi_probe_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
+    ddgi_probe_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeVisualization.slang");
+    ddgi_probe_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.slang");
+    ddgi_probe_visualization_pipeline_->geometry_type = GeometryType::Mesh;
+    ddgi_probe_visualization_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionNormal;
+    ddgi_probe_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    ddgi_probe_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    ddgi_probe_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_visualization_layout_);
+    auto& push_constant_range = ddgi_probe_visualization_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeVisualizationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    ddgi_probe_visualization_pipeline_->Initialize();
+  }
+  if (!ddgi_probe_ray_visualization_pipeline_) {
+    ddgi_probe_ray_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
+    ddgi_probe_ray_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeRayVisualization.slang");
+    ddgi_probe_ray_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeRayVisualization.slang");
+    ddgi_probe_ray_visualization_pipeline_->geometry_type = GeometryType::Mesh;
+    ddgi_probe_ray_visualization_pipeline_->vertex_input_enabled = false;
+    ddgi_probe_ray_visualization_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    ddgi_probe_ray_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+    ddgi_probe_ray_visualization_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    ddgi_probe_ray_visualization_pipeline_->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_ray_visualization_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_visualization_layout_);
+    auto& push_constant_range = ddgi_probe_ray_visualization_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRayVisualizationPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    ddgi_probe_ray_visualization_pipeline_->Initialize();
+  }
+  if (Platform::RayTracingEnabled() && !ddgi_probe_trace_pipeline_) {
+    ddgi_probe_trace_pipeline_ = std::make_shared<RayTracingPipeline>();
+    ddgi_probe_trace_pipeline_->raygen_shader = Shader::CreateTemporary(
+        ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->miss_shader =
+        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->closest_hit_shader = Shader::CreateTemporary(
+        ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->any_hit_shader = Shader::CreateTemporary(
+        ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
+    auto& push_constant_range = ddgi_probe_trace_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(DdgiProbeRayTracingPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = ray_tracing_push_constant_stages;
+    ddgi_probe_trace_pipeline_->Initialize();
+  }
+}
+
 void RenderLayer::EnsureRasterLightingFallbackTexture() const {
   const auto create_fallback_texture = [](const glm::vec4& color) {
     auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
@@ -3053,6 +2920,25 @@ const RenderLayer::DdgiSessionState& RenderLayer::GetDdgiSessionState() const {
   return ddgi_session_state_;
 }
 
+uint64_t RenderLayer::GetDdgiHistoryAllocationBytes() const {
+  uint64_t bytes = 0;
+  for (const auto id : ddgi_ordered_cascade_ids_)
+    if (const auto found = ddgi_cascade_runtime_states_.find(id); found != ddgi_cascade_runtime_states_.end())
+      bytes += found->second->frame_resource_layout.history_allocation_bytes;
+  return bytes;
+}
+
+bool RenderLayer::SetDdgiHistoryCount(const std::shared_ptr<Scene>& scene, const int count, std::string& error) {
+  const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+  if (!lighting || !IsDdgiHistoryCountSupported(count)) {
+    error = "An EnvironmentalLighting asset and history count from 5 to 30 in steps of 5 are required.";
+    return false;
+  }
+  auto candidate = lighting->GetGiSettings();
+  candidate.ddgi_settings.runtime.history_count = count;
+  return lighting->TrySetGiSettings(candidate, error);
+}
+
 void RenderLayer::RequestDdgiHistoryReset() {
   if (!ddgi_session_state_.pause_updates) {
     ddgi_session_state_.reset_history_requested = true;
@@ -3062,28 +2948,32 @@ void RenderLayer::RequestDdgiHistoryReset() {
 RenderLayer::DdgiInspectorSnapshot RenderLayer::GetDdgiInspectorSnapshot() const {
   DdgiInspectorSnapshot snapshot;
   snapshot.enabled = ResolveEnvironmentalLighting(GetScene()).ddgi_settings.runtime.enabled;
-  const auto* primary = GetPrimaryDdgiVolumeRuntimeState();
+  const auto* primary = GetPrimaryDdgiCascadeRuntimeState();
   snapshot.last_probe_update_reasons = primary ? primary->last_probe_update_reasons : DdgiUpdateReasonNone;
   snapshot.last_probe_history_cleared = primary && primary->clear_probe_atlas_this_frame;
-  snapshot.validation_error = ddgi_volume_set_validation_error_;
+  snapshot.validation_error = gi_settings_error_.empty() ? ddgi_cascade_set_validation_error_ : gi_settings_error_;
   snapshot.aggregate = ddgi_last_performance_stats_;
-  snapshot.volumes = BuildDdgiVolumeRuntimeStats();
+  snapshot.cascades = BuildDdgiCascadeRuntimeStats();
   return snapshot;
 }
 
-std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() const {
-  std::vector<DdgiVolumeRuntimeStats> stats;
+std::vector<DdgiCascadeRuntimeStats> RenderLayer::BuildDdgiCascadeRuntimeStats() const {
+  std::vector<DdgiCascadeRuntimeStats> stats;
   const auto warmup_frame_count =
       static_cast<uint32_t>(glm::max(ResolveEnvironmentalLighting(GetScene()).ddgi_settings.runtime.warmup_frames, 0));
-  stats.reserve(ddgi_ordered_volume_ids_.size());
-  for (const auto volume_id : ddgi_ordered_volume_ids_) {
-    const auto runtime = ddgi_volume_runtime_states_.find(volume_id);
-    if (runtime == ddgi_volume_runtime_states_.end()) {
+  stats.reserve(ddgi_ordered_cascade_ids_.size());
+  for (const auto volume_id : ddgi_ordered_cascade_ids_) {
+    const auto runtime = ddgi_cascade_runtime_states_.find(volume_id);
+    if (runtime == ddgi_cascade_runtime_states_.end()) {
       continue;
     }
     const auto& state = *runtime->second;
     const bool resources_ready =
         state.frame_resource_layout.valid &&
+        std::all_of(state.history_buffers.begin(), state.history_buffers.end(),
+                    [](const auto& buffer) {
+                      return buffer != nullptr;
+                    }) &&
         std::all_of(state.resource_ids.begin(), state.resource_ids.end(),
                     [](const auto id) {
                       return id != 0u;
@@ -3092,15 +2982,16 @@ std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() c
         state.probe_metadata_buffer->GetSize() >= state.frame_resource_layout.probe_metadata_byte_size &&
         state.probe_state_buffer &&
         state.probe_state_buffer->GetSize() >= state.frame_resource_layout.probe_state_byte_size &&
-        state.irradiance_atlas && state.visibility_atlas && state.variability_atlas;
+        state.irradiance_atlas && state.visibility_atlas;
     auto& volume_stats = stats.emplace_back();
     volume_stats.name = state.name;
     volume_stats.stable_entity_id = state.stable_entity_id;
     volume_stats.sorted_index = state.sorted_index;
-    volume_stats.artist_priority = state.artist_priority;
-    volume_stats.probe_density = state.probe_density;
     volume_stats.probe_counts = state.previous_probe_counts;
     volume_stats.probe_count = state.frame_resource_layout.valid ? state.frame_resource_layout.probe_count : 0u;
+    volume_stats.history_phase = state.probe_ray_sequence_index;
+    volume_stats.history_count = state.frame_resource_layout.history_count;
+    volume_stats.history_completed_updates = state.history_completed_updates;
     volume_stats.probe_scroll_offset = state.probe_scroll_offset;
     volume_stats.last_probe_scroll_delta = state.last_probe_scroll_delta;
     volume_stats.has_valid_probe_history = state.has_valid_probe_history;
@@ -3109,18 +3000,11 @@ std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() c
     volume_stats.emissive_mesh_sampling_enabled = state.emissive_mesh_sampling_enabled;
     volume_stats.last_probe_update_reasons = state.last_probe_update_reasons;
     volume_stats.warmup_frame_index = state.probe_warmup_frame_index;
-    volume_stats.warmup_frame_count = warmup_frame_count;
-    volume_stats.warmup_active = state.frame_probe_warmup_active;
-    volume_stats.converged = state.probe_variability_converged;
-    volume_stats.maximum_reached = state.probe_variability_maximum_reached;
-    volume_stats.sampling_complete = state.probe_variability_converged || state.probe_variability_maximum_reached;
-    volume_stats.variability_budget_frame_count = state.probe_variability_budget.completed_frame_count;
-    volume_stats.variability_maximum_frames =
-        static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1));
-    volume_stats.pending_scene_changes = state.latched_scene_change_triggers != DdgiVolumeTriggerConditionNone;
-    volume_stats.current_hysteresis = state.current_probe_hysteresis;
-    volume_stats.hysteresis_boost_active = state.hysteresis_boost_active;
-    volume_stats.hysteresis_boost_restoring = state.frame_hysteresis_boost_restoring;
+    volume_stats.warmup_frame_count = state.previous_probe_state_parameters.y > 0.0f ? warmup_frame_count : 0u;
+    volume_stats.warmup_active = state.probe_warmup_frame_index < volume_stats.warmup_frame_count;
+    volume_stats.sampling_complete =
+        state.history_completed_updates >= state.frame_resource_layout.history_count && !volume_stats.warmup_active;
+    volume_stats.pending_scene_changes = state.latched_scene_change_triggers != DdgiSceneChangeNone;
     volume_stats.resident_byte_size = state.frame_resource_layout.peak_resident_byte_size;
     volume_stats.first_probe = glm::vec3(state.gpu_info.first_probe);
     volume_stats.probe_step_x = glm::vec3(state.gpu_info.probe_step_x);
@@ -3131,7 +3015,7 @@ std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() c
   return stats;
 }
 
-void RenderLayer::ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_state) {
+void RenderLayer::ResetDdgiRuntimeFrameState(DdgiCascadeRuntimeState& runtime_state) {
   runtime_state.frame_trace_probe_rays = false;
   runtime_state.frame_clear_scrolled_probes = false;
   runtime_state.frame_ray_push_constant = {};
@@ -3146,15 +3030,9 @@ void RenderLayer::ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_sta
   runtime_state.frame_probe_relocation_enabled = false;
   runtime_state.frame_probe_classification_reset = false;
   runtime_state.frame_probe_classification_enabled = false;
-  runtime_state.frame_probe_variability_enabled = false;
-  runtime_state.frame_probe_variability_counts_toward_budget = false;
   runtime_state.frame_probe_warmup_frame_index = 0u;
   runtime_state.frame_probe_warmup_frame_count = 0u;
   runtime_state.frame_probe_warmup_active = false;
-  runtime_state.frame_probe_update_hysteresis = 0.0f;
-  runtime_state.frame_hysteresis_boost_active = false;
-  runtime_state.frame_hysteresis_boost_restoring = false;
-  runtime_state.frame_variability_readback_generation = 0u;
   runtime_state.last_probe_update_reasons = DdgiUpdateReasonNone;
   runtime_state.frame_selected_probe_ray_sample_count = 0u;
   runtime_state.frame_selected_probe_ray_logical_index = 0u;
@@ -3171,18 +3049,18 @@ uint64_t RenderLayer::NextDdgiResourceId() {
   return next_ddgi_resource_id_;
 }
 
-const RenderLayer::DdgiVolumeRuntimeState* RenderLayer::GetPrimaryDdgiVolumeRuntimeState() const {
-  if (ddgi_ordered_volume_ids_.empty()) {
+const RenderLayer::DdgiCascadeRuntimeState* RenderLayer::GetPrimaryDdgiCascadeRuntimeState() const {
+  if (ddgi_ordered_cascade_ids_.empty()) {
     return nullptr;
   }
-  const auto runtime = ddgi_volume_runtime_states_.find(ddgi_ordered_volume_ids_.front());
-  return runtime != ddgi_volume_runtime_states_.end() ? runtime->second.get() : nullptr;
+  const auto runtime = ddgi_cascade_runtime_states_.find(ddgi_ordered_cascade_ids_.front());
+  return runtime != ddgi_cascade_runtime_states_.end() ? runtime->second.get() : nullptr;
 }
 
 DdgiProbeDebugDataView RenderLayer::RefreshDdgiProbeDebugData() {
-  DdgiVolumeRuntimeState* selected_runtime = nullptr;
-  if (const auto runtime_entry = ddgi_volume_runtime_states_.find(ddgi_session_state_.selected_volume_id);
-      runtime_entry != ddgi_volume_runtime_states_.end()) {
+  DdgiCascadeRuntimeState* selected_runtime = nullptr;
+  if (const auto runtime_entry = ddgi_cascade_runtime_states_.find(ddgi_session_state_.selected_cascade_id);
+      runtime_entry != ddgi_cascade_runtime_states_.end()) {
     selected_runtime = runtime_entry->second.get();
   }
   {
@@ -3320,6 +3198,36 @@ void RenderLayer::ConsumeStaticEntityChanges(const std::shared_ptr<Scene>& scene
   }
 }
 
+void RenderLayer::ValidateSceneGiSettings(const std::shared_ptr<Scene>& scene) {
+  const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (gi_settings_scene_.lock() != scene || gi_settings_asset_.lock() != lighting) {
+    gi_settings_scene_ = scene;
+    gi_settings_asset_ = lighting;
+    gi_checked_settings_.reset();
+    gi_accepted_settings_.reset();
+    gi_settings_error_.clear();
+  }
+  if (!lighting)
+    return;
+  auto candidate = lighting->GetGiSettings();
+  if (gi_checked_settings_ && *gi_checked_settings_ == candidate)
+    return;
+  const auto error = candidate.Validate();
+  if (error.empty()) {
+    gi_accepted_settings_ = candidate;
+    gi_settings_error_.clear();
+  } else {
+    if (error != gi_settings_error_)
+      EVOENGINE_ERROR("GI configuration unavailable: " + error)
+    gi_settings_error_ = error;
+    if (gi_accepted_settings_) {
+      lighting->ApplyGiSettings(*gi_accepted_settings_);
+      candidate = *gi_accepted_settings_;
+    }
+  }
+  gi_checked_settings_ = candidate;
+}
+
 void RenderLayer::PrepareSceneForRendering(
     const std::shared_ptr<Scene>& scene, const bool include_editor_cameras, const bool update_editor_selection,
     const bool update_ray_tracing, const bool track_ddgi_scene_inputs,
@@ -3327,6 +3235,8 @@ void RenderLayer::PrepareSceneForRendering(
     const bool include_reflection_probes, const bool immediate_upload) {
   if (!scene)
     return;
+  if (track_ddgi_scene_inputs)
+    ValidateSceneGiSettings(scene);
   const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
   ConsumeStaticEntityChanges(scene);
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -3344,9 +3254,14 @@ void RenderLayer::PrepareSceneForRendering(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - geometry_upload_wait_start)
             .count());
   }
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  const bool track_active_ddgi = track_ddgi_scene_inputs && (gi_settings_error_.empty() || gi_accepted_settings_) &&
+                                 resolved_lighting.ddgi_settings.runtime.enabled &&
+                                 resolved_lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi &&
+                                 Platform::RayTracingEnabled();
   const bool render_instance_updated =
       UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection,
-                                  track_ddgi_scene_inputs, injected_cameras, include_reflection_probes);
+                                  track_active_ddgi, injected_cameras, include_reflection_probes);
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayAccelerationStructureEnabled();
   if (update_ray_tracing_resources) {
@@ -3402,8 +3317,20 @@ void RenderLayer::PrepareSceneForRendering(
       }
     }
   }
-  if (track_ddgi_scene_inputs) {
+  if (track_active_ddgi) {
+    EnsureDdgiPipelines();
     PrepareDdgiFrameState(scene, current_render_instances);
+  } else if (track_ddgi_scene_inputs) {
+    ddgi_cascade_runtime_states_.clear();
+    ddgi_ordered_cascade_ids_.clear();
+    ddgi_cascade_set_validation_error_.clear();
+    ddgi_runtime_scene_.reset();
+    ddgi_has_previous_scene_inputs_ = false;
+    ddgi_latched_scene_change_triggers_ = DdgiSceneChangeNone;
+    ddgi_deferred_scene_readiness_refresh_ = false;
+    ddgi_referenced_scene_inputs_pending_ = false;
+    current_render_instances->render_info_block.ddgi_volume_header = glm::uvec4(0u);
+    current_render_instances->render_info_block.ddgi_volumes = {};
   }
   current_render_instances->BuildPreviousInstanceInfoBlocks(GetPreviousRenderInstanceStorage());
   const auto raster_visibility_started = std::chrono::steady_clock::now();
@@ -3412,64 +3339,106 @@ void RenderLayer::PrepareSceneForRendering(
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 }
 
+const GiProbeFrame& RenderLayer::PrepareGiProbeFrame(const std::shared_ptr<Scene>& scene,
+                                                     const GiProbeSettings& settings) {
+  auto& snapshot = scene->gi_probe_frame_;
+  if (!snapshot)
+    snapshot = std::make_shared<GiProbeFrame>();
+  const auto frame = Platform::GetFrameCount();
+  if (snapshot->frame == frame)
+    return *snapshot;
+  const auto scene_camera_anchor = [&](const std::shared_ptr<Camera>& camera) -> SdfgiAnchor {
+    if (!camera || camera->GetScene() != scene || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
+        !scene->IsEntityEnabled(camera->GetOwner()))
+      return {};
+    const auto position = scene->GetDataComponent<GlobalTransform>(camera->GetOwner()).GetPosition();
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+      return {};
+    return {camera->GetHandle().GetValue(), position};
+  };
+  SdfgiAnchor explicit_anchor;
+  if (const auto entity = scene->GetEntity(Handle(settings.anchor_camera_entity));
+      scene->IsEntityValid(entity) && scene->HasPrivateComponent<Camera>(entity)) {
+    explicit_anchor = scene_camera_anchor(scene->GetOrSetPrivateComponent<Camera>(entity).lock());
+  }
+  const auto main_anchor = scene_camera_anchor(scene->main_camera.Get<Camera>());
+  SdfgiAnchor editor_anchor;
+  const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (editor) {
+    if (const auto camera = editor->GetSceneCamera(); camera && camera->IsEnabled()) {
+      const auto position = editor->GetSceneCameraPosition();
+      if (std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z))
+        editor_anchor = {camera->GetHandle().GetValue(), position};
+    }
+  }
+  const auto play_status = ApplicationContext::Get().GetApplicationStatus();
+  const bool playable_view = play_status == Application::ExecutionStatus::Playing ||
+                             play_status == Application::ExecutionStatus::Pause ||
+                             play_status == Application::ExecutionStatus::Step;
+  const auto anchor = SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor, settings.anchor_camera_entity != 0,
+                                        playable_view, editor != nullptr);
+  snapshot->Update(frame, settings, anchor);
+  return *snapshot;
+}
+
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                                         const std::shared_ptr<RenderInstanceStorage>& render_instances) {
-  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  if (scene && resolved_lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
+    PrepareGiProbeFrame(scene, resolved_lighting.gi_probe_settings);
+    resolved_lighting = ResolveEnvironmentalLighting(scene);
+  }
   auto ddgi_settings = resolved_lighting.ddgi_settings;
   if (!render_instances) {
     return;
   }
   if (ddgi_runtime_scene_.lock().get() != scene.get()) {
-    ddgi_volume_runtime_states_.clear();
-    ddgi_ordered_volume_ids_.clear();
-    ddgi_volume_set_validation_error_.clear();
+    ddgi_cascade_runtime_states_.clear();
+    ddgi_ordered_cascade_ids_.clear();
+    ddgi_cascade_set_validation_error_.clear();
     ddgi_runtime_scene_ = scene;
     ddgi_session_state_.pause_updates = false;
     ddgi_session_state_.reset_history_requested = false;
-    ddgi_session_state_.selected_volume_id = 0u;
+    ddgi_session_state_.selected_cascade_id = 0u;
     ddgi_session_state_.selected_probe_grid = glm::ivec3(0);
   }
 
   render_instances->render_info_block.ddgi_volume_header = glm::uvec4(0u);
   render_instances->render_info_block.ddgi_volumes = {};
   const auto reject_volume_set = [&](const std::string& error) {
-    if (error != ddgi_volume_set_validation_error_) {
+    if (error != ddgi_cascade_set_validation_error_) {
       EVOENGINE_ERROR("DDGI volume set rejected atomically: " + error)
-      ddgi_volume_set_validation_error_ = error;
+      ddgi_cascade_set_validation_error_ = error;
     }
-    for (auto& [stable_entity_id, runtime] : ddgi_volume_runtime_states_) {
+    for (auto& [stable_entity_id, runtime] : ddgi_cascade_runtime_states_) {
       (void)stable_entity_id;
       if (runtime) {
         ResetDdgiRuntimeFrameState(*runtime);
       }
     }
-    if (!ddgi_volume_runtime_states_.empty()) {
+    if (!ddgi_cascade_runtime_states_.empty()) {
       if (const auto previous_render_instances = GetPreviousRenderInstanceStorage()) {
         PreserveDdgiRenderInfo(render_instances->render_info_block, previous_render_instances->render_info_block);
       }
     }
   };
 
-  std::vector<DdgiVolumeRuntimeInfo> infos;
-  infos.reserve(resolved_lighting.ddgi_volumes.size());
-  for (const auto& volume : resolved_lighting.ddgi_volumes) {
-    const auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
+  std::vector<DdgiCascadeRuntimeInfo> infos;
+  infos.reserve(resolved_lighting.ddgi_cascades.size());
+  for (const auto& volume : resolved_lighting.ddgi_cascades) {
+    const auto source = CreateDdgiProbeRayDiagnosticSourceFromCascade(volume, ddgi_settings);
     auto& info = infos.emplace_back();
     info.sorted_index = static_cast<uint32_t>(infos.size() - 1u);
     info.stable_entity_id = volume.stable_id;
-    info.artist_priority = volume.artist_priority;
     info.probe_counts = source.probe_counts;
     info.probe_count = DdgiRuntime::GetProbeCount(source.probe_counts);
     info.first_probe = source.first_probe;
     info.probe_step_x = source.probe_step_x;
     info.probe_step_y = source.probe_step_y;
     info.probe_step_z = source.probe_step_z;
-    info.probe_density =
-        DdgiRuntime::CalculateProbeDensity(source.probe_step_x, source.probe_step_y, source.probe_step_z);
   }
-  const auto configured_probe_limit =
-      ddgi_settings.storage.max_probe_count > 0 ? static_cast<uint32_t>(ddgi_settings.storage.max_probe_count) : 0u;
-  const auto validation = DdgiRuntime::ValidateVolumeSet(infos, configured_probe_limit);
+  const auto configured_probe_limit = (std::numeric_limits<uint32_t>::max)();
+  const auto validation = DdgiRuntime::ValidateCascadeSet(infos, configured_probe_limit);
   if (!validation.valid) {
     reject_volume_set(validation.error);
     return;
@@ -3480,6 +3449,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   const auto max_storage_buffer_range =
       selected_physical_device ? selected_physical_device->properties.limits.maxStorageBufferRange : 0u;
   std::vector<DdgiFrameResourceLayout> preflight_layouts;
+  GiHistoryBudget history_budget;
   preflight_layouts.reserve(infos.size());
   for (const auto& info : infos) {
     auto& layout = preflight_layouts.emplace_back(DdgiRuntime::CalculateFrameResourceLayout(
@@ -3488,58 +3458,65 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       reject_volume_set("volume " + std::to_string(info.stable_entity_id) + ": " + layout.error);
       return;
     }
+    std::string history_error;
+    const auto previous_budget = history_budget.bytes;
+    const auto previous = ddgi_cascade_runtime_states_.find(info.stable_entity_id);
+    if (previous != ddgi_cascade_runtime_states_.end() && previous->second->frame_resource_layout.valid &&
+        previous->second->frame_resource_layout.history.buffer_bytes == layout.history.buffer_bytes) {
+      if (!history_budget.Add(previous->second->frame_resource_layout.history_allocation_bytes)) {
+        reject_volume_set("Combined GI histories must remain strictly below 4 GiB.");
+        return;
+      }
+    } else if (!DdgiRuntime::AddDeviceHistoryAllocations(layout.history, history_budget, history_error)) {
+      reject_volume_set(history_error);
+      return;
+    }
+    layout.history_allocation_bytes = history_budget.bytes - previous_budget;
   }
-  ddgi_volume_set_validation_error_.clear();
+  ddgi_cascade_set_validation_error_.clear();
 
   std::vector<uint64_t> current_ids;
   current_ids.reserve(infos.size());
   for (const auto& info : infos) {
     current_ids.push_back(info.stable_entity_id);
   }
-  for (auto it = ddgi_volume_runtime_states_.begin(); it != ddgi_volume_runtime_states_.end();) {
+  for (auto it = ddgi_cascade_runtime_states_.begin(); it != ddgi_cascade_runtime_states_.end();) {
     if (std::find(current_ids.begin(), current_ids.end(), it->first) == current_ids.end()) {
-      it = ddgi_volume_runtime_states_.erase(it);
+      it = ddgi_cascade_runtime_states_.erase(it);
     } else {
       ++it;
     }
   }
-  ddgi_ordered_volume_ids_ = current_ids;
+  ddgi_ordered_cascade_ids_ = current_ids;
 
   const bool reset_probe_history = ddgi_session_state_.reset_history_requested;
-  const auto prepare_runtime = [&](const DdgiVolumeRuntimeInfo& info,
-                                   const ResolvedEnvironmentalLighting::DdgiVolume& volume,
+  const auto prepare_runtime = [&](const DdgiCascadeRuntimeInfo& info,
+                                   const ResolvedEnvironmentalLighting::DdgiCascade& volume,
                                    const DdgiFrameResourceLayout& preflight_layout) {
-    auto& runtime = ddgi_volume_runtime_states_[info.stable_entity_id];
+    auto& runtime = ddgi_cascade_runtime_states_[info.stable_entity_id];
     if (!runtime) {
-      runtime = std::make_unique<DdgiVolumeRuntimeState>();
+      runtime = std::make_unique<DdgiCascadeRuntimeState>();
     }
     runtime->stable_entity_id = info.stable_entity_id;
     runtime->name = volume.name;
     runtime->sorted_index = info.sorted_index;
-    runtime->artist_priority = info.artist_priority;
-    runtime->probe_density = info.probe_density;
     runtime->latched_scene_change_triggers |= ddgi_latched_scene_change_triggers_;
     runtime->deferred_scene_readiness_refresh |= ddgi_deferred_scene_readiness_refresh_;
     runtime->manual_reset_pending |= reset_probe_history;
-    PrepareDdgiVolumeFrameState(scene, render_instances, *runtime, volume, ddgi_settings, preflight_layout,
-                                info.sorted_index, runtime->manual_reset_pending);
+    PrepareDdgiCascadeFrameState(scene, render_instances, *runtime, volume, ddgi_settings, preflight_layout,
+                                 info.sorted_index, runtime->manual_reset_pending);
     if (runtime->frame_trace_probe_rays) {
       runtime->manual_reset_pending = false;
     }
 
-    auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
+    auto source = CreateDdgiProbeRayDiagnosticSourceFromCascade(volume, ddgi_settings);
     source.selected_volume_index = info.sorted_index;
     if (runtime->has_previous_ray_source) {
       source.probe_counts = runtime->previous_probe_counts;
       source.probe_step_x = runtime->previous_probe_step_x;
       source.probe_step_y = runtime->previous_probe_step_y;
       source.probe_step_z = runtime->previous_probe_step_z;
-      source.first_probe =
-          runtime->previous_movement_type == static_cast<int>(DdgiVolumeMovementType::Scrolling)
-              ? CalculateDdgiEffectiveFirstProbe(runtime->probe_scroll_base_first_probe, runtime->previous_probe_step_x,
-                                                 runtime->previous_probe_step_y, runtime->previous_probe_step_z,
-                                                 runtime->probe_scroll_offset)
-              : runtime->previous_first_probe;
+      source.first_probe = runtime->previous_first_probe;
     }
     const auto& layout = runtime->frame_resource_layout;
     auto& gpu_info = runtime->gpu_info;
@@ -3550,7 +3527,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
     gpu_info.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
     gpu_info.probe_counts = glm::vec4(glm::vec3(ClampDdgiProbeCounts(source.probe_counts)),
                                       glm::max(ddgi_settings.runtime.irradiance_gamma, 1.0f));
-    gpu_info.probe_scroll_and_priority = glm::ivec4(runtime->probe_scroll_offset, info.artist_priority);
+    gpu_info.probe_scroll_and_priority = glm::ivec4(runtime->probe_scroll_offset, 0);
     gpu_info.atlas_parameters =
         layout.valid ? glm::uvec4(layout.irradiance_atlas.tile_resolution, layout.irradiance_atlas.columns,
                                   layout.visibility_atlas.tile_resolution, layout.visibility_atlas.columns)
@@ -3559,8 +3536,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
         glm::vec4(0.0f, glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
                   glm::max(ddgi_settings.runtime.normal_bias, 0.001f), glm::max(ddgi_settings.runtime.view_bias, 0.0f));
     runtime->contributes_lighting = ddgi_settings.runtime.enabled && runtime->has_valid_probe_history && layout.valid;
-    gpu_info.lighting_parameters =
-        glm::vec4(runtime->contributes_lighting ? 1.0f : 0.0f, info.probe_density, 0.0f, 0.0f);
+    gpu_info.lighting_parameters = glm::vec4(runtime->contributes_lighting ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
     gpu_info.identity_and_flags =
         glm::uvec4(static_cast<uint32_t>(info.stable_entity_id), static_cast<uint32_t>(info.stable_entity_id >> 32u),
                    (runtime->has_valid_probe_history ? 1u : 0u) | (ddgi_session_state_.pause_updates ? 2u : 0u),
@@ -3568,59 +3544,80 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   };
 
   for (size_t i = 0; i < infos.size(); ++i) {
-    prepare_runtime(infos[i], resolved_lighting.ddgi_volumes[i], preflight_layouts[i]);
+    prepare_runtime(infos[i], resolved_lighting.ddgi_cascades[i], preflight_layouts[i]);
   }
   ddgi_session_state_.selected_probe_readback_requested = false;
 
   const bool reset_consumed =
       !reset_probe_history || infos.empty() ||
-      std::all_of(ddgi_ordered_volume_ids_.begin(), ddgi_ordered_volume_ids_.end(), [&](const uint64_t volume_id) {
-        return !ddgi_volume_runtime_states_.at(volume_id)->manual_reset_pending;
+      std::all_of(ddgi_ordered_cascade_ids_.begin(), ddgi_ordered_cascade_ids_.end(), [&](const uint64_t volume_id) {
+        return !ddgi_cascade_runtime_states_.at(volume_id)->manual_reset_pending;
       });
   if (reset_consumed) {
     ddgi_session_state_.reset_history_requested = false;
   }
-  ddgi_latched_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
+  ddgi_latched_scene_change_triggers_ = DdgiSceneChangeNone;
   ddgi_deferred_scene_readiness_refresh_ = false;
   render_instances->render_info_block.ddgi_volume_header =
-      glm::uvec4(static_cast<uint32_t>(ddgi_ordered_volume_ids_.size()), validation.aggregate_probe_count,
+      glm::uvec4(static_cast<uint32_t>(ddgi_ordered_cascade_ids_.size()), validation.aggregate_probe_count,
                  DdgiRuntime::kMaxVolumeCount, 0u);
   render_instances->render_info_block.ddgi_volumes = {};
-  for (size_t i = 0; i < ddgi_ordered_volume_ids_.size(); ++i) {
+  for (size_t i = 0; i < ddgi_ordered_cascade_ids_.size(); ++i) {
     render_instances->render_info_block.ddgi_volumes[i] =
-        ddgi_volume_runtime_states_.at(ddgi_ordered_volume_ids_[i])->gpu_info;
+        ddgi_cascade_runtime_states_.at(ddgi_ordered_cascade_ids_[i])->gpu_info;
   }
 }
 
-void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scene,
-                                              const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                              DdgiVolumeRuntimeState& runtime_state,
-                                              const ResolvedEnvironmentalLighting::DdgiVolume& volume,
-                                              const DdgiSettings& ddgi_settings,
-                                              const DdgiFrameResourceLayout& preflight_layout,
-                                              const uint32_t sorted_index, const bool reset_probe_history) {
-  const bool prepare_debug_data = ddgi_session_state_.selected_volume_id == runtime_state.stable_entity_id;
+void RenderLayer::PrepareDdgiCascadeFrameState(const std::shared_ptr<Scene>& scene,
+                                               const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                                               DdgiCascadeRuntimeState& runtime_state,
+                                               const ResolvedEnvironmentalLighting::DdgiCascade& volume,
+                                               const DdgiSettings& ddgi_settings,
+                                               const DdgiFrameResourceLayout& preflight_layout,
+                                               const uint32_t sorted_index, const bool reset_probe_history) {
+  const bool prepare_debug_data = ddgi_session_state_.selected_cascade_id == runtime_state.stable_entity_id;
   ResetDdgiRuntimeFrameState(runtime_state);
   if (!render_instances) {
     return;
   }
-  auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
+  auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSourceFromCascade(volume, ddgi_settings);
   ddgi_ray_source.selected_volume_index = sorted_index;
+  ddgi_ray_source.stable_volume_id = runtime_state.stable_entity_id;
   runtime_state.emissive_mesh_sampling_enabled = ddgi_ray_source.emissive_mesh_sampling_enabled;
-  runtime_state.probe_variability_gating_enabled =
-      ddgi_ray_source.enable_probe_variability && ddgi_ray_source.enable_probe_variability_gating;
   const auto& layout = preflight_layout;
+  while (!runtime_state.history_submissions.empty()) {
+    const auto submission = runtime_state.history_submissions.front();
+    if (submission.state->status == FrameSubmissionState::Status::Pending)
+      break;
+    runtime_state.history_submissions.erase(runtime_state.history_submissions.begin());
+    if (submission.state->status == FrameSubmissionState::Status::Submitted) {
+      runtime_state.probe_ray_sequence_index =
+          (runtime_state.probe_ray_sequence_index + 1u) % static_cast<uint32_t>(ddgi_settings.runtime.history_count);
+      runtime_state.history_completed_updates =
+          submission.invalidates_history ? 0u
+                                         : std::min(runtime_state.history_completed_updates + 1u,
+                                                    static_cast<uint32_t>(ddgi_settings.runtime.history_count));
+      runtime_state.probe_warmup_frame_index = std::min(runtime_state.probe_warmup_frame_index + 1u,
+                                                        static_cast<uint32_t>(ddgi_settings.runtime.warmup_frames));
+      runtime_state.has_valid_probe_history = true;
+    } else {
+      runtime_state.clear_probe_atlas_this_frame = true;
+      runtime_state.has_valid_probe_history = false;
+      runtime_state.has_previous_ray_source = false;
+      runtime_state.history_submissions.clear();
+    }
+  }
   const auto ddgi_total_probe_count = layout.probe_count;
   const auto previous_render_instances = GetPreviousRenderInstanceStorage();
   const bool compatible_history =
-      runtime_state.has_valid_probe_history && previous_render_instances &&
+      (runtime_state.has_valid_probe_history || !runtime_state.history_submissions.empty()) &&
+      previous_render_instances &&
       DdgiRuntime::ArePersistentLayoutsCompatible(runtime_state.frame_resource_layout, layout) &&
       runtime_state.probe_metadata_buffer &&
       runtime_state.probe_metadata_buffer->GetSize() == layout.probe_metadata_byte_size &&
       runtime_state.probe_state_buffer && runtime_state.probe_state_buffer->GetSize() == layout.probe_state_byte_size &&
       HasDdgiAtlasImageLayout(runtime_state.irradiance_atlas, layout.irradiance_atlas, VK_FORMAT_R16G16B16A16_SFLOAT) &&
-      HasDdgiAtlasImageLayout(runtime_state.visibility_atlas, layout.visibility_atlas, VK_FORMAT_R16G16_SFLOAT) &&
-      HasDdgiAtlasImageLayout(runtime_state.variability_atlas, layout.variability_atlas, VK_FORMAT_R16_SFLOAT);
+      HasDdgiAtlasImageLayout(runtime_state.visibility_atlas, layout.visibility_atlas, VK_FORMAT_R16G16_SFLOAT);
   const auto track_ddgi_environment_signature = [&] {
     const auto& environment = render_instances->environment_info_block;
     const auto cubemap_index = environment.background_color.w != 1.0f && environment.diffuse_sky_intensity > 0.0f
@@ -3628,7 +3625,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
                                    : 0u;
     const auto signature = MakeDdgiEnvironmentSignature(environment, cubemap_index);
     if (runtime_state.has_previous_environment_signature && signature != runtime_state.previous_environment_signature) {
-      runtime_state.latched_scene_change_triggers |= DdgiVolumeTriggerConditionLightingConditionChanged;
+      runtime_state.latched_scene_change_triggers |= DdgiSceneChangeLightingConditionChanged;
     }
     runtime_state.has_previous_environment_signature = true;
     runtime_state.previous_environment_signature = signature;
@@ -3640,15 +3637,21 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   runtime_state.probe_metadata_readback_buffers.resize(max_frames_in_flight);
   runtime_state.probe_ray_readback_buffers.resize(max_frames_in_flight);
   runtime_state.selected_ray_diagnostics_buffers.resize(max_frames_in_flight);
-  runtime_state.variability_readback_tickets.resize(max_frames_in_flight);
   auto& ddgi_probe_metadata_readback_buffer = runtime_state.probe_metadata_readback_buffers.at(current_frame_index);
   auto& ddgi_probe_ray_readback_buffer = runtime_state.probe_ray_readback_buffers.at(current_frame_index);
   auto& ddgi_selected_ray_diagnostics_buffer = runtime_state.selected_ray_diagnostics_buffers.at(current_frame_index);
-  auto& ddgi_variability_readback_ticket = runtime_state.variability_readback_tickets.at(current_frame_index);
-  auto& ddgi_variability_readback_buffer = ddgi_variability_readback_ticket.buffer;
 
   bool ddgi_persistent_resource_changed = false;
   if (ddgi_settings.runtime.enabled) {
+    for (size_t i = 0; i < runtime_state.history_buffers.size(); ++i) {
+      auto& buffer = runtime_state.history_buffers[i];
+      if (!buffer || buffer->GetSize() != layout.history.buffer_bytes[i]) {
+        buffer = CreateDdgiProbeStateBuffer(layout.history.buffer_bytes[i]);
+        runtime_state.clear_probe_atlas_this_frame = true;
+        runtime_state.has_valid_probe_history = false;
+        ddgi_persistent_resource_changed = true;
+      }
+    }
     if (!runtime_state.probe_metadata_buffer ||
         runtime_state.probe_metadata_buffer->GetSize() != layout.probe_metadata_byte_size) {
       runtime_state.probe_metadata_buffer = CreateDdgiProbeStateBuffer(layout.probe_metadata_byte_size);
@@ -3671,17 +3674,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       runtime_state.clear_probe_atlas_this_frame = true;
       runtime_state.has_valid_probe_history = false;
       ddgi_persistent_resource_changed = true;
-    }
-    if (!HasDdgiAtlasImageLayout(runtime_state.variability_atlas, layout.variability_atlas, VK_FORMAT_R16_SFLOAT)) {
-      runtime_state.variability_atlas = CreateDdgiAtlasImage(layout.variability_atlas, VK_FORMAT_R16_SFLOAT);
-      runtime_state.resource_ids[4] = runtime_state.variability_atlas ? NextDdgiResourceId() : 0u;
-      runtime_state.clear_probe_atlas_this_frame = true;
-      runtime_state.has_valid_probe_history = false;
-      ddgi_persistent_resource_changed = true;
-    }
-    if (!ddgi_variability_readback_buffer || ddgi_variability_readback_buffer->GetSize() != sizeof(glm::vec4)) {
-      ddgi_variability_readback_ticket = {};
-      ddgi_variability_readback_buffer = std::make_shared<Buffer>(sizeof(glm::vec4), true);
     }
   }
   if (ddgi_session_state_.pause_updates) {
@@ -3729,24 +3721,11 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
                                     glm::max(ddgi_settings.runtime.irradiance_gamma, 1.0f), 0.0f};
   const glm::vec4 probe_state_parameters{glm::max(ddgi_ray_source.relocation_distance, 0.0f),
                                          ddgi_ray_source.enable_probe_relocation ? 1.0f : 0.0f,
-                                         ddgi_ray_source.enable_probe_classification ? 1.0f : 0.0f,
-                                         glm::clamp(ddgi_settings.runtime.irradiance_threshold, 0.0f, 1.0f)};
+                                         ddgi_ray_source.enable_probe_classification ? 1.0f : 0.0f, 0.0f};
   const glm::vec4 probe_blend_parameters{glm::clamp(ddgi_ray_source.random_ray_backface_threshold, 0.0f, 1.0f),
                                          glm::clamp(ddgi_ray_source.fixed_ray_backface_threshold, 0.0f, 1.0f),
-                                         glm::max(ddgi_settings.runtime.distance_exponent, 0.0f),
-                                         glm::clamp(ddgi_settings.runtime.brightness_threshold, 0.0f, 1.0f)};
-  const glm::vec4 probe_variability_parameters{
-      glm::max(ddgi_ray_source.probe_variability_threshold, 0.0f),
-      static_cast<float>(glm::max(ddgi_ray_source.probe_variability_maximum_frames, 1)),
-      ddgi_ray_source.enable_probe_variability ? 1.0f : 0.0f,
-      ddgi_ray_source.enable_probe_variability_gating ? 1.0f : 0.0f};
+                                         glm::max(ddgi_settings.runtime.distance_exponent, 0.0f), 0.0f};
   const bool had_previous_ray_source = runtime_state.has_previous_ray_source;
-  const bool ddgi_variability_policy_changed =
-      had_previous_ray_source && (runtime_state.previous_probe_variability_parameters != probe_variability_parameters ||
-                                  runtime_state.previous_pause_probe_updates_after_convergence !=
-                                      ddgi_ray_source.pause_probe_updates_after_convergence);
-  runtime_state.previous_probe_variability_parameters = probe_variability_parameters;
-  runtime_state.previous_pause_probe_updates_after_convergence = ddgi_ray_source.pause_probe_updates_after_convergence;
   const bool ddgi_emissive_population_changed =
       had_previous_ray_source && runtime_state.previous_emissive_ray_count != emissive_ray_count;
   runtime_state.previous_emissive_ray_count = emissive_ray_count;
@@ -3761,22 +3740,19 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       runtime_state.previous_probe_blend_parameters != probe_blend_parameters ||
       runtime_state.previous_deterministic_ray_seed_enabled != ddgi_settings.runtime.deterministic_ray_seed_enabled ||
       runtime_state.previous_deterministic_ray_seed != ddgi_settings.runtime.deterministic_ray_seed ||
-      runtime_state.previous_movement_type != ddgi_ray_source.movement_type ||
       runtime_state.previous_emissive_mesh_sampling_enabled != runtime_state.emissive_mesh_sampling_enabled;
   const auto first_probe_changed =
-      runtime_state.has_previous_ray_source && runtime_state.previous_first_probe != ddgi_ray_source.first_probe;
-  const auto ddgi_scrolling_enabled =
-      ddgi_ray_source.movement_type == static_cast<int>(DdgiVolumeMovementType::Scrolling);
+      runtime_state.has_previous_ray_source && runtime_state.previous_probe_center != volume.probe_center;
   bool ddgi_ray_source_changed = ddgi_ray_source_common_changed;
   bool ddgi_full_scroll_reset = false;
   runtime_state.probe_scroll_clear = glm::ivec3(0);
   runtime_state.last_probe_scroll_delta = glm::ivec3(0);
   if (ddgi_ray_source_common_changed) {
     runtime_state.has_previous_ray_source = true;
-    runtime_state.probe_scroll_base_first_probe = ddgi_ray_source.first_probe;
     runtime_state.probe_scroll_offset = glm::ivec3(0);
     runtime_state.probe_scroll_directions = glm::ivec3(1);
     runtime_state.previous_probe_counts = ddgi_ray_source.probe_counts;
+    runtime_state.previous_probe_center = volume.probe_center;
     runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
     runtime_state.previous_probe_step_x = ddgi_ray_source.probe_step_x;
     runtime_state.previous_probe_step_y = ddgi_ray_source.probe_step_y;
@@ -3788,45 +3764,20 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     runtime_state.previous_probe_blend_parameters = probe_blend_parameters;
     runtime_state.previous_deterministic_ray_seed_enabled = ddgi_settings.runtime.deterministic_ray_seed_enabled;
     runtime_state.previous_deterministic_ray_seed = ddgi_settings.runtime.deterministic_ray_seed;
-    runtime_state.previous_movement_type = ddgi_ray_source.movement_type;
     runtime_state.previous_emissive_mesh_sampling_enabled = runtime_state.emissive_mesh_sampling_enabled;
   } else if (first_probe_changed) {
-    if (ddgi_scrolling_enabled) {
-      NormalizeDdgiProbeScrollOrigin(runtime_state.probe_scroll_base_first_probe, runtime_state.probe_scroll_offset,
-                                     ddgi_ray_source.probe_counts, ddgi_ray_source.probe_step_x,
-                                     ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      const auto effective_first_probe = CalculateDdgiEffectiveFirstProbe(
-          runtime_state.probe_scroll_base_first_probe, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
-          ddgi_ray_source.probe_step_z, runtime_state.probe_scroll_offset);
-      const auto first_probe_delta = ddgi_ray_source.first_probe - effective_first_probe;
-      runtime_state.probe_scroll_directions = {
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_x) >= 0.0f ? 1 : -1,
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_y) >= 0.0f ? 1 : -1,
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_z) >= 0.0f ? 1 : -1};
-      runtime_state.last_probe_scroll_delta = CalculateDdgiProbeScrollDelta(
-          first_probe_delta, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      ddgi_full_scroll_reset =
-          DdgiRuntime::RequiresFullScrollReset(ddgi_ray_source.probe_counts, runtime_state.last_probe_scroll_delta);
-      for (int axis = 0; axis < 3; ++axis) {
-        runtime_state.probe_scroll_offset[axis] += runtime_state.last_probe_scroll_delta[axis];
-        runtime_state.probe_scroll_clear[axis] = glm::abs(runtime_state.last_probe_scroll_delta[axis]);
-      }
-      NormalizeDdgiProbeScrollOrigin(runtime_state.probe_scroll_base_first_probe, runtime_state.probe_scroll_offset,
-                                     ddgi_ray_source.probe_counts, ddgi_ray_source.probe_step_x,
-                                     ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
-    } else {
-      ddgi_ray_source_changed = true;
-      runtime_state.probe_scroll_base_first_probe = ddgi_ray_source.first_probe;
-      runtime_state.probe_scroll_offset = glm::ivec3(0);
-      runtime_state.probe_scroll_directions = glm::ivec3(1);
-      runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
+    runtime_state.last_probe_scroll_delta = volume.probe_center - runtime_state.previous_probe_center;
+    ddgi_full_scroll_reset =
+        DdgiRuntime::RequiresFullScrollReset(ddgi_ray_source.probe_counts, runtime_state.last_probe_scroll_delta);
+    for (int axis = 0; axis < 3; ++axis) {
+      const auto delta = runtime_state.last_probe_scroll_delta[axis];
+      runtime_state.probe_scroll_directions[axis] = delta >= 0 ? 1 : -1;
+      runtime_state.probe_scroll_clear[axis] = std::abs(delta);
     }
-  }
-  if (ddgi_scrolling_enabled) {
-    ddgi_ray_source.first_probe = CalculateDdgiEffectiveFirstProbe(
-        runtime_state.probe_scroll_base_first_probe, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
-        ddgi_ray_source.probe_step_z, runtime_state.probe_scroll_offset);
+    runtime_state.probe_scroll_offset = WrapDdgiProbeGrid(
+        runtime_state.probe_scroll_offset + runtime_state.last_probe_scroll_delta, ddgi_ray_source.probe_counts);
+    runtime_state.previous_probe_center = volume.probe_center;
+    runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
   }
   ddgi_ray_source.probe_scroll_offset = runtime_state.probe_scroll_offset;
   ddgi_ray_source.probe_scroll_clear = runtime_state.probe_scroll_clear;
@@ -3838,17 +3789,12 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   runtime_state.frame_clear_scrolled_probes = ddgi_scroll_clear_this_frame && !ddgi_full_scroll_reset;
   const auto ddgi_environment_cubemap_index = track_ddgi_environment_signature();
   const bool scene_readiness_refresh = runtime_state.deferred_scene_readiness_refresh;
-  const auto contributor_triggers = runtime_state.latched_scene_change_triggers & DdgiVolumeTriggerConditionAll;
-  const bool hysteresis_boost_triggered = DdgiTriggerConditionEnabled(
-      contributor_triggers, ddgi_ray_source.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll);
-  const bool scene_change_triggers_pending = contributor_triggers != DdgiVolumeTriggerConditionNone;
-  const bool geometry_relocation_requested = (contributor_triggers & DdgiVolumeTriggerConditionGeometryChanged) != 0;
+  const auto contributor_triggers = runtime_state.latched_scene_change_triggers & DdgiSceneChangeAll;
+  const bool scene_change_triggers_pending = contributor_triggers != DdgiSceneChangeNone;
+  const bool geometry_relocation_requested = (contributor_triggers & DdgiSceneChangeGeometryChanged) != 0;
   uint32_t full_refresh_reasons = DdgiUpdateReasonNone;
   if (ddgi_ray_source_changed || ddgi_emissive_population_changed) {
     full_refresh_reasons |= DdgiUpdateReasonSource;
-  }
-  if (ddgi_variability_policy_changed) {
-    full_refresh_reasons |= DdgiUpdateReasonVariabilityPolicy;
   }
   if (reset_probe_history) {
     full_refresh_reasons |= DdgiUpdateReasonManualReset;
@@ -3863,133 +3809,31 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   if (runtime_state.clear_probe_atlas_this_frame) {
     runtime_state.has_valid_probe_history = false;
   }
-  const auto probe_variability_enabled = ddgi_ray_source.enable_probe_variability;
-  const auto probe_variability_gating_enabled =
-      probe_variability_enabled && ddgi_ray_source.enable_probe_variability_gating;
-  const auto convergence_pause_enabled =
-      probe_variability_gating_enabled && ddgi_ray_source.pause_probe_updates_after_convergence;
-  const auto probe_variability_maximum_frames =
-      static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_maximum_frames, 1));
-  runtime_state.frame_probe_variability_threshold = glm::max(ddgi_ray_source.probe_variability_threshold, 0.0f);
-  const auto readback_generation = ddgi_variability_readback_ticket.generation;
-  const bool has_unconsumed_variability_readback =
-      readback_generation > runtime_state.last_consumed_variability_generation &&
-      ddgi_variability_readback_ticket.submission;
-  const bool has_fresh_variability_readback =
-      has_unconsumed_variability_readback && !ddgi_persistent_resource_changed &&
-      ddgi_variability_readback_ticket.submission->status == FrameSubmissionState::Status::Submitted;
-  const auto variability_observation =
-      has_fresh_variability_readback ? ReadDdgiProbeVariabilityObservation(ddgi_variability_readback_ticket.buffer)
-                                     : DdgiProbeVariabilityObservation{};
-  const bool discarded_variability_readback =
-      has_unconsumed_variability_readback &&
-      ddgi_variability_readback_ticket.submission->status == FrameSubmissionState::Status::Discarded;
-  if (has_fresh_variability_readback || discarded_variability_readback ||
-      (has_unconsumed_variability_readback && ddgi_persistent_resource_changed)) {
-    runtime_state.last_consumed_variability_generation = readback_generation;
-  }
-  const bool hard_ddgi_refresh =
-      ddgi_ray_source_changed || reset_probe_history || ddgi_persistent_resource_changed || ddgi_full_scroll_reset;
+  const bool hard_ddgi_refresh = ddgi_ray_source_changed || reset_probe_history || ddgi_persistent_resource_changed ||
+                                 ddgi_full_scroll_reset || ddgi_emissive_population_changed ||
+                                 (!runtime_state.has_valid_probe_history && runtime_state.history_submissions.empty());
   if (hard_ddgi_refresh) {
-    runtime_state.current_probe_hysteresis = glm::clamp(render_settings.ddgi_hysteresis, 0.0f, 1.0f);
-    runtime_state.hysteresis_boost_active = false;
-  }
-  const bool scene_change_response = hysteresis_boost_triggered && !hard_ddgi_refresh;
-  const auto hysteresis_boost_update = DdgiRuntime::AdvanceHysteresisBoost(
-      runtime_state.current_probe_hysteresis, runtime_state.hysteresis_boost_active, render_settings.ddgi_hysteresis,
-      render_settings.ddgi_boosted_hysteresis, render_settings.ddgi_hysteresis_restore_speed, scene_change_response);
-  runtime_state.current_probe_hysteresis = hysteresis_boost_update.hysteresis;
-  runtime_state.hysteresis_boost_active = hysteresis_boost_update.active;
-  runtime_state.frame_hysteresis_boost_active = hysteresis_boost_update.force_update;
-  runtime_state.frame_hysteresis_boost_restoring = hysteresis_boost_update.restoring;
-  const bool transport_refresh = hard_ddgi_refresh || ddgi_emissive_population_changed ||
-                                 ddgi_variability_policy_changed || scene_readiness_refresh;
-  if (transport_refresh) {
-    runtime_state.probe_ray_sequence_index = 0u;
-  }
-  const bool reset_ddgi_warmup_state = hard_ddgi_refresh;
-  const bool variability_trigger_refresh = DdgiTriggerConditionEnabled(
-      contributor_triggers, ddgi_ray_source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll);
-  const bool reset_ddgi_variability_state = hard_ddgi_refresh || ddgi_emissive_population_changed ||
-                                            ddgi_variability_policy_changed || variability_trigger_refresh ||
-                                            ddgi_scroll_clear_this_frame || scene_change_response;
-  if (reset_ddgi_variability_state) {
-    runtime_state.probe_variability_sample_count = 0;
-    runtime_state.probe_variability_stable_sample_count = 0;
-    runtime_state.probe_variability_average = 0.0f;
-    runtime_state.probe_variability_maximum = 0.0f;
-    runtime_state.probe_variability_unstable_fraction = 0.0f;
-    runtime_state.probe_variability_converged = false;
-    runtime_state.probe_variability_maximum_reached = false;
-    runtime_state.probe_variability_budget =
-        DdgiRuntime::ResetProbeVariabilityBudget(runtime_state.probe_variability_budget);
-    runtime_state.last_consumed_variability_generation = runtime_state.next_variability_generation;
-  }
-  if (reset_ddgi_warmup_state) {
+    runtime_state.clear_probe_atlas_this_frame = true;
+    runtime_state.has_valid_probe_history = false;
+    runtime_state.probe_ray_sequence_index = 0;
+    runtime_state.history_completed_updates = 0;
+    runtime_state.history_submissions.clear();
     runtime_state.probe_warmup_frame_index = 0;
   }
   runtime_state.frame_probe_warmup_frame_count =
-      static_cast<uint32_t>(glm::max(ddgi_settings.runtime.warmup_frames, 0));
-  runtime_state.frame_probe_warmup_frame_index = runtime_state.probe_warmup_frame_index;
+      ddgi_ray_source.enable_probe_relocation ? static_cast<uint32_t>(glm::max(ddgi_settings.runtime.warmup_frames, 0))
+                                              : 0u;
+  const auto pending_updates = static_cast<uint32_t>(runtime_state.history_submissions.size());
+  const auto reserved_phase = (runtime_state.probe_ray_sequence_index + pending_updates) % layout.history_count;
+  runtime_state.frame_probe_warmup_frame_index = runtime_state.probe_warmup_frame_index + pending_updates;
   runtime_state.frame_probe_warmup_active =
       runtime_state.frame_probe_warmup_frame_count != 0u &&
-      runtime_state.probe_warmup_frame_index < runtime_state.frame_probe_warmup_frame_count;
+      runtime_state.frame_probe_warmup_frame_index < runtime_state.frame_probe_warmup_frame_count;
   const auto ddgi_first_warmup_frame =
-      runtime_state.frame_probe_warmup_active && runtime_state.probe_warmup_frame_index == 0u;
+      runtime_state.frame_probe_warmup_active && runtime_state.frame_probe_warmup_frame_index == 0u;
   if (runtime_state.frame_probe_warmup_active) {
     runtime_state.last_probe_update_reasons |= DdgiUpdateReasonWarmup;
   }
-  if (scene_change_response) {
-    runtime_state.last_probe_update_reasons |= DdgiUpdateReasonSceneChange;
-  } else if (hysteresis_boost_update.restoring) {
-    runtime_state.last_probe_update_reasons |= DdgiUpdateReasonHysteresisRestore;
-  }
-
-  const bool readback_counts_toward_current_budget =
-      ddgi_variability_readback_ticket.counts_toward_variability_budget &&
-      ddgi_variability_readback_ticket.variability_budget_cycle == runtime_state.probe_variability_budget.cycle;
-  if (!reset_ddgi_variability_state && readback_counts_toward_current_budget &&
-      (has_fresh_variability_readback || discarded_variability_readback ||
-       (has_unconsumed_variability_readback && ddgi_persistent_resource_changed))) {
-    const auto budget_update = DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
-        runtime_state.probe_variability_budget, ddgi_variability_readback_ticket.variability_budget_cycle,
-        has_fresh_variability_readback && variability_observation.valid, probe_variability_maximum_frames);
-    runtime_state.probe_variability_budget = budget_update.state;
-  }
-  if (!reset_ddgi_variability_state && has_fresh_variability_readback) {
-    if (variability_observation.valid) {
-      runtime_state.probe_variability_average = variability_observation.average;
-      runtime_state.probe_variability_maximum = variability_observation.maximum;
-      runtime_state.probe_variability_unstable_fraction = variability_observation.unstable_fraction;
-    }
-    if (probe_variability_gating_enabled) {
-      const auto update = DdgiRuntime::AdvanceProbeConvergence(
-          {runtime_state.probe_variability_sample_count, runtime_state.probe_variability_stable_sample_count,
-           runtime_state.probe_variability_converged},
-          variability_observation, ddgi_ray_source.probe_variability_threshold);
-      runtime_state.probe_variability_sample_count = update.state.sample_count;
-      runtime_state.probe_variability_stable_sample_count = update.state.stable_sample_count;
-      runtime_state.probe_variability_converged = update.state.converged;
-      if (update.state.converged) {
-        runtime_state.probe_variability_maximum_reached = false;
-      }
-    } else {
-      if (variability_observation.valid) {
-        ++runtime_state.probe_variability_sample_count;
-      }
-      runtime_state.probe_variability_stable_sample_count = 0u;
-    }
-  }
-  if (!probe_variability_gating_enabled) {
-    runtime_state.probe_variability_converged = false;
-    runtime_state.probe_variability_maximum_reached = false;
-    runtime_state.probe_variability_stable_sample_count = 0u;
-  } else if (convergence_pause_enabled && !runtime_state.frame_probe_warmup_active &&
-             !hysteresis_boost_update.force_update && !runtime_state.probe_variability_converged &&
-             runtime_state.probe_variability_budget.completed_frame_count >= probe_variability_maximum_frames) {
-    runtime_state.probe_variability_maximum_reached = true;
-  }
-
   bool reset_probe_state = hard_ddgi_refresh || !runtime_state.probe_state_buffer ||
                            runtime_state.probe_state_buffer->GetSize() != layout.probe_state_byte_size;
   if (reset_probe_state) {
@@ -4004,46 +3848,19 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   const bool relocation_requested =
       ddgi_ray_source.enable_probe_relocation && (hard_ddgi_refresh || runtime_state.frame_probe_warmup_active ||
                                                   geometry_relocation_requested || ddgi_scroll_clear_this_frame);
+  if (relocation_requested || ddgi_scroll_clear_this_frame)
+    runtime_state.history_completed_updates = 0;
+  if (scene_change_triggers_pending)
+    runtime_state.last_probe_update_reasons |= DdgiUpdateReasonSceneChange;
   const bool relocate_scrolled_probes_only = relocation_requested && ddgi_scroll_clear_this_frame &&
                                              !hard_ddgi_refresh && !runtime_state.frame_probe_warmup_active &&
                                              !geometry_relocation_requested;
-  const bool forced_probe_trace = scene_readiness_refresh || hysteresis_boost_update.force_update ||
-                                  runtime_state.frame_probe_warmup_active || ddgi_variability_policy_changed ||
-                                  relocation_requested;
-  const bool variability_sampling_complete =
-      runtime_state.probe_variability_converged || runtime_state.probe_variability_maximum_reached;
-  const auto reserved_variability_budget_frames = runtime_state.probe_variability_budget.completed_frame_count +
-                                                  runtime_state.probe_variability_budget.pending_frame_count;
-  const bool variability_budget_slot_available = reserved_variability_budget_frames < probe_variability_maximum_frames;
-  const bool should_trace_probe_rays = forced_probe_trace || !convergence_pause_enabled ||
-                                       (!variability_sampling_complete && variability_budget_slot_available);
-  if (!should_trace_probe_rays) {
-    if (runtime_state.probe_variability_maximum_reached) {
-      runtime_state.last_probe_update_reasons = DdgiUpdateReasonVariabilityMaximum;
-    } else if (runtime_state.probe_variability_converged) {
-      runtime_state.last_probe_update_reasons = DdgiUpdateReasonConverged;
-    }
-  }
-  if (!should_trace_probe_rays) {
-    if (scene_change_triggers_pending) {
-      runtime_state.latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
-    }
-    return;
-  }
   const auto skip_inactive_probe_trace = ddgi_ray_source.enable_probe_classification;
-  const auto ddgi_update_hysteresis = DdgiRuntime::CalculateUpdateHysteresis(
-      runtime_state.current_probe_hysteresis, runtime_state.frame_probe_warmup_frame_count,
-      runtime_state.last_probe_update_reasons, runtime_state.probe_warmup_frame_index);
-  const auto ddgi_update_brightness_threshold = ddgi_first_warmup_frame
-                                                    ? (std::numeric_limits<float>::max)()
-                                                    : DdgiRuntime::CalculateUpdateBrightnessThreshold(ddgi_settings);
-  runtime_state.frame_probe_update_hysteresis = ddgi_update_hysteresis;
   runtime_state.frame_ray_push_constant = CreateDdgiProbeRayTracingPushConstant(
       ddgi_settings, ddgi_ray_source, skip_inactive_probe_trace, ddgi_first_warmup_frame, sorted_index,
-      ddgi_environment_cubemap_index, runtime_state.probe_ray_sequence_index, emissive_triangle_count);
-  runtime_state.frame_probe_update_push_constant =
-      CreateDdgiProbeAtlasUpdatePushConstant(ddgi_settings, layout, ddgi_ray_source, ddgi_update_hysteresis,
-                                             ddgi_update_brightness_threshold, emissive_triangle_count);
+      ddgi_environment_cubemap_index, reserved_phase, emissive_triangle_count);
+  runtime_state.frame_probe_update_push_constant = CreateDdgiProbeAtlasUpdatePushConstant(
+      ddgi_settings, layout, ddgi_ray_source, reserved_phase, emissive_triangle_count);
   runtime_state.frame_probe_update_push_constant.probe_step_x.w = runtime_state.frame_ray_push_constant.first_probe.w;
   runtime_state.frame_probe_update_push_constant.probe_step_y.w = runtime_state.frame_ray_push_constant.probe_step_x.w;
   runtime_state.frame_probe_update_push_constant.probe_step_z.w = runtime_state.frame_ray_push_constant.probe_step_y.w;
@@ -4094,38 +3911,16 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     }
   }
 
-  if (probe_variability_enabled &&
-      (!variability_sampling_complete || !convergence_pause_enabled || forced_probe_trace)) {
-    runtime_state.frame_probe_variability_enabled = true;
-    const auto generation = ++runtime_state.next_variability_generation;
-    runtime_state.frame_variability_readback_generation = generation;
-    const bool counts_toward_budget = convergence_pause_enabled && !runtime_state.frame_probe_warmup_active &&
-                                      !hysteresis_boost_update.force_update && !variability_sampling_complete &&
-                                      variability_budget_slot_available;
-    runtime_state.frame_probe_variability_counts_toward_budget = counts_toward_budget;
-    if (counts_toward_budget) {
-      const auto reservation = DdgiRuntime::ReserveProbeVariabilityBudgetFrame(runtime_state.probe_variability_budget,
-                                                                               probe_variability_maximum_frames);
-      runtime_state.probe_variability_budget = reservation.state;
-      runtime_state.frame_probe_variability_counts_toward_budget = reservation.accepted;
-    }
-  }
-  if (runtime_state.frame_probe_warmup_active) {
-    runtime_state.probe_warmup_frame_index =
-        glm::min(runtime_state.probe_warmup_frame_index + 1u, runtime_state.frame_probe_warmup_frame_count);
-  }
   runtime_state.frame_probe_relocation_reset = reset_probe_state;
   runtime_state.frame_probe_relocation_enabled = relocation_requested;
   runtime_state.frame_probe_classification_reset = reset_probe_state;
   runtime_state.frame_probe_classification_enabled = ddgi_ray_source.enable_probe_classification;
   if (scene_change_triggers_pending) {
-    runtime_state.latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
+    runtime_state.latched_scene_change_triggers = DdgiSceneChangeNone;
   }
   runtime_state.deferred_scene_readiness_refresh = false;
   runtime_state.scene_input_settle_frame_count = 0;
   runtime_state.frame_trace_probe_rays = true;
-  runtime_state.has_valid_probe_history = true;
-  ++runtime_state.probe_ray_sequence_index;
 }
 
 void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
@@ -4260,6 +4055,12 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
     if (reflection_probe_capture && previous_render_instances && capture_render_instances) {
       PreparePointAndSpotLightShadowMap(true, false);
     }
+    if (reflection_probe_capture)
+      if (const auto resources = SelectSdfgiCaptureResources(
+              scene->GetSdfgiRuntime(), ResolveEnvironmentalLighting(scene).indirect_gi_provider)) {
+        sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+        sdfgi_frame_resources_[current_frame_index].push_back(resources);
+      }
     RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture);
   } catch (...) {
     restore();
@@ -4495,7 +4296,7 @@ bool RenderLayer::PrepareReflectionProbeCaptureResources(const VkFormat raw_form
         std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo descriptor_image_info{};
     descriptor_image_info.imageView = reflection_probe_capture_raw_cubemap_->GetImageView()->GetVkImageView();
-    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     descriptor_image_info.sampler = reflection_probe_capture_raw_cubemap_->GetSampler()->GetVkSampler();
     reflection_probe_capture_filter_descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
   }
@@ -4528,7 +4329,7 @@ bool RenderLayer::PrepareDynamicReflectionProbeCaptureResources(const VkFormat r
     second_slot.descriptor_set = std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo descriptor_image_info{};
     descriptor_image_info.imageView = second_slot.cubemap->GetImageView()->GetVkImageView();
-    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     descriptor_image_info.sampler = second_slot.cubemap->GetSampler()->GetVkSampler();
     second_slot.descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
   }
@@ -4597,24 +4398,24 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
   const auto& ddgi_settings = resolved_lighting.ddgi_settings;
   const bool ddgi_capture_pending =
       ddgi_settings.runtime.enabled &&
-      std::any_of(ddgi_ordered_volume_ids_.begin(), ddgi_ordered_volume_ids_.end(),
+      std::any_of(ddgi_ordered_cascade_ids_.begin(), ddgi_ordered_cascade_ids_.end(),
                   [&](const uint64_t stable_entity_id) {
-                    const auto found = ddgi_volume_runtime_states_.find(stable_entity_id);
-                    if (found == ddgi_volume_runtime_states_.end()) {
+                    const auto found = ddgi_cascade_runtime_states_.find(stable_entity_id);
+                    if (found == ddgi_cascade_runtime_states_.end()) {
                       return true;
                     }
                     const auto& runtime = *found->second;
                     return !DdgiRuntime::IsReflectionProbeRuntimeReady(
                         runtime.has_valid_probe_history, runtime.last_performance_stats.lighting_descriptors_bound,
-                        runtime.probe_variability_gating_enabled,
-                        runtime.probe_variability_converged || runtime.probe_variability_maximum_reached);
+                        runtime.history_completed_updates >= runtime.frame_resource_layout.history_count,
+                        runtime.frame_probe_warmup_active);
                   });
   if (ddgi_capture_pending) {
     if (ddgi_session_state_.pause_updates) {
       FailReflectionProbeBakeBatch(batch, "Active DDGI is paused before reflection-probe capture became ready.", false);
       reflection_probe_bake_queue_.pop_front();
     } else {
-      retry("Waiting for active DDGI history and convergence.");
+      retry("Waiting for the initial DDGI history window and relocation warmup.");
     }
     return;
   }
@@ -4678,12 +4479,28 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
   }
 }
 
-void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
-  if (reflection_probe_capture_render_graph_plan_.valid) {
+void RenderLayer::EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<SdfgiResources>& sdfgi_resources,
+                                                          RenderGraphResourceRegistry& registry,
+                                                          const std::shared_ptr<HddagiRuntime>& hddagi_snapshot) {
+  const auto publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
+  if (sdfgi_resources) {
+    sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+    sdfgi_frame_resources_[Platform::GetCurrentFrameIndex()].push_back(sdfgi_resources);
+  }
+  if (!hddagi_snapshot && reflection_probe_capture_hddagi_snapshot_.expired() &&
+      reflection_probe_capture_render_graph_plan_.valid &&
+      reflection_probe_capture_publication_.lock() == publication &&
+      reflection_probe_capture_render_graph_.HasResource("Frame.SDFGI.Atlas") == bool(publication)) {
+    if (publication)
+      publication->ImportCamera(reflection_probe_capture_render_graph_, registry, *sdfgi_resources);
     return;
   }
+  reflection_probe_capture_publication_ = publication;
+  reflection_probe_capture_hddagi_snapshot_ = hddagi_snapshot;
   reflection_probe_capture_render_graph_.Clear();
   AddDefaultRasterCameraResources(reflection_probe_capture_render_graph_);
+  if (publication)
+    publication->ImportCamera(reflection_probe_capture_render_graph_, registry, *sdfgi_resources);
   auto geometry_descriptor = DeferredGeometryPass::CreateDescriptor();
   geometry_descriptor.dependencies.clear();
   reflection_probe_capture_render_graph_.AddPass(
@@ -4717,15 +4534,63 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       {},
                       capture.record_commands});
       });
+  auto lighting_descriptor = DeferredComputeLightingPass::CreateDescriptor(false, false);
+  std::shared_ptr<HddagiCameraFrame> hddagi_frame;
+  if (hddagi_snapshot) {
+    const auto slot = Platform::GetCurrentFrameIndex();
+    const auto extent = reflection_probe_capture_cameras_.front()->GetRenderTexture()->GetExtent();
+    hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+    hddagi_frame_resources_[slot].push_back(hddagi_snapshot->resources);
+    hddagi_frame = HddagiCameraFrame::Create(*hddagi_snapshot, *render_instances_list_[slot],
+                                             {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                              raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                             {extent.width, extent.height},
+                                             reflection_probe_capture_cameras_.front()->GetHandle().GetValue(), true);
+    hddagi_frame->input_uploads.Record(hddagi_frame->uploads);
+    hddagi_frame->uploaded = true;
+    hddagi_snapshot->resources->camera_frames.resize(Platform::GetMaxFramesInFlight());
+    hddagi_snapshot->resources->camera_frames[slot].push_back(hddagi_frame);
+    hddagi_frame->ImportCamera(reflection_probe_capture_render_graph_, registry, *hddagi_snapshot->resources);
+    hddagi_frame->AddPasses(
+        reflection_probe_capture_render_graph_, hddagi_snapshot->resources,
+        [this]() {
+          const auto& capture = *reflection_probe_capture_graph_context_;
+          return DeferredComputeLightingPass::Parameters{capture.camera,
+                                                         per_frame_descriptor_sets_[capture.current_frame_index],
+                                                         capture.lighting_descriptor_set,
+                                                         capture.raster_lighting_texture_descriptor_set,
+                                                         deferred_compute_lighting_pipeline_,
+                                                         deferred_compute_lighting_layout_,
+                                                         capture.transient_resources,
+                                                         capture.camera_index,
+                                                         capture.directional_shadow_camera_index,
+                                                         true,
+                                                         false,
+                                                         capture.record_commands};
+        },
+        lighting_descriptor.dependencies.front());
+    lighting_descriptor.dependencies = {"HddagiCameraGather"};
+    for (const auto name : {"Diffuse", "Specular", "Blend"})
+      lighting_descriptor.resources.push_back(
+          {"Camera.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+  }
+  if (publication)
+    for (const auto& access : publication->CameraReads())
+      lighting_descriptor.resources.push_back(access);
   reflection_probe_capture_render_graph_.AddPass(
-      DeferredComputeLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
+      lighting_descriptor, [this, hddagi_snapshot, hddagi_frame](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
         DeferredComputeLightingPass::Execute(
             context,
             {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index], capture.lighting_descriptor_set,
-             capture.raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
+             capture.raster_lighting_texture_descriptor_set,
+             hddagi_frame                ? hddagi_frame->pipelines.at("Deferred")
+             : capture.sdfgi_publication ? capture.sdfgi_resources->pipelines.at("DeferredSdfgi")
+                                         : deferred_compute_lighting_pipeline_,
              deferred_compute_lighting_layout_, capture.transient_resources, capture.camera_index,
-             capture.directional_shadow_camera_index, true, false, capture.record_commands});
+             capture.directional_shadow_camera_index, true, false, capture.record_commands, capture.sdfgi_resources,
+             capture.sdfgi_publication ? capture.sdfgi_publication->descriptor_set : nullptr, 0,
+             hddagi_snapshot ? hddagi_snapshot->resources : nullptr, hddagi_frame ? hddagi_frame->set : nullptr});
       });
   if (!reflection_probe_capture_render_graph_.Validate()) {
     throw std::runtime_error("Invalid reflection probe capture render graph.");
@@ -4757,8 +4622,14 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
     }
   }
   const auto camera = reflection_probe_capture_cameras_.front();
-  EnsureReflectionProbeCaptureRenderGraph();
+  const auto sdfgi_resources = SelectSdfgiCaptureResources(
+      prepared.scene->GetSdfgiRuntime(), ResolveEnvironmentalLighting(prepared.scene).indirect_gi_provider);
+  const auto hddagi_snapshot = SnapshotHddagiCapture(
+      ResolveEnvironmentalLighting(prepared.scene).indirect_gi_provider == IndirectGiProvider::AutomaticHddagi
+          ? prepared.scene->GetHddagiRuntime()
+          : nullptr);
   auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources, hddagi_snapshot);
   resources.BindImages(RenderResourceNames::camera_g_buffer,
                        {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
                         camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
@@ -4822,8 +4693,7 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
       const auto capture_timestamp = Platform::BeginGpuTimestampScope(
           command_buffer, {"ReflectionProbeFaceCapture", "Reflection Probe Face Capture", "Reflection Probes",
                            GpuTimestampQueue::Graphics, requests[request_index].stable_id, 0, false});
-      reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       for (uint32_t face = 0; face < 6u; ++face) {
         const auto face_index = request_index * 6u + face;
         ReflectionProbeCaptureGraphContext capture_context{
@@ -4836,18 +4706,20 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
             face_camera_indices[face_index],
             directional_shadow_camera_index,
             current_frame_index,
-            Platform::MeshShaderEnabled() && enable_meshlet};
+            Platform::MeshShaderEnabled() && enable_meshlet,
+            sdfgi_resources,
+            sdfgi_resources ? sdfgi_resources->publication : nullptr};
         reflection_probe_capture_graph_context_ = &capture_context;
         reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
         reflection_probe_capture_graph_context_ = nullptr;
-        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         VkImageCopy copy{};
         copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, face, 1};
         copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, 1,
+                       &copy);
       }
       reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
@@ -4860,14 +4732,14 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
           reflection_probe_capture_filter_descriptor_set_, reflection_probe_capture_prefilter_pipeline_);
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outputs[request_index]->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
-      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-          command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                     VK_IMAGE_LAYOUT_GENERAL, outputs[request_index]->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                     static_cast<uint32_t>(copies.size()), copies.data());
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
     }
     Platform::EndGpuTimestampScope(command_buffer, total_timestamp);
@@ -4976,6 +4848,7 @@ void RenderLayer::RetireDynamicReflectionProbeRuntime() {
   dynamic_reflection_probe_queue_.clear();
   dynamic_reflection_probe_filter_queue_.clear();
   for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+    slot.hddagi_snapshot.reset();
     slot.stable_id = 0u;
     slot.capture_revision = 0u;
     slot.output_generation = 0;
@@ -5133,6 +5006,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     dynamic_reflection_probe_queue_.clear();
     dynamic_reflection_probe_filter_queue_.clear();
     for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capture_revision = 0u;
       slot.output_generation = 0;
@@ -5197,6 +5071,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     if (state == dynamic_reflection_probe_runtime_states_.end() || !state->second.filtering) {
       dynamic_reflection_probe_filter_queue_.pop_front();
       auto& invalid_slot = dynamic_reflection_probe_raw_slots_[raw_slot];
+      invalid_slot.hddagi_snapshot.reset();
       invalid_slot.stable_id = 0u;
       invalid_slot.capture_revision = 0u;
       invalid_slot.output_generation = 0;
@@ -5261,6 +5136,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
   if (cameras.size() < glm::max(camera_count, 1u) || !cameras.front()) {
     if (newly_assigned_slot >= 0) {
       auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capturing = false;
     }
@@ -5280,6 +5156,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
       !PrepareDynamicReflectionProbeCaptureResources(camera->GetRenderTexture()->GetColorImage()->GetFormat())) {
     if (newly_assigned_slot >= 0) {
       auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.hddagi_snapshot.reset();
       slot.stable_id = 0u;
       slot.capturing = false;
     }
@@ -5349,22 +5226,48 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     face_camera_indices.emplace_back(camera_index);
   }
   const auto camera = reflection_probe_capture_cameras_.front();
-  EnsureReflectionProbeCaptureRenderGraph();
+  const auto scene = dynamic_reflection_probe_scene_.lock();
+  const auto sdfgi_resources = SelectSdfgiCaptureResources(scene ? scene->GetSdfgiRuntime() : nullptr,
+                                                           ResolveEnvironmentalLighting(scene).indirect_gi_provider);
   auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources);
   resources.BindImages(RenderResourceNames::camera_g_buffer,
                        {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
                         camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
   if (lighting_ && lighting_->directional_light_shadow_map_) {
     resources.BindImage(RenderResourceNames::lighting_directional_shadow_map, lighting_->directional_light_shadow_map_);
   }
-  auto& transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
-  transient_resources.Allocate(reflection_probe_capture_render_graph_.GetResources(),
-                               reflection_probe_capture_render_graph_plan_);
-  transient_resources.Bind(resources);
   const auto capture_lighting_descriptor_set =
       prepared.jobs.empty()
           ? nullptr
           : GetRasterLightingTextureDescriptorSet(current_frame_index, face_camera_indices.front(), render_instances);
+
+  struct CaptureGraph {
+    RenderGraph graph;
+    RenderGraphExecutionPlan plan;
+    RenderGraphResourceRegistry resources;
+    RenderGraphTransientResourceStore* transient = nullptr;
+  };
+  std::vector<CaptureGraph> capture_graphs;
+  capture_graphs.reserve(prepared.jobs.size());
+  auto& stores = render_graph_transient_resource_stores_.at(current_frame_index);
+  stores.reserve(stores.size() + prepared.jobs.size());
+  for (const auto& job : prepared.jobs) {
+    auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
+    if (job.first_face == 0)
+      slot.hddagi_snapshot = SnapshotHddagiCapture(scene && ResolveEnvironmentalLighting(scene).indirect_gi_provider ==
+                                                                IndirectGiProvider::AutomaticHddagi
+                                                       ? scene->GetHddagiRuntime()
+                                                       : nullptr);
+    auto registry = resources;
+    EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, registry, slot.hddagi_snapshot);
+    auto& transient = stores.emplace_back();
+    transient.Allocate(reflection_probe_capture_render_graph_.GetResources(),
+                       reflection_probe_capture_render_graph_plan_);
+    transient.Bind(registry);
+    capture_graphs.push_back({reflection_probe_capture_render_graph_, reflection_probe_capture_render_graph_plan_,
+                              std::move(registry), &transient});
+  }
 
   std::vector<std::shared_ptr<Cubemap>> filter_outputs(prepared.filter_jobs.size());
   for (size_t index = 0; index < prepared.filter_jobs.size(); ++index) {
@@ -5390,31 +5293,34 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
           command_buffer, {"DynamicReflectionProbeFaceCapture", "Dynamic Reflection Probe Face Capture",
                            "Reflection Probes", GpuTimestampQueue::Graphics, job.stable_id, job.first_face, false});
       if (job.first_face == 0u) {
-        raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       }
       for (uint32_t face_offset = 0; face_offset < job.face_count; ++face_offset) {
         const auto camera_offset = job.first_camera + face_offset;
+        const auto& capture_graph = capture_graphs[job_index];
         ReflectionProbeCaptureGraphContext capture_context{
             camera,
             render_instances,
             lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr,
             capture_lighting_descriptor_set,
             recorder,
-            &transient_resources,
+            capture_graph.transient,
             face_camera_indices[camera_offset],
             directional_shadow_camera_index,
             current_frame_index,
-            Platform::MeshShaderEnabled() && enable_meshlet};
+            Platform::MeshShaderEnabled() && enable_meshlet,
+            sdfgi_resources,
+            sdfgi_resources ? sdfgi_resources->publication : nullptr};
         reflection_probe_capture_graph_context_ = &capture_context;
-        reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
+        capture_graph.graph.Execute(capture_graph.plan, capture_graph.resources);
         reflection_probe_capture_graph_context_ = nullptr;
-        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         VkImageCopy copy{};
         copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, job.first_face + face_offset, 1};
         copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
       }
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
       if (job.first_face + job.face_count == 6u) {
@@ -5437,8 +5343,8 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
           slot.descriptor_set, reflection_probe_capture_prefilter_pipeline_, job.first_face, job.face_count);
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-      output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       std::vector<VkImageCopy> copies;
       copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * job.face_count);
       for (uint32_t face = job.first_face; face < job.first_face + job.face_count; ++face) {
@@ -5452,12 +5358,12 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
         }
       }
       vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, output->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
-      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-          command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                     VK_IMAGE_LAYOUT_GENERAL, output->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                     static_cast<uint32_t>(copies.size()), copies.data());
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
       if (job.first_face + job.face_count == 6u) {
-        output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       }
       Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
     }
@@ -5478,6 +5384,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
       auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
       slot.capturing = false;
       slot.filtering = true;
+      slot.hddagi_snapshot.reset();
       dynamic_reflection_probe_filter_queue_.emplace_back(job.raw_slot);
     }
   }
@@ -5501,6 +5408,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     }
     submitted->completions.push_back(
         {slot.stable_id, slot.output_generation, slot.capture_revision, filter_outputs[index]});
+    slot.hddagi_snapshot.reset();
     slot.stable_id = 0u;
     slot.capture_revision = 0u;
     slot.output_generation = 0;
@@ -5588,6 +5496,471 @@ void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate(const uint32_t fr
   RebuildDynamicReflectionProbeQueue();
 }
 
+void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto scene_frame = Platform::GetFrameCount();
+  auto lighting = ResolveEnvironmentalLighting(scene);
+  if (const auto previous_scene = sdfgi_scene_.lock(); previous_scene && previous_scene != scene) {
+    previous_scene->sdfgi_runtime_.reset();
+    previous_scene->hddagi_runtime_.reset();
+  }
+  sdfgi_scene_ = scene;
+  if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+    auto& runtime = scene->hddagi_runtime_;
+    if (!runtime || !(runtime->probes == lighting.gi_probe_settings) ||
+        runtime->settings.history_size != lighting.hddagi_settings.history_size) {
+      runtime = std::make_shared<HddagiRuntime>();
+      runtime->probes = lighting.gi_probe_settings;
+      runtime->settings = lighting.hddagi_settings;
+      runtime->capabilities = QueryHddagiCapabilities(runtime->probes, runtime->settings);
+    }
+    runtime->force_full_update |= runtime->settings.probe_bias != lighting.hddagi_settings.probe_bias;
+    if (runtime->resources) {
+      if (runtime->settings.read_sky_light != lighting.hddagi_settings.read_sky_light ||
+          runtime->settings.bounce_feedback != lighting.hddagi_settings.bounce_feedback)
+        runtime->resources->force_probe_frames = 4;
+      runtime->resources->settings = lighting.hddagi_settings;
+    }
+    runtime->settings = lighting.hddagi_settings;
+    const auto& shared = PrepareGiProbeFrame(scene, lighting.gi_probe_settings);
+    runtime->force_full_update |=
+        runtime->frame.anchor.camera_id != shared.anchor.camera_id || !runtime->frame.failure.empty();
+    runtime->frame = shared;
+    if (!(runtime->frame.settings == runtime->probes))
+      runtime->frame.failure = "GI settings change takes effect at the next scene frame";
+    runtime->fallback_reason =
+        runtime->capabilities.Supported() ? "HDDAGI transport is not ready" : runtime->capabilities.failure;
+    if (runtime->capabilities.Supported() && !runtime->frame.failure.empty())
+      runtime->fallback_reason = runtime->frame.failure;
+    if (runtime->capabilities.Supported() && runtime->frame.failure.empty() && !runtime->allocation_attempted) {
+      runtime->allocation_attempted = true;
+      std::string failure;
+      runtime->resources = HddagiResources::TryCreate(runtime->probes, runtime->settings, failure);
+      if (!runtime->resources)
+        runtime->capabilities.failure = runtime->fallback_reason = failure;
+    }
+  } else if (scene) {
+    scene->hddagi_runtime_.reset();
+    if (reflection_probe_capture_render_graph_.HasResource("Frame.HDDAGI.FilteredDiffuse")) {
+      reflection_probe_capture_render_graph_.Clear();
+      reflection_probe_capture_render_graph_plan_ = {};
+      reflection_probe_capture_hddagi_snapshot_.reset();
+    }
+  }
+
+  RenderGraph scene_graph;
+  AddDefaultFrameResources(scene_graph);
+  AddAdvancedFrameResources(scene_graph);
+  auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
+  sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+  hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+  if (scene && scene->hddagi_runtime_) {
+    auto& runtime = *scene->hddagi_runtime_;
+    runtime.published = false;
+    if (const auto resources = runtime.resources) {
+      hddagi_frame_resources_[current_frame_index].push_back(resources);
+      resources->Import(scene_graph, registry);
+      if (!resources->initialization_recorded)
+        scene_graph.AddPass(resources->ClearDescriptor(), [resources](const RenderGraphExecutionContext& context) {
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            resources->Clear(command, context);
+          });
+        });
+      if (runtime.frame.failure.empty() && resources->last_voxel_frame != scene_frame) {
+        resources->voxel_frames.resize(Platform::GetMaxFramesInFlight());
+        if (const auto& retired = resources->voxel_frames[current_frame_index])
+          retired->ReadStatusAfterFence(*resources);
+        resources->voxel_frames[current_frame_index].reset();
+        resources->light_frames.resize(Platform::GetMaxFramesInFlight());
+        resources->probe_frames.resize(Platform::GetMaxFramesInFlight());
+        if (const auto& retired = resources->probe_frames[current_frame_index])
+          retired->ReadStatusAfterFence(*resources);
+        resources->light_frames[current_frame_index].reset();
+        resources->probe_frames[current_frame_index].reset();
+        resources->camera_frames.resize(Platform::GetMaxFramesInFlight());
+        resources->camera_frames[current_frame_index].clear();
+        const bool retry_voxelization = !runtime.voxel_failure.empty();
+        resources->last_voxel_frame = scene_frame;
+        resources->submission = Platform::TrackCurrentFrameSubmission();
+        runtime.last_updated_regions = 0;
+        auto inputs_lighting = lighting;
+        auto input_settings = SdfgiSettings{};
+        input_settings.probe_spacing_cells = 8;
+        input_settings.static_entities_only = runtime.settings.static_entities_only;
+        inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
+        const auto snapshot = SnapshotSdfgiScene(scene, inputs_lighting);
+        runtime.contributors.Update(snapshot.contributors);
+        HddagiUpdatePlan plan;
+        runtime.voxel_failure = BuildHddagiUpdatePlan(
+            runtime.probes, runtime.settings, runtime.frame.anchor.world_position, runtime.cascades,
+            runtime.contributors.changes,
+            runtime.force_full_update || retry_voxelization || !resources->voxelization_recorded ||
+                runtime.region_version == UINT16_MAX || resources->failure_flags != 0,
+            plan);
+        if (runtime.voxel_failure.empty() && !plan.regions.empty()) {
+          try {
+            const auto version = runtime.region_version % UINT16_MAX + 1;
+            auto frame = HddagiVoxelFrame::Create(*resources, per_frame_layout_, runtime.contributors, plan, version);
+            frame->AddPasses(scene_graph, registry, resources);
+            resources->voxel_frames[current_frame_index] = std::move(frame);
+            runtime.cascades = std::move(plan.cascades);
+            runtime.region_version = version;
+            runtime.force_full_update = false;
+            runtime.last_updated_regions = plan.region_count;
+            runtime.total_updated_regions += plan.region_count;
+            ++runtime.update_count;
+          } catch (const std::exception& error) {
+            runtime.voxel_failure = error.what();
+          }
+        }
+        runtime.transport_failure.clear();
+        if (runtime.voxel_failure.empty() && !runtime.cascades.empty()) {
+          try {
+            const auto& voxel_frame = resources->voxel_frames[current_frame_index];
+            const uint32_t written = voxel_frame ? voxel_frame->written_cascades : 0;
+            auto lights = HddagiLightFrame::Create(*resources, runtime.cascades, snapshot.lights, scene_frame, written);
+            auto probes = HddagiProbeFrame::Create(*resources, runtime.cascades, snapshot.sky, scene_frame,
+                                                   lights->lighting_changed, written);
+            probes->AddBeginPass(scene_graph, registry, resources, voxel_frame ? "HddagiVoxelComplete" : "");
+            lights->AddPasses(scene_graph, registry, resources, "HddagiTransportBegin");
+            probes->AddPasses(scene_graph, registry, resources, "HddagiDirectLight");
+            resources->light_frames[current_frame_index] = std::move(lights);
+            resources->probe_frames[current_frame_index] = std::move(probes);
+          } catch (const std::exception& error) {
+            runtime.transport_failure = error.what();
+          }
+        }
+        if (!runtime.voxel_failure.empty())
+          runtime.fallback_reason = runtime.voxel_failure;
+        else if (resources->failure_flags)
+          runtime.fallback_reason = "HDDAGI compact light-cell capacity exceeded";
+        else if (!runtime.transport_failure.empty())
+          runtime.fallback_reason = runtime.transport_failure;
+        else if (resources->transport_failure_flags)
+          runtime.fallback_reason = "HDDAGI transport generation failed GPU validation";
+        else if (runtime.published)
+          runtime.fallback_reason.clear();
+        else if (resources->transport_ready)
+          runtime.fallback_reason = "HDDAGI camera integration is not ready";
+      }
+    }
+    runtime.retiring_bytes = 0;
+    std::set<const HddagiResources*> counted;
+    const auto count = [&](std::shared_ptr<const HddagiResources> field) {
+      while (field && counted.insert(field.get()).second) {
+        if (field != runtime.resources)
+          runtime.retiring_bytes += field->AllocationBytes();
+        field = field->capture_source;
+      }
+    };
+    for (const auto& slot : hddagi_frame_resources_)
+      for (const auto& field : slot)
+        count(field);
+    for (const auto& slot : dynamic_reflection_probe_raw_slots_)
+      if (slot.hddagi_snapshot)
+        count(slot.hddagi_snapshot->resources);
+  }
+  if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+    const auto sdfgi_cpu_start = std::chrono::steady_clock::now();
+    auto& runtime = scene->sdfgi_runtime_;
+    const auto debug = runtime ? runtime->debug : std::make_shared<SdfgiDebugState>();
+    const bool update_field = debug->BeginFrame(scene_frame);
+    if (runtime && runtime->resources && update_field && !runtime->settings.HasSameLayout(lighting.sdfgi_settings)) {
+      const auto candidate =
+          QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
+                                 lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y,
+                                 lighting.sdfgi_settings.probe_spacing_cells, 0);
+      if (!candidate.Supported() || !lighting.sdfgi_settings.Validate().empty()) {
+        EVOENGINE_ERROR("SDFGI settings edit rejected; retaining the current field. " + candidate.ToString());
+        lighting.sdfgi_settings = runtime->settings;
+        lighting.gi_probe_settings = GiProbesFromSdfgi(runtime->settings);
+        if (const auto asset = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
+          asset->sdfgi_settings = runtime->settings;
+          asset->gi_probe_settings = lighting.gi_probe_settings;
+        }
+      }
+    }
+    if (!runtime ||
+        (update_field && (!runtime->settings.HasSameLayout(lighting.sdfgi_settings) ||
+                          runtime->settings.Validate().empty() != lighting.sdfgi_settings.Validate().empty()))) {
+      const auto capabilities =
+          lighting.sdfgi_settings.Validate().empty()
+              ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
+                                       lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y,
+                                       lighting.sdfgi_settings.probe_spacing_cells, 0)
+              : SdfgiCapabilityReport{};
+      debug->Invalidate(runtime ? "settings" : "provider",
+                        runtime ? "Field layout/settings replaced" : "Automatic SDFGI activated");
+      runtime = std::make_shared<SdfgiRuntime>(lighting.sdfgi_settings, capabilities);
+      runtime->debug = debug;
+    }
+    const bool settings_changed = update_field && !(runtime->settings == lighting.sdfgi_settings);
+    if (settings_changed)
+      debug->Invalidate("settings", "Runtime SDFGI settings changed");
+    if (settings_changed && !runtime->resources) {
+      runtime->allocation_attempted = false;
+      runtime->resource_failure.clear();
+    }
+    if (update_field)
+      runtime->settings = lighting.sdfgi_settings;
+    const auto& anchor = PrepareGiProbeFrame(scene, lighting.gi_probe_settings).anchor;
+    if (update_field && runtime->Maintain(scene_frame, anchor))
+      runtime->UpdateSceneSnapshot(SnapshotSdfgiScene(scene, lighting));
+    if (update_field && !runtime->allocation_attempted && !runtime->missing_anchor &&
+        runtime->settings.Validate().empty() && runtime->placement_failure.empty() &&
+        runtime->capabilities.Supported()) {
+      runtime->allocation_attempted = true;
+      runtime->resources =
+          SdfgiResources::TryCreate(runtime->settings,
+                                    {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                     raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                    runtime->resource_failure);
+      if (!runtime->resource_failure.empty())
+        runtime->fallback_reason = runtime->resource_failure;
+    }
+    scene_graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                        [](const RenderGraphExecutionContext&) {
+                        });
+    if (const auto resources = runtime->resources) {
+      resources->settings = runtime->settings;
+      resources->gather_camera_ids.clear();
+      if (update_field || resources->last_transport_frame != scene_frame)
+        RetireSdfgiDebugFrame(*resources, current_frame_index);
+      if (const auto& previous = resources->voxel_frames[current_frame_index];
+          resources->last_voxel_frame != scene_frame && previous && previous->preprocess_readback)
+        previous->preprocess_readback->ReadAfterFrameFence(*resources);
+      const bool field_failed = resources->preprocess_status.failure_flags != 0;
+      const bool retry_field =
+          field_failed &&
+          ((resources->preprocess_status.failure_flags & kSdfgiFailurePayloadCoverage) || settings_changed ||
+           runtime->anchor_replaced || runtime->anchor_recovered || !runtime->pending_regions.empty() ||
+           resources->voxel_debug_request || debug->full_redraw ||
+           std::any_of(runtime->pending_changes.begin(), runtime->pending_changes.end(), [](uint32_t flags) {
+             return flags != 0;
+           }));
+      if (field_failed) {
+        runtime->fallback_reason = (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow)
+                                       ? "SDFGI solid-cell capacity overflow"
+                                       : "SDFGI payload coverage changed unexpectedly; full redraw required";
+        runtime->published = false;
+      } else if (!resources->preprocess_failure.empty())
+        runtime->fallback_reason = resources->preprocess_failure;
+      sdfgi_frame_resources_[current_frame_index].push_back(resources);
+      resources->Import(scene_graph, registry);
+      if (update_field && !resources->initialization_recorded)
+        scene_graph.AddPass(resources->ClearDescriptor(), [resources](const RenderGraphExecutionContext& context) {
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+            resources->Clear(command_buffer, context);
+          });
+        });
+      if (update_field && debug->reset_history && resources->initialization_recorded)
+        AddSdfgiHistoryReset(scene_graph, runtime);
+      if (update_field)
+        resources->debug_seed = debug->seed;
+      if (update_field && resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
+          runtime->placement_failure.empty() && (!field_failed || retry_field)) {
+        runtime->PrepareUpdates(resources->voxelization_recorded,
+                                retry_field || debug->full_redraw || !resources->voxel_failure.empty());
+        auto pending = runtime->pending_regions;
+        if (resources->voxel_debug_request) {
+          const auto index = resources->voxel_debug_request->x;
+          auto cascades = runtime->cascades;
+          cascades[index].full_redraw = true;
+          runtime->payload_cascades &= ~(1u << index);
+          pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                       [&](const auto& region) {
+                                         return region.cascade == index;
+                                       }),
+                        pending.end());
+          for (const auto& region :
+               GetSdfgiPendingRegions(cascades, SdfgiYMultiplier(runtime->settings.vertical_scale)))
+            if (region.cascade == index)
+              pending.push_back(region);
+        }
+        if (!pending.empty()) {
+          try {
+            auto frame = SdfgiVoxelFrame::Create(*resources, runtime->contributors, runtime->cascades, pending);
+            frame->payload_cascades = runtime->payload_cascades;
+            frame->reset_failure = retry_field;
+            if (resources->voxel_debug_request)
+              frame->debug = std::make_shared<SdfgiVoxelDebug>(
+                  resources->voxel_debug_request->x, resources->voxel_debug_request->y, resources->settings.GridSize());
+            resources->voxel_frames[current_frame_index] = frame;
+            resources->last_voxel_frame = scene_frame;
+            frame->AddPasses(scene_graph, registry, resources, runtime);
+            if (frame->debug) {
+              resources->voxel_debug = frame->debug;
+              resources->voxel_debug_request.reset();
+            }
+            resources->voxel_failure.clear();
+          } catch (const std::exception& error) {
+            resources->voxel_failure = error.what();
+            runtime->fallback_reason = resources->voxel_failure;
+          }
+        }
+      }
+      uint32_t rebuilt_cascades = 0;
+      uint32_t payload_cascades = 0;
+      for (uint32_t c = 0; c < runtime->cascades.size(); ++c)
+        for (const auto& pass : scene_graph.GetPasses())
+          if (pass.name == "SdfgiPreprocessCascade" + std::to_string(c))
+            rebuilt_cascades |= 1u << c;
+          else if (pass.name == "SdfgiPayloadCascade" + std::to_string(c))
+            payload_cascades |= 1u << c;
+      const bool full_representation =
+          (resources->preprocessed_cascades | rebuilt_cascades) == (1u << runtime->settings.cascade_count) - 1;
+      if (update_field && full_representation && !runtime->missing_anchor && runtime->placement_failure.empty() &&
+          resources->voxel_failure.empty() && resources->last_light_frame != scene_frame &&
+          (!field_failed || retry_field)) {
+        try {
+          auto frame = SdfgiLightFrame::Create(*resources, runtime->cascades, runtime->scene_snapshot.lights,
+                                               scene_frame, rebuilt_cascades | payload_cascades);
+          resources->light_frames[current_frame_index] = frame;
+          resources->last_light_frame = scene_frame;
+          frame->AddPasses(
+              scene_graph, resources,
+              (rebuilt_cascades | payload_cascades) ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+          if (resources->last_transport_frame != scene_frame) {
+            try {
+              auto probes =
+                  SdfgiProbeFrame::Create(*resources, runtime->cascades, runtime->scene_snapshot.sky, scene_frame);
+              resources->probe_frames[current_frame_index] = probes;
+              resources->last_transport_frame = scene_frame;
+              probes->AddPasses(scene_graph, registry, resources, "SdfgiDirectLight");
+              auto publication = SdfgiGatherFrame::Create(*runtime, resources->transport_pass + 1);
+              resources->gather_frames[current_frame_index] = publication;
+              publication->AddPublication(scene_graph, runtime);
+            } catch (const std::exception& error) {
+              resources->transport_failure = error.what();
+              resources->transport_recorded = false;
+            }
+          }
+        } catch (const std::exception& error) {
+          resources->light_failure = error.what();
+          resources->lighting_recorded = false;
+        }
+      }
+      if (!resources->light_failure.empty())
+        runtime->fallback_reason = resources->light_failure;
+      if (!resources->transport_failure.empty())
+        runtime->fallback_reason = resources->transport_failure;
+      if (resources->probe_debug_request && resources->transport_recorded) {
+        try {
+          auto snapshot = std::make_shared<SdfgiProbeDebug>(resources->settings, resources->probe_debug_request->x,
+                                                            resources->probe_debug_request->y);
+          resources->probe_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->probe_debug_frames[current_frame_index] = snapshot;
+          resources->probe_debug = snapshot;
+          const bool transport_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiProbeStore";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            transport_pass ? "SdfgiProbeStore" : RenderPassNames::sdfgi_maintenance);
+          resources->probe_debug_request.reset();
+          resources->probe_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->probe_debug_failure = error.what();
+        }
+      }
+      if (resources->light_debug_request && resources->lighting_recorded) {
+        try {
+          auto snapshot = std::make_shared<SdfgiLightDebug>(
+              resources->light_debug_request->x, resources->light_debug_request->y, resources->settings.GridSize());
+          resources->light_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->light_debug_frames[current_frame_index] = snapshot;
+          resources->light_debug = snapshot;
+          const bool light_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiDirectLight";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            light_pass ? "SdfgiDirectLight" : RenderPassNames::sdfgi_maintenance);
+          resources->light_debug_request.reset();
+          resources->light_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->light_debug_failure = error.what();
+        }
+      }
+      if (resources->preprocess_debug_request &&
+          (resources->preprocessed_cascades & (1u << resources->preprocess_debug_request->x))) {
+        try {
+          auto snapshot = std::make_shared<SdfgiPreprocessDebug>(resources->preprocess_debug_request->x,
+                                                                 resources->preprocess_debug_request->y,
+                                                                 resources->settings.GridSize());
+          resources->preprocess_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->preprocess_debug_frames[current_frame_index] = snapshot;
+          resources->preprocess_debug = snapshot;
+          const bool voxel_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiVoxelComplete";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            voxel_pass ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+          resources->preprocess_debug_request.reset();
+          resources->preprocess_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->preprocess_debug_failure = error.what();
+        }
+      }
+    }
+    if (Platform::GpuTimestampCaptureEnabled())
+      Platform::RecordCpuTimingSample(
+          "SDFGI Planning",
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sdfgi_cpu_start).count());
+  } else if (scene) {
+    scene->sdfgi_runtime_.reset();
+  }
+  RenderPassDescriptor gi_complete{RenderPassNames::scene_gi_complete, RenderPassQueue::Graphics,
+                                   RenderPassScope::Frame};
+  for (const auto& pass : scene_graph.GetPasses())
+    gi_complete.dependencies.push_back(pass.name);
+  scene_graph.AddPass(gi_complete, [](const RenderGraphExecutionContext&) {
+  });
+  // Preserve the public legacy completion name for registered frame passes, without invoking a DDGI runtime.
+  scene_graph.AddPass({RenderPassNames::ddgi_volumes_complete,
+                       RenderPassQueue::Graphics,
+                       RenderPassScope::Frame,
+                       {},
+                       {RenderPassNames::scene_gi_complete}},
+                      [](const RenderGraphExecutionContext&) {
+                      });
+  AddExternalRenderResources(scene_graph, external_render_resource_descriptors);
+  for (const auto& external_pass : frame_render_pass_external_functions) {
+    auto descriptor = external_pass.descriptor;
+    if (std::find(descriptor.dependencies.begin(), descriptor.dependencies.end(), RenderPassNames::scene_gi_complete) ==
+        descriptor.dependencies.end())
+      descriptor.dependencies.emplace_back(RenderPassNames::scene_gi_complete);
+    ImportMissingPassResources(scene_graph, descriptor);
+    scene_graph.AddPass(descriptor, [&, external_pass](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&, external_pass](const VkCommandBuffer command_buffer) {
+        uint32_t primitive_count = 0;
+        if (external_pass.context_func) {
+          ApplyGraphResourceBarriers(command_buffer, context);
+          primitive_count = external_pass.context_func(command_buffer, context);
+          ApplyGraphResourceReleaseBarriers(command_buffer, context, RenderPassQueue::Graphics);
+        } else if (external_pass.func) {
+          primitive_count = external_pass.func(command_buffer);
+        }
+        if (count_shadow_rendering_draw_calls)
+          Platform::CountRenderPassDraw(RenderPassDrawBucket::FrameExternal, RenderDrawCallKind::Direct,
+                                        current_frame_index, primitive_count);
+      });
+    });
+  }
+  if (!scene_graph.Validate()) {
+    EVOENGINE_ERROR("Invalid scene frame render graph.")
+    return;
+  }
+  const auto plan = scene_graph.Compile(CreateFrameRenderGraphCompileContext());
+  auto& transient_resources = render_graph_transient_resource_stores_[current_frame_index].emplace_back();
+  transient_resources.Allocate(scene_graph.GetResources(), plan);
+  transient_resources.Bind(registry);
+  scene_graph.Execute(plan, registry);
+  if (scene && scene->GetSdfgiRuntime())
+    UpdateSdfgiDebugMemory(*scene->GetSdfgiRuntime(), sdfgi_frame_resources_);
+}
+
 void RenderLayer::RenderAll() {
   const ProfilerScope profiler_scope("RenderLayer::RenderAll", "Render");
   const auto scene = GetScene();
@@ -5599,9 +5972,12 @@ void RenderLayer::RenderAll() {
   PruneRayCameraHistories(current_render_instances);
   auto& current_frame_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index);
   current_frame_transient_resources.clear();
+  if (current_frame_index < sdfgi_frame_resources_.size())
+    sdfgi_frame_resources_[current_frame_index].clear();
+  if (current_frame_index < hddagi_frame_resources_.size())
+    hddagi_frame_resources_[current_frame_index].clear();
   if (!ddgi_fallback_probe_state_buffer_) {
-    ddgi_fallback_probe_state_buffer_ =
-        CreateDdgiFallbackProbeStateBuffer(DdgiRuntime::kMaxResidentProbeCount * sizeof(glm::vec4));
+    ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer(sizeof(glm::vec4));
   }
   BindDdgiFallbackLightingDescriptors(lighting_descriptor_set, ddgi_fallback_probe_state_buffer_);
   ddgi_last_performance_stats_ = {};
@@ -5613,18 +5989,6 @@ void RenderLayer::RenderAll() {
       return;
     }
     auto& aggregate = ddgi_last_performance_stats_;
-    const auto old_variability_sample_count = aggregate.probe_variability_sample_count;
-    const auto variability_sample_count = old_variability_sample_count + volume_stats.probe_variability_sample_count;
-    if (variability_sample_count > 0u) {
-      aggregate.probe_variability_average =
-          (aggregate.probe_variability_average * static_cast<float>(old_variability_sample_count) +
-           volume_stats.probe_variability_average * static_cast<float>(volume_stats.probe_variability_sample_count)) /
-          static_cast<float>(variability_sample_count);
-    }
-    aggregate.probe_variability_maximum =
-        glm::max(aggregate.probe_variability_maximum, volume_stats.probe_variability_maximum);
-    aggregate.probe_variability_unstable_fraction =
-        glm::max(aggregate.probe_variability_unstable_fraction, volume_stats.probe_variability_unstable_fraction);
     aggregate.active_probe_count += volume_stats.active_probe_count;
     aggregate.storage_probe_count += volume_stats.storage_probe_count;
     aggregate.updated_probe_count += volume_stats.updated_probe_count;
@@ -5663,32 +6027,58 @@ void RenderLayer::RenderAll() {
     aggregate.selected_ray_diagnostics_byte_size += volume_stats.selected_ray_diagnostics_byte_size;
     aggregate.irradiance_atlas_byte_size += volume_stats.irradiance_atlas_byte_size;
     aggregate.visibility_atlas_byte_size += volume_stats.visibility_atlas_byte_size;
-    aggregate.variability_atlas_byte_size += volume_stats.variability_atlas_byte_size;
-    aggregate.variability_reduction_byte_size += volume_stats.variability_reduction_byte_size;
     aggregate.persistent_byte_size += volume_stats.persistent_byte_size;
     aggregate.per_frame_transient_byte_size += volume_stats.per_frame_transient_byte_size;
     aggregate.peak_resident_byte_size += volume_stats.peak_resident_byte_size;
-    aggregate.probe_variability_sample_count = variability_sample_count;
-    aggregate.probe_variability_stable_sample_count =
-        glm::min(aggregate.probe_variability_stable_sample_count, volume_stats.probe_variability_stable_sample_count);
-    aggregate.probe_variability_required_stable_sample_count =
-        glm::max(aggregate.probe_variability_required_stable_sample_count,
-                 volume_stats.probe_variability_required_stable_sample_count);
-    aggregate.probe_variability_budget_frame_count =
-        glm::max(aggregate.probe_variability_budget_frame_count, volume_stats.probe_variability_budget_frame_count);
-    aggregate.probe_variability_maximum_frames =
-        glm::max(aggregate.probe_variability_maximum_frames, volume_stats.probe_variability_maximum_frames);
-    aggregate.probe_variability_converged &= volume_stats.probe_variability_converged;
-    aggregate.probe_variability_maximum_reached |= volume_stats.probe_variability_maximum_reached;
-    aggregate.probe_variability_sampling_complete &= volume_stats.probe_variability_sampling_complete;
     aggregate.probe_warmup_active |= volume_stats.probe_warmup_active;
-    aggregate.hysteresis_boosted_volume_count += volume_stats.hysteresis_boosted_volume_count;
-    aggregate.hysteresis_restoring_volume_count += volume_stats.hysteresis_restoring_volume_count;
+    aggregate.history_window_complete &= volume_stats.history_window_complete;
     aggregate.lighting_descriptors_bound &= volume_stats.lighting_descriptors_bound;
   };
 
-  const auto execute_ddgi_runtime = [&](DdgiVolumeRuntimeState& ddgi_runtime, const uint32_t volume_slot,
-                                        const bool include_external_passes) {
+  std::array<DdgiProbeTracePass::CascadeResources, 8> ddgi_cascade_resources{};
+  const auto prepare_ddgi_cascade = [&](DdgiCascadeRuntimeState& runtime, const uint32_t cascade) {
+    if (!runtime.frame_resource_layout.valid || !runtime.irradiance_atlas || !runtime.visibility_atlas ||
+        !runtime.probe_state_buffer || !runtime.probe_metadata_buffer)
+      return;
+    ddgi_cascade_resources[cascade] = {runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer};
+    if (!runtime.clear_probe_atlas_this_frame && !runtime.frame_clear_scrolled_probes)
+      return;
+    // All cascade origins must be cleared before any ray can gather from another cascade.
+    RenderGraph graph;
+    AddDdgiFrameResources(graph, runtime.frame_resource_layout);
+    auto& transient = current_frame_transient_resources.emplace_back();
+    if (runtime.clear_probe_atlas_this_frame)
+      graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext& context) {
+        DdgiAtlasPreparePass::Execute(context);
+      });
+    if (runtime.frame_clear_scrolled_probes)
+      graph.AddPass(DdgiProbeScrollPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        DdgiProbeScrollPass::Execute(context, {ddgi_probe_scroll_pipeline_, ddgi_probe_update_layout_, &transient,
+                                               runtime.frame_probe_scroll_push_constant});
+      });
+    const auto plan = graph.Compile(CreateFrameRenderGraphCompileContext());
+    auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
+    registry.BindBuffer(RenderResourceNames::frame_ddgi_probe_metadata, runtime.probe_metadata_buffer);
+    registry.BindBuffer(RenderResourceNames::frame_ddgi_probe_state, runtime.probe_state_buffer);
+    registry.BindImage(RenderResourceNames::frame_ddgi_irradiance_atlas, runtime.irradiance_atlas);
+    registry.BindImage(RenderResourceNames::frame_ddgi_visibility_atlas, runtime.visibility_atlas);
+    transient.Allocate(graph.GetResources(), plan);
+    transient.Bind(registry);
+    transient.RetainImage(runtime.irradiance_atlas);
+    transient.RetainImage(runtime.visibility_atlas);
+    transient.RetainBuffer(runtime.probe_state_buffer);
+    transient.RetainBuffer(runtime.probe_metadata_buffer);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      AcquireDdgiFrameResources(command, runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer,
+                                runtime.probe_metadata_buffer, nullptr);
+    });
+    graph.Execute(plan, registry);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      PublishDdgiFrameResources(command, runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer,
+                                runtime.probe_metadata_buffer, nullptr);
+    });
+  };
+  const auto execute_ddgi_runtime = [&](DdgiCascadeRuntimeState& ddgi_runtime, const uint32_t volume_slot) {
     ddgi_runtime.frame_selected_ray_diagnostics_buffer.reset();
     ddgi_runtime.last_performance_stats = {};
     ddgi_runtime.last_performance_stats.storage_probe_count = ddgi_runtime.frame_resource_layout.probe_count;
@@ -5726,10 +6116,6 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.frame_resource_layout.irradiance_atlas_byte_size;
     ddgi_runtime.last_performance_stats.visibility_atlas_byte_size =
         ddgi_runtime.frame_resource_layout.visibility_atlas_byte_size;
-    ddgi_runtime.last_performance_stats.variability_atlas_byte_size =
-        ddgi_runtime.frame_resource_layout.variability_atlas_byte_size;
-    ddgi_runtime.last_performance_stats.variability_reduction_byte_size =
-        ddgi_runtime.frame_resource_layout.variability_reduction_byte_size;
     ddgi_runtime.last_performance_stats.persistent_byte_size = ddgi_runtime.frame_resource_layout.persistent_byte_size;
     ddgi_runtime.last_performance_stats.per_frame_transient_byte_size =
         ddgi_runtime.frame_resource_layout.per_frame_transient_byte_size;
@@ -5739,36 +6125,11 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.frame_resource_layout.irradiance_atlas.resolution;
     ddgi_runtime.last_performance_stats.visibility_atlas_extent =
         ddgi_runtime.frame_resource_layout.visibility_atlas.resolution;
-    ddgi_runtime.last_performance_stats.variability_atlas_extent =
-        ddgi_runtime.frame_resource_layout.variability_atlas.resolution;
-    ddgi_runtime.last_performance_stats.variability_reduction_extent =
-        ddgi_runtime.frame_resource_layout.variability_reduction_extent;
-    ddgi_runtime.last_performance_stats.probe_variability_average = ddgi_runtime.probe_variability_average;
-    ddgi_runtime.last_performance_stats.probe_variability_maximum = ddgi_runtime.probe_variability_maximum;
-    ddgi_runtime.last_performance_stats.probe_variability_unstable_fraction =
-        ddgi_runtime.probe_variability_unstable_fraction;
-    ddgi_runtime.last_performance_stats.probe_variability_sample_count = ddgi_runtime.probe_variability_sample_count;
-    ddgi_runtime.last_performance_stats.probe_variability_stable_sample_count =
-        ddgi_runtime.probe_variability_stable_sample_count;
-    ddgi_runtime.last_performance_stats.probe_variability_required_stable_sample_count =
-        DdgiRuntime::kProbeVariabilityStableSampleCount;
-    ddgi_runtime.last_performance_stats.probe_variability_budget_frame_count =
-        ddgi_runtime.probe_variability_budget.completed_frame_count;
-    ddgi_runtime.last_performance_stats.probe_variability_maximum_frames =
-        static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1));
-    ddgi_runtime.last_performance_stats.probe_variability_converged = ddgi_runtime.probe_variability_converged;
-    ddgi_runtime.last_performance_stats.probe_variability_maximum_reached =
-        ddgi_runtime.probe_variability_maximum_reached;
-    ddgi_runtime.last_performance_stats.probe_variability_sampling_complete =
-        ddgi_runtime.probe_variability_converged || ddgi_runtime.probe_variability_maximum_reached;
+    ddgi_runtime.last_performance_stats.history_window_complete =
+        ddgi_runtime.history_completed_updates >= ddgi_runtime.frame_resource_layout.history_count;
     ddgi_runtime.last_performance_stats.probe_warmup_frame_index = ddgi_runtime.frame_probe_warmup_frame_index;
     ddgi_runtime.last_performance_stats.probe_warmup_frame_count = ddgi_runtime.frame_probe_warmup_frame_count;
     ddgi_runtime.last_performance_stats.probe_warmup_active = ddgi_runtime.frame_probe_warmup_active;
-    ddgi_runtime.last_performance_stats.probe_update_hysteresis = ddgi_runtime.frame_probe_update_hysteresis;
-    ddgi_runtime.last_performance_stats.hysteresis_boosted_volume_count =
-        ddgi_runtime.frame_hysteresis_boost_active ? 1u : 0u;
-    ddgi_runtime.last_performance_stats.hysteresis_restoring_volume_count =
-        ddgi_runtime.frame_hysteresis_boost_restoring ? 1u : 0u;
     ddgi_runtime.last_performance_stats.active_probe_count =
         ddgi_runtime.contributes_lighting ? ddgi_runtime.frame_resource_layout.probe_count : 0u;
     if (ddgi_runtime.frame_trace_probe_rays) {
@@ -5791,30 +6152,12 @@ void RenderLayer::RenderAll() {
     const auto use_emissive_sampling = trace_ddgi_probe_rays && ddgi_runtime.frame_emissive_ray_count > 0u;
     const auto use_ddgi_frame_resources = ddgi_settings.runtime.enabled && ddgi_runtime.frame_resource_layout.valid;
     if (use_ddgi_frame_resources) {
-      const auto clear_ddgi_probe_atlas = ddgi_runtime.clear_probe_atlas_this_frame;
-      const auto clear_scrolled_probes = ddgi_runtime.frame_clear_scrolled_probes;
-      const auto ddgi_probe_scroll_push_constant = ddgi_runtime.frame_probe_scroll_push_constant;
       AddDdgiFrameResources(frame_render_graph, ddgi_runtime.frame_resource_layout);
-      if (clear_ddgi_probe_atlas) {
-        frame_render_graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(),
-                                   [&](const RenderGraphExecutionContext& context) {
-                                     DdgiAtlasPreparePass::Execute(context);
-                                   });
-      }
-      if (clear_scrolled_probes) {
-        frame_render_graph.AddPass(DdgiProbeScrollPass::CreateDescriptor(),
-                                   [&, ddgi_probe_scroll_push_constant](const RenderGraphExecutionContext& context) {
-                                     DdgiProbeScrollPass::Execute(
-                                         context, {ddgi_probe_scroll_pipeline_, ddgi_probe_update_layout_,
-                                                   active_frame_transient_resources, ddgi_probe_scroll_push_constant});
-                                   });
-      }
     }
     const auto reset_ddgi_probe_relocation = ddgi_runtime.frame_probe_relocation_reset;
     const auto relocate_ddgi_probes = ddgi_runtime.frame_probe_relocation_enabled;
     const auto reset_ddgi_probe_classification = ddgi_runtime.frame_probe_classification_reset;
     const auto classify_ddgi_probes = ddgi_runtime.frame_probe_classification_enabled;
-    const auto reduce_ddgi_probe_variability = ddgi_runtime.frame_probe_variability_enabled;
     const auto ddgi_ray_push_constant = ddgi_runtime.frame_ray_push_constant;
     const auto ddgi_probe_update_push_constant = ddgi_runtime.frame_probe_update_push_constant;
     const auto ddgi_probe_relocation_reset_push_constant = ddgi_runtime.frame_probe_relocation_reset_push_constant;
@@ -5823,37 +6166,26 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.frame_probe_classification_reset_push_constant;
     const auto ddgi_probe_classification_update_push_constant =
         ddgi_runtime.frame_probe_classification_update_push_constant;
-    const DdgiProbeVariabilityPass::DdgiAtlasLayout ddgi_probe_variability_layout{
-        ddgi_runtime.frame_resource_layout.probe_count,
-        ddgi_runtime.frame_resource_layout.variability_atlas.tile_resolution,
-        ddgi_runtime.frame_resource_layout.variability_atlas.columns,
-        ddgi_runtime.frame_resource_layout.variability_atlas.resolution,
-        ddgi_runtime.frame_resource_layout.variability_reduction_extent};
     const auto ddgi_probe_metadata_readback_buffer =
         ddgi_session_state_.selected_probe_readback_requested &&
-                ddgi_session_state_.selected_volume_id == ddgi_runtime.stable_entity_id &&
+                ddgi_session_state_.selected_cascade_id == ddgi_runtime.stable_entity_id &&
                 current_frame_index < ddgi_runtime.probe_metadata_readback_buffers.size()
             ? ddgi_runtime.probe_metadata_readback_buffers[current_frame_index]
             : nullptr;
     const auto ddgi_probe_ray_readback_buffer =
-        ddgi_session_state_.show_rays && ddgi_session_state_.selected_volume_id == ddgi_runtime.stable_entity_id &&
+        ddgi_session_state_.show_rays && ddgi_session_state_.selected_cascade_id == ddgi_runtime.stable_entity_id &&
                 ddgi_runtime.frame_selected_probe_ray_sample_count != 0u &&
                 current_frame_index < ddgi_runtime.probe_ray_readback_buffers.size()
             ? ddgi_runtime.probe_ray_readback_buffers[current_frame_index]
             : nullptr;
     const auto ddgi_selected_ray_diagnostics_buffer =
-        ddgi_session_state_.show_rays && ddgi_session_state_.selected_volume_id == ddgi_runtime.stable_entity_id &&
+        ddgi_session_state_.show_rays && ddgi_session_state_.selected_cascade_id == ddgi_runtime.stable_entity_id &&
                 current_frame_index < ddgi_runtime.selected_ray_diagnostics_buffers.size() &&
                 ddgi_runtime.selected_ray_diagnostics_buffers[current_frame_index]
             ? ddgi_runtime.selected_ray_diagnostics_buffers[current_frame_index]
             : ddgi_fallback_probe_state_buffer_;
-    const auto ddgi_variability_readback_buffer =
-        current_frame_index < ddgi_runtime.variability_readback_tickets.size()
-            ? ddgi_runtime.variability_readback_tickets[current_frame_index].buffer
-            : nullptr;
     bool metadata_readback_recorded = false;
     bool selected_ray_readback_recorded = false;
-    bool variability_readback_recorded = false;
     if (trace_ddgi_probe_rays) {
       AddDdgiRayTracingFrameResources(frame_render_graph);
       frame_render_graph.AddPass(
@@ -5865,11 +6197,15 @@ void RenderLayer::RenderAll() {
                           active_frame_transient_resources, ddgi_atlas_sampler_, ddgi_ray_push_constant,
                           ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
                           ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
-                          use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count});
+                          use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count,
+                          ddgi_cascade_resources});
           });
       frame_render_graph.AddPass(
           DdgiProbeUpdatePass::CreateDescriptor(use_emissive_sampling),
           [&, ddgi_probe_update_push_constant](const RenderGraphExecutionContext& context) {
+            if (ddgi_runtime.last_performance_stats.recorded_ray_sample_count !=
+                ddgi_runtime.last_performance_stats.ray_sample_count)
+              return;
             DdgiProbeUpdatePass::Execute(
                 context,
                 {ddgi_probe_update_pipeline_, ddgi_probe_update_irradiance_pipeline_,
@@ -5877,13 +6213,15 @@ void RenderLayer::RenderAll() {
                  per_frame_descriptor_sets_[current_frame_index], ddgi_probe_update_layout_,
                  active_frame_transient_resources, ddgi_probe_update_push_constant, ddgi_probe_metadata_readback_buffer,
                  &metadata_readback_recorded, &ddgi_runtime.last_performance_stats.recorded_probe_update_count,
-                 &ddgi_probe_update_path_reported_, use_emissive_sampling});
+                 use_emissive_sampling, ddgi_runtime.clear_probe_atlas_this_frame});
           });
       if (reset_ddgi_probe_relocation || relocate_ddgi_probes) {
         frame_render_graph.AddPass(
             DdgiProbeRelocationPass::CreateDescriptor(),
             [&, ddgi_probe_relocation_reset_push_constant, ddgi_probe_relocation_update_push_constant,
              reset_ddgi_probe_relocation, relocate_ddgi_probes](const RenderGraphExecutionContext& context) {
+              if (ddgi_runtime.last_performance_stats.recorded_probe_update_count == 0)
+                return;
               DdgiProbeRelocationPass::Execute(
                   context,
                   {ddgi_probe_relocation_pipeline_, ddgi_probe_relocation_layout_, active_frame_transient_resources,
@@ -5896,6 +6234,8 @@ void RenderLayer::RenderAll() {
             DdgiProbeClassificationPass::CreateDescriptor(),
             [&, ddgi_probe_classification_reset_push_constant, ddgi_probe_classification_update_push_constant,
              reset_ddgi_probe_classification, classify_ddgi_probes](const RenderGraphExecutionContext& context) {
+              if (ddgi_runtime.last_performance_stats.recorded_probe_update_count == 0)
+                return;
               DdgiProbeClassificationPass::Execute(
                   context, {ddgi_probe_classification_pipeline_, ddgi_probe_classification_layout_,
                             active_frame_transient_resources, ddgi_probe_classification_reset_push_constant,
@@ -5903,51 +6243,22 @@ void RenderLayer::RenderAll() {
                             classify_ddgi_probes});
             });
       }
-      if (reduce_ddgi_probe_variability) {
-        frame_render_graph.AddPass(
-            DdgiProbeVariabilityPass::CreateDescriptor(),
-            [&, ddgi_probe_variability_layout](const RenderGraphExecutionContext& context) {
-              DdgiProbeVariabilityPass::Execute(
-                  context, {ddgi_probe_variability_reduce_pipeline_, ddgi_probe_variability_extra_reduce_pipeline_,
-                            ddgi_probe_variability_layout_, active_frame_transient_resources,
-                            ddgi_probe_variability_layout, ddgi_runtime.frame_probe_variability_threshold,
-                            ddgi_variability_readback_buffer, &variability_readback_recorded});
-            });
-      }
-    }
-    if (include_external_passes) {
-      RenderPassDescriptor ddgi_volumes_complete{RenderPassNames::ddgi_volumes_complete, RenderPassQueue::Graphics,
-                                                 RenderPassScope::Frame};
-      for (const auto& pass : frame_render_graph.GetPasses()) {
-        ddgi_volumes_complete.dependencies.push_back(pass.name);
-      }
-      frame_render_graph.AddPass(ddgi_volumes_complete, [](const RenderGraphExecutionContext&) {
-      });
-      AddExternalRenderResources(frame_render_graph, external_render_resource_descriptors);
-      for (const auto& external_pass : frame_render_pass_external_functions) {
-        auto descriptor = external_pass.descriptor;
-        if (std::find(descriptor.dependencies.begin(), descriptor.dependencies.end(),
-                      RenderPassNames::ddgi_volumes_complete) == descriptor.dependencies.end()) {
-          descriptor.dependencies.emplace_back(RenderPassNames::ddgi_volumes_complete);
-        }
-        ImportMissingPassResources(frame_render_graph, descriptor);
-        frame_render_graph.AddPass(descriptor, [&, external_pass](const RenderGraphExecutionContext& context) {
-          Platform::RecordCommandsMainQueue([&, external_pass](VkCommandBuffer vk_command_buffer) {
-            uint32_t prim_count = 0;
-            if (external_pass.context_func) {
-              ApplyGraphResourceBarriers(vk_command_buffer, context);
-              prim_count = external_pass.context_func(vk_command_buffer, context);
-              ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
-            } else if (external_pass.func) {
-              prim_count = external_pass.func(vk_command_buffer);
-            }
-            if (count_shadow_rendering_draw_calls) {
-              Platform::CountRenderPassDraw(RenderPassDrawBucket::FrameExternal, RenderDrawCallKind::Direct,
-                                            current_frame_index, prim_count);
-            }
-          });
-        });
-      }
+      frame_render_graph.AddPass(DdgiProbeUpdatePass::CreateHistoryInvalidationDescriptor(
+                                     reset_ddgi_probe_relocation || relocate_ddgi_probes,
+                                     reset_ddgi_probe_classification || classify_ddgi_probes),
+                                 [&, ddgi_probe_update_push_constant](const RenderGraphExecutionContext& context) {
+                                   if (ddgi_runtime.last_performance_stats.recorded_probe_update_count == 0)
+                                     return;
+                                   DdgiProbeUpdatePass::Parameters parameters;
+                                   parameters.pipeline = ddgi_probe_update_pipeline_;
+                                   parameters.per_frame_descriptor_set =
+                                       per_frame_descriptor_sets_[current_frame_index];
+                                   parameters.descriptor_set_layout = ddgi_probe_update_layout_;
+                                   parameters.transient_resources = active_frame_transient_resources;
+                                   parameters.push_constant = ddgi_probe_update_push_constant;
+                                   parameters.invalidate_moved_history = true;
+                                   DdgiProbeUpdatePass::Execute(context, parameters);
+                                 });
     }
     if (!frame_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid frame render graph.")
@@ -5956,6 +6267,9 @@ void RenderLayer::RenderAll() {
     auto frame_render_graph_resources =
         CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
     if (use_ddgi_frame_resources) {
+      for (size_t i = 0; i < ddgi_runtime.history_buffers.size(); ++i)
+        frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_history[i],
+                                                ddgi_runtime.history_buffers[i]);
       frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_metadata,
                                               ddgi_runtime.probe_metadata_buffer);
       frame_render_graph_resources.BindBuffer(
@@ -5965,8 +6279,6 @@ void RenderLayer::RenderAll() {
                                              ddgi_runtime.irradiance_atlas);
       frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_visibility_atlas,
                                              ddgi_runtime.visibility_atlas);
-      frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_variability_atlas,
-                                             ddgi_runtime.variability_atlas);
     }
     if (trace_ddgi_probe_rays) {
       frame_render_graph_resources.BindDescriptorSet(RenderResourceNames::frame_ray_tracing_descriptor_set,
@@ -5980,12 +6292,18 @@ void RenderLayer::RenderAll() {
     active_frame_transient_resources = &frame_transient_resources;
     frame_transient_resources.Allocate(frame_render_graph.GetResources(), frame_render_graph_plan);
     frame_transient_resources.Bind(frame_render_graph_resources);
+    // Provider changes can release the runtime before older frame-slot submissions complete.
+    for (const auto& binding : frame_render_graph_resources.GetResourceBindings()) {
+      frame_transient_resources.RetainBuffer(binding.buffer);
+      frame_transient_resources.RetainImage(binding.image);
+      for (const auto& image : binding.images)
+        frame_transient_resources.RetainImage(image);
+    }
     const bool synchronize_ddgi_frame_resources =
         use_ddgi_frame_resources && (ddgi_runtime.clear_probe_atlas_this_frame ||
                                      ddgi_runtime.frame_clear_scrolled_probes || trace_ddgi_probe_rays);
     std::shared_ptr<Image> frame_ddgi_irradiance_atlas;
     std::shared_ptr<Image> frame_ddgi_visibility_atlas;
-    std::shared_ptr<Image> frame_ddgi_variability_atlas;
     std::shared_ptr<Buffer> frame_ddgi_probe_state;
     std::shared_ptr<Buffer> frame_ddgi_probe_metadata;
     std::shared_ptr<Buffer> frame_ddgi_selected_ray_diagnostics;
@@ -5994,8 +6312,6 @@ void RenderLayer::RenderAll() {
           frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
       const auto* visibility_binding =
           frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
-      const auto* variability_binding =
-          frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_variability_atlas);
       const auto* state_binding =
           frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
       const auto* metadata_binding =
@@ -6004,19 +6320,23 @@ void RenderLayer::RenderAll() {
           frame_render_graph_resources.GetResourceBinding(RenderResourceNames::frame_ddgi_selected_ray_diagnostics);
       frame_ddgi_irradiance_atlas = irradiance_binding ? irradiance_binding->image : nullptr;
       frame_ddgi_visibility_atlas = visibility_binding ? visibility_binding->image : nullptr;
-      frame_ddgi_variability_atlas = variability_binding ? variability_binding->image : nullptr;
       frame_ddgi_probe_state = state_binding ? state_binding->buffer : nullptr;
       frame_ddgi_probe_metadata = metadata_binding ? metadata_binding->buffer : nullptr;
       frame_ddgi_selected_ray_diagnostics = diagnostics_binding ? diagnostics_binding->buffer : nullptr;
       Platform::RecordCommandsMainQueue([=](const VkCommandBuffer command_buffer) {
         AcquireDdgiFrameResources(command_buffer, frame_ddgi_irradiance_atlas, frame_ddgi_visibility_atlas,
-                                  frame_ddgi_variability_atlas, frame_ddgi_probe_state, frame_ddgi_probe_metadata,
+                                  frame_ddgi_probe_state, frame_ddgi_probe_metadata,
                                   frame_ddgi_selected_ray_diagnostics);
       });
     }
     frame_render_graph.Execute(frame_render_graph_plan, frame_render_graph_resources);
+    if (ddgi_runtime.last_performance_stats.recorded_probe_update_count ==
+        ddgi_runtime.frame_resource_layout.probe_count)
+      ddgi_runtime.history_submissions.push_back(
+          {Platform::TrackCurrentFrameSubmission(),
+           reset_ddgi_probe_relocation || relocate_ddgi_probes || ddgi_runtime.frame_clear_scrolled_probes});
     std::shared_ptr<FrameSubmissionState> readback_submission;
-    if (metadata_readback_recorded || selected_ray_readback_recorded || variability_readback_recorded) {
+    if (metadata_readback_recorded || selected_ray_readback_recorded) {
       readback_submission = Platform::TrackCurrentFrameSubmission();
     }
     if (metadata_readback_recorded) {
@@ -6042,36 +6362,6 @@ void RenderLayer::RenderAll() {
       ticket.logical_probe_index = ddgi_runtime.frame_selected_probe_ray_logical_index;
       ticket.physical_probe_index = ddgi_runtime.frame_selected_probe_ray_physical_index;
     }
-    if (variability_readback_recorded && current_frame_index < ddgi_runtime.variability_readback_tickets.size()) {
-      auto& ticket = ddgi_runtime.variability_readback_tickets[current_frame_index];
-      ticket = {};
-      ticket.buffer = ddgi_variability_readback_buffer;
-      ticket.submission = readback_submission;
-      ticket.generation = ddgi_runtime.frame_variability_readback_generation;
-      ticket.byte_size = sizeof(glm::vec4);
-      ticket.frame_index = current_frame_index;
-      ticket.element_count = 1u;
-      ticket.variability_budget_cycle = ddgi_runtime.probe_variability_budget.cycle;
-      ticket.counts_toward_variability_budget = ddgi_runtime.frame_probe_variability_counts_toward_budget;
-    } else if (ddgi_runtime.frame_variability_readback_generation != 0u) {
-      ddgi_runtime.last_consumed_variability_generation = std::max(ddgi_runtime.last_consumed_variability_generation,
-                                                                   ddgi_runtime.frame_variability_readback_generation);
-      if (ddgi_runtime.frame_probe_variability_counts_toward_budget) {
-        ddgi_runtime.probe_variability_budget =
-            DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
-                ddgi_runtime.probe_variability_budget, ddgi_runtime.probe_variability_budget.cycle, false,
-                static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1)))
-                .state;
-      }
-    }
-    if (trace_ddgi_probe_rays && !reduce_ddgi_probe_variability && Platform::GpuTimestampCaptureEnabled()) {
-      Platform::RecordCommandsMainQueue([](const VkCommandBuffer command_buffer) {
-        const auto gpu_timestamp = Platform::BeginGpuTimestampScope(
-            command_buffer, {RenderPassNames::ddgi_probe_variability, "DDGI Variability Reduction", "AO / DDGI",
-                             GpuTimestampQueue::Graphics, 0, 0});
-        Platform::EndGpuTimestampScope(command_buffer, gpu_timestamp);
-      });
-    }
     if (synchronize_ddgi_frame_resources) {
       Platform::RecordCommandsMainQueue([=](const VkCommandBuffer command_buffer) {
         PublishDdgiFrameResources(command_buffer, frame_ddgi_irradiance_atlas, frame_ddgi_visibility_atlas,
@@ -6085,7 +6375,7 @@ void RenderLayer::RenderAll() {
           ddgi_fallback_probe_state_buffer_, volume_slot);
     }
     if (trace_ddgi_probe_rays) {
-      if (ddgi_session_state_.show_rays && ddgi_session_state_.selected_volume_id == ddgi_runtime.stable_entity_id) {
+      if (ddgi_session_state_.show_rays && ddgi_session_state_.selected_cascade_id == ddgi_runtime.stable_entity_id) {
         if (const auto* diagnostics_binding = frame_render_graph_resources.GetResourceBinding(
                 RenderResourceNames::frame_ddgi_selected_ray_diagnostics);
             diagnostics_binding && diagnostics_binding->buffer) {
@@ -6096,24 +6386,26 @@ void RenderLayer::RenderAll() {
     active_frame_transient_resources = nullptr;
   };
 
-  if (ddgi_ordered_volume_ids_.empty()) {
-    DdgiVolumeRuntimeState empty_runtime;
-    execute_ddgi_runtime(empty_runtime, 0u, true);
-  } else {
-    for (size_t i = ddgi_ordered_volume_ids_.size(); i-- > 0u;) {
-      const auto runtime = ddgi_volume_runtime_states_.find(ddgi_ordered_volume_ids_[i]);
-      if (runtime == ddgi_volume_runtime_states_.end()) {
+  if (ddgi_settings.runtime.enabled && !ddgi_ordered_cascade_ids_.empty()) {
+    for (size_t i = 0; i < ddgi_ordered_cascade_ids_.size(); ++i)
+      if (const auto runtime = ddgi_cascade_runtime_states_.find(ddgi_ordered_cascade_ids_[i]);
+          runtime != ddgi_cascade_runtime_states_.end())
+        prepare_ddgi_cascade(*runtime->second, static_cast<uint32_t>(i));
+    for (size_t i = ddgi_ordered_cascade_ids_.size(); i-- > 0u;) {
+      const auto runtime = ddgi_cascade_runtime_states_.find(ddgi_ordered_cascade_ids_[i]);
+      if (runtime == ddgi_cascade_runtime_states_.end()) {
         continue;
       }
-      execute_ddgi_runtime(*runtime->second, static_cast<uint32_t>(i), i == 0u);
+      execute_ddgi_runtime(*runtime->second, static_cast<uint32_t>(i));
     }
-    for (const auto volume_id : ddgi_ordered_volume_ids_) {
-      if (const auto runtime = ddgi_volume_runtime_states_.find(volume_id);
-          runtime != ddgi_volume_runtime_states_.end()) {
+    for (const auto volume_id : ddgi_ordered_cascade_ids_) {
+      if (const auto runtime = ddgi_cascade_runtime_states_.find(volume_id);
+          runtime != ddgi_cascade_runtime_states_.end()) {
         accumulate_ddgi_performance_stats(runtime->second->last_performance_stats);
       }
     }
   }
+  ExecuteSceneFramePasses(scene);
   PreparePointAndSpotLightShadowMap();
   std::shared_ptr<Camera> preferred_shadow_camera;
   const auto can_render_directional_shadows = [](const std::shared_ptr<Camera>& camera) {
@@ -6195,12 +6487,6 @@ void RenderLayer::RenderAll() {
   }
   profiler.RecordCounter("Active Probes", ddgi_last_performance_stats_.active_probe_count, "DDGI", "probes");
   profiler.RecordCounter("Updated Probes", ddgi_last_performance_stats_.updated_probe_count, "DDGI", "probes");
-  profiler.RecordCounter("Converged", ddgi_last_performance_stats_.probe_variability_converged ? 1.0 : 0.0, "DDGI");
-  profiler.RecordCounter("Maximum Reached", ddgi_last_performance_stats_.probe_variability_maximum_reached ? 1.0 : 0.0,
-                         "DDGI");
-  profiler.RecordCounter("Variability Budget Frames",
-                         static_cast<double>(ddgi_last_performance_stats_.probe_variability_budget_frame_count),
-                         "DDGI");
 
   external_render_resource_descriptors.clear();
   frame_render_pass_external_functions.clear();
@@ -6419,10 +6705,10 @@ bool RenderLayer::IsSceneLightingReadyForPresentation(
     }
   }
 
-  if (resolved_lighting.ddgi_settings.runtime.enabled && !resolved_lighting.ddgi_volumes.empty()) {
-    const auto volumes = BuildDdgiVolumeRuntimeStats();
-    if (ddgi_runtime_scene_.lock() != scene || !ddgi_volume_set_validation_error_.empty() ||
-        volumes.size() != resolved_lighting.ddgi_volumes.size() ||
+  if (resolved_lighting.ddgi_settings.runtime.enabled && !resolved_lighting.ddgi_cascades.empty()) {
+    const auto volumes = BuildDdgiCascadeRuntimeStats();
+    if (ddgi_runtime_scene_.lock() != scene || !ddgi_cascade_set_validation_error_.empty() ||
+        volumes.size() != resolved_lighting.ddgi_cascades.size() ||
         !ddgi_last_performance_stats_.lighting_descriptors_bound ||
         std::any_of(volumes.begin(), volumes.end(), [](const auto& volume) {
           return !volume.resources_ready || !volume.has_valid_probe_history || !volume.contributes_lighting;
@@ -6698,7 +6984,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
     render_area.offset = {0, 0};
     render_area.extent.width = lighting_->point_light_shadow_map_->GetExtent().width;
     render_area.extent.height = lighting_->point_light_shadow_map_->GetExtent().height;
-    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 
     for (int face = 0; face < 6; face++) {
       VkRenderingInfo render_info{};
@@ -6795,7 +7081,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
     render_area.extent.height = lighting_->spot_light_shadow_map_->GetExtent().height;
 
 #pragma endregion
-    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkRenderingInfo render_info{};
     const auto depth_attachment =
         lighting_->GetSpotLightDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
@@ -6880,8 +7166,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
         Platform::EndGpuTimestampScope(vk_command_buffer, spot_shadow_timestamp);
       }
     });
-    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 
@@ -6969,13 +7255,13 @@ bool RenderLayer::UpdateRenderInstanceStorage(
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
   bool render_instance_updated = false;
+  const auto current_render_info = current_render_instances->render_info_block;
+  if (dynamic_reflection_probe_contributing_) {
+    PreserveReflectionProbeTextureBindings(current_render_instances->render_info_block,
+                                           previous_render_instances->render_info_block);
+  }
   if (track_ddgi_scene_inputs) {
-    const auto current_render_info = current_render_instances->render_info_block;
     PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
-    if (dynamic_reflection_probe_contributing_) {
-      PreserveReflectionProbeTextureBindings(current_render_instances->render_info_block,
-                                             previous_render_instances->render_info_block);
-    }
     render_instance_updated = *current_render_instances != *previous_render_instances;
     auto active_light_keys = CollectDdgiActiveLightKeys(scene);
     auto light_signatures = CollectDdgiLightSignatures(scene);
@@ -7013,14 +7299,14 @@ bool RenderLayer::UpdateRenderInstanceStorage(
     ddgi_referenced_scene_inputs_pending_ = material_inputs.inputs_pending;
     const auto emissive_inventory_signature = current_render_instances->GetDdgiEmissiveInventorySignature();
     const bool had_previous_scene_inputs = ddgi_has_previous_scene_inputs_;
-    int scene_change_triggers = DdgiVolumeTriggerConditionNone;
+    int scene_change_triggers = DdgiSceneChangeNone;
     if (had_previous_scene_inputs) {
       const bool light_membership_changed = active_light_keys != ddgi_previous_active_light_keys_;
       if (light_membership_changed) {
-        scene_change_triggers |= DdgiVolumeTriggerConditionLightEnableChanged;
+        scene_change_triggers |= DdgiSceneChangeLightEnableChanged;
       }
       if (!light_membership_changed && light_signatures != ddgi_previous_light_signatures_) {
-        scene_change_triggers |= DdgiVolumeTriggerConditionLightingConditionChanged;
+        scene_change_triggers |= DdgiSceneChangeLightingConditionChanged;
       }
       const bool material_inputs_changed = material_inputs.keys != ddgi_previous_material_keys_ ||
                                            material_inputs.materials != ddgi_previous_material_signatures_ ||
@@ -7029,10 +7315,10 @@ bool RenderLayer::UpdateRenderInstanceStorage(
           emissive_inventory_signature != ddgi_previous_emissive_inventory_signature_;
       const bool geometry_inputs_changed = geometry_signatures != ddgi_previous_geometry_signatures_;
       if (emissive_inventory_changed) {
-        scene_change_triggers |= DdgiVolumeTriggerConditionLightingConditionChanged;
+        scene_change_triggers |= DdgiSceneChangeLightingConditionChanged;
       }
       if (material_inputs_changed || geometry_inputs_changed) {
-        scene_change_triggers |= DdgiVolumeTriggerConditionGeometryChanged;
+        scene_change_triggers |= DdgiSceneChangeGeometryChanged;
       }
       ddgi_latched_scene_change_triggers_ |= scene_change_triggers;
     } else {
@@ -7047,11 +7333,11 @@ bool RenderLayer::UpdateRenderInstanceStorage(
     ddgi_previous_light_signatures_ = std::move(light_signatures);
     ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
     PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
-    current_render_instances->render_info_block.reflection_probe_header = current_render_info.reflection_probe_header;
-    current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;
   } else {
     render_instance_updated = *current_render_instances != *previous_render_instances;
   }
+  current_render_instances->render_info_block.reflection_probe_header = current_render_info.reflection_probe_header;
+  current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;
   const auto camera_info_changed = [&](const std::shared_ptr<Camera>& camera) {
     if (!camera || !previous_render_instances) {
       return true;
@@ -7159,8 +7445,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
   environmental_brdf_pipeline->Initialize();
 
   Platform::ImmediateSubmit([&](VkCommandBuffer vk_command_buffer) {
-    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -7186,7 +7471,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       VkRenderingAttachmentInfo attachment{};
       attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -7214,8 +7499,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       });
 #pragma endregion
     }
-    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
@@ -7247,21 +7531,89 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
   VolumetricCloudSettings volumetric_cloud_settings{};
-  const bool volumetric_clouds_enabled = !reflection_probe_capture && volumetric_cloud_settings.enabled;
+  const auto sdfgi_runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+  const bool sdfgi_eligible =
+      IsSdfgiCameraEligible(scene, camera, editor_layer ? editor_layer->GetSceneCamera() : nullptr, immediate,
+                            reflection_probe_capture, command_recorder != nullptr);
+  const auto sdfgi_resources =
+      reflection_probe_capture && camera->IsEnabled() &&
+              camera->camera_render_mode == Camera::CameraRenderMode::Rasterization
+          ? SelectSdfgiCaptureResources(sdfgi_runtime, ResolveEnvironmentalLighting(scene).indirect_gi_provider)
+      : sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources
+                                                                    : nullptr;
+  const auto sdfgi_publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
+  auto hddagi_runtime =
+      scene && ResolveEnvironmentalLighting(scene).indirect_gi_provider == IndirectGiProvider::AutomaticHddagi
+          ? scene->hddagi_runtime_
+          : nullptr;
+  if (reflection_probe_capture)
+    hddagi_runtime = SnapshotHddagiCapture(hddagi_runtime, immediate);
+  std::shared_ptr<HddagiCameraFrame> hddagi_camera;
+  if (hddagi_runtime && hddagi_runtime->resources && hddagi_runtime->resources->transport_ready &&
+      hddagi_runtime->resources->transport_failure_flags == 0 && hddagi_runtime->frame.failure.empty() &&
+      hddagi_runtime->voxel_failure.empty() && hddagi_runtime->transport_failure.empty() &&
+      (sdfgi_eligible || (reflection_probe_capture && camera->IsEnabled() &&
+                          camera->camera_render_mode == Camera::CameraRenderMode::Rasterization))) {
+    try {
+      const auto extent = camera->GetRenderTexture()->GetExtent();
+      hddagi_camera = HddagiCameraFrame::Create(*hddagi_runtime, *current_render_instances,
+                                                {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                                 raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                                {extent.width, extent.height}, camera->GetHandle().GetValue(),
+                                                reflection_probe_capture);
+      if (immediate) {
+        hddagi_camera->input_uploads.SubmitImmediate();
+        hddagi_camera->uploaded = true;
+      }
+      auto& frames = hddagi_runtime->resources->camera_frames;
+      frames.resize(Platform::GetMaxFramesInFlight());
+      frames[current_frame_index].push_back(hddagi_camera);
+      if (reflection_probe_capture) {
+        hddagi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+        hddagi_frame_resources_[current_frame_index].push_back(hddagi_runtime->resources);
+      }
+      hddagi_runtime->published = true;
+      hddagi_runtime->fallback_reason.clear();
+    } catch (const std::exception& error) {
+      hddagi_runtime->published = false;
+      hddagi_runtime->fallback_reason = error.what();
+    }
+  }
+  const bool sdfgi_debug_camera = sdfgi_runtime && sdfgi_runtime->debug->MatchesCamera(camera->GetHandle().GetValue(),
+                                                                                       is_scene_camera, sdfgi_eligible);
+  const auto sdfgi_debug_view = sdfgi_debug_camera ? static_cast<uint32_t>(sdfgi_runtime->debug->view) : 0u;
+  const bool sdfgi_isolation = sdfgi_debug_view >= 7u && sdfgi_debug_view <= 9u;
+  if (sdfgi_runtime && sdfgi_eligible) {
+    auto& views = sdfgi_runtime->debug->camera_views;
+    const auto id = camera->GetHandle().GetValue();
+    if (const auto previous = views.find(id); previous != views.end()) {
+      if (previous->second != sdfgi_debug_view)
+        camera->ResetFrameCount();
+      if (sdfgi_debug_view)
+        previous->second = sdfgi_debug_view;
+      else
+        views.erase(previous);
+    } else if (sdfgi_debug_view) {
+      camera->ResetFrameCount();
+      views[id] = sdfgi_debug_view;
+    }
+  }
+  const bool volumetric_clouds_enabled =
+      !reflection_probe_capture && !sdfgi_isolation && volumetric_cloud_settings.enabled;
   const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
   struct DdgiProbeVisualizationDraw {
-    const DdgiVolumeRuntimeState* runtime = nullptr;
+    const DdgiCascadeRuntimeState* runtime = nullptr;
     DdgiProbeVisualizationPushConstant push_constant{};
   };
   std::vector<DdgiProbeVisualizationDraw> ddgi_probe_visualization_draws;
   if (!reflection_probe_capture && is_scene_camera && ShouldRenderDdgiProbeVisualization(ddgi_session_state_)) {
-    for (const auto stable_entity_id : ddgi_ordered_volume_ids_) {
-      const auto found = ddgi_volume_runtime_states_.find(stable_entity_id);
-      if (found == ddgi_volume_runtime_states_.end() || !found->second) {
+    for (const auto stable_entity_id : ddgi_ordered_cascade_ids_) {
+      const auto found = ddgi_cascade_runtime_states_.find(stable_entity_id);
+      if (found == ddgi_cascade_runtime_states_.end() || !found->second) {
         continue;
       }
       const auto& runtime = *found->second;
-      const bool selected = ddgi_session_state_.selected_volume_id == stable_entity_id;
+      const bool selected = ddgi_session_state_.selected_cascade_id == stable_entity_id;
       if (!ddgi_session_state_.show_probes && !selected) {
         continue;
       }
@@ -7297,9 +7649,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   }
   const bool ddgi_probe_visualization_enabled = !ddgi_probe_visualization_draws.empty();
   const bool ddgi_probe_visualization_depth_test = ddgi_session_state_.probe_visualization_depth_mode == 0;
-  const DdgiVolumeRuntimeState* ddgi_debug_runtime = nullptr;
-  if (const auto found = ddgi_volume_runtime_states_.find(ddgi_session_state_.selected_volume_id);
-      found != ddgi_volume_runtime_states_.end()) {
+  const DdgiCascadeRuntimeState* ddgi_debug_runtime = nullptr;
+  if (const auto found = ddgi_cascade_runtime_states_.find(ddgi_session_state_.selected_cascade_id);
+      found != ddgi_cascade_runtime_states_.end()) {
     ddgi_debug_runtime = found->second.get();
   }
   const auto selected_ray_sample_count =
@@ -7495,17 +7847,49 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                     AmbientOcclusionPass::Execute(context, {camera, active_camera_transient_resources});
                                   });
     }
-    camera_render_graph.AddPass(
-        DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
-        [&](const RenderGraphExecutionContext& context) {
-          DeferredComputeLightingPass::Execute(
-              context, {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
-                        raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
-                        deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
-                        directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands});
-        });
+    auto deferred_descriptor =
+        DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture);
+    const auto deferred_inputs = [&]() {
+      DeferredComputeLightingPass::Parameters inputs{
+          camera,
+          per_frame_descriptor_sets_[current_frame_index],
+          lighting_descriptor_set,
+          raster_lighting_texture_descriptor_set,
+          sdfgi_publication ? sdfgi_resources->pipelines.at("DeferredSdfgi") : deferred_compute_lighting_pipeline_,
+          deferred_compute_lighting_layout_,
+          active_camera_transient_resources,
+          camera_index,
+          directional_shadow_camera_index,
+          reflection_probe_capture,
+          is_scene_camera,
+          record_commands,
+          sdfgi_publication ? sdfgi_resources : nullptr,
+          sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr,
+          sdfgi_isolation ? sdfgi_debug_view : 0u};
+      if (hddagi_camera) {
+        inputs.pipeline = hddagi_camera->pipelines.at("Deferred");
+        inputs.hddagi_resources = hddagi_runtime->resources;
+        inputs.hddagi_descriptor_set = hddagi_camera->set;
+      }
+      return inputs;
+    };
+    if (hddagi_camera) {
+      hddagi_camera->AddPasses(camera_render_graph, hddagi_runtime->resources, deferred_inputs,
+                               deferred_descriptor.dependencies.front());
+      deferred_descriptor.dependencies = {hddagi_camera->filter_reflections ? "HddagiCameraFilterVertical"
+                                                                            : "HddagiCameraGather"};
+      for (const auto name : {"Diffuse", "Specular", "Blend"})
+        deferred_descriptor.resources.push_back(
+            {"Camera.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+    }
+    if (sdfgi_publication)
+      for (const auto& access : sdfgi_publication->CameraReads())
+        deferred_descriptor.resources.push_back(access);
+    camera_render_graph.AddPass(deferred_descriptor, [&](const RenderGraphExecutionContext& context) {
+      DeferredComputeLightingPass::Execute(context, deferred_inputs());
+    });
     const bool forward_external_rendering_enabled =
-        !reflection_probe_capture && !forward_rendering_external_functions.empty();
+        !reflection_probe_capture && !sdfgi_isolation && !forward_rendering_external_functions.empty();
     if (forward_external_rendering_enabled) {
       camera_render_graph.AddPass(
           {RenderPassNames::forward_external,
@@ -7534,7 +7918,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
           });
     }
-    if (!reflection_probe_capture) {
+    if (!reflection_probe_capture && !sdfgi_isolation) {
       for (const auto& external_pass : camera_render_pass_external_functions) {
         ImportMissingPassResources(camera_render_graph, external_pass.descriptor);
         camera_render_graph.AddPass(
@@ -7562,11 +7946,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
       }
     }
-    const bool gaussian_splat_rendering_enabled = !reflection_probe_capture && current_render_instances &&
+    const bool gaussian_splat_rendering_enabled = !reflection_probe_capture && !sdfgi_isolation &&
+                                                  current_render_instances &&
                                                   current_render_instances->total_gaussian_splats != 0u &&
                                                   current_render_instances->gaussian_splat_render_instances &&
                                                   !current_render_instances->gaussian_splat_render_instances->Empty();
-    const bool transparent_mesh_rendering_enabled = !reflection_probe_capture && current_render_instances &&
+    const bool transparent_mesh_rendering_enabled = !reflection_probe_capture && !sdfgi_isolation &&
+                                                    current_render_instances &&
                                                     current_render_instances->transparent_render_instances &&
                                                     !current_render_instances->transparent_render_instances->Empty();
     const char* post_lighting_dependency =
@@ -7669,13 +8055,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (!reflection_probe_capture) {
       camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                   [&](const RenderGraphExecutionContext& context) {
-                                    PostProcessingPass::Execute(context,
-                                                                {camera, active_camera_transient_resources, immediate});
+                                    PostProcessingPass::Execute(context, {camera, active_camera_transient_resources,
+                                                                          immediate, false, sdfgi_isolation});
                                   });
     }
     if (is_scene_camera && !reflection_probe_capture) {
       auto presentation = editor_layer->GetEntitySelectionHighlightSnapshot();
-      presentation.active = presentation.active && current_render_instances->HasSelectionHighlightRenderInstances();
+      presentation.active =
+          presentation.active && !sdfgi_isolation && current_render_instances->HasSelectionHighlightRenderInstances();
       camera_render_graph.AddPass(EntitySelectionHighlightPass::CreateDescriptor(),
                                   [&, presentation](const RenderGraphExecutionContext& context) {
                                     EntitySelectionHighlightPass::Execute(
@@ -7683,12 +8070,28 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                         {camera, entity_selection_highlight_pipeline_, presentation, record_commands});
                                   });
     }
+    auto camera_render_graph_resources =
+        CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+    if (sdfgi_publication)
+      sdfgi_publication->ImportCamera(camera_render_graph, camera_render_graph_resources, *sdfgi_resources);
+    if (hddagi_camera)
+      hddagi_camera->ImportCamera(camera_render_graph, camera_render_graph_resources, *hddagi_runtime->resources);
+    if (sdfgi_debug_camera) {
+      try {
+        AddSdfgiCameraDebug(
+            camera_render_graph, camera_render_graph_resources, sdfgi_runtime, camera,
+            current_render_instances->camera_info_blocks_.at(camera_index),
+            is_scene_camera ? RenderPassNames::entity_selection_highlight : RenderPassNames::post_processing);
+        sdfgi_runtime->debug->failure.clear();
+      } catch (const std::exception& error) {
+        sdfgi_runtime->debug->failure = error.what();
+        sdfgi_runtime->debug->enabled = false;
+      }
+    }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid camera render graph.")
     }
     const auto camera_render_graph_plan = camera_render_graph.Compile(CreateCameraRenderGraphCompileContext(camera));
-    auto camera_render_graph_resources =
-        CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (camera) {
       camera_render_graph_resources.BindImages(
           RenderResourceNames::camera_g_buffer,
@@ -7710,7 +8113,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       if (binding && binding->image) {
         const auto image_view = CreateGraphImageMipView(binding->image, 0);
         VkDescriptorImageInfo image_info{};
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         image_info.imageView = image_view->GetVkImageView();
         image_info.sampler = post_processing_renderer_resources_->ambient_occlusion.sampler->GetVkSampler();
         raster_lighting_texture_descriptor_set->UpdateImageDescriptorBinding(kRasterLightingAmbientOcclusionBinding,
@@ -7720,6 +8123,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     }
     const ScopedRenderCameraDrawScope camera_draw_scope(current_frame_index, scene, camera, is_scene_camera);
     camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
+    if (sdfgi_debug_camera)
+      UpdateSdfgiDebugMemory(*sdfgi_runtime, sdfgi_frame_resources_);
     camera->rendered_ = true;
     camera->require_rendering_ = false;
     camera->frame_count_++;
@@ -7900,6 +8305,13 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  if (const auto scene = sdfgi_scene_.lock()) {
+    scene->sdfgi_runtime_.reset();
+    scene->hddagi_runtime_.reset();
+  }
+  sdfgi_scene_.reset();
+  sdfgi_frame_resources_.clear();
+  hddagi_frame_resources_.clear();
   for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {
     PublishSubmittedReflectionProbeBake(frame_index);
     PublishSubmittedDynamicReflectionProbeUpdate(frame_index);
@@ -8020,6 +8432,12 @@ void RenderLayer::ClearRayCameraHistories() const {
     }
   }
   ray_camera_history_cameras_.clear();
+}
+
+uint32_t RenderLayer::DrawStrands(const std::shared_ptr<Strands>& strands, const std::shared_ptr<Material>& material,
+                                  const GlobalTransform& global_transform, const bool cast_shadow) const {
+  return GetCurrentRenderInstanceStorage()->RegisterStrandsDrawCommand(strands, material, global_transform,
+                                                                       cast_shadow);
 }
 
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,

@@ -1,0 +1,161 @@
+// ABI adapted from Godot renderer_rd/environment/gi.h and shaders/environment/sdfgi_*.glsl,
+// 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
+
+int2 SdfgiProbeTexel(int3 probe, uint horizontal, uint columns) {
+  uint index = uint(probe.x) + horizontal * (uint(probe.z) + horizontal * uint(probe.y));
+  return int2(index % columns, index / columns);
+}
+
+int3 SdfgiProbeCell(int2 texel, uint horizontal, uint columns) {
+  uint index = uint(texel.x) + uint(texel.y) * columns;
+  return int3(index % horizontal, index / (horizontal * horizontal), (index / horizontal) % horizontal);
+}
+
+struct SdfgiCascadeData {
+  float3 offset;
+  float to_cell;
+  int3 probe_world_offset;
+  uint pad;
+  float4 pad2;
+};
+
+struct SdfgiGatherCascadeData {
+  float3 position;
+  float to_probe;
+  int3 probe_world_offset;
+  float to_cell;
+  float3 pad;
+  float exposure_normalization;
+};
+
+struct SdfgiPreprocessPushConstant {
+  int3 scroll;
+  int grid_size;
+  int3 probe_offset;
+  int step_size;
+  uint half_size;
+  uint occlusion_index;
+  int cascade;
+  uint grid_size_y;
+};
+
+struct SdfgiDirectLightPushConstant {
+  float3 grid_size;
+  uint max_cascades;
+  uint cascade;
+  uint light_count;
+  uint process_offset;
+  uint process_increment;
+  int probe_axis_size;
+  float bounce_feedback;
+  float y_mult;
+  uint use_occlusion;
+};
+
+struct SdfgiIntegratePushConstant {
+  float3 grid_size;
+  uint max_cascades;
+  uint probe_axis_size;
+  uint cascade;
+  uint history_index;
+  uint history_size;
+  uint ray_count;
+  float ray_bias;
+  int2 image_size;
+  int3 world_offset;
+  uint sky_flags;
+  int3 scroll;
+  float sky_energy;
+  float3 sky_color_or_orientation;
+  float y_mult;
+  float2 sky_lod_inverse_gamma;
+  uint store_ambient_texture;
+  uint pad;
+};
+
+struct SdfgiLight {
+  float3 color;
+  float energy;
+  float3 direction;
+  uint has_shadow;
+  float3 position;
+  float attenuation;
+  uint type;
+  float cos_spot_angle;
+  float inv_spot_attenuation;
+  float radius;
+  float4 area_width;
+  float4 area_height;
+  float4 area_projector_rect;
+  float4 host_photometry;
+};
+
+struct SdfgiSolidCell {
+  uint position;
+  uint albedo;
+  uint light;
+  uint light_aniso;
+  uint position_high;
+};
+
+int3 SdfgiUnpackPosition(SdfgiSolidCell cell) {
+  return int3((uint3(cell.position) >> uint3(0, 7, 14)) & 127) |
+      int3((cell.position_high & 1) << 7, (cell.position_high & 4) << 5, (cell.position_high & 2) << 6);
+}
+
+struct SdfgiDispatchData {
+  uint x;
+  uint y;
+  uint z;
+  uint total_count;
+};
+
+struct SdfgiFieldStatus {
+  uint ready;
+  uint failure_flags;
+  uint generation;
+  uint solid_cell_capacity;
+};
+
+struct SdfgiGatherData {
+  float3 grid_size;
+  uint max_cascades;
+  uint use_occlusion;
+  int probe_axis_size;
+  float probe_to_uvw;
+  float normal_bias;
+  float3 lightprobe_tex_pixel_size;
+  float energy;
+  float3 lightprobe_uv_offset;
+  float y_mult;
+  float3 occlusion_clamp;
+  uint probe_relocation;
+  float3 occlusion_renormalize;
+  uint pad4;
+  float3 cascade_probe_size;
+  uint pad5;
+  SdfgiGatherCascadeData cascades[8];
+  float3 anchor_origin;
+  uint generation;
+};
+
+struct SdfgiCascadeBlock {
+  SdfgiCascadeData data[8];
+};
+
+struct SdfgiVoxelData {
+  float4 view_projection[4];
+  float4 cascade_min_cell;
+  float4 region_offset_y_mult;
+};
+
+struct SdfgiVoxelPushConstant {
+  float4 model[4];
+  float normal_basis[9];
+  uint material_index;
+  uint2 pad;
+};
+
+static const uint SDFGI_MAX_CASCADES = 8;
+static const uint SDFGI_FAILURE_SOLID_OVERFLOW = 1;
+static const uint SDFGI_FAILURE_LIGHT_OVERFLOW = 2;

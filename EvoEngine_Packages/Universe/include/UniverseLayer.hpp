@@ -1,280 +1,229 @@
 #pragma once
+
+#include "Material.hpp"
 #include "PerlinNoiseStage.hpp"
 #include "PlanetTerrain.hpp"
+#include "StarCluster.hpp"
+#include "StarDemoCamera.hpp"
+#include "StarFollow.hpp"
+#include "StarPicking.hpp"
+#include "Strands.hpp"
 #include "TerrainChunk.hpp"
 
 namespace universe_package {
 using namespace evo_engine;
-bool InspectUniverseLayer(evo_engine::InspectorContext &context, class UniverseLayer &layer);
-/// <summary>
-/// The calculated precise position of the star.
-/// </summary>
-struct StarPosition : IDataComponent {
-  glm::dvec3 value;
-};
-struct SelectionStatus : IDataComponent {
-  int value;
-};
-/// <summary>
-/// The seed of the star, use this to calculate initial position.
-/// </summary>
-struct StarInfo : IDataComponent {
-  bool initialized = false;
+
+struct alignas(8) StarBaseSample {
+  double orbital_proportion = 0.0;
+  double gaussian_x = 0.0;
+  double gaussian_y = 0.0;
+  double gaussian_z = 0.0;
+  double gaussian_radius = 0.0;
+  double orbital_phase = 0.0;
 };
 
-/// <summary>
-/// Original color of the star
-/// </summary>
-struct OriginalColor : IDataComponent {
-  glm::vec3 value;
-};
-/// <summary>
-/// The deviation of its orbit
-/// </summary>
-struct StarOrbitOffset : IDataComponent {
-  glm::dvec3 value;
-};
-/// <summary>
-/// This will help calculate the orbit. Smaller = close to center, bigger = close to disk
-/// </summary>
-struct StarOrbitProportion : IDataComponent {
-  double value;
-};
-/// <summary>
-/// This will help calculate the orbit. Smaller = close to center, bigger = close to disk
-/// </summary>
-struct SurfaceColor : IDataComponent {
-  glm::vec3 value;
-  float intensity = 1.0f;
-};
-/// <summary>
-/// The actual display color after selection system.
-/// </summary>
-struct DisplayColor : IDataComponent {
-  glm::vec3 value;
-  float intensity = 1.0f;
+struct alignas(16) StarClusterGpuParameters {
+  uint64_t population_revision = 0;
+  uint32_t star_count = 0;
+  uint32_t padding0 = 0;
+  glm::dvec4 ellipse0{};
+  glm::dvec4 ellipse1{};
+  glm::dvec4 spread_speed{};
+  glm::dvec4 speed_tilt{};
+  glm::dvec4 tilt_radius{};
+  glm::dvec4 center_offset{};  // w: normalized radius deviation.
+  glm::dvec4 center_position{};
+  glm::dvec4 world0{1.0, 0.0, 0.0, 0.0};
+  glm::dvec4 world1{0.0, 1.0, 0.0, 0.0};
+  glm::dvec4 world2{0.0, 0.0, 1.0, 0.0};
+  glm::dvec4 world3{0.0, 0.0, 0.0, 1.0};
+  glm::vec4 disk_color_intensity{};
+  glm::vec4 core_color_intensity{};
+  glm::vec4 center_color_intensity{};
+  glm::dvec4 time_padding{};  // time, alpha, minimum radius, maximum radius.
 };
 
-struct StarOrbit : IDataComponent {
-  double a;
-  double b;
-  double speed_multiplier;
+struct alignas(16) StarClusterGpuResult {
+  glm::dvec4 world_position_radius{};
+  glm::vec4 color_emission{};
+  glm::vec4 alpha_padding{1.0f, 0.0f, 0.0f, 0.0f};
+};
 
-  double tilt_x;
-  double tilt_y;
-  double tilt_z;
+static_assert(sizeof(StarBaseSample) == 48);
+static_assert(sizeof(StarClusterGpuParameters) == 448);
+static_assert(sizeof(StarClusterGpuResult) == 64);
 
-  glm::dvec3 m_center;
-  [[nodiscard]] glm::dvec3 GetPoint(const glm::dvec3 &orbit_offset, const double &time,
-                                    const bool &is_star = true) const {
-    const double angle = is_star ? time / glm::sqrt(a + b) * speed_multiplier : time;
+struct StarClusterComputePushConstant {
+  uint32_t parameter_index = 0;
+  uint32_t star_offset = 0;
+};
+static_assert(sizeof(StarClusterComputePushConstant) == 8);
 
-    glm::dvec3 point{glm::sin(glm::radians(angle)) * a, 0, glm::cos(glm::radians(angle)) * b};
+struct StarClusterInput {
+  std::shared_ptr<StarCluster> cluster;
+  glm::dmat4 world_transform{1.0};
+  bool enabled = true;
+};
 
-    point = Rotate(glm::angleAxis(glm::radians(tilt_x), glm::dvec3(1, 0, 0)), point);
-    point = Rotate(glm::angleAxis(glm::radians(tilt_y), glm::dvec3(0, 1, 0)), point);
-    point = Rotate(glm::angleAxis(glm::radians(tilt_z), glm::dvec3(0, 0, 1)), point);
-
-    point += m_center;
-    point += orbit_offset;
-    return point;
-  }
-  static glm::dvec3 Rotate(const glm::qua<double> &rotation, const glm::dvec3 &point) {
-    const double x = rotation.x * 2.0;
-    const double y = rotation.y * 2.0;
-    const double z = rotation.z * 2.0;
-    const double xx = rotation.x * x;
-    const double yy = rotation.y * y;
-    const double zz = rotation.z * z;
-    const double xy = rotation.x * y;
-    const double xz = rotation.x * z;
-    const double yz = rotation.y * z;
-    const double wx = rotation.w * x;
-    const double wy = rotation.w * y;
-    const double wz = rotation.w * z;
-    glm::dvec3 res;
-    res.x = (1.0 - (yy + zz)) * point.x + (xy - wz) * point.y + (xz + wy) * point.z;
-    res.y = (1.0 - (xx + zz)) * point.y + (yz - wx) * point.z + (xy + wz) * point.x;
-    res.z = (1.0 - (xx + yy)) * point.z + (xz - wy) * point.x + (yz + wx) * point.y;
-    return res;
+struct StarClusterRange {
+  uint64_t identity = 0;
+  uint64_t seed = 0;
+  uint32_t offset = 0;
+  uint32_t count = 0;
+  uint64_t layout_revision = 0;
+  bool operator==(const StarClusterRange& other) const {
+    return identity == other.identity && seed == other.seed && offset == other.offset && count == other.count &&
+           layout_revision == other.layout_revision;
   }
 };
-/// <summary>
-/// The star cluster it actually belongs to.
-/// </summary>
-struct StarClusterIndex : IDataComponent {
-  int m_value = 0;
+
+struct StarOrbit {
+  double proportion = 0, length = 0;
+  uint64_t capacity = 0;
+  uint32_t occupied = 0;
+  std::vector<double> arc_lengths;
 };
 
-class StarClusterPattern {
-  double disk_a_ = 0;
-  double disk_b_ = 0;
-  double core_a_ = 0;
-  double core_b_ = 0;
-  double center_a_ = 0;
-  double center_b_ = 0;
-  double core_diameter_ = 0;
+struct StarOrbitLayout {
+  std::array<double, 7> geometry{};
+  std::vector<StarOrbit> orbits;
+  uint64_t capacity = 0, revision = 0;
+  double radial_spacing = 0;
+  std::string status;
+  bool Update(const StarCluster& cluster);
+  std::vector<StarBaseSample> Allocate(uint64_t seed, uint32_t count);
+};
+
+// CPU state owned by UniverseLayer; separate from GPU allocations for deterministic tests.
+struct StarClusterBatch {
+  struct Clock {
+    std::weak_ptr<StarCluster> component;
+    uint64_t component_handle = 0;
+    uint64_t identity = 0;
+    double elapsed = 0.0;
+    double last_global_time = 0.0;
+    StarOrbitLayout layout;
+    uint32_t active_count = 0;
+  };
+  std::unordered_map<const StarCluster*, Clock> clocks;
+  std::vector<StarBaseSample> samples;
+  std::vector<StarClusterRange> ranges;
+  std::vector<StarClusterGpuParameters> parameters;
+  std::vector<glm::dvec3> gaussian_bounds;
+  uint64_t population_revision = 0;
+  uint64_t next_identity = 1;
+  bool Update(const std::vector<StarClusterInput>& inputs, double global_time, uint64_t maximum_stars = UINT32_MAX);
+};
+
+StarBaseSample GenerateStarBaseSample(uint64_t seed, uint32_t ordinal);
+StarClusterGpuParameters BuildStarClusterParameters(const StarCluster& cluster, const glm::dmat4& world_transform,
+                                                    double simulation_time);
+void ApplyStarRadiusScale(StarClusterGpuParameters& parameters, double scale);
+inline constexpr double kGalaxyDisplayScale = 0.001;
+void ApplyStarDisplayFrame(StarClusterGpuParameters& parameters, const glm::dmat4& display_transform,
+                           double radius_scale);
+glm::vec2 StarDistanceCompression(float far_distance);
+double CompressStarDistance(double distance, double start, double limit);
+void ConfigureStarRenderStates(GraphicsPipeline& pipeline, const glm::ivec4& viewport, bool depth_write);
+
+struct StarBatchFrameSlot {
+  std::shared_ptr<Buffer> parameter_buffer;
+  std::shared_ptr<Buffer> result_buffer;
+  std::shared_ptr<DescriptorSet> compute_descriptor_set;
+  std::shared_ptr<DescriptorSet> render_descriptor_set;
+};
+
+struct StarBatchRenderPacket {
+  std::shared_ptr<DescriptorSet> descriptor_set;
+  uint64_t population_revision = 0;
+  uint32_t frame_slot = 0;
+  uint32_t star_count = 0;
+  bool depth_write = true;
+  float fade_strength = 1.0f;
+};
+
+enum class StarOrbitDisplay { All, Occupied, Selected };
+
+std::vector<double> SelectStarOrbitProportions(const StarOrbitLayout& layout, StarOrbitDisplay mode,
+                                               const StarPickSnapshot& selected, const StarClusterRange& range,
+                                               const std::vector<StarBaseSample>& samples);
+
+struct StarOrbitStrandCache {
+  StarClusterGpuParameters key{};
+  std::vector<double> proportions;
+  std::vector<StrandPoint> points;
+  std::vector<uint32_t> starts;
+  std::shared_ptr<Strands> asset;
+  bool Update(const StarClusterGpuParameters& parameters, const std::vector<double>& orbits, float radius);
+};
+
+bool InspectUniverseLayer(InspectorContext& context, class UniverseLayer& layer);
+
+class UniverseLayer final : public ILayer {
+  friend bool InspectUniverseLayer(InspectorContext& context, UniverseLayer& layer);
 
  public:
-  std::string name = "Cluster Pattern";
-  StarClusterIndex star_cluster_index;
-  double y_spread = 0.05;
-  double xz_spread = 0.015;
-
-  double disk_diameter = 3000;
-  double disk_eccentricity = 0.5;
-
-  double core_proportion = 0.4;
-  double core_eccentricity = 0.7;
-
-  double center_diameter = 10;
-  double center_eccentricity = 0.3;
-
-  double disk_speed = 1;
-  double core_speed = 5;
-  double center_speed = 10;
-
-  double disk_tilt_x = 0;
-  double disk_tilt_z = 0;
-  double core_tilt_x = 0;
-  double core_tilt_z = 0;
-  double center_tilt_x = 0;
-  double center_tilt_z = 0;
-
-  float disk_emission_intensity = 3.0f;
-  float core_emission_intensity = 2.0f;
-  float center_emission_intensity = 1.0f;
-  glm::vec3 disk_color = glm::vec3(0, 0, 1);
-  glm::vec3 core_color = glm::vec3(1, 1, 0);
-  glm::vec3 center_color = glm::vec3(1, 1, 1);
-
-  double twist = 360;
-  glm::dvec3 center_offset = glm::dvec3(0);
-  glm::dvec3 center_position = glm::dvec3(0);
-
-  void Apply(const bool &force_update_all_stars = false, const bool &only_update_colors = false);
-
-  void SetAb() {
-    disk_a_ = disk_diameter * disk_eccentricity;
-    disk_b_ = disk_diameter * (1 - disk_eccentricity);
-    center_a_ = center_diameter * center_eccentricity;
-    center_b_ = center_diameter * (1 - center_eccentricity);
-    core_diameter_ = center_diameter / 2 + center_diameter / 2 +
-                     (disk_a_ + disk_b_ - center_diameter / 2 - center_diameter / 2) * core_proportion;
-    core_a_ = core_diameter_ * core_eccentricity;
-    core_b_ = core_diameter_ * (1 - core_eccentricity);
-  }
-
-  /// <summary>
-  /// Set the ellipse by the proportion.
-  /// </summary>
-  /// <param name="star_orbit_proportion">
-  /// The position of the ellipse in the density waves, range is from 0 to 1
-  /// </param>
-  /// <param name="orbit">
-  /// The ellipse will be reset by the proportion and the density wave properties.
-  /// </param>
-  [[nodiscard]] StarOrbit GetOrbit(const double &star_orbit_proportion) const {
-    StarOrbit orbit;
-    if (star_orbit_proportion > core_proportion) {
-      // If the wave is outside the disk;
-      const double actual_proportion = (star_orbit_proportion - core_proportion) / (1 - core_proportion);
-      orbit.a = core_a_ + (disk_a_ - core_a_) * actual_proportion;
-      orbit.b = core_b_ + (disk_b_ - core_b_) * actual_proportion;
-      orbit.tilt_x = core_tilt_x - (core_tilt_x - disk_tilt_x) * actual_proportion;
-      orbit.tilt_z = core_tilt_z - (core_tilt_z - disk_tilt_z) * actual_proportion;
-      orbit.speed_multiplier = core_speed + (disk_speed - core_speed) * actual_proportion;
-    } else {
-      const double actual_proportion = star_orbit_proportion / core_proportion;
-      orbit.a = center_a_ + (core_a_ - center_a_) * actual_proportion;
-      orbit.b = center_b_ + (core_b_ - center_b_) * actual_proportion;
-      orbit.tilt_x = center_tilt_x - (center_tilt_x - core_tilt_x) * actual_proportion;
-      orbit.tilt_z = center_tilt_z - (center_tilt_z - core_tilt_z) * actual_proportion;
-      orbit.speed_multiplier = center_speed + (core_speed - center_speed) * actual_proportion;
-    }
-    orbit.tilt_y = -twist * star_orbit_proportion;
-    orbit.m_center = center_offset * (1 - star_orbit_proportion) + center_position;
-    return orbit;
-  }
-
-  [[nodiscard]] StarOrbitOffset GetOrbitOffset(const double &proportion) const {
-    double offset = glm::sqrt(1 - proportion);
-    StarOrbitOffset orbit_offset;
-    glm::dvec3 d3;
-    d3.y = glm::gaussRand(0.0, 1.0) * (disk_a_ + disk_b_) * y_spread;
-    d3.x = glm::gaussRand(0.0, 1.0) * (disk_a_ + disk_b_) * xz_spread;
-    d3.z = glm::gaussRand(0.0, 1.0) * (disk_a_ + disk_b_) * xz_spread;
-    orbit_offset.value = d3;
-    return orbit_offset;
-  }
-
-  [[nodiscard]] glm::vec3 GetColor(const double &proportion) const {
-    glm::vec3 color = glm::vec3();
-    if (proportion > core_proportion) {
-      // If the wave is outside the disk;
-      const double actual_proportion = (proportion - core_proportion) / (1 - core_proportion);
-      color =
-          core_color * (1 - static_cast<float>(actual_proportion)) + disk_color * static_cast<float>(actual_proportion);
-    } else {
-      const double actual_proportion = proportion / core_proportion;
-      color = core_color * static_cast<float>(actual_proportion) +
-              center_color * (1 - static_cast<float>(actual_proportion));
-    }
-    return color;
-  }
-
-  [[nodiscard]] float GetIntensity(const double &proportion) const {
-    float intensity = 1.0f;
-    if (proportion > core_proportion) {
-      // If the wave is outside the disk;
-      const double actual_proportion = (proportion - core_proportion) / (1 - core_proportion);
-      intensity = core_emission_intensity * (1 - static_cast<float>(actual_proportion)) +
-                  disk_emission_intensity * static_cast<float>(actual_proportion);
-    } else {
-      const double actual_proportion = proportion / core_proportion;
-      intensity = core_emission_intensity * static_cast<float>(actual_proportion) +
-                  center_emission_intensity * (1 - static_cast<float>(actual_proportion));
-    }
-    return intensity;
-  }
-};
-
-class UniverseLayer : public ILayer {
-  friend bool InspectUniverseLayer(evo_engine::InspectorContext &context, UniverseLayer &layer);
-
- public:
-  void RegisterTypes(Application &application) override;
+  void RegisterTypes(Application& application) override;
+  bool depth_write = true;
+  float star_fade_strength = 0.5f;
+  bool show_orbit_strands = false;
+  StarOrbitDisplay orbit_display = StarOrbitDisplay::All;
+  float orbit_strand_radius = 0.1f;
 
  private:
-  EntityQuery star_query_;
-  EntityArchetype star_archetype_;
-  std::vector<StarClusterPattern> star_cluster_patterns_;
-  int counter_ = 0;
-  AssetRef particle_info_list_ref;
-  AssetRef star_material_ref;
-  bool cast_shadow = false;
-  float apply_position_timer_ = 0;
-  float copy_position_timer_ = 0;
-  float calc_position_timer_ = 0;
-  float calc_position_result_ = 0;
-  float speed_ = 0.0f;
-  float size_ = 0.05f;
-  float galaxy_time_ = 0.0;
-  bool first_time_ = true;
+  std::shared_ptr<DescriptorSetLayout> star_cluster_layout_;
+  std::shared_ptr<ComputePipeline> star_cluster_pipeline_;
+  std::shared_ptr<DescriptorSetLayout> star_render_layout_;
+  std::shared_ptr<GraphicsPipeline> star_render_pipeline_;
+  std::unique_ptr<BufferUploadArena> parameter_upload_arena_;
+  double global_simulation_time_ = 0.0;
+  uint64_t frame_number_ = 0;
+  uint32_t registered_render_cluster_count_ = 0;
+  uint32_t registered_render_star_count_ = 0;
+  bool fp64_supported_ = false;
+  bool compute_ready_ = false;
+  bool render_ready_ = false;
+  std::string gpu_status_ = "Not initialized";
   std::weak_ptr<Scene> procedural_galaxy_scene_;
+  std::weak_ptr<Scene> simulation_scene_;
+  StarClusterBatch batch_;
+  std::shared_ptr<Buffer> base_sample_buffer_;
+  std::vector<StarBatchFrameSlot> frame_slots_;
+  size_t star_capacity_ = 0;
+  size_t cluster_capacity_ = 0;
+  uint64_t computed_revision_ = 0;
+  uint64_t rendered_revision_ = 0;
+  uint32_t render_slot_ = 0;
+  uint32_t draws_this_frame_ = 0;
+  StarPicker star_picker_;
+  StarFollowState star_follow_;
+  StarViewTransition star_view_;
+  bool demo_needs_framing_ = false;
+  StarDemoCameraOverride demo_main_camera_, demo_scene_camera_;
+  std::shared_ptr<GraphicsPipeline> star_hover_pipeline_;
+  float pick_minimum_radius_ = 3.0f;
+  uint64_t last_viewport_click_ = 0;
+  uint64_t last_follow_toggle_ = 0;
+  bool pick_benchmark_ = false;
+  bool follow_benchmark_ = false;
+  std::string pick_camera_name_ = "Main camera";
+  std::unordered_map<uint64_t, StarOrbitStrandCache> orbit_strands_;
+  std::shared_ptr<Material> orbit_material_;
+  size_t displayed_orbits_ = 0;
+  uint32_t orbit_draws_ = 0;
+  double orbit_rebuild_ms_ = 0, orbit_upload_ms_ = 0;
+  std::string orbit_status_ = "Disabled";
 
   void OnCreate() override;
   void OnDestroy() override;
   void Update() override;
-  bool ConfigureProceduralGalaxyDemoIfNeeded();
-
-  void CalculateStarPositionSync();
-  void ApplyPosition();
-  void CopyPosition();
-
-  void PushStars(StarClusterPattern &pattern, const size_t &amount = 10000);
-  void RandomlyRemoveStars(const size_t &amount = 10000);
-  void ClearAllStars();
+  void InitializeGpuResources();
+  void ConfigureProceduralGalaxyDemoIfNeeded();
+  void ResetSimulation();
+  void EnsureBatchResources(bool population_changed);
+  void RegisterForwardRendering(StarBatchRenderPacket packet);
+  void RenderOrbitStrands(const std::vector<StarClusterGpuParameters>& parameters);
+  void UpdatePickingInput(const std::shared_ptr<Scene>& scene);
+  void UpdatePlanetTerrain(const std::shared_ptr<Scene>& scene) const;
 };
-
 }  // namespace universe_package

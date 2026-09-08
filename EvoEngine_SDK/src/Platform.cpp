@@ -858,6 +858,7 @@ void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const
 }
 
 void Platform::BeginRendering(const VkCommandBuffer vk_command_buffer, const VkRenderingInfo& rendering_info) {
+  GetInstance().PrepareGpuTimestampCommands(vk_command_buffer);
   vkCmdBeginRendering(vk_command_buffer, &rendering_info);
 }
 
@@ -869,6 +870,18 @@ void Platform::DrawIndexed(const VkCommandBuffer vk_command_buffer, const uint32
                            const uint32_t instance_count, const uint32_t first_index, const int32_t vertex_offset,
                            const uint32_t first_instance) {
   vkCmdDrawIndexed(vk_command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void Platform::Draw(const VkCommandBuffer vk_command_buffer, const uint32_t vertex_count, const uint32_t instance_count,
+                    const uint32_t first_vertex, const uint32_t first_instance) {
+  vkCmdDraw(vk_command_buffer, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+void Platform::CopyBuffer(const VkCommandBuffer vk_command_buffer, const Buffer& source, const Buffer& destination,
+                          const VkDeviceSize size, const VkDeviceSize source_offset,
+                          const VkDeviceSize destination_offset) {
+  const VkBufferCopy region{source_offset, destination_offset, size};
+  vkCmdCopyBuffer(vk_command_buffer, source.GetVkBuffer(), destination.GetVkBuffer(), 1, &region);
 }
 
 void Platform::DrawIndexedIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
@@ -968,9 +981,9 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
 
   SelectStageFlagsAccessMask(old_layout, barrier.subresourceRange.aspectMask, barrier.srcAccessMask, source_stage);
   SelectStageFlagsAccessMask(new_layout, barrier.subresourceRange.aspectMask, barrier.dstAccessMask, destination_stage);
-  if (const auto& swapchain = GetSwapchain(); swapchain && target_image == swapchain->GetVkImage() &&
-                                              old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-                                              new_layout == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL) {
+  if (const auto& swapchain = GetSwapchain();
+      swapchain && target_image == swapchain->GetVkImage() && old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+      (new_layout == VK_IMAGE_LAYOUT_GENERAL || new_layout == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL)) {
     source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   }
   if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED || dst_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
@@ -1315,10 +1328,7 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
     }
     return token;
   }
-  if (!frame.reset_recorded) {
-    vkCmdResetQueryPool(vk_command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
-    frame.reset_recorded = true;
-  }
+  graphics.PrepareGpuTimestampCommands(vk_command_buffer);
   token.metadata = metadata;
   if (token.metadata.stable_pass_id.empty())
     token.metadata.stable_pass_id = token.metadata.display_name;
@@ -1424,18 +1434,7 @@ bool Platform::SupportsCubemapFormat(const VkFormat format, const uint32_t resol
                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
-  VkExternalImageFormatProperties external_properties{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES};
   VkImageFormatProperties2 image_properties{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
-#if ENABLE_EXTERNAL_MEMORY
-  VkPhysicalDeviceExternalImageFormatInfo external_info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO};
-#  ifdef _WIN64
-  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-  image_info.pNext = &external_info;
-  image_properties.pNext = &external_properties;
-#endif
   if (vkGetPhysicalDeviceImageFormatProperties2(physical_device->vk_physical_device, &image_info, &image_properties) !=
       VK_SUCCESS) {
     return false;
@@ -1446,13 +1445,6 @@ bool Platform::SupportsCubemapFormat(const VkFormat format, const uint32_t resol
       (properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT) == 0) {
     return false;
   }
-#if ENABLE_EXTERNAL_MEMORY
-  const auto& external = external_properties.externalMemoryProperties;
-  if ((external.externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0 ||
-      (external.compatibleHandleTypes & external_info.handleType) == 0) {
-    return false;
-  }
-#endif
   return true;
 }
 
@@ -1887,15 +1879,6 @@ void Platform::SelectPhysicalDevice() {
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     required_device_extension_names_.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
-#if ENABLE_EXTERNAL_MEMORY
-#  ifdef _WIN64
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
-#  else
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-#  endif
-#endif
   required_device_extension_names_.emplace_back(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME);
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
@@ -2602,6 +2585,18 @@ void Platform::DestroyGpuTimestampResources() {
   }
 }
 
+void Platform::PrepareGpuTimestampCommands(const VkCommandBuffer command_buffer) {
+  if (!gpu_timestamp_capture_enabled_ || !gpu_timestamp_capture_available_ ||
+      current_frame_index_ >= gpu_timestamp_frames_.size())
+    return;
+  auto& frame = gpu_timestamp_frames_[current_frame_index_];
+  if (!frame.reset_recorded && frame.query_pool != VK_NULL_HANDLE) {
+    // The first timed scope may be inside rendering, where query resets are forbidden.
+    vkCmdResetQueryPool(command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
+    frame.reset_recorded = true;
+  }
+}
+
 void Platform::PrepareGpuTimestampFrame(const uint32_t frame_index) {
   if (frame_index >= gpu_timestamp_frames_.size()) {
     return;
@@ -2755,6 +2750,29 @@ void Platform::BufferMemoryBarrier(const VkCommandBuffer vk_command_buffer, cons
   vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
 }
 
+void Platform::BufferMemoryBarrier(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                   const VkPipelineStageFlags2 source_stages, const VkAccessFlags2 source_access,
+                                   const VkPipelineStageFlags2 destination_stages,
+                                   const VkAccessFlags2 destination_access) {
+  VkBufferMemoryBarrier2 buffer_barrier{};
+  buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+  buffer_barrier.srcStageMask = source_stages;
+  buffer_barrier.srcAccessMask = source_access;
+  buffer_barrier.dstStageMask = destination_stages;
+  buffer_barrier.dstAccessMask = destination_access;
+  buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  buffer_barrier.buffer = buffer.GetVkBuffer();
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = VK_WHOLE_SIZE;
+
+  VkDependencyInfo dependency_info{};
+  dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
+  vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
+}
+
 void Platform::SetupVmaAllocator() {
 #pragma region VMA
   VmaVulkanFunctions vulkan_functions{};
@@ -2769,21 +2787,6 @@ void Platform::SetupVmaAllocator() {
   vma_allocator_create_info.instance = vk_instance_;
   vma_allocator_create_info.vulkanApiVersion = volkGetInstanceVersion();
   vma_allocator_create_info.pVulkanFunctions = &vulkan_functions;
-#if ENABLE_EXTERNAL_MEMORY
-  std::vector<VkExternalMemoryHandleTypeFlagsKHR> handle_types;
-  handle_types.resize(graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount);
-  for (int i = 0; i < graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount; i++) {
-    if (graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypes[i].propertyFlags &
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-#  ifdef _WIN64
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-#  endif
-    }
-  }
-  vma_allocator_create_info.pTypeExternalMemoryHandleTypes = handle_types.data();
-#endif
   CheckVk(vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator_));
 #pragma endregion
 }

@@ -41,8 +41,6 @@ void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGra
                   MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
   ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_visibility_atlas,
                   MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f));
-  ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_variability_atlas,
-                  MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace
@@ -57,8 +55,6 @@ RenderPassDescriptor DdgiAtlasPreparePass::CreateDescriptor() {
                           {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
                            RenderResourceState::TransferDestinationGeneral},
                           {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                           RenderResourceState::TransferDestinationGeneral},
-                          {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
                            RenderResourceState::TransferDestinationGeneral}};
   descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
   descriptor.profiler_display_name = "DDGI Atlas Prepare";

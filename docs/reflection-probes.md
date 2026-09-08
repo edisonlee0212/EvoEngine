@@ -73,7 +73,7 @@ The capture uses the probe's authored bake background. Inherited environment rad
 environmental diffuse lighting as camera rendering. Specular fallback remains disabled to prevent recursive probe input.
 
 Probe capture includes opaque and alpha-masked geometry, direct lighting, shadows, emission, the visible bake
-background, and ready DDGI diffuse lighting. It excludes local reflection probes, screen-space effects, ambient
+background, and ready diffuse lighting from the selected DDGI or Automatic SDFGI provider. It excludes local reflection probes, screen-space effects, ambient
 occlusion, post-processing, transparent geometry, Gaussian splats, clouds, editor overlays, and external callbacks. This
 prevents recursive local-reflection feedback.
 
@@ -105,9 +105,19 @@ finish.
 - Raster cameras use local probes and the scene-global prefiltered fallback.
 - Ray cameras trace scene geometry and sample the indirect environment source; they do not sample local or global
   prefiltered probe assets as environment radiance.
+- Dynamic probe texture bindings and blend weights are excluded from scene-change detection for every GI provider,
+  including Automatic SDFGI and Environment, not only DDGI. Current bindings are restored before rendering. Actual
+  scene/material/light/camera changes and probe placement/membership changes retain existing invalidation behavior.
 - DDGI remains diffuse-only. Its visibility may occlude rough probe lighting, and its irradiance may provide a broad
   fallback where global probe weight is missing.
-- Reflection-probe captures may include ready DDGI diffuse lighting but always exclude local reflection probes.
+- Reflection-probe captures include available diffuse GI from the selected provider but always exclude local reflection probes.
+- Automatic SDFGI captures reuse the live camera-anchored field, including its occlusion and coverage fades. Missing,
+  invalid, or uncovered GI uses normal environment diffuse fallback. Capture cameras never move the GI anchor or run
+  extra convergence work. SDFGI specular and sharp SDF tracing are excluded from captures; main-camera reflections remain
+  unchanged. Multi-frame captures sample the current publication per submission, not a frozen six-face lighting snapshot.
+- SDFGI capture consumption is automatic, without a new setting or asset migration. Dynamic probes refresh normally;
+  existing baked payloads require an explicit rebake after the desired region has converged. There is no additional
+  SDFGI readiness/convergence wait. This differs from the existing DDGI bake-readiness gate.
 
 Contributor bake, selection, fallback, and dynamic-update checks live in
 [Rendering validation](rendering-validation.md).

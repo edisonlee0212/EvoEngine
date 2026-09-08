@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--meshlet", choices=("enabled", "disabled"))
     parser.add_argument("--indirect", choices=("enabled", "disabled"))
     parser.add_argument("--ray-features", choices=("enabled", "disabled"), default="enabled")
+    parser.add_argument("--gi-provider", choices=("ddgi", "sdfgi", "environment"))
     parser.add_argument("--texture-lifecycle-stress", action="store_true")
     parser.add_argument("--secondary-camera-output")
     parser.add_argument("--expect-stable-texture-registrations", action="store_true")
@@ -63,6 +64,9 @@ def main() -> int:
         raise ValueError("Capture samples per frame must be positive and bounces must be non-negative")
     if (args.meshlet is None) != (args.indirect is None):
         raise ValueError("--meshlet and --indirect must be provided together")
+    gi_provider = args.gi_provider or ("ddgi" if args.ray_features == "enabled" else "environment")
+    if gi_provider == "ddgi" and args.ray_features == "disabled":
+        raise ValueError("DDGI capture requires ray features")
 
     copy_rendering_assets(source_resources_root, test_resources_root)
 
@@ -79,9 +83,11 @@ def main() -> int:
         if not evoengine.SharedTextureDescriptorArraysEnabled():
             raise RuntimeError("Shared sampled-texture descriptor arrays are not active")
         if args.ray_features == "disabled" and (
-            evoengine.RayTracingEnabled() or evoengine.RayQueryEnabled()
+            evoengine.RayTracingEnabled()
+            or evoengine.RayQueryEnabled()
+            or evoengine.RayAccelerationStructureEnabled()
         ):
-            raise RuntimeError("Raster-only capture unexpectedly enabled ray tracing or ray query")
+            raise RuntimeError("Raster-only capture unexpectedly enabled ray tracing, ray query, or acceleration structures")
         print(
             "EVOENGINE_TEXTURE_ARRAYS_ACTIVE "
             f"ray_tracing={evoengine.RayTracingEnabled()} ray_query={evoengine.RayQueryEnabled()}"
@@ -90,11 +96,24 @@ def main() -> int:
             if not evoengine.ExerciseTextureLifecycleForCapture():
                 raise RuntimeError("Texture lifecycle stress failed")
             print("EVOENGINE_TEXTURE_LIFECYCLE_STRESS passed")
-        if not evoengine.IsCurrentSceneDdgiEnabled():
-            raise RuntimeError("Rendering demo capture requires DDGI to be enabled")
+        for _ in range(30000):
+            if not evoengine.Loop():
+                raise RuntimeError("Rendering demo ended during scene loading")
+            if evoengine.IsCurrentSceneReadyForCapture():
+                break
+        else:
+            raise RuntimeError("Rendering demo did not finish scene loading")
+        provider = {
+            "ddgi": evoengine.IndirectGiProvider.AutomaticDdgi,
+            "sdfgi": evoengine.IndirectGiProvider.AutomaticSdfgi,
+            "environment": evoengine.IndirectGiProvider.Environment,
+        }[gi_provider]
+        evoengine.SetCurrentSceneGiProvider(provider)
         for _ in range(2):
             if not evoengine.Loop():
                 raise RuntimeError("Rendering demo ended during frame-slot warmup")
+        if evoengine.IsCurrentSceneDdgiEnabled() != (gi_provider == "ddgi"):
+            raise RuntimeError("Rendering demo did not activate the requested GI provider")
         if args.meshlet is not None:
             if not evoengine.ConfigureRasterPathForCapture(
                 args.meshlet == "enabled", args.indirect == "enabled"
@@ -121,6 +140,15 @@ def main() -> int:
             args.expect_stable_texture_registrations,
         ):
             raise RuntimeError("CaptureCurrentScene failed")
+        gi_status = evoengine.GetCurrentSceneGiStatus()
+        print(
+            f"EVOENGINE_GI_CAPTURE requested={gi_status['requested_provider']} "
+            f"effective={gi_status['effective_provider']} transport_pass={gi_status['transport_pass']}"
+        )
+        if gi_provider == "sdfgi" and (
+            gi_status["effective_provider"] != "Automatic SDFGI" or not gi_status["transport_pass"]
+        ):
+            raise RuntimeError("SDFGI capture did not update its lighting field")
         if args.secondary_camera_output and not evoengine.CaptureSecondarySceneCamera(
             Path(args.secondary_camera_output).resolve()
         ):

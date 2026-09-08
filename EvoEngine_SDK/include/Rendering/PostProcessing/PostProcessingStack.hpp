@@ -68,7 +68,7 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
   void ApplyDefaultSettings();
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {},
-               const std::shared_ptr<ImageView>& motion_vectors_image_view = {});
+               const std::shared_ptr<ImageView>& motion_vectors_image_view = {}, bool tone_mapping_only = false);
   void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
@@ -211,7 +211,8 @@ class EVOENGINE_API Bloom : public IPostProcessing {
     glm::uvec2 target_resolution = glm::uvec2(1);
     float threshold = 1.0f;
     float knee = 0.1f;
-    glm::vec2 padding = glm::vec2(0.0f);
+    float compression_start = 2.0f;
+    float source_ceiling = 8.0f;
   };
 
   struct DownsamplingPushConstant {
@@ -239,6 +240,8 @@ class EVOENGINE_API Bloom : public IPostProcessing {
   float threshold = 1.0f;
   float knee = 0.1f;
   float intensity = 0.05f;
+  float compression_start = 2.0f;
+  float source_ceiling = 8.0f;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
   void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;

@@ -36,7 +36,6 @@ bool RunEnvironmentLightingValidationFromEnvironment(int width, int height);
 bool RunReflectionProbeValidationFromEnvironment(int width, int height);
 bool RunRenderingSponzaProbeAuthoringFromEnvironment();
 bool RunDdgiEmissiveValidationFromEnvironment(int width, int height);
-bool RunDdgiMultiVolumeValidationFromEnvironment(int width, int height);
 void ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene);
 void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);

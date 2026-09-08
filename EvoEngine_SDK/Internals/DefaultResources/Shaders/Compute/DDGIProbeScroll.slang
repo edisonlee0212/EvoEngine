@@ -24,10 +24,6 @@ RWStructuredBuffer<float4> EE_DDGI_PROBE_METADATA;
 [[vk::binding(4, 0)]]
 RWStructuredBuffer<float4> EE_DDGI_PROBE_STATE;
 
-[[vk::binding(5, 0)]]
-[vk::image_format("r16f")]
-RWTexture2D<float> EE_DDGI_PROBE_VARIABILITY_ATLAS;
-
 void EE_DDGI_CLEAR_IRRADIANCE_TILE(uint2 tile_origin, uint tile_size) {
   uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
   for (uint y = 0u; y < tile_stride; ++y) {
@@ -42,14 +38,6 @@ void EE_DDGI_CLEAR_VISIBILITY_TILE(uint2 tile_origin, uint tile_size) {
   for (uint y = 0u; y < tile_stride; ++y) {
     for (uint x = 0u; x < tile_stride; ++x) {
       EE_DDGI_VISIBILITY_ATLAS[int2(tile_origin + uint2(x, y))] = float2(1.0f, 0.0f);
-    }
-  }
-}
-
-void EE_DDGI_CLEAR_VARIABILITY_TILE(uint2 tile_origin, uint tile_size) {
-  for (uint y = 0u; y < tile_size; ++y) {
-    for (uint x = 0u; x < tile_size; ++x) {
-      EE_DDGI_PROBE_VARIABILITY_ATLAS[int2(tile_origin + uint2(x, y))] = 0.0f;
     }
   }
 }
@@ -82,9 +70,6 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint2 irradiance_tile_origin = uint2(physical_probe_index % irradiance_columns,
                                        physical_probe_index / irradiance_columns) *
                                   EE_DDGI_ATLAS_TILE_STRIDE(irradiance_tile_size);
-  uint2 variability_tile_origin = uint2(physical_probe_index % irradiance_columns,
-                                        physical_probe_index / irradiance_columns) *
-                                   irradiance_tile_size;
   uint2 visibility_tile_origin = uint2(physical_probe_index % visibility_columns,
                                        physical_probe_index / visibility_columns) *
                                   EE_DDGI_ATLAS_TILE_STRIDE(visibility_tile_size);
@@ -96,5 +81,4 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   EE_DDGI_PROBE_METADATA[metadata_offset + 2u] = float4(0.0f);
   EE_DDGI_CLEAR_IRRADIANCE_TILE(irradiance_tile_origin, irradiance_tile_size);
   EE_DDGI_CLEAR_VISIBILITY_TILE(visibility_tile_origin, visibility_tile_size);
-  EE_DDGI_CLEAR_VARIABILITY_TILE(variability_tile_origin, irradiance_tile_size);
 }

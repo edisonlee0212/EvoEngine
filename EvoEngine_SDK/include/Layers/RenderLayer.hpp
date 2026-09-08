@@ -5,6 +5,7 @@
 #include "ILayer.hpp"
 
 #include "DdgiRuntime.hpp"
+#include "GiSettings.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "PointCloudSample.hpp"
@@ -29,6 +30,7 @@ class EVOENGINE_API ComputePipeline;
 class EVOENGINE_API GlobalReflectionProbe;
 class EVOENGINE_API ReflectionProbePack;
 class EVOENGINE_API OffscreenPreviewRenderer;
+class EVOENGINE_API EnvironmentalLighting;
 class ReflectionProbe;
 class EVOENGINE_API Sampler;
 struct FrameSubmissionState;
@@ -42,6 +44,13 @@ struct PostProcessingRendererResources;
  * deferred rendering, forward rendering, and more.
  */
 class EVOENGINE_API RenderLayer final : public ILayer {
+  std::weak_ptr<Scene> gi_settings_scene_;
+  std::weak_ptr<EnvironmentalLighting> gi_settings_asset_;
+  std::optional<GiSettings> gi_checked_settings_;
+  std::optional<GiSettings> gi_accepted_settings_;
+  std::string gi_settings_error_;
+  void ValidateSceneGiSettings(const std::shared_ptr<Scene>& scene);
+
  public:
   /**
    * \brief Iterates through all collected cameras and applies the specified action.
@@ -82,7 +91,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool show_selected_probe_state = false;
     bool selected_probe_readback_requested = false;
     bool show_rays = false;
-    uint64_t selected_volume_id = 0;
+    uint64_t selected_cascade_id = 0;
     glm::ivec3 selected_probe_grid = glm::ivec3(0);
     int probe_visualization_mode = 0;
     int probe_visualization_depth_mode = 0;
@@ -99,7 +108,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool last_probe_history_cleared = false;
     std::string validation_error{};
     DdgiPerformanceStats aggregate{};
-    std::vector<DdgiVolumeRuntimeStats> volumes{};
+    std::vector<DdgiCascadeRuntimeStats> cascades{};
   };
 
   /// Specifies whether wireframe rendering is enabled.
@@ -137,8 +146,22 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] DdgiSessionState& GetDdgiSessionState();
   [[nodiscard]] const DdgiSessionState& GetDdgiSessionState() const;
   void RequestDdgiHistoryReset();
+  bool SetDdgiHistoryCount(const std::shared_ptr<Scene>& scene, int count, std::string& error);
+  [[nodiscard]] uint64_t GetDdgiHistoryAllocationBytes() const;
   [[nodiscard]] DdgiInspectorSnapshot GetDdgiInspectorSnapshot() const;
   [[nodiscard]] DdgiProbeDebugDataView RefreshDdgiProbeDebugData();
+
+  /**
+   * \brief Draws strands without a scene entity.
+   * \param strands The strands to draw.
+   * \param material The material to use for rendering the strands.
+   * \param global_transform The global transform of the strands.
+   * \param cast_shadow Specifies whether the strands cast a shadow.
+   * \return One when the draw was registered, otherwise zero.
+   */
+  [[maybe_unused]] uint32_t DrawStrands(const std::shared_ptr<Strands>& strands,
+                                        const std::shared_ptr<Material>& material,
+                                        const GlobalTransform& global_transform, bool cast_shadow = false) const;
 
   /**
    * \brief Draws a mesh.
@@ -402,6 +425,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
     bool use_mesh_shader = false;
+    std::shared_ptr<class SdfgiResources> sdfgi_resources;
+    std::shared_ptr<class SdfgiGatherFrame> sdfgi_publication;
   };
 
   struct DynamicReflectionProbeRuntimeState {
@@ -448,6 +473,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     int output_generation = 0;
     bool capturing = false;
     bool filtering = false;
+    std::shared_ptr<struct HddagiRuntime> hddagi_snapshot;
   };
 
   struct PreparedDynamicReflectionProbeUpdate {
@@ -483,33 +509,27 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     uint32_t element_count = 0;
     uint32_t logical_probe_index = 0;
     uint32_t physical_probe_index = 0;
-    uint64_t variability_budget_cycle = 0;
-    bool counts_toward_variability_budget = false;
   };
 
-  struct DdgiVolumeRuntimeState {
+  struct DdgiCascadeRuntimeState {
     std::string name{};
     uint64_t stable_entity_id = 0;
     uint32_t sorted_index = 0;
-    int artist_priority = 0;
-    float probe_density = 0.0f;
     RenderInstanceStorage::DdgiVolumeInfoBlock gpu_info{};
     bool contributes_lighting = false;
-    std::array<uint64_t, 5> resource_ids{};
+    std::array<uint64_t, 4> resource_ids{};
 
     std::shared_ptr<Buffer> probe_metadata_buffer{};
     std::shared_ptr<Buffer> probe_state_buffer{};
     std::shared_ptr<Image> irradiance_atlas{};
     std::shared_ptr<Image> visibility_atlas{};
-    std::shared_ptr<Image> variability_atlas{};
+    std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history_buffers{};
     std::vector<std::shared_ptr<Buffer>> probe_metadata_readback_buffers{};
     std::vector<std::shared_ptr<Buffer>> probe_ray_readback_buffers{};
     std::vector<std::shared_ptr<Buffer>> selected_ray_diagnostics_buffers{};
     DdgiReadbackTicket metadata_readback_ticket{};
     DdgiReadbackTicket ray_readback_ticket{};
-    std::vector<DdgiReadbackTicket> variability_readback_tickets{};
     uint64_t next_debug_readback_generation = 0;
-    uint64_t frame_variability_readback_generation = 0;
     std::shared_ptr<Buffer> frame_selected_ray_diagnostics_buffer{};
     std::vector<glm::vec4> probe_debug_metadata{};
     std::vector<PointCloudSample> probe_debug_ray_samples{};
@@ -525,6 +545,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool frame_clear_scrolled_probes = false;
     bool clear_probe_atlas_this_frame = false;
     glm::ivec3 previous_probe_counts = {0, 0, 0};
+    glm::ivec3 previous_probe_center{0};
     glm::vec3 previous_first_probe = glm::vec3(0.0f);
     glm::vec3 previous_probe_step_x = glm::vec3(0.0f);
     glm::vec3 previous_probe_step_y = glm::vec3(0.0f);
@@ -533,15 +554,11 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     glm::vec4 previous_update_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_state_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_blend_parameters = glm::vec4(0.0f);
-    glm::vec4 previous_probe_variability_parameters = glm::vec4(0.0f);
-    bool previous_pause_probe_updates_after_convergence = true;
-    int previous_movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
     bool has_previous_environment_signature = false;
     uint64_t previous_environment_signature = 0;
     bool deferred_scene_readiness_refresh = false;
     bool manual_reset_pending = false;
     uint32_t scene_input_settle_frame_count = 0;
-    glm::vec3 probe_scroll_base_first_probe = glm::vec3(0.0f);
     glm::ivec3 probe_scroll_offset = glm::ivec3(0);
     glm::ivec3 probe_scroll_clear = glm::ivec3(0);
     glm::ivec3 probe_scroll_directions = glm::ivec3(1);
@@ -551,34 +568,21 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool previous_deterministic_ray_seed_enabled = false;
     uint32_t previous_deterministic_ray_seed = 0;
     uint32_t probe_ray_sequence_index = 0;
-    float probe_variability_average = 0.0f;
-    float probe_variability_maximum = 0.0f;
-    float probe_variability_unstable_fraction = 0.0f;
-    bool probe_variability_gating_enabled = false;
-    uint32_t probe_variability_sample_count = 0;
-    uint32_t probe_variability_stable_sample_count = 0;
-    bool probe_variability_converged = false;
-    bool probe_variability_maximum_reached = false;
-    DdgiProbeVariabilityBudgetState probe_variability_budget{};
-    uint64_t next_variability_generation = 0;
-    uint64_t last_consumed_variability_generation = 0;
+    uint32_t history_completed_updates = 0;
+    struct HistorySubmission {
+      std::shared_ptr<FrameSubmissionState> state;
+      bool invalidates_history = false;
+    };
+    std::vector<HistorySubmission> history_submissions;
     uint32_t probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_count = 0;
     bool frame_probe_warmup_active = false;
-    float frame_probe_update_hysteresis = 0.0f;
-    float current_probe_hysteresis = 0.97f;
-    bool hysteresis_boost_active = false;
-    bool frame_hysteresis_boost_active = false;
-    bool frame_hysteresis_boost_restoring = false;
     bool frame_probe_relocation_reset = false;
     bool frame_probe_relocation_enabled = false;
     bool frame_probe_classification_reset = false;
     bool frame_probe_classification_enabled = false;
-    bool frame_probe_variability_enabled = false;
-    bool frame_probe_variability_counts_toward_budget = false;
-    float frame_probe_variability_threshold = 0.0f;
-    int latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
+    int latched_scene_change_triggers = DdgiSceneChangeNone;
     uint32_t frame_selected_probe_ray_sample_count = 0;
     uint32_t frame_selected_probe_ray_logical_index = 0;
     uint32_t frame_selected_probe_ray_physical_index = 0;
@@ -653,11 +657,11 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   mutable uint64_t peak_live_ray_camera_history_count_ = 0;
   mutable uint64_t peak_live_ray_camera_history_byte_size_ = 0;
   mutable uint64_t peak_live_ray_camera_output_descriptor_count_ = 0;
-  std::unordered_map<uint64_t, std::unique_ptr<DdgiVolumeRuntimeState>> ddgi_volume_runtime_states_{};
-  std::vector<uint64_t> ddgi_ordered_volume_ids_{};
+  std::unordered_map<uint64_t, std::unique_ptr<DdgiCascadeRuntimeState>> ddgi_cascade_runtime_states_{};
+  std::vector<uint64_t> ddgi_ordered_cascade_ids_{};
   uint64_t next_ddgi_resource_id_ = 0u;
   std::weak_ptr<Scene> ddgi_runtime_scene_{};
-  std::string ddgi_volume_set_validation_error_{};
+  std::string ddgi_cascade_set_validation_error_{};
   mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
   mutable std::shared_ptr<Sampler> ddgi_atlas_sampler_;
   friend class Platform;
@@ -675,6 +679,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   friend class RenderInstanceStorage;
   friend class TextureStorage;
   friend class StaticSceneRenderTestAccess;
+  friend class SdfgiTestAccess;
 #pragma region DescriptorSet Layouts
   std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
@@ -699,7 +704,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_relocation_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_classification_layout_;
-  std::shared_ptr<DescriptorSetLayout> ddgi_probe_variability_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
@@ -710,10 +714,14 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
   void EnsureRasterLightingFallbackTexture() const;
+  void EnsureDdgiPipelines();
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
   std::weak_ptr<Scene> presented_scene_;
+  std::weak_ptr<Scene> sdfgi_scene_;
+  std::vector<std::vector<std::shared_ptr<class SdfgiResources>>> sdfgi_frame_resources_;
+  mutable std::vector<std::vector<std::shared_ptr<class HddagiResources>>> hddagi_frame_resources_;
   [[nodiscard]] bool IsSceneLightingReadyForPresentation(
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
@@ -732,7 +740,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::vector<uint64_t> ddgi_previous_active_light_keys_;
   std::vector<uint64_t> ddgi_previous_light_signatures_;
   std::vector<uint64_t> ddgi_previous_geometry_signatures_;
-  int ddgi_latched_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
+  int ddgi_latched_scene_change_triggers_ = DdgiSceneChangeNone;
   mutable DdgiPerformanceStats ddgi_last_performance_stats_{};
   mutable DdgiSessionState ddgi_session_state_{};
   std::unique_ptr<Lighting> lighting_;
@@ -751,6 +759,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   RenderGraph reflection_probe_capture_render_graph_{};
   RenderGraphExecutionPlan reflection_probe_capture_render_graph_plan_{};
   ReflectionProbeCaptureGraphContext* reflection_probe_capture_graph_context_ = nullptr;
+  std::weak_ptr<class SdfgiGatherFrame> reflection_probe_capture_publication_;
+  std::weak_ptr<struct HddagiRuntime> reflection_probe_capture_hddagi_snapshot_;
   std::deque<ReflectionProbeBakeBatch> reflection_probe_bake_queue_{};
   std::optional<PreparedReflectionProbeBake> prepared_reflection_probe_bake_{};
   std::vector<std::optional<SubmittedReflectionProbeBake>> submitted_reflection_probe_bakes_{};
@@ -839,18 +849,19 @@ class EVOENGINE_API RenderLayer final : public ILayer {
       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
       bool include_reflection_probes = true, bool immediate_upload = false);
 
+  const GiProbeFrame& PrepareGiProbeFrame(const std::shared_ptr<Scene>& scene, const GiProbeSettings& settings);
   void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                              const std::shared_ptr<RenderInstanceStorage>& render_instances);
-  void PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scene,
-                                   const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                   DdgiVolumeRuntimeState& runtime_state,
-                                   const ResolvedEnvironmentalLighting::DdgiVolume& volume,
-                                   const DdgiSettings& ddgi_settings, const DdgiFrameResourceLayout& preflight_layout,
-                                   uint32_t sorted_index, bool reset_probe_history);
-  static void ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_state);
-  [[nodiscard]] std::vector<DdgiVolumeRuntimeStats> BuildDdgiVolumeRuntimeStats() const;
+  void PrepareDdgiCascadeFrameState(const std::shared_ptr<Scene>& scene,
+                                    const std::shared_ptr<RenderInstanceStorage>& render_instances,
+                                    DdgiCascadeRuntimeState& runtime_state,
+                                    const ResolvedEnvironmentalLighting::DdgiCascade& volume,
+                                    const DdgiSettings& ddgi_settings, const DdgiFrameResourceLayout& preflight_layout,
+                                    uint32_t sorted_index, bool reset_probe_history);
+  static void ResetDdgiRuntimeFrameState(DdgiCascadeRuntimeState& runtime_state);
+  [[nodiscard]] std::vector<DdgiCascadeRuntimeStats> BuildDdgiCascadeRuntimeStats() const;
   [[nodiscard]] uint64_t NextDdgiResourceId();
-  [[nodiscard]] const DdgiVolumeRuntimeState* GetPrimaryDdgiVolumeRuntimeState() const;
+  [[nodiscard]] const DdgiCascadeRuntimeState* GetPrimaryDdgiCascadeRuntimeState() const;
   void RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
                                       const GlobalTransform& camera_global_transform,
                                       const std::shared_ptr<Camera>& camera, bool reflection_probe_capture = false);
@@ -870,12 +881,15 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void SortDynamicReflectionProbeQueue();
   void UpdateDynamicReflectionProbeTransitions(uint64_t face_serial);
   void FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error, bool timed_out);
-  void EnsureReflectionProbeCaptureRenderGraph();
+  void EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<class SdfgiResources>& sdfgi_resources,
+                                               RenderGraphResourceRegistry& registry,
+                                               const std::shared_ptr<struct HddagiRuntime>& hddagi_snapshot = {});
 
   /**
    * \brief Performs all rendering operations for this render layer.
    */
   void RenderAll();
+  void ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene);
 
   /**
    * \brief Renders all gizmos associated with this render layer.
@@ -1051,12 +1065,9 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_update_irradiance_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_update_visibility_pipeline_;
   DdgiProbeUpdateVariant ddgi_probe_update_variant_ = DdgiProbeUpdateVariant::Serial;
-  bool ddgi_probe_update_path_reported_ = false;
   std::shared_ptr<ComputePipeline> ddgi_probe_scroll_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
-  std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
-  std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
 #pragma region Ray Tracing Pipelines

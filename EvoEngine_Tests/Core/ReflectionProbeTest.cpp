@@ -299,6 +299,23 @@ TEST(ReflectionProbe, ExplicitBakesUseCachedGraphSharedBindingsAndNormalFrameSub
   EXPECT_NE(camera.find("void Camera::OnCreate() {\n  InitializeRenderResources({1, 1});"), std::string::npos);
 }
 
+TEST(ReflectionProbe, SdfgiCapturesBindPublishedReadsAndRemainDiffuseOnly) {
+  const auto render = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto graph = ExtractBetween(render, "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph",
+                                    "void RenderLayer::RecordPreparedReflectionProbeBake");
+  EXPECT_NE(graph.find("publication->CameraReads()"), std::string::npos);
+  EXPECT_NE(graph.find("publication->ImportCamera("), std::string::npos);
+  EXPECT_NE(graph.find("capture.sdfgi_publication->descriptor_set"), std::string::npos);
+  EXPECT_NE(graph.find("push_back(sdfgi_resources)"), std::string::npos);
+  const auto composition = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/SdfgiLighting.slang"));
+  EXPECT_NE(composition.find("EE_BASIC_CONSTANTS.instance_index == 2"), std::string::npos);
+  EXPECT_NE(composition.find("roughness, !reflection_capture)"), std::string::npos);
+  ASSERT_NE(composition.find("if (reflection_capture) return diffuse;"), std::string::npos);
+  EXPECT_LT(composition.find("if (reflection_capture) return diffuse;"),
+            composition.find("resources.prefilteredLevelCount()"));
+}
+
 TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndependent) {
   const auto lighting_header =
       ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));
@@ -392,6 +409,22 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_EQ(render_layer.find("InvalidateAllDynamicReflectionProbes"), std::string::npos);
   EXPECT_EQ(render_layer.find("DDGI runtime lighting updated"), std::string::npos);
   EXPECT_NE(render_layer.find("PreserveReflectionProbeTextureBindings"), std::string::npos);
+  const auto comparison_start = render_layer.find("bool RenderLayer::UpdateRenderInstanceStorage(");
+  ASSERT_NE(comparison_start, std::string::npos);
+  const auto comparison = render_layer.substr(comparison_start);
+  const auto preserve_bindings = comparison.find("PreserveReflectionProbeTextureBindings(");
+  const auto ddgi_branch = comparison.find("if (track_ddgi_scene_inputs)");
+  ASSERT_NE(preserve_bindings, std::string::npos);
+  ASSERT_NE(ddgi_branch, std::string::npos);
+  EXPECT_LT(preserve_bindings, ddgi_branch);
+  const auto last_comparison =
+      comparison.rfind("render_instance_updated = *current_render_instances != *previous_render_instances;");
+  const auto restore_bindings = comparison.find(
+      "current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;");
+  ASSERT_NE(last_comparison, std::string::npos);
+  ASSERT_NE(restore_bindings, std::string::npos);
+  EXPECT_GT(restore_bindings, last_comparison);
+  EXPECT_LT(restore_bindings, comparison.find("const auto camera_info_changed"));
   EXPECT_EQ(render_layer.find("PreserveReflectionProbeRenderInfo"), std::string::npos);
   EXPECT_EQ(record.find("SetUnsaved"), std::string::npos);
   EXPECT_EQ(record.find("Save"), std::string::npos);
@@ -545,8 +578,6 @@ TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) 
   EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", probe.transform)"),
             std::string::npos);
   EXPECT_NE(inspector.find("DragFloat(\"Blend distance\", &probe.blend_distance, 0.01f"), std::string::npos);
-  EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", volume.transform)"),
-            std::string::npos);
 }
 
 TEST(ReflectionProbe, EnvironmentalLightingBoundsUseFilledDepthTestedVolumes) {

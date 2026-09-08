@@ -20,6 +20,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SdfgiCapabilities.hpp"
 #include "Shader.hpp"
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
@@ -56,6 +57,7 @@ using namespace evo_engine;
 namespace {
 // DDGI_VALIDATION_CAPTURE_PROTOCOL_BEGIN
 struct EditorCommandLine {
+  std::optional<std::filesystem::path> sdfgi_review_resources;
   std::optional<std::filesystem::path> project_path;
   std::optional<DemoProfileId> demo_profile_id;
   std::optional<std::filesystem::path> demo_preview_capture_path;
@@ -528,7 +530,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   EditorCommandLine command_line;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
     const std::string argument = argv[arg_index] ? argv[arg_index] : "";
-    if (argument == "--project" || argument == "-p") {
+    if (argument == "--sdfgi-review") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--sdfgi-review requires a disposable Rendering resource directory.");
+      command_line.sdfgi_review_resources = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--project" || argument == "-p") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a project path.");
       }
@@ -798,6 +804,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       continue;
     }
   }
+  if (command_line.sdfgi_review_resources &&
+      (command_line.demo_profile_id || command_line.project_path ||
+       command_line.application_mode != ApplicationMode::Editor || command_line.demo_preview_capture_path ||
+       command_line.material_thumbnail_output_path))
+    throw std::invalid_argument("--sdfgi-review is a standalone interactive editor launch.");
   if (command_line.demo_profile_id && command_line.project_path) {
     throw std::invalid_argument("EvoEngineEditor --demo cannot be combined with --project.");
   }
@@ -1377,24 +1388,15 @@ std::string HexBytes(const std::array<uint8_t, Size>& bytes) {
   return stream.str();
 }
 
-struct DdgiHysteresisBoostFrame {
-  float hysteresis = 0.0f;
-  uint32_t update_reasons = DdgiUpdateReasonNone;
-  uint32_t updated_probe_count = 0;
-  uint32_t boosted_volume_count = 0;
-  uint32_t restoring_volume_count = 0;
-};
-
 void WriteDdgiValidationReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
                                const std::string& fixture_id, const uint32_t seed, const size_t measure_frames,
                                const size_t response_frames, const size_t warmup_frames, const glm::uvec2 resolution,
                                const Camera::CameraRenderMode render_mode, const std::string& phase,
-                               const size_t run_index, const size_t convergence_frames, const bool convergence_observed,
+                               const size_t run_index, const size_t history_window_frames,
+                               const bool history_window_observed,
                                const uint32_t history_reset_reasons_after_transition,
-                               const uint32_t transition_update_reasons, const float transition_update_hysteresis,
-                               const bool transition_response_observed, const bool transition_warmup_active,
-                               const std::vector<DdgiHysteresisBoostFrame>& hysteresis_boost_frames,
-                               const bool paused_change_latched, const bool paused_hysteresis_frozen,
+                               const uint32_t transition_update_reasons, const bool transition_response_observed,
+                               const bool transition_warmup_active, const bool paused_change_latched,
                                const bool ddgi_enabled) {
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
@@ -1408,7 +1410,6 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   if (!validation_lighting) {
     throw std::runtime_error("DDGI validation report requires asset-owned EnvironmentalLighting.");
   }
-  const auto& validation_render_settings = render_layer->render_settings;
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto memory = Platform::GetGpuMemorySnapshot();
   (void)render_layer->RefreshDdgiProbeDebugData();
@@ -1434,10 +1435,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
                                : fixture_id == "geometry-moving"  ? "translate-occluder-x"
                                                                   : "translate-x-one-spacing";
   output << std::setprecision(17);
-  output << "{\n  \"schema_version\": 8,\n"
+  output << "{\n  \"schema_version\": 9,\n"
          << "  \"fixture_id\": \"" << JsonEscape(fixture_id) << "\",\n"
-         << "  \"fixture_definition\": {\"version\": 6, \"sha256\": "
-            "\"0f1012c5000072ad7c6ecaf74727f3e34fc0bbec3cf5d69e0ba8ffb8705239ea\"},\n"
+         << "  \"fixture_definition\": {\"version\": 7, \"temporal_policy\": \"periodic-rolling-history\"},\n"
          << "  \"image_file\": \"" << JsonEscape(image_path.filename().string()) << "\",\n"
          << "  \"capture\": {\"phase\": \"" << JsonEscape(phase) << "\", \"run_index\": " << run_index
          << ", \"output_encoding\": \"" << (image_path.extension() == ".hdr" ? "linear-rgbe-hdr" : "srgb8-png")
@@ -1448,22 +1448,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"history_reset_reasons_after_transition\": " << history_reset_reasons_after_transition
          << ", \"transition_response_observed\": " << (transition_response_observed ? "true" : "false")
          << ", \"transition_update_reasons\": " << transition_update_reasons
-         << ", \"transition_update_hysteresis\": " << transition_update_hysteresis
          << ", \"transition_warmup_active\": " << (transition_warmup_active ? "true" : "false")
          << ", \"paused_change_latched\": " << (paused_change_latched ? "true" : "false")
-         << ", \"paused_hysteresis_frozen\": " << (paused_hysteresis_frozen ? "true" : "false")
-         << ", \"response_frames\": " << response_frames << ", \"hysteresis_boost_frames\": [";
-  for (size_t index = 0; index < hysteresis_boost_frames.size(); ++index) {
-    if (index != 0u) {
-      output << ", ";
-    }
-    const auto& frame = hysteresis_boost_frames[index];
-    output << "{\"hysteresis\": " << frame.hysteresis << ", \"update_reasons\": " << frame.update_reasons
-           << ", \"updated_probes\": " << frame.updated_probe_count
-           << ", \"boosted_volumes\": " << frame.boosted_volume_count
-           << ", \"restoring_volumes\": " << frame.restoring_volume_count << "}";
-  }
-  output << "]},\n"
+         << ", \"response_frames\": " << response_frames << "},\n"
          << "  \"build\": {\"configuration\": \"" << EVOENGINE_BUILD_CONFIGURATION << "\"},\n"
          << "  \"contract\": {\"resolution\": [" << resolution.x << ", " << resolution.y << "], \"render_mode\": \""
          << render_mode_name
@@ -1473,13 +1460,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"graphics_validation\": " << (Platform::GraphicsValidationEnabled() ? "true" : "false")
          << ", \"gpu_timestamps\": " << (Platform::GpuTimestampCaptureEnabled() ? "true" : "false")
          << ", \"deterministic_seed_enabled\": true, \"deterministic_seed\": " << seed
-         << ", \"seed_sequence\": \"logical-ddgi-update-v1\", \"measure_frames\": " << measure_frames
+         << ", \"seed_sequence\": \"periodic-ddgi-update-v2\", \"measure_frames\": " << measure_frames
          << ", \"warmup_frames\": " << warmup_frames
-         << ", \"probe_variability_threshold\": " << validation_render_settings.ddgi_probe_variability_threshold
-         << ", \"probe_variability_maximum_frames\": "
-         << validation_render_settings.ddgi_probe_variability_maximum_frames
-         << ", \"pause_updates_after_convergence\": "
-         << (validation_render_settings.ddgi_pause_probe_updates_after_convergence ? "true" : "false")
+         << ", \"history_count\": " << validation_lighting->ddgi_settings.runtime.history_count
          << ", \"ddgi_enabled\": " << (ddgi_enabled ? "true" : "false") << "},\n"
          << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
          << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
@@ -1493,14 +1476,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << static_cast<unsigned>(fingerprint.conformance_version[1]) << ", "
          << static_cast<unsigned>(fingerprint.conformance_version[2]) << ", "
          << static_cast<unsigned>(fingerprint.conformance_version[3]) << "]},\n"
-         << "  \"convergence\": {\"observed\": " << (convergence_observed ? "true" : "false")
-         << ", \"frames\": " << convergence_frames << ", \"variability\": " << performance.probe_variability_average
-         << ", \"variability_maximum\": " << performance.probe_variability_maximum
-         << ", \"unstable_fraction\": " << performance.probe_variability_unstable_fraction
-         << ", \"budget_frames\": " << performance.probe_variability_budget_frame_count
-         << ", \"maximum_reached\": " << (performance.probe_variability_maximum_reached ? "true" : "false")
-         << ", \"sampling_complete\": " << (performance.probe_variability_sampling_complete ? "true" : "false")
-         << "},\n"
+         << "  \"history_window\": {\"observed\": " << (history_window_observed ? "true" : "false")
+         << ", \"frames\": " << history_window_frames
+         << ", \"sampling_complete\": " << (performance.history_window_complete ? "true" : "false") << "},\n"
          << "  \"ddgi\": {\"active_probes\": " << performance.active_probe_count
          << ", \"storage_probes\": " << performance.storage_probe_count
          << ", \"updated_probes\": " << performance.updated_probe_count
@@ -1508,9 +1486,6 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"uniform_rays_per_probe\": " << performance.ray_count
          << ", \"emissive_rays_per_probe\": " << performance.emissive_ray_count
          << ", \"recorded_rays\": " << performance.recorded_ray_sample_count
-         << ", \"update_hysteresis\": " << performance.probe_update_hysteresis
-         << ", \"boosted_volumes\": " << performance.hysteresis_boosted_volume_count
-         << ", \"restoring_volumes\": " << performance.hysteresis_restoring_volume_count
          << ", \"lighting_descriptors_bound\": " << (performance.lighting_descriptors_bound ? "true" : "false")
          << "},\n"
          << "  \"emissive_sampling\": {\"inventory_triangles\": " << performance.emissive_triangle_count
@@ -1527,8 +1502,6 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"ray_sample_info_bytes\": " << performance.ray_sample_info_byte_size
          << ", \"irradiance_atlas_bytes\": " << performance.irradiance_atlas_byte_size
          << ", \"visibility_atlas_bytes\": " << performance.visibility_atlas_byte_size
-         << ", \"variability_atlas_bytes\": " << performance.variability_atlas_byte_size
-         << ", \"variability_reduction_bytes\": " << performance.variability_reduction_byte_size
          << ", \"persistent_bytes\": " << performance.persistent_byte_size
          << ", \"per_frame_transient_bytes\": " << performance.per_frame_transient_byte_size
          << ", \"peak_resident_bytes\": " << performance.peak_resident_byte_size << "},\n"
@@ -2188,16 +2161,13 @@ void CaptureDemoPreview(
     if (!profiler_was_enabled)
       profiler.SetEnabled(false);
   }
-  size_t ddgi_convergence_frames = 0;
-  bool ddgi_convergence_observed = false;
+  size_t ddgi_history_window_frames = 0;
+  bool ddgi_history_window_observed = false;
   uint32_t ddgi_history_reset_reasons_after_transition = DdgiUpdateReasonNone;
   uint32_t ddgi_transition_update_reasons = DdgiUpdateReasonNone;
-  float ddgi_transition_update_hysteresis = 0.0f;
   bool ddgi_transition_response_observed = false;
   bool ddgi_transition_warmup_active = false;
-  std::vector<DdgiHysteresisBoostFrame> ddgi_hysteresis_boost_frames;
   bool ddgi_paused_change_latched = false;
-  bool ddgi_paused_hysteresis_frozen = false;
   if (preview_ddgi_fixture && preview_ddgi_report_path) {
     if (!render_layer || !Platform::GpuTimestampCaptureAvailable() || !Platform::GpuTimestampCaptureEnabled()) {
       throw std::runtime_error("DDGI validation requires available and enabled GPU timestamp capture.");
@@ -2218,26 +2188,12 @@ void CaptureDemoPreview(
       }
       const bool scene_change_frame =
           dynamic_fixture && (snapshot.last_probe_update_reasons & DdgiUpdateReasonSceneChange) != 0u;
-      const bool hysteresis_restore_frame =
-          dynamic_fixture && (snapshot.last_probe_update_reasons & DdgiUpdateReasonHysteresisRestore) != 0u;
-      if (scene_change_frame && !ddgi_transition_response_observed) {
+      if (scene_change_frame) {
         ddgi_transition_response_observed = true;
-        ddgi_transition_update_hysteresis = snapshot.aggregate.probe_update_hysteresis;
-      }
-      if (scene_change_frame || hysteresis_restore_frame) {
         ddgi_transition_update_reasons |= snapshot.last_probe_update_reasons;
-        ddgi_transition_warmup_active = ddgi_transition_warmup_active || snapshot.aggregate.probe_warmup_active;
-        ddgi_hysteresis_boost_frames.push_back(
-            {snapshot.aggregate.probe_update_hysteresis, snapshot.last_probe_update_reasons,
-             snapshot.aggregate.updated_probe_count, snapshot.aggregate.hysteresis_boosted_volume_count,
-             snapshot.aggregate.hysteresis_restoring_volume_count});
+        ddgi_transition_warmup_active |= snapshot.aggregate.probe_warmup_active;
       }
     };
-    const auto hysteresis_before_transition = [&] {
-      const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
-      return snapshot.volumes.empty() ? render_layer->render_settings.ddgi_hysteresis
-                                      : snapshot.volumes.front().current_hysteresis;
-    }();
     if (dynamic_fixture && !AdvanceDdgiValidationFixture(active_scene, *preview_ddgi_fixture)) {
       throw std::runtime_error("DDGI validation fixture could not advance its dynamic target.");
     }
@@ -2251,14 +2207,8 @@ void CaptureDemoPreview(
       }
       const auto paused_snapshot = render_layer->GetDdgiInspectorSnapshot();
       ddgi_paused_change_latched =
-          std::any_of(paused_snapshot.volumes.begin(), paused_snapshot.volumes.end(), [](const auto& volume) {
+          std::any_of(paused_snapshot.cascades.begin(), paused_snapshot.cascades.end(), [](const auto& volume) {
             return volume.pending_scene_changes;
-          });
-      ddgi_paused_hysteresis_frozen =
-          !paused_snapshot.volumes.empty() &&
-          std::all_of(paused_snapshot.volumes.begin(), paused_snapshot.volumes.end(), [&](const auto& volume) {
-            return std::abs(volume.current_hysteresis - hysteresis_before_transition) <= 1.0e-6f &&
-                   !volume.hysteresis_boost_active && !volume.hysteresis_boost_restoring;
           });
       session.pause_updates = false;
     }
@@ -2266,33 +2216,28 @@ void CaptureDemoPreview(
       if (!dynamic_fixture) {
         render_layer->RequestDdgiHistoryReset();
       }
-      constexpr size_t max_convergence_frames = 1024;
-      while (ddgi_convergence_frames < max_convergence_frames) {
+      constexpr size_t max_history_window_frames = 1024;
+      while (ddgi_history_window_frames < max_history_window_frames) {
         if (!ApplicationContext::Get().Loop()) {
-          throw std::runtime_error("Application ended during DDGI convergence measurement.");
+          throw std::runtime_error("Application ended during DDGI history-window initialization measurement.");
         }
         record_transition_response();
-        ++ddgi_convergence_frames;
+        ++ddgi_history_window_frames;
         const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
-        if (performance.probe_variability_sampling_complete) {
-          ddgi_convergence_observed = performance.probe_variability_converged;
+        if (performance.history_window_complete && !performance.probe_warmup_active) {
+          ddgi_history_window_observed = true;
           break;
         }
       }
       const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
-      if (!performance.probe_variability_sampling_complete) {
+      if (!performance.history_window_complete || performance.probe_warmup_active) {
         std::ostringstream message;
-        message << "DDGI validation sampling did not complete within " << max_convergence_frames
-                << " frames: variability=" << performance.probe_variability_average
-                << ", maximum=" << performance.probe_variability_maximum
-                << ", unstable_fraction=" << performance.probe_variability_unstable_fraction
-                << ", samples=" << performance.probe_variability_sample_count
+        message << "DDGI validation sampling did not complete within " << max_history_window_frames << " frames"
                 << ", warmup=" << performance.probe_warmup_frame_index << "/" << performance.probe_warmup_frame_count
                 << ", updated_probes=" << performance.updated_probe_count
                 << ", update_reasons=" << render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons << ".";
         throw std::runtime_error(message.str());
       }
-      render_layer->render_settings.ddgi_pause_probe_updates_after_convergence = false;
       for (size_t frame = 0; frame < 8; ++frame) {
         if (!ApplicationContext::Get().Loop()) {
           throw std::runtime_error("Application ended during DDGI timing preparation.");
@@ -2363,10 +2308,9 @@ void CaptureDemoPreview(
         *preview_ddgi_report_path, output_path, *preview_ddgi_fixture, preview_ddgi_seed,
         preview_ddgi_response_frames > 0 ? preview_ddgi_response_frames : preview_ddgi_measure_frames,
         preview_ddgi_response_frames, warmup_frames, glm::uvec2(render_extent.width, render_extent.height),
-        resolved_render_mode, preview_ddgi_phase, preview_ddgi_run_index, ddgi_convergence_frames,
-        ddgi_convergence_observed, ddgi_history_reset_reasons_after_transition, ddgi_transition_update_reasons,
-        ddgi_transition_update_hysteresis, ddgi_transition_response_observed, ddgi_transition_warmup_active,
-        ddgi_hysteresis_boost_frames, ddgi_paused_change_latched, ddgi_paused_hysteresis_frozen,
+        resolved_render_mode, preview_ddgi_phase, preview_ddgi_run_index, ddgi_history_window_frames,
+        ddgi_history_window_observed, ddgi_history_reset_reasons_after_transition, ddgi_transition_update_reasons,
+        ddgi_transition_response_observed, ddgi_transition_warmup_active, ddgi_paused_change_latched,
         !preview_ddgi_disabled);
   }
 
@@ -2513,6 +2457,55 @@ int main(const int argc, char** argv) {
     const auto command_line = ParseCommandLine(argc, argv);
     automated_capture = command_line.demo_preview_capture_path.has_value() ||
                         command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke;
+    if (command_line.sdfgi_review_resources) {
+      const auto& resources = *command_line.sdfgi_review_resources;
+      const auto rendering = resources / "EvoEngine-DemoProjects/Rendering";
+      if (!std::filesystem::is_regular_file(rendering / "Assets/Models/Sponza_FBX/Sponza.fbx") ||
+          std::filesystem::exists(rendering / "Rendering.eveproj"))
+        throw std::invalid_argument(
+            "SDFGI review requires a fresh disposable Rendering/Assets copy without Rendering.eveproj.");
+      PushStandardApplicationLayers(ApplicationMode::Editor);
+      ApplicationInitializationSettings application_info{};
+      application_info.application_mode = ApplicationMode::Editor;
+      application_info.use_custom_title_bar = true;
+      SetupDemoScene(DemoSetup::Rendering, application_info, resources, false);
+      application_info.graphics_settings.use_ray_tracing = false;
+      ApplicationContext::Get().Initialize(application_info);
+      initialized = true;
+      ApplicationContext::Get().Start(false);
+      WaitForDemoProfileProjectIdle();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+      const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+      const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+      if (!lighting || !camera || !editor)
+        throw std::runtime_error("SDFGI review scene is unavailable.");
+      lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+      lighting->sdfgi_settings = {};
+      lighting->gi_probe_settings = {};
+      camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      camera->Resize({2560, 1440});
+      const auto transform = scene->GetDataComponent<GlobalTransform>(camera->GetOwner());
+      editor->SetSceneCameraPosition(transform.GetPosition());
+      editor->SetSceneCameraRotation(transform.GetRotation());
+      editor->SetSceneCameraResolutionOverride(glm::uvec2(2560, 1440));
+      editor->GetSceneCamera()->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      editor->GetSceneCamera()->camera_settings = camera->camera_settings;
+      editor->GetSceneCamera()->post_processing_stack_ref = camera->post_processing_stack_ref;
+      EditorLayoutSettings layout;
+      layout.panels.scene = true;
+      layout.panels.camera = false;
+      layout.panels.render_layer_inspection = true;
+      editor->RequestEditorLayout(layout);
+      const auto capabilities = QuerySdfgiCapabilities(4, 30);
+      if (!capabilities.Supported() || Platform::RayTracingEnabled() || Platform::RayQueryEnabled() ||
+          Platform::RayAccelerationStructureEnabled())
+        throw std::runtime_error("SDFGI review requires all RT facilities disabled.");
+      std::cout << capabilities.ToString() << " SDFGI_REVIEW resolution=2560x1440" << std::endl;
+      ApplicationContext::Get().Run();
+      ApplicationContext::Get().Terminate();
+      return 0;
+    }
     const auto& project_path = command_line.project_path;
     if (!project_path) {
       if (command_line.demo_profile_id) {
@@ -2568,9 +2561,6 @@ int main(const int argc, char** argv) {
               ddgi.runtime.emissive_ray_count = *command_line.preview_ddgi_emissive_ray_count;
             }
             if (command_line.preview_ddgi_continuous_updates) {
-              if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
-                render_layer->render_settings.ddgi_pause_probe_updates_after_convergence = false;
-              }
             }
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
             if (command_line.preview_ddgi_reference &&
@@ -2658,22 +2648,6 @@ int main(const int argc, char** argv) {
         } catch (const std::exception& error) {
           ApplicationContext::Get().Terminate();
           std::cerr << "EVOENGINE_DDGI_EMISSIVE_ERROR " << error.what() << std::endl;
-          std::cout.flush();
-          std::cerr.flush();
-          std::_Exit(1);
-        }
-        try {
-          if (RunDdgiMultiVolumeValidationFromEnvironment(command_line.preview_capture_width,
-                                                          command_line.preview_capture_height)) {
-            ApplicationContext::Get().Terminate();
-            std::cout << "EVOENGINE_DDGI_MULTI_VOLUME_SHUTDOWN_COMPLETE" << std::endl;
-            std::cout.flush();
-            std::cerr.flush();
-            std::_Exit(0);
-          }
-        } catch (const std::exception& error) {
-          ApplicationContext::Get().Terminate();
-          std::cerr << "EVOENGINE_DDGI_MULTI_VOLUME_ERROR " << error.what() << std::endl;
           std::cout.flush();
           std::cerr.flush();
           std::_Exit(1);

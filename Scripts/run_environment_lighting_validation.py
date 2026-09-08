@@ -550,7 +550,7 @@ def main() -> int:
                     "ddgi_enabled": True,
                     "samples_per_frame": 1,
                     "warmup_frames": 64,
-                    "max_convergence_frames": 1024,
+                    "max_history_window_frames": 1024,
                     "preparation_frames": 8,
                     "measure_frames": 120,
                     "image": "sponza-repeatability-anchor.png",
@@ -748,12 +748,12 @@ def main() -> int:
             or sky_edit["recorded_probe_updates"] <= 0
             or not isinstance(sky_edit["recorded_ray_samples"], int)
             or sky_edit["recorded_ray_samples"] <= 0
-            or not isinstance(invalidation.get("canonical_sponza_convergence_frames"), int)
-            or invalidation["canonical_sponza_convergence_frames"] <= 0
-            or invalidation["canonical_sponza_convergence_frames"] > 1024
-            or not isinstance(invalidation.get("m15_sponza_convergence_frames"), int)
-            or invalidation["m15_sponza_convergence_frames"] <= 0
-            or invalidation["m15_sponza_convergence_frames"] > 1024
+            or not isinstance(invalidation.get("canonical_sponza_history_window_frames"), int)
+            or invalidation["canonical_sponza_history_window_frames"] <= 0
+            or invalidation["canonical_sponza_history_window_frames"] > 1024
+            or not isinstance(invalidation.get("m15_sponza_history_window_frames"), int)
+            or invalidation["m15_sponza_history_window_frames"] <= 0
+            or invalidation["m15_sponza_history_window_frames"] > 1024
         ):
             raise RuntimeError("Environment lighting DDGI invalidation evidence is malformed.")
         artifacts.extend(

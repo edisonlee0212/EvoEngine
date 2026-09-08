@@ -4,8 +4,10 @@
 
 namespace universe_package {
 class PlanetTerrain;
+class StarCluster;
 class UniverseLayer;
 
 bool InspectPlanetTerrain(evo_engine::InspectorContext& context, PlanetTerrain& planet_terrain);
+bool InspectStarCluster(evo_engine::InspectorContext& context, StarCluster& cluster);
 bool InspectUniverseLayer(evo_engine::InspectorContext& context, UniverseLayer& layer);
 }  // namespace universe_package

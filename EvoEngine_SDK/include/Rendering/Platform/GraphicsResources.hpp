@@ -163,22 +163,6 @@ class EVOENGINE_API Semaphore final : public IGraphicsResource {
    * @return The Vulkan semaphore handle.
    */
   [[nodiscard]] const VkSemaphore& GetVkSemaphore() const;
-
-#ifdef _WIN64
-  /**
-   * @brief Get a semaphore handle for Windows platform.
-   * @param external_semaphore_handle_type Vulkan external handle type.
-   * @return Handle to the Vulkan semaphore.
-   */
-  void* GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR external_semaphore_handle_type) const;
-#else
-  /**
-   * @brief Get a semaphore handle for non-Windows platform.
-   * @param external_semaphore_handle_type Vulkan external handle type.
-   * @return Handle to the Vulkan semaphore.
-   */
-  int GetVkSemaphoreHandle(VkExternalSemaphoreHandleTypeFlagBitsKHR external_semaphore_handle_type) const;
-#endif
 };
 
 /**
@@ -293,22 +277,6 @@ class EVOENGINE_API Image final : public IGraphicsResource {
    * @return Vulkan memory requirements for this image.
    */
   [[nodiscard]] VkMemoryRequirements GetMemoryRequirements() const;
-
-#ifdef _WIN64
-  /**
-   * @brief Gets the Vulkan image memory handle for Windows platform.
-   * @param external_memory_handle_type Vulkan external memory handle type.
-   * @return Handle to the Vulkan image memory.
-   */
-  void* GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const;
-#else
-  /**
-   * @brief Gets the Vulkan image memory handle for non-Windows platform.
-   * @param external_memory_handle_type Vulkan external memory handle type.
-   * @return Handle to the Vulkan image memory.
-   */
-  int GetVkImageMemHandle(VkExternalMemoryHandleTypeFlagsKHR external_memory_handle_type) const;
-#endif
 };
 
 /**
@@ -784,6 +752,7 @@ class EVOENGINE_API BufferUploadArena final {
  public:
   explicit BufferUploadArena(VkDeviceSize initial_block_size = 4ull * 1024ull * 1024ull);
   ~BufferUploadArena();
+  [[nodiscard]] VkDeviceSize GetAllocationBytes() const;
   BufferUploadArena(const BufferUploadArena&) = delete;
   BufferUploadArena& operator=(const BufferUploadArena&) = delete;
 };

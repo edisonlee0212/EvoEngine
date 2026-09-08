@@ -17,6 +17,34 @@ Focused guides:
 
 ## Architecture
 
+### Image layouts and synchronization
+
+First-party sampled, storage, attachment and transfer images use `VK_IMAGE_LAYOUT_GENERAL` during GPU access,
+including textures/cubemaps, camera targets, shadows, GI, post-processing, previews and Universe picking.
+Descriptors and rendering attachments declare the same layout. Image creation still uses `UNDEFINED` followed
+by an initialization transition; swapchain images still transition to `PRESENT_SRC_KHR` for presentation.
+The generic low-level transition helper retains support for other legal layouts for external callers.
+
+Render-graph states continue to describe access intent (depth/color writes, shader reads/writes and transfers).
+Equal-layout image barriers are retained with the corresponding stage/access masks and queue ownership rules;
+`GENERAL` is not a replacement for memory synchronization. Depth barrier aspects derive from the image format,
+including when neither adjacent access is an attachment use. This policy does not require unified-image-layout
+extensions and makes no cross-device performance guarantee.
+
+DDGI atlases are initialized and cleared synchronously on allocation before descriptor publication, since the
+deferred prepare pass may not yet be submitted when a consumer sees them. This allocation-only cost does not
+change steady-state update scheduling or history policy.
+
+The motivating validation errors involved camera depth (sampled-read descriptor versus attachment layout),
+SSR motion vectors (GENERAL descriptor versus an explicit read-only transition), and newly published DDGI
+atlases still in UNDEFINED. These are image-state/lifetime issues, not atlas-size or VMA allocation limits.
+
+Validation: 248 focused tests passed. Installed 2560x1440 Sponza runs with editor layers passed Vulkan core/sync
+validation with DDGI enabled (600 iterations) and SDFGI with RT disabled (300 iterations plus capture frames).
+This is focused coverage, not full-suite or cross-device/performance acceptance.
+
+### Rendering flow
+
 ```mermaid
 flowchart LR
   A[Scene, assets, and package callbacks] --> B[RenderInstanceStorage]
@@ -34,7 +62,7 @@ flowchart LR
 | --- | --- |
 | `Camera` | View state, output texture, visible background, requested render technique, ray settings, and post-processing stack. |
 | `Scene` | Renderable entities, lights, the main camera, environmental-lighting reference, and global reflection-probe fallback. |
-| `EnvironmentalLighting` | Indirect environment source, DDGI settings and volumes, local reflection probes, and their fallback intensities. |
+| `EnvironmentalLighting` | Indirect GI provider, environment source, DDGI/SDFGI settings, local reflection probes, and fallback intensities. |
 | `RenderInstanceStorage` | Immutable per-frame GPU view of geometry, materials, transforms, lights, cameras, environment data, descriptors, and acceleration-structure inputs. |
 | `RenderGraph` | Logical resources, pass ordering, access declarations, transient allocation, and Vulkan barrier planning. |
 | `RenderLayer` | Pipeline creation, frame preparation, shadows, camera rendering, probe work, extension callbacks, diagnostics, and output handoff. |
@@ -113,6 +141,11 @@ for material behavior and geometry participation.
 Direct lighting comes from directional, point, and spot lights. Environment and probe inputs are resolved from the scene
 and its `EnvironmentalLighting` asset before rendering.
 
+The asset explicitly selects Environment, Authored DDGI (RT), or the opt-in Automatic SDFGI provider. Automatic SDFGI
+currently has a settings/ownership shell only and uses Environment fallback without allocating a field. See
+[Automatic SDFGI](sdfgi.md) for controls and current implementation status. Inactive DDGI settings and volume packs remain
+authored data but do not drive updates or lighting.
+
 Ray cameras and DDGI sample emissive meshes through a two-level distribution. The first alias table selects a physical
 render instance; the second selects an eligible triangle from a distribution shared by instances with the same geometry
 range and emissive material. Rigid and uniformly scaled copies therefore store the mesh triangles once instead of
@@ -129,7 +162,7 @@ when the sampling distribution itself is reusable.
 | Use | Source and control |
 | --- | --- |
 | Visible primary background | The camera background source multiplied by `background_intensity`. |
-| Raster diffuse indirect | Valid DDGI irradiance; otherwise the indirect environment source multiplied by `diffuse_fallback_intensity`. |
+| Raster diffuse indirect | Valid irradiance from the selected provider; otherwise the indirect environment source multiplied by `diffuse_fallback_intensity`. |
 | Raster specular indirect | Local reflection probes, then the scene or engine global reflection probe multiplied by `specular_fallback_intensity`. |
 | Ray-camera environment events | The indirect environment source multiplied by `environment_lighting_intensity`. |
 | Reflection-probe capture background | The authored bake background, with inherited environment radiance multiplied by `environment_lighting_intensity`. |
@@ -153,6 +186,15 @@ coverage. External shadow renderers register explicitly for one of those two con
 Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, bloom, tone mapping, and related post
 effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
 resources and temporal histories are camera-owned. Assets must use the current flat GTAO and SMAA schemas.
+
+Bloom exposes **Compression start** (default 2) and **Source ceiling** (default 8) in linear HDR bloom-source units.
+After threshold/soft-knee extraction, each sampled contribution is limited before the initial downsample accumulation.
+Below the start, brightness is unchanged; above it, a bounded rational curve smoothly approaches the ceiling.
+The maximum RGB channel determines brightness, and RGB is scaled uniformly to preserve color ratios.
+The scene's original HDR color/emission is untouched. This replaces the old per-channel hard clamp at 20.
+Setting the start equal to the ceiling gives a hard cap; a zero ceiling suppresses bloom. Final bloom intensity and
+threshold/knee remain independent controls. Mip contributions still add during upsampling, so this limits the bloom
+source, not the final composited halo. The settings serialize with the stack; older assets use the new defaults.
 
 ## Geometry And Optional Features
 

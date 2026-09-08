@@ -783,6 +783,7 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
   const auto offscreen_preview = ReadTextFile(SdkPath("src/OffscreenPreviewRenderer.cpp"));
   const auto post_processing = ReadTextFile(SdkPath("src/PostProcessingStack.cpp"));
   const auto bloom_copy = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomCopy.slang"));
+  const auto bloom_module = ReadTextFile(ShaderPath("Modules/EvoEngine/PostProcessing.slang"));
   const auto bloom_downsampling = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomDownsampling.slang"));
   const auto bloom_upsampling = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomUpsampling.slang"));
   const auto bloom_mix = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomMix.slang"));
@@ -834,8 +835,10 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
             offscreen_preview.find("return CopyColorTexture(camera, settings)"));
   EXPECT_NE(post_processing.find("void PostProcessingStack::ProcessBloomAndToneMappingImmediately"), std::string::npos);
   EXPECT_NE(post_processing.find("context.record_commands(action)"), std::string::npos);
-  EXPECT_NE(bloom_copy.find("brightness = max(color.x, max(color.y, color.z))"), std::string::npos);
-  EXPECT_NE(bloom_copy.find("float knee = max(constants.knee"), std::string::npos);
+  EXPECT_NE(bloom_module.find("brightness = max(color.x, max(color.y, color.z))"), std::string::npos);
+  EXPECT_NE(bloom_module.find("knee = max(knee"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("EePrefilterBloom(inColor.SampleLevel"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("constants.compression_start, constants.source_ceiling"), std::string::npos);
   EXPECT_NE(bloom_copy.find("(g + h + i + a) * 0.125f"), std::string::npos);
   EXPECT_NE(bloom_copy.find("(a + i + j + k) * 0.125f"), std::string::npos);
   EXPECT_NE(bloom_copy.find("(m + a + k + l) * 0.125f"), std::string::npos);
