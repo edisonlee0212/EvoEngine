@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -34,6 +35,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--texture-lifecycle-stress", action="store_true")
     parser.add_argument("--secondary-camera-output")
     parser.add_argument("--expect-stable-texture-registrations", action="store_true")
+    parser.add_argument("--sdfgi-debug-views", action="store_true")
     return parser.parse_args()
 
 
@@ -109,6 +111,9 @@ def main() -> int:
             "environment": evoengine.IndirectGiProvider.Environment,
         }[gi_provider]
         evoengine.SetCurrentSceneGiProvider(provider)
+        if gi_provider == "sdfgi":
+            debug = evoengine.GetCurrentSceneSdfgiDebug()
+            debug.seed = 0
         for _ in range(2):
             if not evoengine.Loop():
                 raise RuntimeError("Rendering demo ended during frame-slot warmup")
@@ -131,6 +136,9 @@ def main() -> int:
         ):
             raise RuntimeError("Failed to configure secondary capture camera")
         capture_frames = args.accumulation_frames or args.warmup_frames
+        if gi_provider == "sdfgi":
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.with_suffix(".before.yaml").write_text(evoengine.GetCurrentSceneSdfgiSnapshot())
         if not evoengine.CaptureCurrentScene(
             args.width,
             args.height,
@@ -141,6 +149,9 @@ def main() -> int:
         ):
             raise RuntimeError("CaptureCurrentScene failed")
         gi_status = evoengine.GetCurrentSceneGiStatus()
+        if gi_provider == "sdfgi":
+            output.with_suffix(".after.yaml").write_text(evoengine.GetCurrentSceneSdfgiSnapshot())
+            output.with_suffix(".json").write_text(json.dumps(gi_status, indent=2))
         print(
             f"EVOENGINE_GI_CAPTURE requested={gi_status['requested_provider']} "
             f"effective={gi_status['effective_provider']} transport_pass={gi_status['transport_pass']}"
@@ -149,6 +160,19 @@ def main() -> int:
             gi_status["effective_provider"] != "Automatic SDFGI" or not gi_status["transport_pass"]
         ):
             raise RuntimeError("SDFGI capture did not update its lighting field")
+        if gi_provider == "sdfgi" and args.sdfgi_debug_views:
+            debug.enabled = True
+            debug.frozen = True
+            evoengine.SelectMainCameraForSdfgiDebug()
+            for view in ("Diffuse", "Specular", "Fallback"):
+                debug.view = getattr(evoengine.SdfgiDebugView, view)
+                for _ in range(4):
+                    if not evoengine.Loop():
+                        raise RuntimeError("Rendering demo ended during SDFGI diagnostic capture")
+                evoengine.CaptureCurrentSceneSdfgiDebug(output.with_name(f"{output.stem}-{view}.png"))
+            debug.view = evoengine.SdfgiDebugView.Beauty
+            debug.frozen = False
+            debug.enabled = False
         if args.secondary_camera_output and not evoengine.CaptureSecondarySceneCamera(
             Path(args.secondary_camera_output).resolve()
         ):

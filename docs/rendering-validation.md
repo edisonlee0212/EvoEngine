@@ -62,11 +62,11 @@ targets with the following command, then rerun without `--accept-render-baseline
 python Scripts/test.py --render-only --accept-render-baseline --ctest-arg=-R --ctest-arg="RenderingDemo.(TextureLifecycleStressThenCanonicalRasterGolden|SdfgiGoldenImage)$"
 ```
 
-To refresh only SDFGI, restrict the expression to `^RenderingDemo.SdfgiGoldenImage$`. Baseline acceptance does not
-change thresholds or establish that visible defects are fixed. The current accepted SDFGI image uses fixed-grid probes
-with occlusion enabled. The pillar/ground black seam is also observed with HDDAGI and remains open for investigation.
-SDFGI captures still exhibit unresolved run-to-run lighting variation. A baseline refresh alone does not fix it;
-always verify against independent fresh captures.
+For SDFGI alone, use `^RenderingDemo.SdfgiGoldenImage$`. The accepted image uses fixed-grid probes with occlusion.
+The pillar/ground seam also occurs with HDDAGI and remains unresolved; baseline acceptance does not fix it.
+SDFGI captures pin seed zero and save `.before.yaml` / `.after.yaml` snapshots and `.json` status.
+`--sdfgi-debug-views` exports frozen diffuse, specular and coverage views after beauty.
+Compare sampling/update state across failures; equal seeds do not establish repeatability.
 
 The raster correctness gate runs one deterministic Rendering demo capture for every combination of meshlet and indirect
 submission. All four cells compare against the same 2560x1440 golden image with PSNR at least 29 dB and SSIM at least

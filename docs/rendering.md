@@ -148,13 +148,24 @@ flowchart TD
   C --> D[MotionVectors and MotionCoverage]
   D --> E[DepthPyramid]
   E --> F[AmbientOcclusion: optional GTAO]
-  F --> G{HDDAGI active?}
-  G -->|Yes| H[HddagiCameraSurface: normal and roughness]
+  F --> G{GI provider}
+  G -->|HDDAGI| H[HddagiCameraSurface: normal and roughness]
   H --> I[HddagiCameraGather: full-resolution GI]
   I --> J[Optional horizontal and vertical reflection filters]
-  J --> K[DeferredCamera: material evaluation and lighting]
-  G -->|No| K
-  K --> L[Optional forward callbacks and volumetric clouds]
+  subgraph K[DeferredCamera: material evaluation and lighting]
+    KD[Gather DDGI diffuse probes]
+    KS[Gather SDFGI diffuse and specular]
+    KH[Compose HDDAGI camera images]
+    KE[Environment and reflection probes]
+  end
+  G -->|DDGI| KD
+  G -->|SDFGI| KS
+  G -->|Environment or unavailable field| KE
+  J --> KH
+  KD --> L[Optional forward callbacks and volumetric clouds]
+  KS --> L
+  KH --> L
+  KE --> L
   L --> M[Optional transparent geometry]
   M --> N[Optional Gaussian splats: cull, sort, render]
   N --> O[Optional DDGI debug overlays]
@@ -163,15 +174,13 @@ flowchart TD
   Q --> R[Camera output]
 ```
 
-Arrows summarize the normal camera path; disabled stages are skipped. Registered extension passes declare their own
-dependencies. Point/spot shadows and scene GI updates are shared work. SDFGI and DDGI gather inside `DeferredCamera`;
-HDDAGI prepares separate camera images first. Reflection captures use a reduced path and diffuse GI only.
+Disabled stages are skipped. Point/spot shadows and GI updates are shared work. The `DeferredCamera` branches show
+provider-specific work within one pass; HDDAGI alone prepares separate camera images first. Extensions declare their
+own dependencies. Reflection captures use a reduced path and diffuse GI only.
 
-Opaque meshes write only raw geometry attributes and stable IDs into the GBuffer. A separate alpha-masked geometry path
-samples only base-color alpha to determine coverage, then writes the same raw layout. GTAO reads the geometric normal
-before an in-place compute pass evaluates full materials, publishes the resolved G-buffer surface, and writes scene
-color by combining punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion.
-Forward-only and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and
+Opaque geometry writes raw attributes and IDs; masked geometry additionally samples base-color alpha for coverage.
+GTAO uses geometric normals before deferred compute evaluates materials, resolves the GBuffer, and combines direct
+lighting, shadows, GI, reflection probes, and AO. Forward/transparent geometry follows, then optional overlays and
 post-processing.
 
 Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
