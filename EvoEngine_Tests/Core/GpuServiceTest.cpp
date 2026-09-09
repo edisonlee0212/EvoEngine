@@ -6566,7 +6566,7 @@ TEST(HddagiCamera, ResizesRetainLiveImagesAndKeepSceneProbeStorage) {
   const auto layouts = SdfgiTestAccess::HostLayouts(*ApplicationContext::Get().GetLayer<RenderLayer>());
   const auto probe_image = runtime.resources->images.at("Diffuse").image;
   auto first = HddagiCameraFrame::Create(runtime, instances, layouts, {65, 33}, 1, false);
-  EXPECT_EQ(first->params.gi_size, glm::uvec2(32, 16));
+  EXPECT_EQ(first->params.gi_size, glm::uvec2(65, 33));
   const auto shared = HddagiCameraFrame::Create(runtime, instances, layouts, {65, 33}, 1, false);
   EXPECT_EQ(shared->images, first->images);
   const auto second = HddagiCameraFrame::Create(runtime, instances, layouts, {1, 1}, 1, false);
@@ -7201,19 +7201,17 @@ TEST(HddagiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
   const auto anchor = scene->GetHddagiRuntime()->frame.anchor;
   auto original_field = scene->GetHddagiRuntime()->resources;
   camera->Resize({65, 33});
-  lighting->hddagi_settings.half_resolution = false;
   lighting->hddagi_settings.filter_reflections = false;
   ASSERT_TRUE(app.Loop());
   EXPECT_EQ(scene->GetHddagiRuntime()->resources, original_field);
   EXPECT_EQ(original_field->camera_images.at(camera->GetHandle().GetValue())->layout.gi, glm::uvec2(65, 33));
-  lighting->hddagi_settings.half_resolution = true;
   lighting->hddagi_settings.filter_reflections = true;
   const auto second = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("Second HDDAGI camera")).lock();
   second->camera_render_mode = Camera::CameraRenderMode::Rasterization;
   second->SetRequireRendering(true);
   second->Resize({1, 1});
   ASSERT_TRUE(app.Loop());
-  EXPECT_EQ(original_field->camera_images.at(camera->GetHandle().GetValue())->layout.gi, glm::uvec2(32, 16));
+  EXPECT_EQ(original_field->camera_images.at(camera->GetHandle().GetValue())->layout.gi, glm::uvec2(65, 33));
   EXPECT_EQ(original_field->camera_images.at(second->GetHandle().GetValue())->layout.gi, glm::uvec2(1));
   EXPECT_EQ(scene->GetHddagiRuntime()->frame.anchor.camera_id, anchor.camera_id);
   camera->Resize({128, 128});
@@ -7394,7 +7392,6 @@ TEST(HddagiCamera, CompactVisualFixturesAndReceiverOnlyMovementWithoutRt) {
     } else if (phase == 2) {
       emissive->material_data.shade_material.emissive_factor = glm::vec3(0);
       emissive->SetUnsaved();
-      lighting->hddagi_settings.half_resolution = false;
     }
     for (uint32_t frame = 0; frame < 64; ++frame)
       ASSERT_TRUE(app.Loop());
@@ -7412,6 +7409,130 @@ TEST(HddagiCamera, CompactVisualFixturesAndReceiverOnlyMovementWithoutRt) {
       std::filesystem::create_directories(directory);
       camera->GetRenderTexture()->StoreToPng(std::filesystem::path(directory) /
                                              ("compact-" + std::to_string(phase) + ".png"));
+    }
+  }
+}
+
+TEST(GiOcclusion, PartitionedRoomComparison) {
+  const auto directory = std::getenv("EVOENGINE_GI_OCCLUSION_CAPTURE_DIRECTORY");
+  if (!directory)
+    GTEST_SKIP() << "Set EVOENGINE_GI_OCCLUSION_CAPTURE_DIRECTORY to run the indoor comparison.";
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  initialization.load_project_assets = true;
+  initialization.load_project_start_scene = true;
+  initialization.graphics_settings.use_ray_tracing = true;
+  app.Initialize(initialization);
+  app.Start();
+  for (uint32_t i = 0; i < 30000 && !app.GetActiveScene(); ++i)
+    ASSERT_TRUE(app.Loop());
+  const auto scene = app.GetActiveScene();
+  ASSERT_TRUE(scene);
+  const auto camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("Fixture camera")).lock();
+  scene->main_camera = camera;
+  camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  camera->SetRequireRendering(true);
+  camera->Resize({960, 540});
+  Transform camera_transform;
+  camera_transform.SetPosition({2, 1.5f, 5});
+  scene->SetDataComponent(camera->GetOwner(), camera_transform);
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  scene->environmental_lighting = lighting;
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 17;
+  lighting->gi_probe_settings.cascade_count = 2;
+  lighting->gi_probe_settings.base_probe_distance = 1;
+  lighting->hddagi_settings.static_entities_only = true;
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting->indirect_environment_source.color = glm::vec3(0);
+  const auto material = [](glm::vec3 color, float roughness, float metallic) {
+    auto result = AssetManager::CreateTemporaryAsset<Material>();
+    auto& data = result->material_data.shade_material;
+    data.pbr_base_color_factor = glm::vec4(color, 1);
+    data.pbr_roughness_factor = roughness;
+    data.pbr_metallic_factor = metallic;
+    return result;
+  };
+  const auto shape = [&](const char* name, glm::vec3 position, glm::vec3 scale,
+                         const std::shared_ptr<Material>& surface, bool sphere = false, bool is_static = true) {
+    const auto entity = scene->CreateEntity(name);
+    Transform transform;
+    transform.SetPosition(position);
+    transform.SetScale(scale * 2.0f);
+    scene->SetDataComponent(entity, transform);
+    scene->SetEntityStatic(entity, is_static);
+    const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+    renderer->mesh =
+        sphere ? Resources::GetInstance().GetPrimitives().sphere : Resources::GetInstance().GetPrimitives().cube;
+    renderer->material = surface;
+    return entity;
+  };
+  const auto white = material(glm::vec3(0.65f), 1, 0);
+  shape("Floor", {0, -0.125f, 0}, {4, 0.125f, 4}, white);
+  shape("Ceiling", {0, 3.125f, 0}, {4, 0.125f, 4}, white);
+  shape("Back", {0, 1.5f, -4}, {4, 1.5f, 0.125f}, white);
+  shape("Left", {-4, 1.5f, 0}, {0.125f, 1.5f, 4}, white);
+  shape("Right", {4, 1.5f, 0}, {0.125f, 1.5f, 4}, white);
+  const auto partition = shape("Partition", {0, 1.5f, 0}, {0.125f, 1.5f, 4}, white);
+  const auto emissive = material(glm::vec3(1), 1, 0);
+  emissive->material_data.shade_material.emissive_factor = glm::vec3(10);
+  shape("Emitter", {-2, 1.5f, -2}, glm::vec3(0.5f), emissive, true);
+  lighting->ddgi_settings.runtime.enabled = true;
+  lighting->ddgi_settings.runtime.deterministic_ray_seed_enabled = true;
+  lighting->ddgi_settings.runtime.deterministic_ray_seed = 42;
+  for (uint32_t variant = 0; variant < 6; ++variant) {
+    lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+    for (uint32_t frame = 0; frame < 4; ++frame)
+      ASSERT_TRUE(app.Loop());
+    lighting->sdfgi_settings.use_occlusion = variant != 0;
+    lighting->hddagi_settings.occlusion_bias = variant == 3 ? 0.01f : 0.1f;
+    lighting->ddgi_settings.runtime.visibility_moment_bias = variant == 5 ? 0 : 0.02f;
+    lighting->indirect_gi_provider = variant < 2   ? IndirectGiProvider::AutomaticSdfgi
+                                     : variant < 4 ? IndirectGiProvider::AutomaticHddagi
+                                                   : IndirectGiProvider::AutomaticDdgi;
+    for (uint32_t open = 0; open < 2; ++open) {
+      auto transform = scene->GetDataComponent<Transform>(partition);
+      transform.SetPosition({open ? -20.0f : 0.0f, 1.5f, 0});
+      scene->SetDataComponent(partition, transform);
+      for (uint32_t frame = 0; frame < 180; ++frame)
+        ASSERT_TRUE(app.Loop());
+      if (variant < 2) {
+        ASSERT_TRUE(scene->GetSdfgiRuntime() && scene->GetSdfgiRuntime()->published);
+      } else if (variant < 4) {
+        ASSERT_TRUE(scene->GetHddagiRuntime() && scene->GetHddagiRuntime()->published);
+        EXPECT_EQ(scene->GetHddagiRuntime()->resources->transport_failure_flags, 0);
+      } else {
+        const auto snapshot = app.GetLayer<RenderLayer>()->GetDdgiInspectorSnapshot();
+        ASSERT_TRUE(snapshot.enabled && snapshot.aggregate.lighting_descriptors_bound);
+        ASSERT_GT(snapshot.aggregate.active_probe_count, 0u);
+      }
+      std::vector<glm::vec4> pixels;
+      camera->GetRenderTexture()->GetRgbaChannelData(pixels);
+      ASSERT_EQ(pixels.size(), 960u * 540u);
+      double mean = 0;
+      for (uint32_t y = 540 * 3 / 8; y < 540 * 5 / 8; ++y)
+        for (uint32_t x = 960 * 3 / 8; x < 960 * 5 / 8; ++x) {
+          const auto value = pixels[y * 960 + x];
+          ASSERT_TRUE(std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z));
+          mean += glm::dot(glm::vec3(value), glm::vec3(0.2126f, 0.7152f, 0.0722f));
+        }
+      mean /= (960 / 4) * (540 * 5 / 8 - 540 * 3 / 8);
+      std::cout << "GI_OCCLUSION variant=" << variant << " open=" << open << " mean=" << mean << std::endl;
+      if (directory) {
+        std::filesystem::create_directories(directory);
+        camera->GetRenderTexture()->StoreToPng(
+            std::filesystem::path(directory) /
+            ("variant-" + std::to_string(variant) + "-open-" + std::to_string(open) + ".png"));
+      }
     }
   }
 }

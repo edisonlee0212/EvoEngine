@@ -34,7 +34,6 @@ template <typename F>
 void Fields(HddagiSettings& s, F&& f) {
   f("history_size", s.history_size);
   f("light_update_frames", s.light_update_frames);
-  f("half_resolution", s.half_resolution);
   f("filter_probes", s.filter_probes);
   f("filter_ambient", s.filter_ambient);
   f("filter_reflections", s.filter_reflections);
@@ -66,11 +65,10 @@ void evo_engine::DeserializeHddagiSettings(const YAML::Node& in, HddagiSettings&
 }
 
 bool HddagiSettings::operator==(const HddagiSettings& other) const {
-  return std::tie(history_size, light_update_frames, half_resolution, filter_probes, filter_ambient, filter_reflections,
-                  read_sky_light, static_entities_only, bounce_feedback, energy, normal_bias, probe_bias,
-                  reflection_bias, occlusion_bias) ==
-         std::tie(other.history_size, other.light_update_frames, other.half_resolution, other.filter_probes,
-                  other.filter_ambient, other.filter_reflections, other.read_sky_light, other.static_entities_only,
-                  other.bounce_feedback, other.energy, other.normal_bias, other.probe_bias, other.reflection_bias,
-                  other.occlusion_bias);
+  return std::tie(history_size, light_update_frames, filter_probes, filter_ambient, filter_reflections, read_sky_light,
+                  static_entities_only, bounce_feedback, energy, normal_bias, probe_bias, reflection_bias,
+                  occlusion_bias) ==
+         std::tie(other.history_size, other.light_update_frames, other.filter_probes, other.filter_ambient,
+                  other.filter_reflections, other.read_sky_light, other.static_entities_only, other.bounce_feedback,
+                  other.energy, other.normal_bias, other.probe_bias, other.reflection_bias, other.occlusion_bias);
 }

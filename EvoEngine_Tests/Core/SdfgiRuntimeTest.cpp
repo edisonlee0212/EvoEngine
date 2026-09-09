@@ -1388,7 +1388,6 @@ TEST(HddagiSettings, ReferenceDefaultsLayoutAndInactiveValidation) {
   GiSettings settings;
   EXPECT_EQ(static_cast<uint32_t>(IndirectGiProvider::AutomaticHddagi), 3u);
   EXPECT_EQ(settings.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
-  EXPECT_TRUE(settings.hddagi_settings.half_resolution);
   EXPECT_TRUE(settings.hddagi_settings.filter_probes);
   EXPECT_TRUE(settings.hddagi_settings.filter_ambient);
   EXPECT_FALSE(settings.hddagi_settings.filter_reflections);
@@ -1423,7 +1422,6 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
   lighting.hddagi_settings.history_size = 24;
   lighting.hddagi_settings.light_update_frames = 8;
-  lighting.hddagi_settings.half_resolution = false;
   lighting.hddagi_settings.filter_probes = false;
   lighting.hddagi_settings.filter_ambient = false;
   lighting.hddagi_settings.filter_reflections = true;
@@ -1460,4 +1458,15 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   EXPECT_FALSE(restored.TrySetGiSettings(invalid, error));
   EXPECT_FALSE(error.empty());
   EXPECT_EQ(restored.GetGiSettings(), previous);
+}
+
+TEST(HddagiSettings, IgnoresRemovedHalfResolutionInLegacyAssets) {
+  for (const auto value : {"true", "false"}) {
+    HddagiSettings settings;
+    DeserializeHddagiSettings(YAML::Load(std::string("half_resolution: ") + value + "\nenergy: 2.5"), settings);
+    EXPECT_FLOAT_EQ(settings.energy, 2.5f);
+    YAML::Emitter out;
+    SerializeHddagiSettings(out, settings);
+    EXPECT_FALSE(YAML::Load(out.c_str())["half_resolution"]);
+  }
 }

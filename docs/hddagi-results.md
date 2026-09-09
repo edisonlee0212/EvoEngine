@@ -1,5 +1,7 @@
 # HDDAGI implementation results
 
+Historical H6 baseline: the later GI refinement removes half-resolution HDDAGI. Half/full comparisons here describe the recorded H6 revision; use that revision to reproduce both modes. The current benchmark script always uses full resolution and has no `--full-resolution` argument.
+
 H0–H6 implement the pinned core Godot HDDAGI as an opt-in third provider. SDFGI remains the default. This report records correctness checks and observed behavior; it does not establish parity with a Godot reference render or a quality improvement over the other providers.
 
 ## Configuration and provenance

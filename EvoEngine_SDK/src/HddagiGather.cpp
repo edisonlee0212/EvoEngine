@@ -4,12 +4,10 @@
 
 using namespace evo_engine;
 
-HddagiCameraLayout evo_engine::BuildHddagiCameraLayout(const glm::uvec2 viewport, const bool half_resolution) {
+HddagiCameraLayout evo_engine::BuildHddagiCameraLayout(const glm::uvec2 viewport) {
   HddagiCameraLayout layout;
   layout.viewport = glm::max(viewport, glm::uvec2(1));
-  layout.pixel_stride = half_resolution ? 2 : 1;
-  layout.gi = glm::max(layout.viewport / layout.pixel_stride, glm::uvec2(1));
-  layout.reflection_filter_radius = half_resolution ? 6 : 12;
+  layout.gi = layout.viewport;
   return layout;
 }
 

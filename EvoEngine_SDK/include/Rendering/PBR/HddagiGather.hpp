@@ -26,7 +26,7 @@ struct HddagiCameraLayout {
   uint32_t reflection_filter_radius = 12;
 };
 
-EVOENGINE_API HddagiCameraLayout BuildHddagiCameraLayout(glm::uvec2 viewport, bool half_resolution);
+EVOENGINE_API HddagiCameraLayout BuildHddagiCameraLayout(glm::uvec2 viewport);
 EVOENGINE_API HddagiGatherData BuildHddagiGatherData(const GiProbeSettings& probes, const HddagiSettings& settings,
                                                      const std::vector<SdfgiCascade>& cascades, glm::vec3 anchor);
 }  // namespace evo_engine

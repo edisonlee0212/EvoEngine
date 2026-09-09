@@ -9,7 +9,6 @@ inline constexpr const char* kHddagiReferenceCommit = "da1410fa3516d08cc31b6e86b
 struct EVOENGINE_API HddagiSettings {
   uint32_t history_size = 12;
   uint32_t light_update_frames = 4;
-  bool half_resolution = true;
   bool filter_probes = true;
   bool filter_ambient = true;
   bool filter_reflections = false;

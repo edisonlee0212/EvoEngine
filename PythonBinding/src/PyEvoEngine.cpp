@@ -636,7 +636,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def(py::init<>())
       .def_readwrite("history_size", &HddagiSettings::history_size)
       .def_readwrite("light_update_frames", &HddagiSettings::light_update_frames)
-      .def_readwrite("half_resolution", &HddagiSettings::half_resolution)
       .def_readwrite("filter_probes", &HddagiSettings::filter_probes)
       .def_readwrite("filter_ambient", &HddagiSettings::filter_ambient)
       .def_readwrite("filter_reflections", &HddagiSettings::filter_reflections)
