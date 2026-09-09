@@ -3,7 +3,7 @@ __exported import EvoEngine.LightingFixedSet3;
 import EvoEngine.Sdfgi;
 
 public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
-    float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
+    float3 geometric_normal, float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
     float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility) {
   EeLightingResources resources;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
@@ -13,7 +13,7 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float3 R = reflect(-viewDir, normal);
   const float3 diffuse_weight = (float3(1) - dielectricF) * (1 - clamp(metallic, 0.0f, 1.0f));
   const bool reflection_capture = EE_BASIC_CONSTANTS.instance_index == 2;
-  const EeSdfgiLighting field = EE_SDFGI_GATHER(fragPos, normal, R, roughness, !reflection_capture);
+  const EeSdfgiLighting field = EE_SDFGI_GATHER(fragPos, normal, R, roughness, !reflection_capture, geometric_normal);
   const uint sdfgi_debug_view = EE_BASIC_CONSTANTS.meshlet_culling_flags >> 8u;
   if (sdfgi_debug_view == 9u) return float3(1.0f - field.weight, field.weight, 0.0f);
   const float3 environment_diffuse = (EE_ENVIRONMENT.background_color.w == 1.0f

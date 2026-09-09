@@ -28,14 +28,22 @@ reconsider the affected cascade. Unchanged placements retain history; changed pl
 both atlas layers before bounce feedback can read them. Occupancy-preserving payload and ordinary lighting edits do not
 move probes. Disabling the option preserves the Godot-style nominal-origin occlusion and cascade blending paths.
 
-This is an intentional departure from the pinned reference: nominal-grid neighbor selection is retained, but tracing,
-directional weights and probe visualization use actual relocated positions. Relocation mode replaces nominal occlusion
-with bounded SDF segment visibility, even if Use Occlusion is off. Visibility traces from the receiver toward the probe,
-rejects probes behind the receiver normal, and may escape only the receiver's initial contiguous occupied footprint
-(up to 1.5 cells per axis, including filtering support, in at most 24 short steps). Once free, any subsequent obstruction
-blocks during the normal 256-step trace. This prevents coarse receiver voxels from self-occluding corners without adding
-a nonzero visibility floor. Gather and bounce feedback share this rule. Unresolved sub-voxel/connected geometry within
-that initial footprint is still ambiguous in the unsigned field; this is not exact triangle visibility.
+This is an intentional departure from the pinned reference: the camera gather evaluates up to 64 neighboring grid
+candidates and uses their relocated positions for reconstruction. The normalized trilinear support extends to 1.45 probe
+intervals (one interval plus the maximum 0.45 relocation) to retain coverage around displaced or invalid probes. Zero
+support candidates are skipped before visibility and atlas sampling. This smooths local GI more and costs more than the
+original eight-corner reconstruction; the relocation-off reference path stays unchanged. Probe transport retains its
+nominal neighbor stencil, and tracing, directional weights and visualization use actual relocated positions.
+
+Relocation mode replaces nominal occlusion with bounded SDF segment visibility, even if Use Occlusion is off. Visibility
+uses the geometric surface normal for receiver bias and hemisphere rejection, while the shading normal still controls
+irradiance and BRDF response. The geometric normal uses the inverse anisotropic field transform. It first escapes the receiver's
+initial contiguous occupied footprint (up to 1.5 cells per axis in at most 24 short steps). If a grazing ray cannot leave
+that footprint, a bounded local gradient search adjusts the receiver and restarts the strict segment trace. The local
+adjustment stays in the receiver hemisphere, moves toward the probe, and cannot exceed 1.5 cells on any axis. Subsequent
+obstructions still block; no nonzero visibility floor is added. Gather and bounce feedback share this visibility rule.
+Sub-voxel/connected geometry in the receiver footprint remains ambiguous in the unsigned field; this is not exact
+triangle visibility. The Sponza pillar-floor comparison and current regression evidence are in [GI refinement](gi-refinement.md).
 It adds placement and scroll-scratch
 buffers, checked against device limits, but no history-window storage. Parent-history initialization and highest-cascade
 destination-history reuse are disabled for exposed relocated probes because their origins/validity are incompatible.

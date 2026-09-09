@@ -1,4 +1,5 @@
 // Optional unsigned-field surface clearance; coordinates are in anisotropic field cells.
+public static const float SDFGI_RELOCATION_RADIUS = 0.45;
 public uint SdfgiPlacementIndex(int3 cell, int3 size, uint cascade) {
   return cascade * uint(size.x * size.y * size.z) + uint(cell.x + cell.z * size.x + cell.y * size.x * size.z);
 }
@@ -9,7 +10,7 @@ public float SdfgiClearance(Texture3D<float> field, SamplerState sampler_state, 
 
 public float4 SdfgiFindPlacement(Texture3D<float> field, SamplerState sampler_state,
                                 float3 nominal, float3 grid, float spacing) {
-  float radius = 0.45 * spacing;
+  float radius = SDFGI_RELOCATION_RADIUS * spacing;
   float target = min(1.0, 0.25 * spacing);
   float3 candidate = clamp(nominal, float3(0), grid - 0.001);
   float3 best = candidate;
@@ -66,7 +67,31 @@ public float SdfgiSegmentVisibility(Texture3D<float> field, SamplerState sampler
   for (uint step = 0; dot(receiver_normal, receiver_normal) > 0 && step < 24; ++step) {
     if (SdfgiClearance(field, sampler_state, target + direction * travel, grid) >= 0.05) break;
     travel += 0.125;
-    if (travel >= distance || any(abs(direction * travel) > 1.5)) return 0;
+    if (travel >= distance || any(abs(direction * travel) > 1.5)) {
+      // A grazing ray can stay in an adjacent surface's filter footprint indefinitely.
+      // Escape locally along the field gradient, then trace the entire remaining segment.
+      float3 receiver = target;
+      for (uint escape = 0; escape < 16; ++escape) {
+        if (SdfgiClearance(field, sampler_state, target, grid) >= 0.05) break;
+        float3 gradient;
+        for (uint axis = 0; axis < 3; ++axis) {
+          float3 offset = float3(0); offset[axis] = 0.5;
+          gradient[axis] = field.SampleLevel(sampler_state, (target + offset) / grid, 0) -
+                           field.SampleLevel(sampler_state, (target - offset) / grid, 0);
+        }
+        if (length(gradient) < 0.00001) return 0;
+        target += normalize(gradient) * 0.125;
+        float3 offset = target - receiver;
+        if (any(abs(offset) > 1.5) || dot(offset, receiver_normal) < -0.00001 ||
+            dot(offset, delta) < 0 || any(target < 0) || any(target >= grid)) return 0;
+      }
+      delta = origin - target;
+      distance = length(delta);
+      if (distance < 0.0001) return 0;
+      direction = delta / distance;
+      travel = 0;
+      break;
+    }
   }
   for (uint step = 0; step < 256; ++step) {
     if (travel >= distance) return 1;

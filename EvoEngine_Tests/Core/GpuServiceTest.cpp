@@ -1173,7 +1173,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   output_layout->Initialize();
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  info.size = 10 * sizeof(glm::vec4);
+  info.size = 14 * sizeof(glm::vec4);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   auto output = std::make_shared<Buffer>(info);
   auto output_set = std::make_shared<DescriptorSet>(output_layout);
@@ -1207,7 +1207,13 @@ void main(uint3 id : SV_DispatchThreadID) {
   result[9] = float4(
       SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(1.6,8.5,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
       SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(31,8.5,8.5),float3(33.6,8.5,8.5),64,float3(-1,0,0)),
-      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(32.5,16.5,8.5),float3(32.5,8.5,8.5),64,float3(0,1,0)),0);
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(32.5,16.5,8.5),float3(32.5,8.5,8.5),64,float3(0,1,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(16,1.6,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)));
+  result[10] = float4(
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(40,1.6,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(16,0.6,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(16,1.6,8.5),float3(1.6,0.6,8.5),64),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(16,1.6,8.5),float3(1.6,0.6,8.5),64,float3(-1,0,0)));
   for (uint i=0; i<4; ++i) {
     float spacing = float(1u << i);
     float4 p = SdfgiFindPlacement(sdf[0],linear_sampler,float3(32),64,spacing);
@@ -1229,6 +1235,12 @@ import EvoEngine.Sdfgi;
 [numthreads(1,1,1)]
 void main(uint3 id : SV_DispatchThreadID) {
   EeSdfgiLighting value = EE_SDFGI_GATHER(float3(-2,-1,-2),float3(1,0,0),float3(0,1,0),0.5);
+  EeSdfgiLighting mapped = EE_SDFGI_GATHER(float3(-2,-1,-2),normalize(float3(0.1,1,0)),float3(0,1,0),0.5,true,float3(1,0,0));
+  result[11] = float4(mapped.diffuse,mapped.weight);
+  EeSdfgiLighting mapped_only = EE_SDFGI_GATHER(float3(-2,-1,-2),normalize(float3(0.1,1,0)),float3(0,1,0),0.5);
+  result[12] = float4(mapped_only.diffuse,mapped_only.weight);
+  EeSdfgiLighting scaled = EE_SDFGI_GATHER(float3(-2,-1,-2),float3(1,0,0),float3(0,1,0),0.5,true,normalize(float3(0.2,1,0)));
+  result[13] = float4(scaled.diffuse,scaled.weight);
   result[6] = float4(value.diffuse,value.weight);
   result[7] = float4(value.specular,all(isfinite(value.specular)) && all(isfinite(value.diffuse)) ? 1.0 : 0.0);
 }
@@ -1314,9 +1326,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     Platform::WaitForFrameSubmissions("SDFGI relocation fixture");
     std::vector<glm::vec4> placements, result;
     field->buffers.at("ProbePlacement").buffer->DownloadVector(placements, layout.ProbeCount() * 2);
-    output->DownloadVector(result, 10);
+    output->DownloadVector(result, 14);
     EXPECT_EQ(result[8], glm::vec4(1, 1, 0, 0));
-    EXPECT_EQ(result[9], glm::vec4(1, 0, 0, 0));
+    EXPECT_EQ(result[9], glm::vec4(1, 0, 0, 1));
+    EXPECT_EQ(result[10], glm::vec4(0));
     EXPECT_EQ(result[1].y, phase == 2 ? 0 : 1);
     if (phase == 4 || phase == 6) {
       const auto index = layout.Index(phase == 4 ? 0 : 16, 8, 8);
@@ -1366,6 +1379,51 @@ void main(uint3 id : SV_DispatchThreadID) {
           }
         }
     previous = std::move(placements);
+  }
+
+  // A relocated neighbor outside the original eight corners still supports the receiver.
+  std::vector<glm::vec4> isolated(layout.ProbeCount() * 2, glm::vec4(0, 0, 0, -1));
+  isolated[layout.Index(9, 7, 7)] = glm::vec4(-0.2f, 0, 0, 1);
+  field->buffers.at("ProbePlacement").buffer->UploadVector(isolated);
+  auto metadata = BuildSdfgiGatherData(settings, cascades, glm::vec3(0), 1);
+  metadata.max_cascades = 1;
+  metadata.y_mult = 1;
+  metadata.normal_bias = 0;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    metadata.cascades[0].position[axis] = glm::vec3(-2, -1, -2)[axis] - 7.5f / metadata.cascades[0].to_probe;
+  for (uint32_t phase = 0; phase < 3; ++phase) {
+    const bool blocked = phase == 1;
+    metadata.y_mult = phase == 2 ? 2 : 1;
+    metadata.cascades[0].position[1] = -metadata.y_mult - 7.5f / metadata.cascades[0].to_probe;
+    field->buffers.at("Frame0.Gather").buffer->Upload(metadata);
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+      VkClearColorValue radiance{};
+      radiance.uint32[0] = (16u << 27) | (256u << 18) | (256u << 9) | 256u;
+      const auto& atlas = field->textures.at("Atlas");
+      const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, atlas.requirement.layers};
+      Platform::ClearColorImage(command, *atlas.image, radiance, 1, &range);
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+      seed->Bind(command);
+      seed->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
+      seed->PushConstant(command, 0, blocked ? 0u : 3u);
+      seed->Dispatch(command, 8, 8, 8);
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+      gather->Bind(command);
+      gather->BindDescriptorSet(command, 4, output_set->GetVkDescriptorSet());
+      gather->BindDescriptorSet(command, 5, field->sets.at("Frame0.Gather")->GetVkDescriptorSet());
+      gather->Dispatch(command, 1, 1, 1);
+      Platform::BufferMemoryBarrier(command, *output);
+    });
+    std::vector<glm::vec4> result;
+    output->DownloadVector(result, 14);
+    EXPECT_EQ(result[6].w, blocked ? 0 : 1);
+    EXPECT_EQ(result[11].w, blocked ? 0 : 1);
+    EXPECT_LT(glm::length(glm::vec3(result[11]) - glm::vec3(blocked ? 0 : 1)), 0.001f);
+    EXPECT_EQ(result[12], glm::vec4(0));
+    EXPECT_EQ(result[13].w, phase == 2 ? 1 : 0);
+    EXPECT_LT(glm::length(glm::vec3(result[13]) - glm::vec3(phase == 2 ? 1 : 0)), 0.001f);
+    EXPECT_LT(glm::length(glm::vec3(result[6]) - glm::vec3(blocked ? 0 : 1)), 0.001f);
   }
 }
 
