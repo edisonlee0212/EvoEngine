@@ -593,7 +593,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
       .def_readwrite("probe_spacing_cells", &SdfgiSettings::probe_spacing_cells)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
-      .def_readwrite("probe_relocation", &SdfgiSettings::probe_relocation)
       .def_readwrite("static_entities_only", &SdfgiSettings::static_entities_only)
       .def_readwrite("ray_count", &SdfgiSettings::ray_count)
       .def_readwrite("history_size", &SdfgiSettings::history_size)

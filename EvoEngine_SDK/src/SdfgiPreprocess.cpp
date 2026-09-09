@@ -219,7 +219,6 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
   probes.image_size[0] = resources.textures.at("Ambient").requirement.extent.width;
   probes.image_size[1] = resources.textures.at("Ambient").requirement.extent.height;
   probes.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
-  probes.sky_flags = resources.settings.probe_relocation ? 8 : 0;
   const auto dispatch = [&](const char* name) {
     resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
     const auto& pipeline = resources.pipelines.at(name);
@@ -305,36 +304,6 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(), 1, &seed_copy);
   ClearLighting(command, resources, cascade);
-  RecordSdfgiProbeRelocation(command, resources, cascade, scroll);
-}
-
-void evo_engine::RecordSdfgiProbeRelocation(const VkCommandBuffer command, const SdfgiResources& resources,
-                                            const uint32_t cascade, const glm::ivec3 scroll) {
-  if (!resources.settings.probe_relocation)
-    return;
-  SdfgiIntegratePushConstant params{};
-  for (uint32_t axis = 0; axis < 3; ++axis) {
-    params.grid_size[axis] = resources.settings.GridSize()[axis];
-    params.scroll[axis] = scroll[axis] / static_cast<int>(resources.settings.probe_spacing_cells);
-  }
-  params.probe_axis_size = resources.settings.ProbeSize().x;
-  params.cascade = cascade;
-  params.max_cascades = resources.settings.cascade_count;
-  params.history_size = resources.settings.history_size;
-  params.image_size[0] = resources.textures.at("Ambient").requirement.extent.width;
-  params.image_size[1] = resources.textures.at("Ambient").requirement.extent.height;
-  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
-  const auto& pipeline = resources.pipelines.at("IntegrateRELOCATE");
-  pipeline->Bind(command);
-  pipeline->BindDescriptorSet(
-      command, 0,
-      resources.sets
-          .at("Frame" + std::to_string(Platform::GetCurrentFrameIndex()) + "." + CascadeName(cascade, "Integrate"))
-          ->GetVkDescriptorSet());
-  pipeline->BindDescriptorSet(command, 1, resources.sets.at("Sky")->GetVkDescriptorSet());
-  pipeline->PushConstant(command, 0, params);
-  pipeline->Dispatch(command, (params.image_size[0] + 7) / 8, (params.image_size[1] + 7) / 8);
-  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
 }
 
 void evo_engine::RecordSdfgiPayloadRefresh(const VkCommandBuffer command, const SdfgiResources& resources,
@@ -390,16 +359,9 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
   pass.resources.push_back(
       {diagnostic.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   const auto frame_slot = Platform::GetCurrentFrameIndex();
-  if (!payload_only && resources->settings.probe_relocation) {
-    for (const auto& name : {"ProbePlacement", "ProbePlacementScroll", "Ambient"})
-      pass.resources.push_back(
-          {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
-  }
-  if ((!payload_only && resources->settings.probe_relocation) || scroll != glm::ivec3(0)) {
+  if (scroll != glm::ivec3(0)) {
     for (const auto& name : {std::string("Atlas"), CascadeName(cascade, "History"), CascadeName(cascade, "Average")})
       pass.resources.push_back({"Frame.SDFGI." + name, RenderResourceUsage::ReadWrite, RenderResourceState::General});
-  }
-  if (scroll != glm::ivec3(0)) {
     pass.resources.push_back({"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Cascades", RenderResourceUsage::Read,
                               RenderResourceState::General});
     for (const auto& name : {std::string("HistoryScroll"), std::string("AverageScroll")})

@@ -1,5 +1,5 @@
 // Godot SDFGI input/placement adapter, 34d06658a85845111a50db9e485ec4a0701d4298.
-// See docs/licenses/Godot-MIT.txt and docs/sdfgi.md.
+// See docs/licenses/Godot-MIT.txt and docs/rendering-gi.md.
 #pragma once
 
 #include "Bound.hpp"

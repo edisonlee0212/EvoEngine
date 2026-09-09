@@ -129,7 +129,7 @@ struct SdfgiGatherData {
   float3 lightprobe_uv_offset;
   float y_mult;
   float3 occlusion_clamp;
-  uint probe_relocation;
+  uint pad;
   float3 occlusion_renormalize;
   uint pad4;
   float3 cascade_probe_size;

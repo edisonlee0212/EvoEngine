@@ -2910,7 +2910,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           ImGui::SetTooltip(
               "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
               "Changing this recreates the field and restarts convergence.");
-        gi_changed = ImGui::Checkbox("Probe relocation", &settings.probe_relocation) || gi_changed;
         if (ImGui::IsItemHovered())
           ImGui::SetTooltip(
               "Avoids nearby surfaces using the unsigned SDF; cannot reliably escape closed interiors. "

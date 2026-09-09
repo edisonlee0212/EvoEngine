@@ -93,8 +93,8 @@ Texture2D<uint4> inMetadata;
 #ifdef EE_AUTOMATIC_SDFGI
     if (encoded_specular_f90 >= 0.0f)
       isolated = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
-          geometric_normal, resolved_base_color, shading_normal, view_direction, world_position, surface.metallic,
-          surface.roughness, surface.specular_f0, encoded_specular_f90, resolved_material_ao,
+          resolved_base_color, shading_normal, view_direction, world_position, surface.metallic, surface.roughness,
+          surface.specular_f0, encoded_specular_f90, resolved_material_ao,
           inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);
 #endif
     outColor[pixel] = float4(isolated, 1);
@@ -140,7 +140,6 @@ Texture2D<uint4> inMetadata;
                                  surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90);
 #ifdef EE_AUTOMATIC_SDFGI
     const float3 ambient = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
-        geometric_normal,
 #elif defined(EE_AUTOMATIC_HDDAGI)
     const float3 ambient = EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(
         pixel,

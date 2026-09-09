@@ -1,7 +1,6 @@
 // Debug resource/coordinate adapter for Godot SDFGI, 34d06658a85845111a50db9e485ec4a0701d4298.
 // See docs/licenses/Godot-MIT.txt.
 import EvoEngine.SdfgiTypes;
-import EvoEngine.SdfgiRelocation;
 
 public struct SdfgiDebugCameraData {
   public float4x4 view_projection;
@@ -23,7 +22,6 @@ public struct SdfgiDebugBox { public float4 minimum; public float4 maximum; publ
 [[vk::binding(9, 0)]] [vk::image_format("rgba32f")] public RWTexture2D<float4> output_image;
 [[vk::binding(10, 0)]] public Texture2D<float> scene_depth;
 [[vk::binding(11, 0)]] public StructuredBuffer<SdfgiDebugBox> boxes;
-[[vk::binding(12, 0)]] public StructuredBuffer<float4> debug_placements;
 
 public float3 debug_world(float2 uv, float depth) {
   float4 world = mul(float4(uv * 2 - 1, depth, 1), data.inverse_view_projection);
@@ -39,8 +37,6 @@ public int3 debug_probe_cell(uint index) {
 public float3 debug_probe_world(uint index) {
   uint c = data.selection.y;
   float3 cell = float3(debug_probe_cell(index));
-  if (data.cascades[c].pad2.x != 0)
-    cell += debug_placements[SdfgiPlacementIndex(int3(cell), debug_grid() / debug_probe_spacing() + 1, c)].xyz;
   return (data.cascades[c].offset + cell * debug_probe_spacing() / data.cascades[c].to_cell) /
       float3(1, data.origin_y_mult.w, 1);
 }
@@ -51,9 +47,6 @@ public float2 debug_oct(float3 normal) {
 }
 public float3 debug_probe_color(uint index, float3 normal) {
   int3 cell = debug_probe_cell(index);
-  if (data.cascades[data.selection.y].pad2.x != 0 &&
-      debug_placements[SdfgiPlacementIndex(cell, debug_grid() / debug_probe_spacing() + 1, data.selection.y)].w <= 0)
-    return float3(1, 0, 0);
   uint width, height, layers;
   probe_texture.GetDimensions(width, height, layers);
   float2 texel = float2(SdfgiProbeTexel(cell, debug_probe_axis(), width / 8)) * 8 + 1 + debug_oct(normal) * 6;

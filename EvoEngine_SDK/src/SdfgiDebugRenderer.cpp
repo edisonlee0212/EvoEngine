@@ -68,7 +68,6 @@ SdfgiDebugRenderer::SdfgiDebugRenderer() {
   layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0, 1);
   layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, stages, 0, 1);
   layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stages, 0, 1);
-  layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, stages, 0, 1);
   layout->Initialize();
   const auto limits =
       SdfgiResources::ValidateDescriptorLimits({layout}, Platform::GetSelectedPhysicalDevice()->properties.limits);
@@ -171,8 +170,6 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   data.field = {runtime->settings.cascade_count, 0, debug.depth_test,
                 runtime->settings.voxel_count_x | (runtime->settings.voxel_count_y << 16)};
   data.cascades = BuildSdfgiCascadeBlock(runtime->cascades);
-  for (auto& cascade : data.cascades.data)
-    cascade.pad2[0] = runtime->settings.probe_relocation ? 1.0f : 0.0f;
   const auto box = [&](const Bound& bounds, const glm::vec4 color) {
     if (glm::all(glm::lessThanEqual(bounds.min, bounds.max)) &&
         std::isfinite(bounds.min.x + bounds.min.y + bounds.min.z + bounds.max.x + bounds.max.y + bounds.max.z))
@@ -259,13 +256,11 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   frame->descriptor->UpdateImageDescriptorBinding(
       10, {VK_NULL_HANDLE, frame->target->GetDepthImageView()->GetVkImageView(), VK_IMAGE_LAYOUT_GENERAL});
   frame->descriptor->UpdateBufferDescriptorBinding(11, frame->box_buffer);
-  frame->descriptor->UpdateBufferDescriptorBinding(12, resources->buffers.at("ProbePlacement").buffer);
   resources->Import(graph, registry);
   RenderPassDescriptor pass{"SdfgiDebugView", RenderPassQueue::Graphics, RenderPassScope::Camera};
   pass.dependencies = {dependency};
   pass.profiler_group = RenderPassProfilerGroup::EditorAndUi;
   pass.profiler_display_name = "SDFGI Debug View";
-  pass.resources.push_back({"Frame.SDFGI.ProbePlacement", RenderResourceUsage::Read, RenderResourceState::General});
   for (const auto& [name, texture] : resources->textures)
     if (name == "Atlas" || name == "Occlusion" || name.find(".Sdf") != std::string::npos ||
         name.find(".Light") != std::string::npos || name.find(".Aniso") != std::string::npos)

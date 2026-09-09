@@ -130,11 +130,6 @@ std::shared_ptr<SdfgiResources> SdfgiResources::TryCreate(
 void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLayout>>& deferred_host_layouts,
                               const uint32_t fail_after_allocations) {
   CreateLayouts(deferred_host_layouts);
-  const auto probe_size = settings.ProbeSize();
-  if (settings.probe_relocation &&
-      static_cast<uint64_t>(probe_size.x) * probe_size.y * probe_size.z * settings.cascade_count * sizeof(glm::vec4) >
-          Platform::GetSelectedPhysicalDevice()->properties.limits.maxStorageBufferRange)
-    throw std::runtime_error("probe placement exceeds maxStorageBufferRange");
   uint32_t allocations = 0;
   const auto checkpoint = [&] {
     if (allocations++ == fail_after_allocations)
@@ -235,11 +230,6 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, SdfgiMemoryClass::Field);
   }
   add_buffer("Status", sizeof(SdfgiFieldStatus), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
-  const uint64_t placement_bytes =
-      settings.probe_relocation ? uint64_t(probe_size.x) * probe_size.y * probe_size.z * 16 : 16;
-  add_buffer("ProbePlacement", placement_bytes * (settings.probe_relocation ? settings.cascade_count : 1),
-             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
-  add_buffer("ProbePlacementScroll", placement_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Scratch);
   voxel_frames.resize(Platform::GetMaxFramesInFlight());
   light_frames.resize(Platform::GetMaxFramesInFlight());
   probe_frames.resize(Platform::GetMaxFramesInFlight());
@@ -321,7 +311,6 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
   binding(SdfgiLayout::DirectLight, 11, texture);
   binding(SdfgiLayout::DirectLight, 12, texture);
   binding(SdfgiLayout::DirectLight, 13, buffer);
-  binding(SdfgiLayout::DirectLight, 14, buffer);
   for (uint32_t i = 1; i <= 4; ++i)
     binding(SdfgiLayout::Integrate, i, texture, 8);
   binding(SdfgiLayout::Integrate, 6, sampler);
@@ -329,8 +318,6 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
   for (uint32_t i = 8; i <= 14; ++i)
     binding(SdfgiLayout::Integrate, i, image);
   binding(SdfgiLayout::Integrate, 15, buffer);
-  binding(SdfgiLayout::Integrate, 16, buffer);
-  binding(SdfgiLayout::Integrate, 17, buffer);
   binding(SdfgiLayout::Sky, 0, texture);
   binding(SdfgiLayout::Sky, 1, sampler);
   constexpr VkShaderStageFlags voxel_stages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -344,7 +331,6 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
   binding(SdfgiLayout::Gather, 4, buffer);
   binding(SdfgiLayout::Gather, 5, texture, 8);
   binding(SdfgiLayout::Gather, 6, texture, 8);
-  binding(SdfgiLayout::Gather, 7, buffer);
   auto deferred = deferred_host_layouts;
   deferred.push_back(layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
   const auto& limits = Platform::GetSelectedPhysicalDevice()->properties.limits;
@@ -452,7 +438,6 @@ void SdfgiResources::CreateDescriptors() {
     image(set, 2, "Occlusion", true);
     sampler(set, 3);
     buffer(set, 4, "Status");
-    buffer(set, 7, "ProbePlacement");
     for (uint32_t i = 0; i < 8; ++i) {
       image(set, 5, CascadeName(std::min(i, settings.cascade_count - 1), "Sdf"), true, i);
       image(set, 6, CascadeName(std::min(i, settings.cascade_count - 1), "Light"), true, i);
@@ -474,7 +459,6 @@ void SdfgiResources::CreateDescriptors() {
         image(set, 11, "Atlas", true);
         image(set, 12, "Occlusion", true);
         buffer(set, 13, "Status");
-        buffer(set, 14, "ProbePlacement");
       }
       set = make_set(FrameName(f, CascadeName(c, "Integrate")), SdfgiLayout::Integrate);
       constexpr const char* sampled_cascades[]{"Sdf", "Light", "Aniso0", "Aniso1"};
@@ -491,8 +475,6 @@ void SdfgiResources::CreateDescriptors() {
       image(set, 13, CascadeName(std::min(c + 1, settings.cascade_count - 1), "Average"));
       image(set, 14, "Ambient");
       buffer(set, 15, "Status");
-      buffer(set, 16, "ProbePlacement");
-      buffer(set, 17, "ProbePlacementScroll");
     }
   }
 }
@@ -630,7 +612,7 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
   compute("PayloadRefresh", "SdfgiPayloadRefresh.slang", "",
           {layouts[static_cast<size_t>(SdfgiLayout::PayloadRefresh)]}, 0);
-  for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE", "RELOCATE"})
+  for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
     compute("Integrate" + mode, "SdfgiIntegrate.slang", "#define MODE_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::Integrate)], layouts[static_cast<size_t>(SdfgiLayout::Sky)]},
             sizeof(SdfgiIntegratePushConstant));

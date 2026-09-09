@@ -153,23 +153,16 @@ TEST(GiProbes, FrameSnapshotIsIndependentOfAdditionalCameraCalls) {
   EXPECT_NE(frame.placements[0].first_probe, first);
 }
 
-TEST(SdfgiRelocation, DefaultMigrationRoundTripAndLayoutReset) {
-  SdfgiSettings settings;
-  EXPECT_FALSE(settings.probe_relocation);
+TEST(SdfgiSettings, IgnoresLegacyRelocationAndDefaultsToOcclusion) {
   for (const bool enabled : {true, false}) {
-    settings.probe_relocation = enabled;
-    EXPECT_EQ(settings == SdfgiSettings{}, !enabled);
-    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), !enabled);
-    EXPECT_EQ(settings.ProbeSize(), SdfgiSettings{}.ProbeSize());
+    SdfgiSettings settings;
+    DeserializeSdfgiSettings(YAML::Load(enabled ? "probe_relocation: true" : "probe_relocation: false"), settings);
+    EXPECT_EQ(settings, SdfgiSettings{});
+    EXPECT_TRUE(settings.use_occlusion);
     YAML::Emitter out;
     SerializeSdfgiSettings(out, settings);
-    SdfgiSettings loaded;
-    DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
-    EXPECT_EQ(loaded, settings);
+    EXPECT_FALSE(YAML::Load(out.c_str())["probe_relocation"]);
   }
-  settings.probe_relocation = true;
-  DeserializeSdfgiSettings(YAML::Load("{}"), settings);
-  EXPECT_FALSE(settings.probe_relocation);
 }
 
 TEST(SdfgiDensity, LayoutBudgetAndPackingCoverAllChoices) {
