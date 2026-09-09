@@ -2955,11 +2955,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         gi_changed |= ImGui::DragFloat("Normal bias", &hddagi.normal_bias, 0.01f, 0.0f, 16.0f);
         gi_changed |= ImGui::DragFloat("Probe bias", &hddagi.probe_bias, 0.01f, 0.0f, 16.0f);
         gi_changed |= ImGui::DragFloat("Reflection bias", &hddagi.reflection_bias, 0.01f, 0.0f, 16.0f);
-        gi_changed |= ImGui::DragFloat("Occlusion bias", &hddagi.occlusion_bias, 0.01f, 0.0f, 16.0f);
-        if (ImGui::IsItemHovered())
-          ImGui::SetTooltip(
-              "Minimum probe visibility weight. Lower values reject occluded probes more strongly, "
-              "but can darken corners.");
+        gi_changed |= ImGui::Checkbox("Use Occlusion", &hddagi.use_occlusion);
         gi_changed |= ImGui::Checkbox("Filter probes", &hddagi.filter_probes);
         gi_changed |= ImGui::Checkbox("Filter ambient", &hddagi.filter_ambient);
         gi_changed |= ImGui::Checkbox("Filter reflections", &hddagi.filter_reflections);

@@ -27,7 +27,7 @@ HddagiGatherData evo_engine::BuildHddagiGatherData(const GiProbeSettings& probes
   data.anchor_origin = anchor;
   data.normal_bias = settings.normal_bias;
   data.reflection_bias = settings.reflection_bias;
-  data.occlusion_bias = settings.occlusion_bias;
+  data.use_occlusion = settings.use_occlusion;
   data.blend_ambient = settings.filter_ambient;
   for (uint32_t c = 0; c < cascades.size(); ++c) {
     const auto& input = cascades[c];

@@ -80,7 +80,7 @@ def main():
                     "hddagi_settings": {name: getattr(settings.hddagi, name) for name in
                                         ("history_size", "light_update_frames", "filter_probes",
                                          "filter_ambient", "filter_reflections", "read_sky_light", "static_entities_only",
-                                         "bounce_feedback", "energy", "normal_bias", "probe_bias", "reflection_bias", "occlusion_bias")},
+                                         "bounce_feedback", "energy", "normal_bias", "probe_bias", "reflection_bias", "use_occlusion")},
                     "binary_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in
                                       [*module_dir.glob("PyEvoEngine*.pyd"), module_dir / "EvoEngine_SDK.dll"] if p.is_file()},
                     "history_size": settings.hddagi.history_size,

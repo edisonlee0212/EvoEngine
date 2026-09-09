@@ -646,7 +646,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("normal_bias", &HddagiSettings::normal_bias)
       .def_readwrite("probe_bias", &HddagiSettings::probe_bias)
       .def_readwrite("reflection_bias", &HddagiSettings::reflection_bias)
-      .def_readwrite("occlusion_bias", &HddagiSettings::occlusion_bias)
+      .def_readwrite("use_occlusion", &HddagiSettings::use_occlusion)
       .def("validate", &HddagiSettings::Validate);
 
   py::class_<GiSettings>(m, "GiSettings")

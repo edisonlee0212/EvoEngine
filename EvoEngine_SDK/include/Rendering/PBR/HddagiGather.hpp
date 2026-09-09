@@ -14,7 +14,7 @@ struct alignas(16) HddagiGatherData {
   float y_mult = 1;
   float normal_bias = 1.1f;
   float reflection_bias = 2;
-  float occlusion_bias = 0.1f;
+  uint32_t use_occlusion = 1;
   uint32_t blend_ambient = 1;
 };
 static_assert(sizeof(HddagiGatherData) == 320);

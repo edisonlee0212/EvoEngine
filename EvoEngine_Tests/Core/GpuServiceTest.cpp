@@ -6598,7 +6598,7 @@ TEST(HddagiGather, ConstantRadianceAndZeroVisibilityAtProbeAndCascadeEdgesWithou
   HddagiUpdatePlan placement;
   ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, {-17, 2, -35}, {}, {}, true, placement).empty());
   auto data = BuildHddagiGatherData(probes, {}, placement.cascades, {-17, 2, -35});
-  data.occlusion_bias = 0;
+  data.use_occlusion = 1;
   struct Input {
     glm::vec3 position;
     uint32_t cascade;
@@ -6664,7 +6664,9 @@ TEST(HddagiGather, ConstantRadianceAndZeroVisibilityAtProbeAndCascadeEdgesWithou
     info.imageView = field->images.at(name).sampled->GetVkImageView();
     set->UpdateImageDescriptorBinding(binding++, info);
   }
-  for (uint32_t phase = 0; phase < 2; ++phase) {
+  for (uint32_t phase = 0; phase < 3; ++phase) {
+    data.use_occlusion = phase == 2 ? 0 : 1;
+    metadata->Upload(data);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
       for (const auto name : {"Diffuse", "Specular", "Occlusion0", "Occlusion1"}) {
         const auto& texture = field->images.at(name);
@@ -6687,14 +6689,16 @@ TEST(HddagiGather, ConstantRadianceAndZeroVisibilityAtProbeAndCascadeEdgesWithou
     output->DownloadVector(actual, inputs.size() * 2);
     for (size_t i = 0; i < inputs.size(); ++i) {
       SCOPED_TRACE(i);
-      const glm::vec3 diffuse = phase ? glm::vec3(0) : glm::vec3(1, 0.5f, 0.25f);
+      const glm::vec3 diffuse = phase == 1 ? glm::vec3(0) : glm::vec3(1, 0.5f, 0.25f);
       const glm::vec3 specular =
-          phase ? glm::vec3(0)
-                : glm::mix(glm::vec3(0.5f, 0.25f, 1), diffuse, glm::smoothstep(0.25f, 1.0f, inputs[i].roughness));
+          phase == 1 ? glm::vec3(0)
+                     : glm::mix(glm::vec3(0.5f, 0.25f, 1), diffuse, glm::smoothstep(0.25f, 1.0f, inputs[i].roughness));
       EXPECT_LT(glm::length(glm::vec3(actual[i * 2]) - diffuse), 0.001f);
       EXPECT_LT(glm::length(glm::vec3(actual[i * 2 + 1]) - specular), 0.001f);
     }
   }
+  data.use_occlusion = 1;
+  metadata->Upload(data);
   ComputePipeline full;
   full.descriptor_set_layouts = {layout};
   full.compute_shader = Shader::CreateTemporary(ShaderType::Compute, "#define MODE_FULL_GATHER\n",
@@ -7494,7 +7498,7 @@ TEST(GiOcclusion, PartitionedRoomComparison) {
     for (uint32_t frame = 0; frame < 4; ++frame)
       ASSERT_TRUE(app.Loop());
     lighting->sdfgi_settings.use_occlusion = variant != 0;
-    lighting->hddagi_settings.occlusion_bias = variant == 3 ? 0.01f : 0.1f;
+    lighting->hddagi_settings.use_occlusion = variant == 3;
     lighting->ddgi_settings.runtime.visibility_moment_bias = variant == 5 ? 0 : 0.02f;
     lighting->indirect_gi_provider = variant < 2   ? IndirectGiProvider::AutomaticSdfgi
                                      : variant < 4 ? IndirectGiProvider::AutomaticHddagi

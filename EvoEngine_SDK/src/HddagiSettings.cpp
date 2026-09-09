@@ -23,7 +23,7 @@ std::string HddagiSettings::Validate(const GiProbeSettings& probes) const {
     return "HDDAGI history must be 6, 12, 18, 24 or 32 updates.";
   if (std::find(intervals.begin(), intervals.end(), light_update_frames) == intervals.end())
     return "HDDAGI light interval must be 1, 2, 4, 8 or 16 frames.";
-  for (const auto value : {bounce_feedback, energy, normal_bias, probe_bias, reflection_bias, occlusion_bias})
+  for (const auto value : {bounce_feedback, energy, normal_bias, probe_bias, reflection_bias})
     if (!std::isfinite(value) || value < 0)
       return "HDDAGI lighting parameters must be finite and nonnegative.";
   return {};
@@ -44,7 +44,7 @@ void Fields(HddagiSettings& s, F&& f) {
   f("normal_bias", s.normal_bias);
   f("probe_bias", s.probe_bias);
   f("reflection_bias", s.reflection_bias);
-  f("occlusion_bias", s.occlusion_bias);
+  f("use_occlusion", s.use_occlusion);
 }
 }  // namespace
 
@@ -58,6 +58,8 @@ void evo_engine::SerializeHddagiSettings(YAML::Emitter& out, const HddagiSetting
 }
 
 void evo_engine::DeserializeHddagiSettings(const YAML::Node& in, HddagiSettings& settings) {
+  if (!in["use_occlusion"] && in["occlusion_bias"])
+    settings.use_occlusion = in["occlusion_bias"].as<float>() < 1.0f;
   Fields(settings, [&](const char* name, auto& value) {
     if (const auto node = in[name])
       value = node.as<std::decay_t<decltype(value)>>();
@@ -67,8 +69,8 @@ void evo_engine::DeserializeHddagiSettings(const YAML::Node& in, HddagiSettings&
 bool HddagiSettings::operator==(const HddagiSettings& other) const {
   return std::tie(history_size, light_update_frames, filter_probes, filter_ambient, filter_reflections, read_sky_light,
                   static_entities_only, bounce_feedback, energy, normal_bias, probe_bias, reflection_bias,
-                  occlusion_bias) ==
+                  use_occlusion) ==
          std::tie(other.history_size, other.light_update_frames, other.filter_probes, other.filter_ambient,
                   other.filter_reflections, other.read_sky_light, other.static_entities_only, other.bounce_feedback,
-                  other.energy, other.normal_bias, other.probe_bias, other.reflection_bias, other.occlusion_bias);
+                  other.energy, other.normal_bias, other.probe_bias, other.reflection_bias, other.use_occlusion);
 }

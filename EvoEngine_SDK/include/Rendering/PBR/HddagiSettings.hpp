@@ -19,7 +19,7 @@ struct EVOENGINE_API HddagiSettings {
   float normal_bias = 1.1f;
   float probe_bias = 1.1f;
   float reflection_bias = 2.0f;
-  float occlusion_bias = 0.1f;
+  bool use_occlusion = true;
 
   [[nodiscard]] std::string Validate(const GiProbeSettings& probes) const;
   [[nodiscard]] bool operator==(const HddagiSettings& other) const;

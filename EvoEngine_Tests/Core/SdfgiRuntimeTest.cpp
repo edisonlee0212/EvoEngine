@@ -1432,7 +1432,7 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   lighting.hddagi_settings.normal_bias = 0.4f;
   lighting.hddagi_settings.probe_bias = 0.6f;
   lighting.hddagi_settings.reflection_bias = 0.8f;
-  lighting.hddagi_settings.occlusion_bias = 0.2f;
+  lighting.hddagi_settings.use_occlusion = false;
   YAML::Emitter out;
   out << YAML::BeginMap;
   SerializeEnvironmentalLighting(out, lighting);
@@ -1469,4 +1469,23 @@ TEST(HddagiSettings, IgnoresRemovedHalfResolutionInLegacyAssets) {
     SerializeHddagiSettings(out, settings);
     EXPECT_FALSE(YAML::Load(out.c_str())["half_resolution"]);
   }
+}
+
+TEST(HddagiSettings, OcclusionCheckboxAndLegacyBiasMigration) {
+  EXPECT_TRUE(HddagiSettings{}.use_occlusion);
+  for (const auto value : {0.0f, 0.1f, 1.0f}) {
+    HddagiSettings settings;
+    DeserializeHddagiSettings(YAML::Load("occlusion_bias: " + std::to_string(value)), settings);
+    EXPECT_EQ(settings.use_occlusion, value < 1.0f);
+    YAML::Emitter out;
+    SerializeHddagiSettings(out, settings);
+    const auto saved = YAML::Load(out.c_str());
+    EXPECT_FALSE(saved["occlusion_bias"]);
+    EXPECT_EQ(saved["use_occlusion"].as<bool>(), settings.use_occlusion);
+  }
+  HddagiSettings settings;
+  DeserializeHddagiSettings(YAML::Load("occlusion_bias: 0.0\nuse_occlusion: false"), settings);
+  EXPECT_FALSE(settings.use_occlusion);
+  DeserializeHddagiSettings(YAML::Load("occlusion_bias: 1.0\nuse_occlusion: true"), settings);
+  EXPECT_TRUE(settings.use_occlusion);
 }

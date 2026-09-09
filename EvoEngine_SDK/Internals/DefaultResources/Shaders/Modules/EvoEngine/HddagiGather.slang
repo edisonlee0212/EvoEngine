@@ -13,7 +13,7 @@ struct HddagiGatherData {
   float y_mult;
   float normal_bias;
   float reflection_bias;
-  float occlusion_bias;
+  uint use_occlusion;
   uint blend_ambient;
 };
 
@@ -35,12 +35,15 @@ void HddagiGatherProbes(HddagiGatherData data, Texture2DArray<float3> diffuse_at
   position = clamp(position, float3(0), float3(data.grid) - 0.0001);
   int3 integer_position = int3(position);
   int3 base_probe = integer_position / 8;
-  int3 occlusion_cell = HddagiWrap(integer_position + data.cascades.data[cascade].region_world_offset * 8, data.grid);
-  occlusion_cell += int3(1, 1 + (data.grid.y + 2) * cascade, 1);
-  int3 occlusion_size = (data.grid + 2) * int3(1, data.cascade_count, 1);
-  float3 occlusion_uv = (float3(occlusion_cell) + frac(position)) / float3(occlusion_size);
-  float4 occ0 = occlusion0.SampleLevel(linear_sampler, occlusion_uv, 0);
-  float4 occ1 = occlusion1.SampleLevel(linear_sampler, occlusion_uv, 0);
+  float4 occ0 = float4(1), occ1 = float4(1);
+  if (data.use_occlusion != 0) {
+    int3 occlusion_cell = HddagiWrap(integer_position + data.cascades.data[cascade].region_world_offset * 8, data.grid);
+    occlusion_cell += int3(1, 1 + (data.grid.y + 2) * cascade, 1);
+    int3 occlusion_size = (data.grid + 2) * int3(1, data.cascade_count, 1);
+    float3 occlusion_uv = (float3(occlusion_cell) + frac(position)) / float3(occlusion_size);
+    occ0 = occlusion0.SampleLevel(linear_sampler, occlusion_uv, 0);
+    occ1 = occlusion1.SampleLevel(linear_sampler, occlusion_uv, 0);
+  }
   float2 inv_size = 1.0 / float2(7 * data.probe_size.x, 7 * data.probe_size.y * data.probe_size.z);
   float2 diffuse_oct = HddagiOctEncode(normal) * 5;
   float2 specular_oct = HddagiOctEncode(reflection) * 5;
@@ -53,7 +56,7 @@ void HddagiGatherProbes(HddagiGatherData data, Texture2DArray<float3> diffuse_at
     float weight = dynamic_receiver ? 1 : max(0.005, distance > 0 ? dot(-delta / distance, normal) : 1);
     int3 parity = (data.cascades.data[cascade].region_world_offset + probe) & 1;
     uint index = parity.x | (parity.y << 1) | (parity.z << 2);
-    weight *= max(data.occlusion_bias, index < 4 ? occ0[index] : occ1[index - 4]);
+    weight *= (index < 4 ? occ0[index] : occ1[index - 4]);
     float3 trilinear = max(float3(0), 1 - abs(delta / 8));
     weight *= trilinear.x * trilinear.y * trilinear.z;
     int3 physical = HddagiWrap(probe + data.cascades.data[cascade].region_world_offset, data.probe_size);
