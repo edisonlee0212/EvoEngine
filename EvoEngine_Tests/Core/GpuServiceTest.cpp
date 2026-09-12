@@ -7356,3 +7356,96 @@ TEST(DdgiOcclusion, FieldOnlyAllocatesWhileEnabledAndRetiresAfterSubmission) {
   }
   EXPECT_TRUE(field.expired());
 }
+
+TEST(DdgiGather, MissingDataRecoveryPreservesOcclusionAndCoverage) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = 25 * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, output);
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->descriptor_set_layouts = {layout};
+  pipeline->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.DDGIGather;
+[[vk::binding(0,0)]] RWStructuredBuffer<float4> output;
+struct Fixture : IDdgiGatherResources {
+  uint mode;
+  uint cascadeCount() { return (mode >= 5 && mode <= 8) || mode == 11 ? 1 : 2; }
+  DdgiVolumeInfo volume(uint index) {
+    DdgiVolumeInfo v = (DdgiVolumeInfo)0;
+    v.first_probe = float4(index == 0 ? float3(0) : float3(-4), 0);
+    float step = index == 0 ? 1 : 2;
+    v.probe_step_x = float4(step,0,0,0);
+    v.probe_step_y = float4(0,step,0,0);
+    v.probe_step_z = float4(0,0,step,0);
+    v.probe_counts = float4(9,9,9,1);
+    v.atlas_parameters = uint4(8,729,8,729);
+    v.lighting_parameters.x = mode == 13 || (mode == 12 && index == 0) ? 0 : 1;
+    v.volume_parameters.x = mode == 2 || mode == 7 || mode == 8 || mode == 9 || mode == 14 ? 1 : 0;
+    return v;
+  }
+  float4 loadProbeState(uint index, uint probe) {
+    if (mode >= 5 && mode <= 8) return float4(0,0,0,probe == 363 ? 0 : 1);
+    return float4(0,0,0, mode == 9 && index == 0 ? 1 : 0);
+  }
+  float4 sampleIrradiance(uint index, float2 uv) {
+    float alpha = mode == 3 || (mode == 1 && index == 0) ? 0 : 1;
+    if ((mode == 10 || mode == 14) && index == 0) alpha = 0.5;
+    return float4(float3(index == 1 || (mode >= 5 && mode <= 8) ? 2 : 1), alpha);
+  }
+  float4 sampleVisibility(uint index, float2 uv) { return mode == 6 ? float4(0) : float4(50,5000,0,1); }
+  float4 sampleVoxelOcclusion(uint plane, float3 uv) { return mode == 2 || mode == 9 || mode == 14 ? float4(0) : float4(1); }
+  bool voxelGridAvailable() { return mode != 23; }
+  uint2 loadVoxelBits(int3 coordinate) {
+    if ((mode >= 16 && mode <= 21) || mode == 24) return all(coordinate == int3(4,mode == 24 ? 18 : 2,2)) ? uint2(0, 1u << 8) : uint2(0);
+    return mode == 7 ? uint2(0xffffffffu) : uint2(0);
+  }
+};
+[numthreads(1,1,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  Fixture resources; resources.mode = id.x;
+  if (id.x >= 16) {
+    float3 start = float3(8.5,10.5,10.5), end = float3(24.5,10.5,10.5);
+    int3 offset = int3(0);
+    if (id.x == 17) { float3 temp = start; start = end; end = temp; }
+    if (id.x == 18) { start.y += 1; end.y += 1; }
+    if (id.x == 19) { start.x += 8; end.x += 8; offset.x = -72; }
+    if (id.x == 20) start.x = -1;
+    if (id.x == 21) { start = float3(8.5,2.5,2.5); end = float3(24.5,18.5,18.5); }
+    output[id.x] = float4(EE_DDGI_VOXEL_SEGMENT_VISIBLE(resources, id.x == 24 ? 1 : 0, int3(64), offset, start, end) ? 1 : 0, 0, 0, 0);
+    return;
+  }
+  float3 position = id.x == 4 ? float3(100) : (id.x == 11 ? float3(0) : float3(4.25));
+  EeDdgiGatherResult value = EE_DDGI_GATHER_CASCADES(resources, float3(0,1,0), float3(0,0,1), position, false);
+  output[id.x] = float4(value.irradiance.x / (2 * EE_DDGI_PI), value.coverage, value.confidence, value.visibility);
+}
+)"));
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+    pipeline->Dispatch(command, 25);
+  });
+  std::vector<glm::vec4> values;
+  output->DownloadVector(values, 25);
+  const float expected[]{1, 2, 0, 0, 0, 2, 0, 0, 2, 0, 1.5f, 1, 2, 0, 0, 1};
+  for (uint32_t i = 0; i < 16; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_NEAR(values[i].x, expected[i], 1e-4f);
+    EXPECT_FLOAT_EQ(values[i].y, i == 4 ? 0 : 1);
+    EXPECT_FLOAT_EQ(values[i].z, i == 4 ? 0 : 1);
+  }
+  for (uint32_t i = 16; i < 25; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_FLOAT_EQ(values[i].x, i == 18 || i == 22 ? 1 : 0);
+  }
+  for (const auto i : {2u, 9u, 14u})
+    EXPECT_FLOAT_EQ(values[i].w, 0);
+}

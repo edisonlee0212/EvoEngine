@@ -31,7 +31,7 @@ class EVOENGINE_API DdgiProbeTracePass final {
     bool use_emissive_sampling = false;
     uint32_t* recorded_ray_sample_count = nullptr;
     std::array<CascadeResources, 8> cascades{};
-    std::array<VkDescriptorImageInfo, 2> voxel_occlusion{};
+    std::array<VkDescriptorImageInfo, 3> voxel_occlusion{};
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool use_emissive_sampling = false);

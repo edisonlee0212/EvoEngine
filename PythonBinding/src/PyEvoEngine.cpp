@@ -494,6 +494,13 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("ConfigureBistroCaptureView", [](const std::string& view) {
     ConfigureBistroCaptureView(ApplicationContext::Get().GetActiveScene(), view);
   });
+  m.def("ConfigureIndirectLightingDebugForCapture", [](const int view, const bool pause_ddgi_updates) {
+    const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+    if (!render || view < 0 || view > 5)
+      throw py::value_error("A render layer and an indirect lighting debug view in [0, 5] are required");
+    render->render_settings.indirect_lighting_debug_view = static_cast<RenderSettings::IndirectLightingDebugView>(view);
+    render->GetDdgiSessionState().pause_updates = pause_ddgi_updates;
+  });
   m.def("ConfigureSecondarySceneCameraForCapture", &ConfigureSecondarySceneCameraForCapture, py::arg("resolution_x"),
         py::arg("resolution_y"));
   m.def("ConfigureRasterPathForCapture", &ConfigureRasterPathForCapture, py::arg("meshlet_enabled"),

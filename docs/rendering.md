@@ -162,7 +162,7 @@ flowchart TD
   H --> I[HddagiCameraGather: full-resolution GI]
   I --> J[Optional horizontal and vertical reflection filters]
   subgraph K[DeferredCamera: material evaluation and lighting]
-    KD[Gather DDGI diffuse probes with voxel or distance-moment visibility]
+    KD[Gather DDGI diffuse: visibility and probe recovery]
     KS[Gather SDFGI diffuse and specular]
     KH[Compose HDDAGI camera images]
     KE[Environment and reflection probes]

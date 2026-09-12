@@ -1598,9 +1598,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                             RenderInstanceStorage::kDdgiMaxVolumeCount);
     lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, lighting_stages, 0,
                                             RenderInstanceStorage::kDdgiMaxVolumeCount);
-    for (uint32_t plane = 0; plane < 2; ++plane)
-      lighting_layout_->PushDescriptorBinding(22 + plane, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages,
-                                              0);
+    for (uint32_t plane = 0; plane < 3; ++plane)
+      lighting_layout_->PushDescriptorBinding(
+          22 + plane, plane == 2 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+          lighting_stages, 0);
     lighting_layout_->Initialize();
   }
   if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_layout_) {
@@ -2660,9 +2661,10 @@ void RenderLayer::EnsureDdgiPipelines() {
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
-    for (uint32_t plane = 0; plane < 2; ++plane)
-      ddgi_probe_ray_output_layout_->PushDescriptorBinding(22 + plane, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+    for (uint32_t plane = 0; plane < 3; ++plane)
+      ddgi_probe_ray_output_layout_->PushDescriptorBinding(
+          22 + plane, plane == 2 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->Initialize();
   }
   if (!ddgi_probe_update_layout_) {
@@ -6052,28 +6054,30 @@ void RenderLayer::RenderAll() {
     ExecuteSceneFramePasses(scene);
   if (!ddgi_atlas_sampler_)
     ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
-  if (!ddgi_occlusion_fallback_) {
+  for (uint32_t kind = 0; kind < 2; ++kind) {
+    if (ddgi_occlusion_fallback_[kind])
+      continue;
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     info.imageType = VK_IMAGE_TYPE_3D;
-    info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    info.format = kind == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R32G32_UINT;
     info.extent = {1, 1, 1};
     info.mipLevels = info.arrayLayers = 1;
     info.samples = VK_SAMPLE_COUNT_1_BIT;
     info.tiling = VK_IMAGE_TILING_OPTIMAL;
     info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    ddgi_occlusion_fallback_ = std::make_shared<Image>(info);
+    ddgi_occlusion_fallback_[kind] = std::make_shared<Image>(info);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
-      ddgi_occlusion_fallback_->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      ddgi_occlusion_fallback_[kind]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      Platform::ClearColorImage(command, *ddgi_occlusion_fallback_, VkClearColorValue{}, 1, &range);
-      ddgi_occlusion_fallback_->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      Platform::ClearColorImage(command, *ddgi_occlusion_fallback_[kind], VkClearColorValue{}, 1, &range);
+      ddgi_occlusion_fallback_[kind]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
     });
     VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    view.image = ddgi_occlusion_fallback_->GetVkImage();
+    view.image = ddgi_occlusion_fallback_[kind]->GetVkImage();
     view.viewType = VK_IMAGE_VIEW_TYPE_3D;
     view.format = info.format;
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    ddgi_occlusion_fallback_view_ = std::make_shared<ImageView>(view, ddgi_occlusion_fallback_);
+    ddgi_occlusion_fallback_view_[kind] = std::make_shared<ImageView>(view, ddgi_occlusion_fallback_[kind]);
   }
   const auto voxel_runtime = scene ? scene->GetHddagiRuntime() : nullptr;
   const auto voxel_field = scene_prepared && voxel_runtime && voxel_runtime->resources &&
@@ -6082,13 +6086,17 @@ void RenderLayer::RenderAll() {
                                    voxel_runtime->resources->voxelization_recorded
                                ? voxel_runtime->resources
                                : nullptr;
-  std::array<VkDescriptorImageInfo, 2> ddgi_voxel_occlusion{};
-  for (uint32_t plane = 0; plane < 2; ++plane) {
+  std::array<VkDescriptorImageInfo, 3> ddgi_voxel_occlusion{};
+  for (uint32_t plane = 0; plane < 3; ++plane) {
     auto& info = ddgi_voxel_occlusion[plane];
     info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     info.sampler = ddgi_atlas_sampler_->GetVkSampler();
-    info.imageView = voxel_field ? voxel_field->images.at("Occlusion" + std::to_string(plane)).sampled->GetVkImageView()
-                                 : ddgi_occlusion_fallback_view_->GetVkImageView();
+    info.imageView = voxel_field
+                         ? voxel_field->images.at(plane == 2 ? "VoxelBits" : "Occlusion" + std::to_string(plane))
+                               .sampled->GetVkImageView()
+                         : ddgi_occlusion_fallback_view_[plane == 2 ? 1 : 0]->GetVkImageView();
+    if (plane == 2)
+      info.sampler = VK_NULL_HANDLE;
     if (lighting_descriptor_set)
       lighting_descriptor_set->UpdateImageDescriptorBinding(22 + plane, info);
   }

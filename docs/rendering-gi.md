@@ -15,8 +15,8 @@ compute their own indirect lighting through the path integrator.
 | Automatic SDFGI | Voxelized geometry and signed distance fields | Diffuse probes and voxel-based specular GI | Works without RT hardware; field updates and voxel resolution affect cost and detail. |
 | Automatic HDDAGI | Voxel occupancy hierarchy traversed with HDDA | Diffuse probes and voxel-based specular GI | Skips empty space without building distance fields; still limited by voxel detail and probe reconstruction. |
 
-SDFGI is the default. Only the selected provider updates. Unsupported, incomplete, or failed fields expose a reason
-and use Environment fallback. Faster traversal alone does not guarantee less leaking or lower total frame time.
+SDFGI is the default. Only the selected provider updates. Unavailable providers expose an Environment fallback reason.
+Faster traversal alone does not guarantee less leaking or lower frame time.
 
 ## Shared coverage and lifetime
 
@@ -53,10 +53,8 @@ blended and transmissive surfaces use straight-through colored attenuation, with
 Gaussian splats do not participate. DDGI currently requires the ray-tracing pipeline, even when the camera is rasterized;
 there is no inline-ray-query DDGI backend.
 
-The main controls are ray counts, emissive sampling, history count, surface biases, relocation, and classification.
-Defaults trace 64 scene rays and eight explicit emissive-triangle rays per updated probe. History count selects 5–30
-updates in steps of five, defaulting to 30. Irradiance and visibility use rolling histories that continue updating after
-the window fills. Longer histories smooth changes over more updates; they do not stop tracing after convergence.
+Defaults trace 64 scene rays and eight emissive-triangle rays per updated probe. History count selects 5–30 updates
+in steps of five, defaulting to 30. Rolling irradiance and visibility histories continue updating after filling.
 
 **Use Occlusion** and **Probe Classification** default on. Classification independently disables probes inside geometry
 or far from surfaces. Occlusion uses HDDAGI's voxel occupancy and visibility field with fixed probes; fully blocked
@@ -64,7 +62,12 @@ contributions remain zero. It needs no signed distance field or HDDAGI lighting/
 
 Occlusion disables relocation without clearing its saved preference. Turning occlusion off releases the voxel field,
 restores that preference, and uses directional distance moments for visibility. Relocation moves probes away from
-geometry within a bounded offset. DDGI still traces triangle lighting and maintains its own histories in either mode.
+geometry within a bounded offset. DDGI retains triangle lighting and its own histories.
+
+Inside cascade coverage, missing probe data first uses coarser cascades, then a bounded nearby-probe search. Candidates
+must pass conservative distance visibility; voxel occlusion also checks the connecting segment. Fully blocked valid
+probes stay dark. Unrecoverable missing data also stays dark; diffuse environment fallback applies only outside
+coverage. Environment reflections remain separate.
 
 ## SDFGI
 

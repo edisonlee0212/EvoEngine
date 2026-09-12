@@ -4,7 +4,14 @@ __exported import EvoEngine.DDGI;
 [[vk::binding(22, 2)]] public Sampler3D<float4> EE_DDGI_VOXEL_OCCLUSION0;
 [[vk::binding(23, 2)]] public Sampler3D<float4> EE_DDGI_VOXEL_OCCLUSION1;
 
+[[vk::binding(24, 2)]] public Texture3D<uint2> EE_DDGI_VOXEL_BITS;
+
 public interface IDdgiGatherResources {
+  uint cascadeCount();
+  DdgiVolumeInfo volume(uint index);
+  float4 sampleVoxelOcclusion(uint plane, float3 uv);
+  uint2 loadVoxelBits(int3 coordinate);
+  bool voxelGridAvailable();
   float4 loadProbeState(uint volume_index, uint probe_index);
   float4 sampleIrradiance(uint volume_index, float2 uv);
   float4 sampleVisibility(uint volume_index, float2 uv);
@@ -104,10 +111,10 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
     float3 cell = clamp(biased_probe_coordinate * 8, float3(0), float3(voxel_grid) - 0.0001f);
     int3 wrapped = ((int3(cell) + world_probe_offset * 8) % voxel_grid + voxel_grid) % voxel_grid;
     wrapped += int3(1, 1 + (voxel_grid.y + 2) * volume_index, 1);
-    float3 size = float3(voxel_grid + 2) * float3(1, EE_RENDER_INFO.ddgi_volume_header.x, 1);
+    float3 size = float3(voxel_grid + 2) * float3(1, resources.cascadeCount(), 1);
     float3 uv = (float3(wrapped) + frac(cell)) / size;
-    occlusion0 = EE_DDGI_VOXEL_OCCLUSION0.SampleLevel(uv, 0);
-    occlusion1 = EE_DDGI_VOXEL_OCCLUSION1.SampleLevel(uv, 0);
+    occlusion0 = resources.sampleVoxelOcclusion(0, uv);
+    occlusion1 = resources.sampleVoxelOcclusion(1, uv);
   }
   float3 irradiance_sum = float3(0.0f);
   float3 linear_irradiance_sum = float3(0.0f);
@@ -181,7 +188,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
   // Fully blocked valid probes represent darkness, not missing GI that should fall back to the environment.
   if (voxel_occlusion && radiance_weight_sum == 0 && valid_probe_weight_sum > 0 && active_probe_weight_sum > 0) {
     result.coverage = 1;
-    result.confidence = saturate(valid_probe_weight_sum / active_probe_weight_sum);
+    result.confidence = 1;
     result.visibility = 0;
     return result;
   }
@@ -222,4 +229,138 @@ public float3 EE_DDGI_DIFFUSE_RADIANCE(const EeDdgiGatherResult gather_result, c
 }
 public float3 EE_DDGI_WEIGHTED_DIFFUSE(const EeDdgiGatherResult gather_result, const float3 diffuse_albedo) {
   return EE_DDGI_DIFFUSE_RADIANCE(gather_result, diffuse_albedo) * EE_DDGI_GATHER_WEIGHT(gather_result);
+}
+
+public bool EE_DDGI_VOXEL_SEGMENT_VISIBLE<T : IDdgiGatherResources>(T resources, uint cascade, int3 grid,
+                                                                  int3 world_offset, float3 start, float3 end) {
+  if (!resources.voxelGridAvailable()) return false;
+  int3 cell = int3(floor(start));
+  const int3 target = int3(floor(end));
+  const float3 direction = end - start;
+  const int3 step = int3(sign(direction));
+  const float3 delta = 1.0f / max(abs(direction), float3(1e-8f));
+  float3 next = (lerp(start - float3(cell), float3(cell + 1) - start, step > 0)) * delta;
+  next = select(step == 0, float3(1e30f), next);
+  // A one-cell probe neighborhood spans at most 72 voxel faces.
+  for (uint iteration = 0; iteration < 96; ++iteration) {
+    if (any(cell < 0) || any(cell >= grid)) return false;
+    const int3 wrapped = ((cell + world_offset) % grid + grid) % grid;
+    const int3 block = wrapped / 4 + int3(0, cascade * (grid.y / 4), 0);
+    const int3 local = wrapped & 3;
+    const uint bit = uint(local.z * 16 + local.y * 4 + local.x);
+    const uint2 bits = resources.loadVoxelBits(block);
+    if ((bits[bit >> 5] & (1u << (bit & 31))) != 0) return false;
+    if (all(cell == target)) return true;
+    const uint axis = next.x <= next.y && next.x <= next.z ? 0 : (next.y <= next.z ? 1 : 2);
+    cell[axis] += step[axis];
+    next[axis] += delta[axis];
+  }
+  return false;
+}
+
+public EeDdgiGatherResult EE_DDGI_FIND_NEARBY_PROBE<T : IDdgiGatherResources>(
+    T resources, uint cascade, DdgiVolumeInfo volume, float3 normal, float3 view_direction,
+    float3 position, bool gather_linear_irradiance) {
+  EeDdgiGatherResult result = EE_DDGI_EMPTY_GATHER();
+  if (volume.lighting_parameters.x <= 0) return result;
+  const uint3 counts = uint3(volume.probe_counts.xyz);
+  const float3 biased = EE_DDGI_SURFACE_BIASED_POSITION(position, normal, view_direction,
+                                                       volume.volume_parameters.z, volume.volume_parameters.w);
+  const float3 coordinate = EE_DDGI_PROBE_COORDINATE(biased, volume.first_probe.xyz,
+      volume.probe_step_x.xyz, volume.probe_step_y.xyz, volume.probe_step_z.xyz);
+  const int3 base = int3(floor(coordinate));
+  const bool voxel = volume.volume_parameters.x > 0.5f;
+  const int3 grid = int3(counts - 1) * 8;
+  const int3 offset = int3(round(EE_DDGI_PROBE_COORDINATE(volume.first_probe.xyz, float3(0),
+      volume.probe_step_x.xyz, volume.probe_step_y.xyz, volume.probe_step_z.xyz))) * 8;
+  float nearest = 1e30f;
+  for (int z = -1; z <= 2; ++z) for (int y = -1; y <= 2; ++y) for (int x = -1; x <= 2; ++x) {
+    const int3 probe = base + int3(x, y, z);
+    if (any(probe < 0) || any(probe >= int3(counts))) continue;
+    // The ordinary eight probes have already been evaluated, including their occlusion.
+    if (x >= 0 && x <= 1 && y >= 0 && y <= 1 && z >= 0 && z <= 1) continue;
+    const uint index = EE_DDGI_SCROLL_PROBE_INDEX(uint3(probe), volume.probe_scroll_and_priority.xyz, counts);
+    const float4 state = resources.loadProbeState(cascade, index);
+    if (state.w > 0.5f || any(!isfinite(state))) continue;
+    const float3 world = EE_DDGI_PROBE_WORLD_POSITION(float3(probe), volume.first_probe.xyz,
+        volume.probe_step_x.xyz, volume.probe_step_y.xyz, volume.probe_step_z.xyz) + state.xyz;
+    const float3 from_probe = biased - world;
+    const float distance = length(from_probe);
+    if (!isfinite(distance) || distance >= nearest || distance <= 1e-6f) continue;
+    const float2 irradiance_uv = EE_DDGI_ATLAS_UV(index, volume.atlas_parameters.y, volume.atlas_parameters.x,
+        normal, EE_DDGI_ATLAS_SIZE(counts.x * counts.y * counts.z, volume.atlas_parameters.x, volume.atlas_parameters.y));
+    const float4 irradiance = resources.sampleIrradiance(cascade, irradiance_uv);
+    if (any(!isfinite(irradiance)) || irradiance.a <= 0) continue;
+    const float2 visibility_uv = EE_DDGI_ATLAS_UV(index, volume.atlas_parameters.w, volume.atlas_parameters.z,
+        from_probe / distance, EE_DDGI_ATLAS_SIZE(counts.x * counts.y * counts.z, volume.atlas_parameters.z, volume.atlas_parameters.w));
+    const float4 moments = resources.sampleVisibility(cascade, visibility_uv);
+    if (any(!isfinite(moments))) continue;
+    const float visibility = EE_DDGI_CHEBYSHEV_VISIBILITY(moments.rg, distance, volume.volume_parameters.y);
+    // Recovery is conservative: a low-probability distance-moment tail is not a visible fallback.
+    if (!isfinite(visibility) || visibility < 0.99f) continue;
+    if (voxel) {
+      const float3 endpoint = EE_DDGI_PROBE_COORDINATE(world, volume.first_probe.xyz,
+          volume.probe_step_x.xyz, volume.probe_step_y.xyz, volume.probe_step_z.xyz) * 8;
+      if (!EE_DDGI_VOXEL_SEGMENT_VISIBLE(resources, cascade, grid, offset, coordinate * 8,
+                                        clamp(endpoint, float3(0), float3(grid) - 0.0001f))) continue;
+    }
+    nearest = distance;
+    result.irradiance = pow(max(irradiance.rgb, float3(0)), float3(max(volume.probe_counts.w, 1.0f))) * (2 * EE_DDGI_PI);
+    result.linear_irradiance = gather_linear_irradiance ? result.irradiance : float3(0);
+    result.coverage = result.confidence = 1;
+    result.visibility = visibility;
+  }
+  return result;
+}
+
+public EeDdgiGatherResult EE_DDGI_GATHER_CASCADES<T : IDdgiGatherResources>(
+    T resources, float3 normal, float3 view_direction, float3 position, bool gather_linear_irradiance) {
+  EeDdgiGatherResult result = EE_DDGI_EMPTY_GATHER();
+  const uint count = resources.cascadeCount();
+  int last_covering = -1;
+  for (uint cascade = 0; cascade < count; ++cascade)
+    if (EE_DDGI_VOLUME_COVERAGE(resources.volume(cascade), position) > 0) last_covering = int(cascade);
+  if (last_covering < 0) return result;
+  float remaining = 1;
+  float weight_sum = 0;
+  float visibility_sum = 0;
+  for (uint cascade = 0; cascade < count && remaining > 0; ++cascade) {
+    const DdgiVolumeInfo volume = resources.volume(cascade);
+    if (EE_DDGI_VOLUME_COVERAGE(volume, position) <= 0) continue;
+    const float interior = int(cascade) == last_covering ? 1 : 1 - EE_DDGI_VOLUME_BOUNDARY_WEIGHT(volume, position);
+    if (interior <= 0) continue;
+    const EeDdgiGatherResult sample = EE_DDGI_GATHER_VOLUME_IRRADIANCE(
+        resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
+    const float weight = remaining * interior * sample.confidence;
+    result.irradiance += sample.irradiance * weight;
+    result.linear_irradiance += sample.linear_irradiance * weight;
+    visibility_sum += sample.visibility * weight;
+    weight_sum += weight;
+    remaining = max(0.0f, remaining - weight);
+  }
+  if (remaining > 0) {
+    for (uint cascade = 0; cascade < count; ++cascade) {
+      const DdgiVolumeInfo volume = resources.volume(cascade);
+      if (EE_DDGI_VOLUME_COVERAGE(volume, position) <= 0) continue;
+      EeDdgiGatherResult sample = EE_DDGI_GATHER_VOLUME_IRRADIANCE(
+          resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
+      if (sample.confidence <= 0)
+        sample = EE_DDGI_FIND_NEARBY_PROBE(
+            resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
+      if (sample.confidence <= 0) continue;
+      result.irradiance += sample.irradiance * remaining;
+      result.linear_irradiance += sample.linear_irradiance * remaining;
+      visibility_sum += sample.visibility * remaining;
+      weight_sum += remaining;
+      break;
+    }
+  }
+  if (weight_sum > 0) {
+    result.irradiance /= weight_sum;
+    result.linear_irradiance /= weight_sum;
+    result.visibility = visibility_sum / weight_sum;
+  }
+  // Missing data inside coverage stays dark instead of substituting environment diffuse lighting.
+  result.coverage = result.confidence = 1;
+  return result;
 }

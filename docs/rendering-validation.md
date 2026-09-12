@@ -55,8 +55,8 @@ The capture script `EvoEngine_Tests/Rendering/render_demo_capture.py` accepts `-
 views with DDGI occlusion after 600 warmup frames; they skip when Bistro is unavailable. Each has its own baseline.
 The script also accepts Sponza (the default scene), GI settings, and all three camera render modes.
 
-Rendering capture fixtures wait for asynchronous scene setup before selecting their GI provider. RT-enabled captures
-explicitly select Automatic DDGI; the raster-only texture smoke selects Environment, without requiring unavailable DDGI.
+Capture fixtures wait for scene setup before selecting GI. `ConfigureIndirectLightingDebugForCapture(view, pause_ddgi_updates)`
+selects beauty (0), diffuse (1), unoccluded specular (2), specular visibility (3), occluded specular (4), or DDGI blend loss (5).
 
 `RenderingDemo.SdfgiGoldenImage` selects Automatic SDFGI explicitly with RT pipeline, ray query and acceleration
 structures disabled. It captures the same 2560x1440 scene after 1800 warmup frames, checks that SDFGI is effective and
