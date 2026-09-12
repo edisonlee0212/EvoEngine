@@ -9,39 +9,18 @@ Focused guides:
 
 - [Materials and geometry](rendering-materials.md)
 - [Texture access](rendering-texture-access.md)
-- [Dynamic Diffuse Global Illumination](ddgi.md)
+- [Global illumination: DDGI, SDFGI, and HDDAGI](rendering-gi.md)
 - [Reflection probes](reflection-probes.md)
 - [Rendering demos](rendering-demos.md)
 - [Rendering validation](rendering-validation.md)
-- [Rasterization culling results](rasterization-culling-results.md)
 
 ## Architecture
 
 ### Image layouts and synchronization
 
-First-party sampled, storage, attachment and transfer images use `VK_IMAGE_LAYOUT_GENERAL` during GPU access,
-including textures/cubemaps, camera targets, shadows, GI, post-processing, previews and Universe picking.
-Descriptors and rendering attachments declare the same layout. Image creation still uses `UNDEFINED` followed
-by an initialization transition; swapchain images still transition to `PRESENT_SRC_KHR` for presentation.
-The generic low-level transition helper retains support for other legal layouts for external callers.
-
-Render-graph states continue to describe access intent (depth/color writes, shader reads/writes and transfers).
-Equal-layout image barriers are retained with the corresponding stage/access masks and queue ownership rules;
-`GENERAL` is not a replacement for memory synchronization. Depth barrier aspects derive from the image format,
-including when neither adjacent access is an attachment use. This policy does not require unified-image-layout
-extensions and makes no cross-device performance guarantee.
-
-DDGI atlases are initialized and cleared synchronously on allocation before descriptor publication, since the
-deferred prepare pass may not yet be submitted when a consumer sees them. This allocation-only cost does not
-change steady-state update scheduling or history policy.
-
-The motivating validation errors involved camera depth (sampled-read descriptor versus attachment layout),
-SSR motion vectors (GENERAL descriptor versus an explicit read-only transition), and newly published DDGI
-atlases still in UNDEFINED. These are image-state/lifetime issues, not atlas-size or VMA allocation limits.
-
-Validation: 248 focused tests passed. Installed 2560x1440 Sponza runs with editor layers passed Vulkan core/sync
-validation with DDGI enabled (600 iterations) and SDFGI with RT disabled (300 iterations plus capture frames).
-This is focused coverage, not full-suite or cross-device/performance acceptance.
+First-party GPU images use `VK_IMAGE_LAYOUT_GENERAL`. New images transition from `UNDEFINED`; presentation uses
+`PRESENT_SRC_KHR`. Render-graph declarations drive barriers and queue ownership even with equal layouts.
+DDGI atlases are initialized before descriptor publication.
 
 ### Rendering flow
 
@@ -62,49 +41,38 @@ flowchart LR
 | --- | --- |
 | `Camera` | View state, output texture, visible background, requested render technique, ray settings, and post-processing stack. |
 | `Scene` | Renderable entities, lights, the main camera, environmental-lighting reference, and global reflection-probe fallback. |
-| `EnvironmentalLighting` | Indirect GI provider, environment source, DDGI/SDFGI settings, local reflection probes, and fallback intensities. |
+| `EnvironmentalLighting` | Indirect GI provider, shared probe layout, DDGI/SDFGI/HDDAGI settings, environment source, reflection probes, and fallback intensities. |
 | `RenderInstanceStorage` | Immutable per-frame GPU view of geometry, materials, transforms, lights, cameras, environment data, descriptors, and acceleration-structure inputs. |
 | `RenderGraph` | Logical resources, pass ordering, access declarations, transient allocation, and Vulkan barrier planning. |
 | `RenderLayer` | Pipeline creation, frame preparation, shadows, camera rendering, probe work, extension callbacks, diagnostics, and output handoff. |
 
-The renderer produces an immutable render-instance snapshot during frame preparation. Camera passes consume that
-snapshot rather than reading mutable scene components while commands are being recorded. Unchanged rigid renderers under
-a static scene root may reuse cached render-instance records while the frame-local snapshot, visibility, LOD selection,
-and draw lists are still rebuilt for the current cameras.
+Camera passes consume immutable snapshots. Static rigid renderers may reuse records; visibility, LOD, and draw lists
+update each frame.
 
 ## Shader Source Policy
 
-All first-party shaders use native Slang source in `.slang` or `.slangh` files. Use Slang modules and `import` for shared
-code; legacy shader extensions, GLSL compatibility syntax, and textual `#include` directives are rejected before the
-Slang frontend runs. `Extern/` is third-party scope and is exempt from this source policy.
+First-party shaders use `.slang` or `.slangh`, with modules and `import` for shared code. Legacy extensions, GLSL
+compatibility syntax, and textual `#include` are rejected. Third-party `Extern/` code is exempt.
 
 ## Frame Flow
 
 1. The application updates the project, scene, transforms, and layers.
 2. `RenderLayer::PrepareForRendering` gathers render instances and resolves lighting state.
 3. Geometry and textures complete pending uploads; acceleration structures and per-frame descriptors are prepared.
-4. Shared work such as shadows, DDGI updates, and reflection-probe captures is recorded.
+4. Shared work such as shadows, selected GI field updates, and reflection-probe captures is recorded.
 5. Each camera executes its raster, ray-tracing, or ray-query graph.
 6. Post-processing writes the final camera image for the editor, application window, render texture, or capture path.
 
-Frame-slot fences protect resources still used by submitted GPU work. Transient graph resources and replaced renderer
-objects remain alive until their owning slot is recycled.
+Frame-slot fences keep transient resources and replaced renderer objects alive until submitted GPU work finishes.
 
 ## Static Scene Contract
 
-`Scene::SetEntityStatic(entity, true)` marks the entity's root hierarchy static. Static status is a performance contract:
-unchanged rigid `MeshRenderer` records can be reused across frames. Skinned meshes, particles, strands, Gaussian splats,
-external renderers, and API draws remain dynamic, and camera-dependent LOD and visibility are always evaluated per frame.
+`Scene::SetEntityStatic(entity, true)` enables record reuse for unchanged rigid meshes in a root hierarchy.
+Skinned meshes, particles, strands, splats, external renderers, and API draws remain dynamic.
 
-Scene structural APIs invalidate the cache automatically. Editor transform, gizmo, component, and private-component
-edits also notify the renderer when they affect a static hierarchy. Runtime code that directly overrides a static
-transform or renderer field must call `RenderLayer::NotifyStaticEntityChanged(scene, entity)` after the mutation. The
-notification invalidates the affected subtree and reconciles its transforms before the next render snapshot; omitting it
-can leave cached raster and ray inputs stale.
-
-TLAS logical inputs are collected alongside canonical render-instance blocks instead of retraversing every renderer
-collection. Each frame slot retains its acceleration-structure resources. If instance descriptors, transforms, BLAS
-addresses, and BLAS content versions are unchanged, TLAS preparation is an exact reuse with no Vulkan build or update.
+Scene/editor structural edits invalidate caches automatically. Code that directly changes a static transform or renderer
+must call `RenderLayer::NotifyStaticEntityChanged(scene, entity)` afterward. Otherwise raster and ray inputs can remain
+stale. Unchanged TLAS inputs reuse existing acceleration structures; changed inputs trigger the required build or update.
 
 ## Camera Techniques
 
@@ -118,16 +86,111 @@ The resolved technique is reported when it differs from the camera request. Ray 
 evaluation, BSDF logic, environment and emissive sampling, path controls, debug views, and optional outputs. Only their
 traversal adapters differ.
 
-Ray-camera accumulation belongs to each camera. Resizing, technique changes, relevant camera settings, and scene changes
-invalidate the affected history. An unchanged camera continues accumulating samples across frames.
+Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
+unchanged cameras continue accumulating.
+
+### Ray-tracing camera pass flow
+
+```mermaid
+flowchart TD
+  A[Prepared scene, BLAS and TLAS, materials and lights] --> B[Prepare camera accumulation and optional outputs]
+  B --> C[RayTracingCamera: dispatch rays]
+  subgraph T[Inside the ray-tracing pass]
+    C --> D[Ray generation: camera samples]
+    D --> E[Shared integrator: surface and shadow rays]
+    E --> F[Hit and miss shaders: traversal results]
+    F --> G[Material, direct light, emission, environment, next bounce]
+    G -->|Continue path| E
+    G -->|Finish samples| H[Write radiance history, convergence, hit distance and outputs]
+  end
+  H --> I[Optional volumetric clouds]
+  I --> J[Optional Gaussian splats: cull, sort, overlay]
+  J --> K[PostProcessing: bloom and tone mapping]
+  K --> L[Camera output]
+```
+
+### Ray-query camera pass flow
+
+```mermaid
+flowchart TD
+  A[Prepared scene, BLAS and TLAS, materials and lights] --> B[Prepare camera accumulation and optional outputs]
+  B --> C[RayQueryCamera: dispatch compute in 8 by 8 groups]
+  subgraph T[Inside the compute pass]
+    C --> D[Compute threads: camera samples]
+    D --> E[Shared integrator: surface and shadow rays]
+    E --> F[Inline ray queries: candidate and committed hits]
+    F --> G[Material, direct light, emission, environment, next bounce]
+    G -->|Continue path| E
+    G -->|Finish samples| H[Write radiance history, convergence, hit distance and outputs]
+  end
+  H --> I[Optional volumetric clouds]
+  I --> J[Optional Gaussian splats: cull, sort, overlay]
+  J --> K[PostProcessing: bloom and tone mapping]
+  K --> L[Camera output]
+```
+
+Each ray diagram expands one GPU camera pass; bounces and history writes are shader work within that pass.
+Both modes use `CameraRayIntegrator`. They trace indirect lighting directly rather than gathering raster GI fields.
+Optional outputs include albedo, normal, ray count, path length, timing, and debug data.
 
 ## Raster Path
 
-Opaque meshes write only raw geometry attributes and stable IDs into the GBuffer. A separate alpha-masked geometry path
-samples only base-color alpha to determine coverage, then writes the same raw layout. GTAO reads the geometric normal
-before an in-place compute pass evaluates full materials, publishes the resolved G-buffer surface, and writes scene
-color by combining punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion.
-Forward-only and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and
+### Raster camera pass flow
+
+```mermaid
+flowchart TD
+  subgraph S[Shared scene GI updates]
+    S0{GI provider} -->|DDGI| S1{Use Occlusion?}
+    S1 -->|On| S2[Voxelize changes; update occupancy and visibility]
+    S1 -->|Off: no voxel field| S3[DDGI probe rays and histories]
+    S2 --> S3
+    S3 --> S4[Classify; relocate only when occlusion is off]
+    S0 -->|SDFGI| S5[Voxelize; build SDF and occlusion; update lighting]
+    S0 -->|HDDAGI| S6[Voxelize; update occupancy and occlusion; update lighting]
+  end
+  S4 --> A[Updated GI and reflection probes]
+  S5 --> A
+  S6 --> A
+  S0 -->|Environment| A
+  A --> B[Directional shadow maps]
+  B --> C[DeferredGeometry: raw GBuffer and depth]
+  C --> D[MotionVectors and MotionCoverage]
+  D --> E[DepthPyramid]
+  E --> F[AmbientOcclusion: optional GTAO]
+  F --> G{GI provider}
+  G -->|HDDAGI| H[HddagiCameraSurface: normal and roughness]
+  H --> I[HddagiCameraGather: full-resolution GI]
+  I --> J[Optional horizontal and vertical reflection filters]
+  subgraph K[DeferredCamera: material evaluation and lighting]
+    KD[Gather DDGI diffuse: visibility and probe recovery]
+    KS[Gather SDFGI diffuse and specular]
+    KH[Compose HDDAGI camera images]
+    KE[Environment and reflection probes]
+  end
+  G -->|DDGI| KD
+  G -->|SDFGI| KS
+  G -->|Environment or unavailable field| KE
+  J --> KH
+  KD --> L[Optional forward callbacks and volumetric clouds]
+  KS --> L
+  KH --> L
+  KE --> L
+  L --> M[Optional transparent geometry]
+  M --> N[Optional Gaussian splats: cull, sort, render]
+  N --> O[Optional DDGI debug overlays]
+  O --> P[PostProcessing: SSR, bloom, tone mapping, SMAA]
+  P --> Q[Editor selection and optional SDFGI debug view]
+  Q --> R[Camera output]
+```
+
+GI updates and point/spot shadows are shared across cameras. DDGI reuses HDDAGI's voxel visibility structures only with
+occlusion enabled; it builds no SDF or HDDAGI transport history. Classification remains optional and independent.
+`DeferredCamera` branches run within one pass; HDDAGI first prepares camera images. Disabled stages are skipped.
+Reflection captures use a reduced, diffuse-only GI path.
+
+Opaque geometry writes raw attributes and IDs; masked geometry additionally samples base-color alpha for coverage.
+GTAO uses geometric normals before deferred compute evaluates materials, resolves the GBuffer, and combines direct
+lighting, shadows, GI, reflection probes, and AO. Forward/transparent geometry follows, then optional overlays and
 post-processing.
 
 Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
@@ -141,38 +204,21 @@ for material behavior and geometry participation.
 Direct lighting comes from directional, point, and spot lights. Environment and probe inputs are resolved from the scene
 and its `EnvironmentalLighting` asset before rendering.
 
-The asset explicitly selects Environment, Authored DDGI (RT), or the opt-in Automatic SDFGI provider. Automatic SDFGI
-currently has a settings/ownership shell only and uses Environment fallback without allocating a field. See
-[Automatic SDFGI](sdfgi.md) for controls and current implementation status. Inactive DDGI settings and volume packs remain
-authored data but do not drive updates or lighting.
-
-Ray cameras and DDGI sample emissive meshes through a two-level distribution. The first alias table selects a physical
-render instance; the second selects an eligible triangle from a distribution shared by instances with the same geometry
-range and emissive material. Rigid and uniformly scaled copies therefore store the mesh triangles once instead of
-expanding every instance into a flat triangle table. Power sampling combines the instance and triangle probabilities and
-divides by the current world-space triangle area. Uniform sampling remains uniform over the logically expanded eligible
-triangle set by weighting its instance table by each distribution's triangle count.
-
-Translation and rotation reuse both sampling tables, while uniform scale updates only instance-level power. Non-uniform
-and deforming emitters retain exact per-instance triangle distributions. The DDGI inspector reports physical instances,
-shared and fallback distributions, logical and stored triangle counts, and distribution build/upload timings; a large
-fallback count identifies scenes with limited compression. Full emitter transforms remain part of DDGI invalidation even
-when the sampling distribution itself is reusable.
+Choose Environment, Automatic DDGI, Automatic SDFGI (default), or Automatic HDDAGI. The selected automatic provider
+updates a shared camera-anchored field; unsupported or unready coverage uses Environment fallback.
+See [Global illumination](rendering-gi.md) for provider differences, controls, update passes, and known limitations.
 
 | Use | Source and control |
 | --- | --- |
 | Visible primary background | The camera background source multiplied by `background_intensity`. |
 | Raster diffuse indirect | Valid irradiance from the selected provider; otherwise the indirect environment source multiplied by `diffuse_fallback_intensity`. |
-| Raster specular indirect | Local reflection probes, then the scene or engine global reflection probe multiplied by `specular_fallback_intensity`. |
+| Raster specular indirect | Selected GI, reflection probes, and environment fallback; local probes and SSR retain composition priority. |
 | Ray-camera environment events | The indirect environment source multiplied by `environment_lighting_intensity`. |
 | Reflection-probe capture background | The authored bake background, with inherited environment radiance multiplied by `environment_lighting_intensity`. |
 
 All three environmental-lighting intensities default to `1.0`. Visible camera backgrounds are independent from indirect
 lighting. Ray cameras do not use raster diffuse or specular fallback intensities, and they do not use the scene-global
 prefiltered reflection probe as their environment radiance source.
-
-DDGI provides diffuse irradiance only. Local and global reflection probes provide raster specular image-based lighting.
-Valid DDGI visibility may reduce rough probe leakage, but DDGI irradiance does not replace a valid local probe.
 
 ## Shadows And Post-Processing
 
@@ -187,14 +233,8 @@ Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, b
 effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
 resources and temporal histories are camera-owned. Assets must use the current flat GTAO and SMAA schemas.
 
-Bloom exposes **Compression start** (default 2) and **Source ceiling** (default 8) in linear HDR bloom-source units.
-After threshold/soft-knee extraction, each sampled contribution is limited before the initial downsample accumulation.
-Below the start, brightness is unchanged; above it, a bounded rational curve smoothly approaches the ceiling.
-The maximum RGB channel determines brightness, and RGB is scaled uniformly to preserve color ratios.
-The scene's original HDR color/emission is untouched. This replaces the old per-channel hard clamp at 20.
-Setting the start equal to the ceiling gives a hard cap; a zero ceiling suppresses bloom. Final bloom intensity and
-threshold/knee remain independent controls. Mip contributions still add during upsampling, so this limits the bloom
-source, not the final composited halo. The settings serialize with the stack; older assets use the new defaults.
+Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
+preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
 
 ## Geometry And Optional Features
 
@@ -223,3 +263,6 @@ example, DDGI requires compatible triangle acceleration-structure and offset dat
 
 Start with `RenderLayer`, `Camera`, `RenderGraph`, and `RenderInstanceStorage` in `EvoEngine_SDK`. Material and lighting
 shader modules live under `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine`.
+
+The camera flows follow `RenderLayer::RenderToCamera`, `RenderLayer::RenderToCameraRayTracing`,
+`HddagiCameraFrame::AddPasses`, and `PostProcessingStack::Process` / `ProcessRayCamera`.

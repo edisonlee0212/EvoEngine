@@ -45,6 +45,7 @@ void SetRenderingRegressionSecondaryGeometryMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene);
+void ConfigureBistroCaptureView(const std::shared_ptr<Scene>& scene, const std::string& view);
 void ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera);
 void ConfigureBistroParityCapture(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera);
 void LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera, int width,

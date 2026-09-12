@@ -11,6 +11,7 @@ struct EVOENGINE_API GiSettings {
   SdfgiSettings sdfgi_settings;
   DdgiSettings ddgi_settings;
   HddagiSettings hddagi_settings{};
+  bool use_occlusion = true;
 
   [[nodiscard]] bool operator==(const GiSettings& other) const;
   [[nodiscard]] std::string Validate(bool device_limits = true) const;

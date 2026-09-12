@@ -26,7 +26,6 @@ def main():
     parser.add_argument("--provider", choices=("Hddagi", "Sdfgi", "Ddgi"), required=True)
     parser.add_argument("--frames", type=int, default=300)
     parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--full-resolution", action="store_true")
     parser.add_argument("--workloads", nargs="+", default=["stationary", "slow", "fast", "geometry", "material", "light"],
                         choices=("stationary", "slow", "fast", "geometry", "material", "light"))
     args = parser.parse_args()
@@ -65,7 +64,6 @@ def main():
         engine.ResizeCurrentSceneCameraForCapture(2560, 1440)
         settings = engine.GetCurrentSceneGiSettings()
         settings.provider = getattr(engine.IndirectGiProvider, "Automatic" + args.provider)
-        settings.hddagi.half_resolution = not args.full_resolution
         engine.SetCurrentSceneGiSettings(settings)
         engine.SetGpuTimingCaptureEnabled(True)
         for _ in range(600):

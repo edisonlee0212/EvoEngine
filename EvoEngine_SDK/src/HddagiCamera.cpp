@@ -124,7 +124,7 @@ std::shared_ptr<HddagiCameraFrame> HddagiCameraFrame::Create(
   auto& field = *runtime.resources;
   auto frame = std::make_shared<HddagiCameraFrame>();
   frame->filter_reflections = field.settings.filter_reflections && !reflection_capture;
-  const auto layout = BuildHddagiCameraLayout(viewport, field.settings.half_resolution);
+  const auto layout = BuildHddagiCameraLayout(viewport);
   const auto max_dimension = Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D;
   if (layout.viewport.x > max_dimension || layout.viewport.y > max_dimension)
     throw std::invalid_argument("HDDAGI camera dimensions exceed the device limit");

@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import shutil
 import sys
@@ -11,6 +12,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-resources-root", required=True)
     parser.add_argument("--test-resources-root", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--scene", choices=("sponza", "bistro"), default="sponza")
+    parser.add_argument("--view", choices=("default", "doorway"), default="default")
     parser.add_argument("--width", type=int, default=320)
     parser.add_argument("--height", type=int, default=240)
     parser.add_argument("--warmup-frames", type=int, default=60)
@@ -31,9 +34,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--indirect", choices=("enabled", "disabled"))
     parser.add_argument("--ray-features", choices=("enabled", "disabled"), default="enabled")
     parser.add_argument("--gi-provider", choices=("ddgi", "sdfgi", "environment"))
+    parser.add_argument("--gi-occlusion", choices=("enabled", "disabled"))
     parser.add_argument("--texture-lifecycle-stress", action="store_true")
     parser.add_argument("--secondary-camera-output")
     parser.add_argument("--expect-stable-texture-registrations", action="store_true")
+    parser.add_argument("--sdfgi-debug-views", action="store_true")
     return parser.parse_args()
 
 
@@ -68,7 +73,26 @@ def main() -> int:
     if gi_provider == "ddgi" and args.ray_features == "disabled":
         raise ValueError("DDGI capture requires ray features")
 
-    copy_rendering_assets(source_resources_root, test_resources_root)
+    if args.scene == "sponza" and args.view != "default":
+        raise ValueError("The doorway view requires --scene bistro")
+    if test_resources_root == source_resources_root or source_resources_root.is_relative_to(test_resources_root):
+        raise ValueError("Test resources must be isolated from source resources")
+    if args.scene == "bistro":
+        relative_project = Path(".generated/EvoEngine-DemoProjects/Bistro")
+        source_project = source_resources_root / relative_project
+        target_project = (test_resources_root / relative_project).resolve()
+        if not target_project.is_relative_to(test_resources_root):
+            raise ValueError("Bistro test project must remain inside test resources")
+        if not (source_project / "Assets/Models/Bistro/bistro.gltf").is_file():
+            raise FileNotFoundError("Prepare Bistro assets with Scripts/prepare_demos.py before capturing")
+        if target_project.exists():
+            shutil.rmtree(target_project)
+        shutil.copytree(source_project / "Assets/Models", target_project / "Assets/Models")
+        (target_project / "Bistro.eveproj").write_text(
+            "application_name: Bistro\npreferred_editor: EvoEngineEditor\nstartup_runtime_packages: []\n"
+        )
+    else:
+        copy_rendering_assets(source_resources_root, test_resources_root)
 
     os.chdir(module_dir)
     sys.path.insert(0, str(module_dir))
@@ -77,7 +101,8 @@ def main() -> int:
 
     try:
         if not evoengine.RunDemoWindowless(
-            "Rendering", test_resources_root, True, args.ray_features == "enabled"
+            "Bistro" if args.scene == "bistro" else "Rendering",
+            test_resources_root, args.scene != "bistro", args.ray_features == "enabled"
         ):
             raise RuntimeError("RunDemoWindowless failed")
         if not evoengine.SharedTextureDescriptorArraysEnabled():
@@ -109,6 +134,13 @@ def main() -> int:
             "environment": evoengine.IndirectGiProvider.Environment,
         }[gi_provider]
         evoengine.SetCurrentSceneGiProvider(provider)
+        if args.gi_occlusion is not None:
+            settings = evoengine.GetCurrentSceneGiSettings()
+            settings.use_occlusion = args.gi_occlusion == "enabled"
+            evoengine.SetCurrentSceneGiSettings(settings)
+        if gi_provider == "sdfgi":
+            debug = evoengine.GetCurrentSceneSdfgiDebug()
+            debug.seed = 0
         for _ in range(2):
             if not evoengine.Loop():
                 raise RuntimeError("Rendering demo ended during frame-slot warmup")
@@ -130,7 +162,12 @@ def main() -> int:
             args.width, args.height
         ):
             raise RuntimeError("Failed to configure secondary capture camera")
+        if args.scene == "bistro":
+            evoengine.ConfigureBistroCaptureView(args.view)
         capture_frames = args.accumulation_frames or args.warmup_frames
+        if gi_provider == "sdfgi":
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.with_suffix(".before.yaml").write_text(evoengine.GetCurrentSceneSdfgiSnapshot())
         if not evoengine.CaptureCurrentScene(
             args.width,
             args.height,
@@ -141,6 +178,16 @@ def main() -> int:
         ):
             raise RuntimeError("CaptureCurrentScene failed")
         gi_status = evoengine.GetCurrentSceneGiStatus()
+        gi_status["capture_scene"] = args.scene
+        gi_status["capture_view"] = args.view
+        gi_status["capture_camera_position"] = evoengine.GetCurrentSceneCameraPositionForCapture()
+        output.with_suffix(".json").write_text(json.dumps(gi_status, indent=2))
+        if gi_provider == "ddgi" and args.gi_occlusion == "enabled" and (
+            not gi_status["ddgi_voxel_occlusion_active"] or gi_status["ddgi_relocation_enabled"]
+        ):
+            raise RuntimeError("DDGI voxel occlusion is inactive or relocation is still enabled")
+        if gi_provider == "sdfgi":
+            output.with_suffix(".after.yaml").write_text(evoengine.GetCurrentSceneSdfgiSnapshot())
         print(
             f"EVOENGINE_GI_CAPTURE requested={gi_status['requested_provider']} "
             f"effective={gi_status['effective_provider']} transport_pass={gi_status['transport_pass']}"
@@ -149,6 +196,19 @@ def main() -> int:
             gi_status["effective_provider"] != "Automatic SDFGI" or not gi_status["transport_pass"]
         ):
             raise RuntimeError("SDFGI capture did not update its lighting field")
+        if gi_provider == "sdfgi" and args.sdfgi_debug_views:
+            debug.enabled = True
+            debug.frozen = True
+            evoengine.SelectMainCameraForSdfgiDebug()
+            for view in ("Diffuse", "Specular", "Fallback"):
+                debug.view = getattr(evoengine.SdfgiDebugView, view)
+                for _ in range(4):
+                    if not evoengine.Loop():
+                        raise RuntimeError("Rendering demo ended during SDFGI diagnostic capture")
+                evoengine.CaptureCurrentSceneSdfgiDebug(output.with_name(f"{output.stem}-{view}.png"))
+            debug.view = evoengine.SdfgiDebugView.Beauty
+            debug.frozen = False
+            debug.enabled = False
         if args.secondary_camera_output and not evoengine.CaptureSecondarySceneCamera(
             Path(args.secondary_camera_output).resolve()
         ):

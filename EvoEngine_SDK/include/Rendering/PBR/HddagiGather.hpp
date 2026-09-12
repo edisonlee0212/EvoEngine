@@ -14,7 +14,7 @@ struct alignas(16) HddagiGatherData {
   float y_mult = 1;
   float normal_bias = 1.1f;
   float reflection_bias = 2;
-  float occlusion_bias = 0.1f;
+  uint32_t use_occlusion = 1;
   uint32_t blend_ambient = 1;
 };
 static_assert(sizeof(HddagiGatherData) == 320);
@@ -26,7 +26,7 @@ struct HddagiCameraLayout {
   uint32_t reflection_filter_radius = 12;
 };
 
-EVOENGINE_API HddagiCameraLayout BuildHddagiCameraLayout(glm::uvec2 viewport, bool half_resolution);
+EVOENGINE_API HddagiCameraLayout BuildHddagiCameraLayout(glm::uvec2 viewport);
 EVOENGINE_API HddagiGatherData BuildHddagiGatherData(const GiProbeSettings& probes, const HddagiSettings& settings,
                                                      const std::vector<SdfgiCascade>& cascades, glm::vec3 anchor);
 }  // namespace evo_engine

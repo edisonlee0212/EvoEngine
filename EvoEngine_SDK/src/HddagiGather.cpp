@@ -4,12 +4,10 @@
 
 using namespace evo_engine;
 
-HddagiCameraLayout evo_engine::BuildHddagiCameraLayout(const glm::uvec2 viewport, const bool half_resolution) {
+HddagiCameraLayout evo_engine::BuildHddagiCameraLayout(const glm::uvec2 viewport) {
   HddagiCameraLayout layout;
   layout.viewport = glm::max(viewport, glm::uvec2(1));
-  layout.pixel_stride = half_resolution ? 2 : 1;
-  layout.gi = glm::max(layout.viewport / layout.pixel_stride, glm::uvec2(1));
-  layout.reflection_filter_radius = half_resolution ? 6 : 12;
+  layout.gi = layout.viewport;
   return layout;
 }
 
@@ -29,7 +27,7 @@ HddagiGatherData evo_engine::BuildHddagiGatherData(const GiProbeSettings& probes
   data.anchor_origin = anchor;
   data.normal_bias = settings.normal_bias;
   data.reflection_bias = settings.reflection_bias;
-  data.occlusion_bias = settings.occlusion_bias;
+  data.use_occlusion = settings.use_occlusion;
   data.blend_ambient = settings.filter_ambient;
   for (uint32_t c = 0; c < cascades.size(); ++c) {
     const auto& input = cascades[c];

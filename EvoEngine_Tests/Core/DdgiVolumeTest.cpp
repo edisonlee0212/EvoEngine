@@ -2301,13 +2301,8 @@ TEST(DdgiVolume, MultiVolumeGpuContractOwnsEightSlotsAndSumsPerFrameTiming) {
   EXPECT_NE(gather_source.find("EE_DDGI_IRRADIANCE_ATLASES[EE_DDGI_MAX_VOLUME_COUNT]"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_PROBE_STATE_BLOCKS[EE_DDGI_MAX_VOLUME_COUNT]"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_PROBE_STATE_BLOCKS[volume_index][probe_index]"), std::string::npos);
-  EXPECT_NE(gather_source.find("EE_DDGI_VOLUME_BOUNDARY_WEIGHT"), std::string::npos);
+  EXPECT_NE(gather_source.find("EE_DDGI_GATHER_CASCADES(EeDdgiMultiVolumeResources()"), std::string::npos);
   EXPECT_EQ(gather_source.find("preceding_influence_index"), std::string::npos);
-  EXPECT_NE(gather_source.find("EE_DDGI_VOLUME_COVERAGE(volume, position) <= 0.0f"), std::string::npos);
-  EXPECT_NE(gather_source.find("volume.lighting_parameters.x > 0.0f"), std::string::npos);
-  EXPECT_NE(gather_source.find("remaining *= 1.0f - interior"), std::string::npos);
-  EXPECT_NE(gather_source.find("result.confidence = saturate(weight_sum)"), std::string::npos);
-  EXPECT_NE(gather_source.find("float weight = allocation * sample.confidence"), std::string::npos);
   EXPECT_EQ(gather_source.find("nonuniformEXT"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("import EvoEngine.DDGIGatherMulti;"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_DDGI_GATHER_IRRADIANCE("), std::string::npos);

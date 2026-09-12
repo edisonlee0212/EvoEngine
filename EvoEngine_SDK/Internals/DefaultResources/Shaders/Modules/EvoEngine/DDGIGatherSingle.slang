@@ -5,6 +5,18 @@ __exported import EvoEngine.DDGIGather;
 [[vk::binding(1, 2)]] public StructuredBuffer<float4, Std430DataLayout> EE_DDGI_PROBE_STATE;
 
 struct EeDdgiSingleVolumeResources : IDdgiGatherResources {
+  uint cascadeCount() { return min(EE_RENDER_INFO.ddgi_volume_header.x, EE_DDGI_MAX_VOLUME_COUNT); }
+  DdgiVolumeInfo volume(uint index) { return EE_RENDER_INFO.ddgi_volumes[index]; }
+  float4 sampleVoxelOcclusion(uint plane, float3 uv) {
+    return plane == 0 ? EE_DDGI_VOXEL_OCCLUSION0.SampleLevel(uv, 0) : EE_DDGI_VOXEL_OCCLUSION1.SampleLevel(uv, 0);
+  }
+  bool voxelGridAvailable() {
+    uint width, height, depth;
+    EE_DDGI_VOXEL_BITS.GetDimensions(width, height, depth);
+    return width > 1;
+  }
+  uint2 loadVoxelBits(int3 coordinate) { return EE_DDGI_VOXEL_BITS.Load(int4(coordinate, 0)); }
+
   float4 loadProbeState(uint volume_index, uint probe_index) {
     return EE_DDGI_PROBE_STATE[probe_index];
   }

@@ -5720,6 +5720,32 @@ void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<C
   ConfigureBistroReferenceToneMapping(camera);
 }
 
+void evo_engine::ConfigureBistroCaptureView(const std::shared_ptr<Scene>& scene, const std::string& view) {
+  if (view != "default" && view != "doorway")
+    throw std::invalid_argument("Unknown Bistro capture view: " + view);
+  const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  const auto root = scene ? FindEntityNamed(scene, "Bistro") : std::nullopt;
+  if (!camera || !root)
+    throw std::runtime_error("Bistro capture requires the Bistro scene and a main camera");
+  if (Camera::IsRayCameraRenderMode(camera->camera_render_mode))
+    ConfigureBistroReferenceToneMapping(camera);
+  else
+    ConfigureBistroRasterizationPostProcessing(camera);
+  if (view == "doorway") {
+    const auto root_transform = scene->GetDataComponent<GlobalTransform>(*root).value;
+    const auto position = glm::vec3(root_transform * glm::vec4(-11.0f, 2.0f, 10.8f, 1.0f));
+    const auto target = glm::vec3(root_transform * glm::vec4(-4.0f, 1.8f, 9.0f, 1.0f));
+    const auto up = glm::normalize(glm::vec3(root_transform * glm::vec4(0, 1, 0, 0)));
+    GlobalTransform transform;
+    transform.SetPosition(position);
+    transform.SetRotation(glm::quatLookAt(glm::normalize(target - position), up));
+    transform.SetScale(glm::vec3(1.0f));
+    scene->SetDataComponent(camera->GetOwner(), transform);
+    camera->camera_settings.fov = 120.0f;
+  }
+  camera->ResetFrameCount();
+}
+
 void evo_engine::ConfigureBistroParityCapture(const std::shared_ptr<Scene>& scene,
                                               const std::shared_ptr<Camera>& camera) {
   if (!scene || !camera) {

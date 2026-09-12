@@ -49,8 +49,14 @@ Use `out\install\vs2026-x64\bin\EvoEngineEditor.exe` for installed-runtime check
 
 ## Raster Performance Baseline
 
-Rendering capture fixtures wait for asynchronous scene setup before selecting their GI provider. RT-enabled captures
-explicitly select Automatic DDGI; the raster-only texture smoke selects Environment, without requiring unavailable DDGI.
+The capture script `EvoEngine_Tests/Rendering/render_demo_capture.py` accepts `--scene bistro` with
+`--view default` (exterior) or `--view doorway` (looking into the bar). Prepare Bistro assets first.
+`RenderingDemo.BistroDefaultGoldenImage` and `RenderingDemo.BistroDoorwayGoldenImage` capture 1280x720 raster
+views with DDGI occlusion after 600 warmup frames; they skip when Bistro is unavailable. Each has its own baseline.
+The script also accepts Sponza (the default scene), GI settings, and all three camera render modes.
+
+Capture fixtures wait for scene setup before selecting GI. `ConfigureIndirectLightingDebugForCapture(view, pause_ddgi_updates)`
+selects beauty (0), diffuse (1), unoccluded specular (2), specular visibility (3), occluded specular (4), or DDGI blend loss (5).
 
 `RenderingDemo.SdfgiGoldenImage` selects Automatic SDFGI explicitly with RT pipeline, ray query and acceleration
 structures disabled. It captures the same 2560x1440 scene after 1800 warmup frames, checks that SDFGI is effective and
@@ -62,9 +68,13 @@ targets with the following command, then rerun without `--accept-render-baseline
 python Scripts/test.py --render-only --accept-render-baseline --ctest-arg=-R --ctest-arg="RenderingDemo.(TextureLifecycleStressThenCanonicalRasterGolden|SdfgiGoldenImage)$"
 ```
 
-The raster correctness gate runs one deterministic Rendering demo capture for every combination of meshlet and indirect
-submission. All four cells compare against the same 2560x1440 golden image with PSNR at least 29 dB and SSIM at least
-0.94:
+For SDFGI alone, use `^RenderingDemo.SdfgiGoldenImage$`. The accepted image uses fixed-grid probes with occlusion.
+The pillar/ground seam also occurs with HDDAGI and remains unresolved; baseline acceptance does not fix it.
+SDFGI captures pin seed zero and save `.before.yaml` / `.after.yaml` snapshots and `.json` status.
+`--sdfgi-debug-views` exports frozen diffuse, specular and coverage views after beauty.
+Compare sampling/update state across failures; equal seeds do not establish repeatability.
+
+The raster gate compares all meshlet/indirect combinations against one 2560x1440 golden (PSNR >= 29 dB, SSIM >= 0.94):
 
 | Cell | Meshlet | Indirect |
 | --- | --- | --- |
@@ -77,15 +87,13 @@ submission. All four cells compare against the same 2560x1440 golden image with 
 python Scripts\test.py --render-only --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage
 ```
 
-The meshlet-enabled cells fail when mesh shaders are unavailable instead of silently exercising the indexed path. To
-deliberately refresh the target from the optimized meshlet-enabled, indirect-enabled cell and then verify every cell:
+Meshlet cells require mesh shaders. Refresh from the meshlet-enabled, indirect-enabled cell:
 
 ```powershell
 python Scripts\test.py --render-only --accept-render-baseline --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage
 ```
 
-Only the optimized cell may write the shared target. The other cells always remain comparison-only, including during a
-refresh run. Retain all four emitted PNG artifacts when diagnosing a failure.
+Only that cell writes the baseline. Retain all four PNGs when diagnosing failures.
 
 Use an installed RelWithDebInfo editor, a fixed camera, and the same shader cache for every comparison. The raster
 profile report records CPU frame median/p95 and every named GPU timestamp median/p95 after scene and shader readiness:
@@ -105,10 +113,8 @@ active/update/trace sample counts make DDGI activity explicit; the capture does 
 for DDGI steady state.
 For instrumentation-overhead A/B runs, append `--preview-gpu-timestamps disabled`; profile reports otherwise enable GPU
 timestamps automatically. The report records the effective `capture.gpu_timestamps` state.
-The report intentionally contains only stable measurements: capture metadata, the CPU profiler hierarchy, GPU history
-and timestamps, render-pass draw accounting, DDGI activity, and a fixed `render_path` description. It does not expose
-implementation counters or temporary timing probes. Camera and shadow visibility use the optimized spatially indexed,
-parallel compact-command path; this path is not configurable from the capture CLI.
+The report includes capture metadata, CPU/GPU timing, draw accounting, DDGI activity, and `render_path`.
+Camera and shadow visibility use spatially indexed, parallel command compaction.
 
 Camera indexed commands and mesh-task commands use two persistent arenas. Every camera segment starts at
 `minStorageBufferOffsetAlignment`; deferred draws add its byte offset, so shader command indices remain local.

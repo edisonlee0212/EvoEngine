@@ -6,13 +6,13 @@
 using namespace evo_engine;
 
 TEST(HddagiGather, CameraResolutionAndSharedAnchorMetadata) {
-  const auto half = BuildHddagiCameraLayout({2560, 1440}, true);
-  EXPECT_EQ(half.gi, glm::uvec2(1280, 720));
-  EXPECT_EQ(half.pixel_stride, 2u);
-  EXPECT_EQ(half.reflection_filter_radius, 6u);
-  EXPECT_EQ(BuildHddagiCameraLayout({2561, 1441}, true).gi, half.gi);
-  EXPECT_EQ(BuildHddagiCameraLayout({1, 1}, true).gi, glm::uvec2(1));
-  EXPECT_EQ(BuildHddagiCameraLayout({2561, 1441}, false).gi, glm::uvec2(2561, 1441));
+  const auto full = BuildHddagiCameraLayout({2560, 1440});
+  EXPECT_EQ(full.gi, glm::uvec2(2560, 1440));
+  EXPECT_EQ(full.pixel_stride, 1u);
+  EXPECT_EQ(full.reflection_filter_radius, 12u);
+  EXPECT_EQ(BuildHddagiCameraLayout({2561, 1441}).gi, glm::uvec2(2561, 1441));
+  EXPECT_EQ(BuildHddagiCameraLayout({0, 0}).gi, glm::uvec2(1));
+  EXPECT_EQ(BuildHddagiCameraLayout({1, 1}).gi, glm::uvec2(1));
   GiProbeSettings probes;
   probes.probe_count_x = 25;
   probes.probe_count_y = 11;

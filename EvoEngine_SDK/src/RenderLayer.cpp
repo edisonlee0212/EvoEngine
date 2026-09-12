@@ -1598,6 +1598,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                             RenderInstanceStorage::kDdgiMaxVolumeCount);
     lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, lighting_stages, 0,
                                             RenderInstanceStorage::kDdgiMaxVolumeCount);
+    for (uint32_t plane = 0; plane < 3; ++plane)
+      lighting_layout_->PushDescriptorBinding(
+          22 + plane, plane == 2 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+          lighting_stages, 0);
     lighting_layout_->Initialize();
   }
   if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_layout_) {
@@ -2657,6 +2661,10 @@ void RenderLayer::EnsureDdgiPipelines() {
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
+    for (uint32_t plane = 0; plane < 3; ++plane)
+      ddgi_probe_ray_output_layout_->PushDescriptorBinding(
+          22 + plane, plane == 2 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->Initialize();
   }
   if (!ddgi_probe_update_layout_) {
@@ -3532,9 +3540,9 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
         layout.valid ? glm::uvec4(layout.irradiance_atlas.tile_resolution, layout.irradiance_atlas.columns,
                                   layout.visibility_atlas.tile_resolution, layout.visibility_atlas.columns)
                      : glm::uvec4(1u);
-    gpu_info.volume_parameters =
-        glm::vec4(0.0f, glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
-                  glm::max(ddgi_settings.runtime.normal_bias, 0.001f), glm::max(ddgi_settings.runtime.view_bias, 0.0f));
+    gpu_info.volume_parameters = glm::vec4(
+        resolved_lighting.use_occlusion ? 1.0f : 0.0f, glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
+        glm::max(ddgi_settings.runtime.normal_bias, 0.001f), glm::max(ddgi_settings.runtime.view_bias, 0.0f));
     runtime->contributes_lighting = ddgi_settings.runtime.enabled && runtime->has_valid_probe_history && layout.valid;
     gpu_info.lighting_parameters = glm::vec4(runtime->contributes_lighting ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
     gpu_info.identity_and_flags =
@@ -3716,9 +3724,9 @@ void RenderLayer::PrepareDdgiCascadeFrameState(const std::shared_ptr<Scene>& sce
   const auto effective_max_ray_distance = CalculateDdgiEffectiveMaxRayDistance(ddgi_settings);
   const glm::vec4 trace_parameters{effective_max_ray_distance, glm::max(ddgi_settings.runtime.normal_bias, 0.001f),
                                    static_cast<float>(fixed_ray_count), 0.0f};
-  const glm::vec4 update_parameters{effective_max_ray_distance,
-                                    glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
-                                    glm::max(ddgi_settings.runtime.irradiance_gamma, 1.0f), 0.0f};
+  const glm::vec4 update_parameters{
+      effective_max_ray_distance, glm::max(ddgi_settings.runtime.visibility_moment_bias, 0.0f),
+      glm::max(ddgi_settings.runtime.irradiance_gamma, 1.0f), ddgi_settings.runtime.use_voxel_occlusion ? 1.0f : 0.0f};
   const glm::vec4 probe_state_parameters{glm::max(ddgi_ray_source.relocation_distance, 0.0f),
                                          ddgi_ray_source.enable_probe_relocation ? 1.0f : 0.0f,
                                          ddgi_ray_source.enable_probe_classification ? 1.0f : 0.0f, 0.0f};
@@ -5505,14 +5513,19 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     previous_scene->hddagi_runtime_.reset();
   }
   sdfgi_scene_ = scene;
-  if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+  const bool ddgi_occlusion =
+      lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi && lighting.use_occlusion;
+  if (ddgi_occlusion)
+    lighting.hddagi_settings = {};
+  if (scene && (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi || ddgi_occlusion)) {
     auto& runtime = scene->hddagi_runtime_;
-    if (!runtime || !(runtime->probes == lighting.gi_probe_settings) ||
+    if (!runtime || (runtime->resources && runtime->resources->occlusion_only != ddgi_occlusion) ||
+        !(runtime->probes == lighting.gi_probe_settings) ||
         runtime->settings.history_size != lighting.hddagi_settings.history_size) {
       runtime = std::make_shared<HddagiRuntime>();
       runtime->probes = lighting.gi_probe_settings;
       runtime->settings = lighting.hddagi_settings;
-      runtime->capabilities = QueryHddagiCapabilities(runtime->probes, runtime->settings);
+      runtime->capabilities = QueryHddagiCapabilities(runtime->probes, runtime->settings, ddgi_occlusion);
     }
     runtime->force_full_update |= runtime->settings.probe_bias != lighting.hddagi_settings.probe_bias;
     if (runtime->resources) {
@@ -5535,7 +5548,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     if (runtime->capabilities.Supported() && runtime->frame.failure.empty() && !runtime->allocation_attempted) {
       runtime->allocation_attempted = true;
       std::string failure;
-      runtime->resources = HddagiResources::TryCreate(runtime->probes, runtime->settings, failure);
+      runtime->resources =
+          HddagiResources::TryCreate(runtime->probes, runtime->settings, failure, UINT32_MAX, ddgi_occlusion);
       if (!runtime->resources)
         runtime->capabilities.failure = runtime->fallback_reason = failure;
     }
@@ -5586,7 +5600,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         auto inputs_lighting = lighting;
         auto input_settings = SdfgiSettings{};
         input_settings.probe_spacing_cells = 8;
-        input_settings.static_entities_only = runtime.settings.static_entities_only;
+        input_settings.static_entities_only = !ddgi_occlusion && runtime.settings.static_entities_only;
         inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
         const auto snapshot = SnapshotSdfgiScene(scene, inputs_lighting);
         runtime.contributors.Update(snapshot.contributors);
@@ -5614,7 +5628,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           }
         }
         runtime.transport_failure.clear();
-        if (runtime.voxel_failure.empty() && !runtime.cascades.empty()) {
+        if (!ddgi_occlusion && runtime.voxel_failure.empty() && !runtime.cascades.empty()) {
           try {
             const auto& voxel_frame = resources->voxel_frames[current_frame_index];
             const uint32_t written = voxel_frame ? voxel_frame->written_cascades : 0;
@@ -6035,6 +6049,57 @@ void RenderLayer::RenderAll() {
     aggregate.lighting_descriptors_bound &= volume_stats.lighting_descriptors_bound;
   };
 
+  const bool scene_prepared = ddgi_settings.runtime.enabled && ddgi_settings.runtime.use_voxel_occlusion;
+  if (scene_prepared)
+    ExecuteSceneFramePasses(scene);
+  if (!ddgi_atlas_sampler_)
+    ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
+  for (uint32_t kind = 0; kind < 2; ++kind) {
+    if (ddgi_occlusion_fallback_[kind])
+      continue;
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_3D;
+    info.format = kind == 0 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R32G32_UINT;
+    info.extent = {1, 1, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ddgi_occlusion_fallback_[kind] = std::make_shared<Image>(info);
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+      ddgi_occlusion_fallback_[kind]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      Platform::ClearColorImage(command, *ddgi_occlusion_fallback_[kind], VkClearColorValue{}, 1, &range);
+      ddgi_occlusion_fallback_[kind]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+    });
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = ddgi_occlusion_fallback_[kind]->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_3D;
+    view.format = info.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    ddgi_occlusion_fallback_view_[kind] = std::make_shared<ImageView>(view, ddgi_occlusion_fallback_[kind]);
+  }
+  const auto voxel_runtime = scene ? scene->GetHddagiRuntime() : nullptr;
+  const auto voxel_field = scene_prepared && voxel_runtime && voxel_runtime->resources &&
+                                   voxel_runtime->resources->occlusion_only && voxel_runtime->frame.failure.empty() &&
+                                   voxel_runtime->voxel_failure.empty() &&
+                                   voxel_runtime->resources->voxelization_recorded
+                               ? voxel_runtime->resources
+                               : nullptr;
+  std::array<VkDescriptorImageInfo, 3> ddgi_voxel_occlusion{};
+  for (uint32_t plane = 0; plane < 3; ++plane) {
+    auto& info = ddgi_voxel_occlusion[plane];
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    info.sampler = ddgi_atlas_sampler_->GetVkSampler();
+    info.imageView = voxel_field
+                         ? voxel_field->images.at(plane == 2 ? "VoxelBits" : "Occlusion" + std::to_string(plane))
+                               .sampled->GetVkImageView()
+                         : ddgi_occlusion_fallback_view_[plane == 2 ? 1 : 0]->GetVkImageView();
+    if (plane == 2)
+      info.sampler = VK_NULL_HANDLE;
+    if (lighting_descriptor_set)
+      lighting_descriptor_set->UpdateImageDescriptorBinding(22 + plane, info);
+  }
   std::array<DdgiProbeTracePass::CascadeResources, 8> ddgi_cascade_resources{};
   const auto prepare_ddgi_cascade = [&](DdgiCascadeRuntimeState& runtime, const uint32_t cascade) {
     if (!runtime.frame_resource_layout.valid || !runtime.irradiance_atlas || !runtime.visibility_atlas ||
@@ -6198,7 +6263,7 @@ void RenderLayer::RenderAll() {
                           ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
                           ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
                           use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count,
-                          ddgi_cascade_resources});
+                          ddgi_cascade_resources, ddgi_voxel_occlusion});
           });
       frame_render_graph.AddPass(
           DdgiProbeUpdatePass::CreateDescriptor(use_emissive_sampling),
@@ -6405,7 +6470,8 @@ void RenderLayer::RenderAll() {
       }
     }
   }
-  ExecuteSceneFramePasses(scene);
+  if (!scene_prepared)
+    ExecuteSceneFramePasses(scene);
   PreparePointAndSpotLightShadowMap();
   std::shared_ptr<Camera> preferred_shadow_camera;
   const auto can_render_directional_shadows = [](const std::shared_ptr<Camera>& camera) {

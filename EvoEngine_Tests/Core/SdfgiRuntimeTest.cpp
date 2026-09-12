@@ -153,23 +153,16 @@ TEST(GiProbes, FrameSnapshotIsIndependentOfAdditionalCameraCalls) {
   EXPECT_NE(frame.placements[0].first_probe, first);
 }
 
-TEST(SdfgiRelocation, DefaultMigrationRoundTripAndLayoutReset) {
-  SdfgiSettings settings;
-  EXPECT_FALSE(settings.probe_relocation);
+TEST(SdfgiSettings, IgnoresLegacyRelocationAndDefaultsToOcclusion) {
   for (const bool enabled : {true, false}) {
-    settings.probe_relocation = enabled;
-    EXPECT_EQ(settings == SdfgiSettings{}, !enabled);
-    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), !enabled);
-    EXPECT_EQ(settings.ProbeSize(), SdfgiSettings{}.ProbeSize());
+    SdfgiSettings settings;
+    DeserializeSdfgiSettings(YAML::Load(enabled ? "probe_relocation: true" : "probe_relocation: false"), settings);
+    EXPECT_EQ(settings, SdfgiSettings{});
+    EXPECT_TRUE(settings.use_occlusion);
     YAML::Emitter out;
     SerializeSdfgiSettings(out, settings);
-    SdfgiSettings loaded;
-    DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
-    EXPECT_EQ(loaded, settings);
+    EXPECT_FALSE(YAML::Load(out.c_str())["probe_relocation"]);
   }
-  settings.probe_relocation = true;
-  DeserializeSdfgiSettings(YAML::Load("{}"), settings);
-  EXPECT_FALSE(settings.probe_relocation);
 }
 
 TEST(SdfgiDensity, LayoutBudgetAndPackingCoverAllChoices) {
@@ -1388,7 +1381,6 @@ TEST(HddagiSettings, ReferenceDefaultsLayoutAndInactiveValidation) {
   GiSettings settings;
   EXPECT_EQ(static_cast<uint32_t>(IndirectGiProvider::AutomaticHddagi), 3u);
   EXPECT_EQ(settings.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
-  EXPECT_TRUE(settings.hddagi_settings.half_resolution);
   EXPECT_TRUE(settings.hddagi_settings.filter_probes);
   EXPECT_TRUE(settings.hddagi_settings.filter_ambient);
   EXPECT_FALSE(settings.hddagi_settings.filter_reflections);
@@ -1423,7 +1415,6 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
   lighting.hddagi_settings.history_size = 24;
   lighting.hddagi_settings.light_update_frames = 8;
-  lighting.hddagi_settings.half_resolution = false;
   lighting.hddagi_settings.filter_probes = false;
   lighting.hddagi_settings.filter_ambient = false;
   lighting.hddagi_settings.filter_reflections = true;
@@ -1434,7 +1425,8 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   lighting.hddagi_settings.normal_bias = 0.4f;
   lighting.hddagi_settings.probe_bias = 0.6f;
   lighting.hddagi_settings.reflection_bias = 0.8f;
-  lighting.hddagi_settings.occlusion_bias = 0.2f;
+  lighting.use_occlusion = false;
+  lighting.hddagi_settings.use_occlusion = false;
   YAML::Emitter out;
   out << YAML::BeginMap;
   SerializeEnvironmentalLighting(out, lighting);
@@ -1460,4 +1452,34 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   EXPECT_FALSE(restored.TrySetGiSettings(invalid, error));
   EXPECT_FALSE(error.empty());
   EXPECT_EQ(restored.GetGiSettings(), previous);
+}
+
+TEST(HddagiSettings, IgnoresRemovedHalfResolutionInLegacyAssets) {
+  for (const auto value : {"true", "false"}) {
+    HddagiSettings settings;
+    DeserializeHddagiSettings(YAML::Load(std::string("half_resolution: ") + value + "\nenergy: 2.5"), settings);
+    EXPECT_FLOAT_EQ(settings.energy, 2.5f);
+    YAML::Emitter out;
+    SerializeHddagiSettings(out, settings);
+    EXPECT_FALSE(YAML::Load(out.c_str())["half_resolution"]);
+  }
+}
+
+TEST(HddagiSettings, OcclusionCheckboxAndLegacyBiasMigration) {
+  EXPECT_TRUE(HddagiSettings{}.use_occlusion);
+  for (const auto value : {0.0f, 0.1f, 1.0f}) {
+    HddagiSettings settings;
+    DeserializeHddagiSettings(YAML::Load("occlusion_bias: " + std::to_string(value)), settings);
+    EXPECT_EQ(settings.use_occlusion, value < 1.0f);
+    YAML::Emitter out;
+    SerializeHddagiSettings(out, settings);
+    const auto saved = YAML::Load(out.c_str());
+    EXPECT_FALSE(saved["occlusion_bias"]);
+    EXPECT_EQ(saved["use_occlusion"].as<bool>(), settings.use_occlusion);
+  }
+  HddagiSettings settings;
+  DeserializeHddagiSettings(YAML::Load("occlusion_bias: 0.0\nuse_occlusion: false"), settings);
+  EXPECT_FALSE(settings.use_occlusion);
+  DeserializeHddagiSettings(YAML::Load("occlusion_bias: 1.0\nuse_occlusion: true"), settings);
+  EXPECT_TRUE(settings.use_occlusion);
 }

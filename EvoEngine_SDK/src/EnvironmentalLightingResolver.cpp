@@ -170,6 +170,10 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
   resolved.gi_probe_settings = lighting.gi_probe_settings;
   resolved.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
   resolved.hddagi_settings = lighting.hddagi_settings;
+  resolved.use_occlusion = lighting.use_occlusion;
+  resolved.sdfgi_settings.use_occlusion = resolved.hddagi_settings.use_occlusion = resolved.use_occlusion;
+  resolved.ddgi_settings.runtime.enable_probe_relocation &= !resolved.use_occlusion;
+  resolved.ddgi_settings.runtime.use_voxel_occlusion = resolved.use_occlusion;
   resolved.ddgi_settings.runtime.enabled = lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi;
   auto dynamic_settings = lighting.dynamic_reflection_probe_settings;
   dynamic_settings.Clamp();

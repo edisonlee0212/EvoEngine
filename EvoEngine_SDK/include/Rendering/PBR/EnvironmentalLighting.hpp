@@ -77,6 +77,7 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings{};
   HddagiSettings hddagi_settings{};
+  bool use_occlusion = true;
   bool local_reflection_probes_enabled = true;
   AssetRef reflection_probe_pack;
 

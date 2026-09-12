@@ -43,6 +43,8 @@ struct RenderCaptureCase {
   bool indirect_enabled = false;
   bool baseline_reference = false;
   const char* gi_provider = nullptr;
+  const char* scene = "sponza";
+  const char* view = "default";
 };
 
 constexpr std::array<RenderCaptureCase, 4> kRasterPathMatrix{{
@@ -351,7 +353,13 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable
       std::filesystem::path(EVOENGINE_TEST_SCRIPT_DIR) / "Baselines" / capture.baseline_file_name;
 
   ASSERT_TRUE(std::filesystem::exists(script_path));
-  ASSERT_TRUE(std::filesystem::exists(source_resources_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets"));
+  if (std::string(capture.scene) == "bistro") {
+    if (!std::filesystem::exists(source_resources_root /
+                                 ".generated/EvoEngine-DemoProjects/Bistro/Assets/Models/Bistro/bistro.gltf"))
+      GTEST_SKIP() << "Prepare Bistro with Scripts/prepare_demos.py before running Bistro captures";
+  } else {
+    ASSERT_TRUE(std::filesystem::exists(source_resources_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets"));
+  }
 
   std::string command = Quote(EVOENGINE_TEST_PYTHON_EXECUTABLE);
   command += " " + Quote(script_path);
@@ -359,6 +367,7 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable
   command += " --source-resources-root " + Quote(source_resources_root);
   command += " --test-resources-root " + Quote(test_resources_root);
   command += " --output " + Quote(output_path);
+  command += " --scene " + std::string(capture.scene) + " --view " + capture.view;
   command += " --width " + std::to_string(capture.width) + " --height " + std::to_string(capture.height);
   command += " --render-mode " + std::string(capture.render_mode);
   command += " --samples-per-frame " + std::to_string(capture.samples_per_frame);
@@ -367,6 +376,8 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable
   if (capture.gi_provider) {
     command += " --gi-provider " + std::string(capture.gi_provider);
   }
+  if (enable_ray_features && (!capture.gi_provider || std::string(capture.gi_provider) == "ddgi"))
+    command += std::string(" --gi-occlusion ") + (std::string(capture.scene) == "bistro" ? "enabled" : "disabled");
   if (texture_lifecycle_stress) {
     command += " --texture-lifecycle-stress";
   }
@@ -426,6 +437,48 @@ TEST(RenderingDemo, RasterOnlyBindlessTextureSmoke) {
 
 TEST(RenderingDemo, SdfgiGoldenImage) {
   RunRenderingDemoCapture(kSdfgiCapture, false);
+}
+
+TEST(RenderingDemo, BistroDefaultGoldenImage) {
+  const RenderCaptureCase capture{"Rasterization",
+                                  "bistro_default.png",
+                                  "RenderingDemo.BistroDefault.png",
+                                  "RenderingDemo.BistroDefault.png",
+                                  1280,
+                                  720,
+                                  600,
+                                  0,
+                                  4,
+                                  4,
+                                  false,
+                                  false,
+                                  false,
+                                  true,
+                                  "ddgi",
+                                  "bistro",
+                                  "default"};
+  RunRenderingDemoCapture(capture);
+}
+
+TEST(RenderingDemo, BistroDoorwayGoldenImage) {
+  const RenderCaptureCase capture{"Rasterization",
+                                  "bistro_doorway.png",
+                                  "RenderingDemo.BistroDoorway.png",
+                                  "RenderingDemo.BistroDoorway.png",
+                                  1280,
+                                  720,
+                                  600,
+                                  0,
+                                  4,
+                                  4,
+                                  false,
+                                  false,
+                                  false,
+                                  true,
+                                  "ddgi",
+                                  "bistro",
+                                  "doorway"};
+  RunRenderingDemoCapture(capture);
 }
 
 TEST(RenderingDemo, TextureLifecycleStressThenCanonicalRasterGolden) {

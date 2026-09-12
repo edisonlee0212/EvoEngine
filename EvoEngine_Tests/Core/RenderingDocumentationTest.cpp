@@ -13,8 +13,13 @@
 
 namespace {
 const std::vector<std::filesystem::path> kRenderingGuides = {
-    "docs/rendering.md",         "docs/rendering-materials.md", "docs/rendering-texture-access.md", "docs/ddgi.md",
-    "docs/reflection-probes.md", "docs/rendering-demos.md",     "docs/rendering-validation.md",
+    "docs/rendering.md",
+    "docs/rendering-materials.md",
+    "docs/rendering-texture-access.md",
+    "docs/rendering-gi.md",
+    "docs/reflection-probes.md",
+    "docs/rendering-demos.md",
+    "docs/rendering-validation.md",
 };
 
 std::filesystem::path RepoPath(const std::filesystem::path& relative_path) {
