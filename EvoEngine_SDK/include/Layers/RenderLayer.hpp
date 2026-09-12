@@ -664,6 +664,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::string ddgi_cascade_set_validation_error_{};
   mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
   mutable std::shared_ptr<Sampler> ddgi_atlas_sampler_;
+  std::shared_ptr<Image> ddgi_occlusion_fallback_;
+  std::shared_ptr<ImageView> ddgi_occlusion_fallback_view_;
   friend class Platform;
   friend class Resources;
   friend class Camera;

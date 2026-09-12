@@ -253,7 +253,8 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(bistro_source.find("ConfigureEnvironmentalLightingMapSource(*lighting, "
                                "Resources::GetInstance().GetDefaultEnvironmentalMap(), 1.0f"),
             std::string::npos);
-  EXPECT_NE(demo_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f)"),
+  EXPECT_NE(bistro_source.find("Resources::GetInstance().GetDefaultEnvironmentalMap(), 1.0f,\n"
+                               "                                            0.0f)"),
             std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.environment_type"), std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.indirect_lighting_intensity"), std::string::npos);

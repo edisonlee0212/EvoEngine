@@ -116,6 +116,9 @@ void LogSampledTextureDiagnostics(const std::shared_ptr<RenderLayer>& render_lay
 }
 
 DemoSetup ParseDemoSetupName(const std::string& demo_setup_name) {
+  if (demo_setup_name == "Bistro") {
+    return DemoSetup::Bistro;
+  }
   if (demo_setup_name == "Rendering") {
     return DemoSetup::Rendering;
   }
@@ -488,6 +491,9 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("ExerciseTextureLifecycleForCapture", &ExerciseTextureLifecycleForCapture);
   m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
         py::arg("samples_per_frame"), py::arg("bounces"));
+  m.def("ConfigureBistroCaptureView", [](const std::string& view) {
+    ConfigureBistroCaptureView(ApplicationContext::Get().GetActiveScene(), view);
+  });
   m.def("ConfigureSecondarySceneCameraForCapture", &ConfigureSecondarySceneCameraForCapture, py::arg("resolution_x"),
         py::arg("resolution_y"));
   m.def("ConfigureRasterPathForCapture", &ConfigureRasterPathForCapture, py::arg("meshlet_enabled"),
@@ -652,6 +658,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def(py::init<>())
       .def_readwrite("probes", &GiSettings::gi_probe_settings)
       .def_readwrite("provider", &GiSettings::indirect_gi_provider)
+      .def_readwrite("use_occlusion", &GiSettings::use_occlusion)
       .def_readwrite("sdfgi", &GiSettings::sdfgi_settings)
       .def_readwrite("ddgi", &GiSettings::ddgi_settings)
       .def_readwrite("hddagi", &GiSettings::hddagi_settings)
@@ -706,6 +713,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       throw py::value_error("Probe spacing must be 4 or 8 cells");
     auto candidate = lighting->GetGiSettings();
     candidate.sdfgi_settings = settings;
+    candidate.use_occlusion = settings.use_occlusion;
     std::string error;
     if (!lighting->TrySetGiSettings(candidate, error))
       throw py::value_error(error);
@@ -941,7 +949,12 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     }
     result["requested_provider"] = GetIndirectGiProviderName(lighting.indirect_gi_provider);
     const auto hddagi = scene ? scene->GetHddagiRuntime() : nullptr;
-    result["hddagi_state_active"] = hddagi != nullptr;
+    result["hddagi_state_active"] = hddagi && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi;
+    result["use_occlusion"] = lighting.use_occlusion;
+    result["ddgi_relocation_enabled"] = lighting.ddgi_settings.runtime.enable_probe_relocation;
+    result["ddgi_voxel_occlusion_active"] = hddagi && hddagi->resources && hddagi->resources->occlusion_only;
+    result["ddgi_voxel_occlusion_bytes"] =
+        hddagi && hddagi->resources && hddagi->resources->occlusion_only ? hddagi->resources->AllocationBytes() : 0;
     py::list hddagi_cameras;
     if (hddagi && hddagi->resources)
       for (const auto& [id, images] : hddagi->resources->camera_images) {

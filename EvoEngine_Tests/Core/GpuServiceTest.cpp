@@ -6805,90 +6805,93 @@ TEST(HddagiLighting, OcclusionSeparatesWallSidesAndPreservesWrappedMarginsAndPac
   GiProbeSettings probes;
   probes.probe_count_x = probes.probe_count_y = 9;
   probes.cascade_count = 1;
-  std::string failure;
-  auto field = HddagiResources::TryCreate(probes, {}, failure);
-  ASSERT_TRUE(field) << failure;
-  HddagiUpdatePlan placement;
-  ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), {}, {}, true, placement).empty());
-  auto frame = HddagiVoxelFrame::Create(
-      *field, SdfgiTestAccess::HostLayouts(*ApplicationContext::Get().GetLayer<RenderLayer>())[0], {}, placement, 1);
-  auto layout = std::make_shared<DescriptorSetLayout>();
-  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  layout->Initialize();
-  auto shader = std::make_shared<Shader>();
-  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, std::string(R"(
+  for (const bool occlusion_only : {false, true}) {
+    SCOPED_TRACE(occlusion_only);
+    std::string failure;
+    auto field = HddagiResources::TryCreate(probes, {}, failure, UINT32_MAX, occlusion_only);
+    ASSERT_TRUE(field) << failure;
+    HddagiUpdatePlan placement;
+    ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), {}, {}, true, placement).empty());
+    auto frame = HddagiVoxelFrame::Create(
+        *field, SdfgiTestAccess::HostLayouts(*ApplicationContext::Get().GetLayer<RenderLayer>())[0], {}, placement, 1);
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->Initialize();
+    auto shader = std::make_shared<Shader>();
+    ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, std::string(R"(
 struct Params { uint pattern; };
 [[vk::push_constant]] ConstantBuffer<Params> params;
 [[vk::binding(0, 0)]] [vk::image_format("r32ui")] RWTexture3D<uint> normals;
 [numthreads(8, 8, 8)]
 void main(uint3 id : SV_DispatchThreadID) { normals[id] = params.pattern == 1 || (params.pattern == 2 && id.x % 8 == 4) ? 1 : 0;
 })")));
-  ComputePipeline fill;
-  fill.compute_shader = shader;
-  fill.descriptor_set_layouts = {layout};
-  fill.push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, 4});
-  fill.Initialize();
-  auto set = std::make_shared<DescriptorSet>(layout);
-  VkDescriptorImageInfo image_info{};
-  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  image_info.imageView = field->images.at("NormalBits").storage->GetVkImageView();
-  set->UpdateImageDescriptorBinding(0, image_info);
-  PlatformLifecycleTestAccess::PreUpdate();
-  RenderGraph graph;
-  RenderGraphResourceRegistry registry;
-  field->Import(graph, registry);
-  graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
-      field->Clear(command, context);
+    ComputePipeline fill;
+    fill.compute_shader = shader;
+    fill.descriptor_set_layouts = {layout};
+    fill.push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, 4});
+    fill.Initialize();
+    auto set = std::make_shared<DescriptorSet>(layout);
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = field->images.at("NormalBits").storage->GetVkImageView();
+    set->UpdateImageDescriptorBinding(0, image_info);
+    PlatformLifecycleTestAccess::PreUpdate();
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
     });
-  });
-  graph.Execute(graph.Compile({}), registry);
-  PlatformLifecycleTestAccess::LateUpdate();
-  Platform::WaitForFrameSubmissions("HDDAGI occlusion fixture initialization");
-  for (uint32_t pattern = 0; pattern < 3; ++pattern) {
-    SCOPED_TRACE(pattern);
-    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
-      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
-      fill.Bind(command);
-      fill.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
-      fill.PushConstant(command, 0, pattern);
-      fill.Dispatch(command, 8, 8, 8);
-      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
-      frame->occlusion->Bind(command);
+    graph.Execute(graph.Compile({}), registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI occlusion fixture initialization");
+    for (uint32_t pattern = 0; pattern < 3; ++pattern) {
+      SCOPED_TRACE(pattern);
+      Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+        fill.Bind(command);
+        fill.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+        fill.PushConstant(command, 0, pattern);
+        fill.Dispatch(command, 8, 8, 8);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        frame->occlusion->Bind(command);
+        for (uint32_t plane = 0; plane < 2; ++plane) {
+          frame->occlusion->BindDescriptorSet(command, 0, frame->occlusion_sets[plane]->GetVkDescriptorSet());
+          HddagiOcclusionParams params;
+          params.grid = glm::ivec3(64);
+          params.region_world_offset = glm::ivec3(-4);
+          params.layer_offset = (int32_t(plane) - 1) * 4;
+          frame->occlusion->PushConstant(command, 0, params);
+          frame->occlusion->Dispatch(command, 8, 8, 8);
+        }
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+      });
       for (uint32_t plane = 0; plane < 2; ++plane) {
-        frame->occlusion->BindDescriptorSet(command, 0, frame->occlusion_sets[plane]->GetVkDescriptorSet());
-        HddagiOcclusionParams params;
-        params.grid = glm::ivec3(64);
-        params.region_world_offset = glm::ivec3(-4);
-        params.layer_offset = (int32_t(plane) - 1) * 4;
-        frame->occlusion->PushConstant(command, 0, params);
-        frame->occlusion->Dispatch(command, 8, 8, 8);
+        VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        info.size = 66 * 66 * 66 * 2;
+        info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        Buffer output(info);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageExtent = {66, 66, 66};
+        output.CopyFromImage(*field->images.at("Occlusion" + std::to_string(plane)).image, copy);
+        std::vector<uint16_t> data;
+        output.DownloadVector(data, 66 * 66 * 66);
+        for (uint32_t z = 0; z < 66; ++z)
+          for (uint32_t y = 0; y < 66; ++y)
+            for (uint32_t x = 0; x < 66; ++x) {
+              const uint32_t physical_x = (x + 63) % 64;
+              if (pattern == 2 && (physical_x % 8 == 3 || physical_x % 8 == 4))
+                continue;
+              const bool high_x = (physical_x % 8 >= 5) != (physical_x / 8 % 2 != 0);
+              const uint16_t expected = pattern == 0 ? 0xffff : pattern == 1 ? 0 : high_x ? 0x0f0f : 0xf0f0;
+              ASSERT_EQ(data[x + 66 * (y + 66 * z)], expected) << "xyz " << x << "," << y << "," << z;
+            }
       }
-      field->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
-                         VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
-    });
-    for (uint32_t plane = 0; plane < 2; ++plane) {
-      VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-      info.size = 66 * 66 * 66 * 2;
-      info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-      Buffer output(info);
-      VkBufferImageCopy copy{};
-      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {66, 66, 66};
-      output.CopyFromImage(*field->images.at("Occlusion" + std::to_string(plane)).image, copy);
-      std::vector<uint16_t> data;
-      output.DownloadVector(data, 66 * 66 * 66);
-      for (uint32_t z = 0; z < 66; ++z)
-        for (uint32_t y = 0; y < 66; ++y)
-          for (uint32_t x = 0; x < 66; ++x) {
-            const uint32_t physical_x = (x + 63) % 64;
-            if (pattern == 2 && (physical_x % 8 == 3 || physical_x % 8 == 4))
-              continue;
-            const bool high_x = (physical_x % 8 >= 5) != (physical_x / 8 % 2 != 0);
-            const uint16_t expected = pattern == 0 ? 0xffff : pattern == 1 ? 0 : high_x ? 0x0f0f : 0xf0f0;
-            ASSERT_EQ(data[x + 66 * (y + 66 * z)], expected) << "xyz " << x << "," << y << "," << z;
-          }
     }
   }
 }
@@ -7303,4 +7306,53 @@ TEST(GiOcclusion, PartitionedRoomComparison) {
       }
     }
   }
+}
+
+TEST(DdgiOcclusion, FieldOnlyAllocatesWhileEnabledAndRetiresAfterSubmission) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  app.Initialize(initialization);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
+  lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 9;
+  lighting->gi_probe_settings.cascade_count = 1;
+  scene->environmental_lighting = lighting;
+  scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("GI anchor")).lock();
+  PlatformLifecycleTestAccess::PreUpdate();
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  ASSERT_TRUE(scene->GetHddagiRuntime());
+  ASSERT_TRUE(scene->GetHddagiRuntime()->resources) << scene->GetHddagiRuntime()->fallback_reason;
+  EXPECT_TRUE(scene->GetHddagiRuntime()->resources->initialization_recorded);
+  EXPECT_TRUE(scene->GetHddagiRuntime()->resources->occlusion_only);
+  EXPECT_TRUE(scene->GetHddagiRuntime()->resources->voxelization_recorded);
+  EXPECT_TRUE(scene->GetHddagiRuntime()->voxel_failure.empty()) << scene->GetHddagiRuntime()->voxel_failure;
+  EXPECT_TRUE(scene->GetHddagiRuntime()->resources->buffers.empty());
+  EXPECT_EQ(scene->GetHddagiRuntime()->resources->temporal_bytes, 0u);
+  EXPECT_FALSE(scene->GetHddagiRuntime()->resources->integrate_pipeline);
+  EXPECT_FALSE(scene->GetHddagiRuntime()->resources->light_store_pipeline);
+  EXPECT_FALSE(scene->GetHddagiRuntime()->published);
+  const std::weak_ptr<HddagiResources> field = scene->GetHddagiRuntime()->resources;
+  PlatformLifecycleTestAccess::LateUpdate();
+  EXPECT_GT(Platform::GetPendingFrameSubmissionCount(), 0u);
+  lighting->use_occlusion = false;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  EXPECT_FALSE(scene->GetHddagiRuntime());
+  EXPECT_FALSE(field.expired());
+  for (uint32_t frame = 0; frame < Platform::GetMaxFramesInFlight(); ++frame) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    SdfgiTestAccess::RetireHddagiFrame(*render);
+    PlatformLifecycleTestAccess::LateUpdate();
+  }
+  EXPECT_TRUE(field.expired());
 }

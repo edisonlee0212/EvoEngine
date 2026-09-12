@@ -2814,6 +2814,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       }
       ImGui::EndDisabled();
 
+      gi_changed |= ImGui::Checkbox("Use Occlusion", &candidate.use_occlusion);
+      ImGui::SetItemTooltip(
+          "Reduces light leaks. DDGI uses voxel visibility and disables probe relocation while enabled.");
+
       ImGui::SeparatorText("Indirect GI provider");
       int provider = static_cast<int>(candidate.indirect_gi_provider);
       if (ImGui::Combo("Provider", &provider,
@@ -2905,16 +2909,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               "excluded.\n"
               "Moving geometry can trigger expensive cascade rebuilds. Changes need time to reconverge.\n"
               "Entity Static flags are not modified.");
-        gi_changed = ImGui::Checkbox("Use Occlusion", &settings.use_occlusion) || gi_changed;
-        if (ImGui::IsItemHovered())
-          ImGui::SetTooltip(
-              "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
-              "Changing this recreates the field and restarts convergence.");
-        if (ImGui::IsItemHovered())
-          ImGui::SetTooltip(
-              "Avoids nearby surfaces using the unsigned SDF; cannot reliably escape closed interiors. "
-              "Uses bounded segment visibility from relocated probes. Changing this recreates the field "
-              "and restarts convergence.");
         gi_changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || gi_changed;
         gi_changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || gi_changed;
         gi_changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || gi_changed;
@@ -2954,7 +2948,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         gi_changed |= ImGui::DragFloat("Normal bias", &hddagi.normal_bias, 0.01f, 0.0f, 16.0f);
         gi_changed |= ImGui::DragFloat("Probe bias", &hddagi.probe_bias, 0.01f, 0.0f, 16.0f);
         gi_changed |= ImGui::DragFloat("Reflection bias", &hddagi.reflection_bias, 0.01f, 0.0f, 16.0f);
-        gi_changed |= ImGui::Checkbox("Use Occlusion", &hddagi.use_occlusion);
         gi_changed |= ImGui::Checkbox("Filter probes", &hddagi.filter_probes);
         gi_changed |= ImGui::Checkbox("Filter ambient", &hddagi.filter_ambient);
         gi_changed |= ImGui::Checkbox("Filter reflections", &hddagi.filter_reflections);
@@ -3006,10 +2999,18 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         gi_changed =
             ImGui::SliderFloat("Fixed ray backface threshold", &runtime.fixed_ray_backface_threshold, 0.0f, 1.0f) ||
             gi_changed;
-        gi_changed = ImGui::Checkbox("Probe relocation", &runtime.enable_probe_relocation) || gi_changed;
+        ImGui::BeginDisabled(candidate.use_occlusion);
+        bool relocation = runtime.enable_probe_relocation && !candidate.use_occlusion;
+        if (ImGui::Checkbox("Probe relocation", &relocation)) {
+          runtime.enable_probe_relocation = relocation;
+          gi_changed = true;
+        }
+        ImGui::EndDisabled();
         gi_changed = ImGui::Checkbox("Probe classification", &runtime.enable_probe_classification) || gi_changed;
+        ImGui::BeginDisabled(candidate.use_occlusion);
         gi_changed =
             ImGui::DragFloat("Relocation distance", &runtime.relocation_distance, 0.01f, 0.0f, 10000.0f) || gi_changed;
+        ImGui::EndDisabled();
       }
       if (gi_changed && lighting.TrySetGiSettings(candidate, gi_error))
         changed = true;

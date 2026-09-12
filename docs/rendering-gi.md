@@ -30,7 +30,8 @@ incompatible settings, and relevant scene changes rebuild or invalidate affected
 outside valid coverage, lighting blends to the environment. Increasing probe counts or history consumes memory as well
 as update time. Device limits and a strict history budget below 4 GiB are checked before allocation.
 
-Settings edits take effect at scene-frame boundaries; rejected edits preserve the previous configuration.
+**Use Occlusion** defaults on for scene GI providers. DDGI allocates voxel visibility only while enabled, disabling
+relocation. Existing assets retain their saved settings; legacy assets preserve their previous behavior.
 
 ## Update passes
 
@@ -38,7 +39,7 @@ These scene updates are shared across cameras.
 
 | Provider | Update sequence | Camera consumption |
 | --- | --- | --- |
-| DDGI | Prepare/scroll atlases; trace probe rays; update irradiance and visibility histories; relocate/classify when needed; invalidate moved or reactivated probes. | Deferred lighting blends ready probe irradiance using directional visibility. |
+| DDGI | Update optional voxel occlusion; prepare/scroll atlases; trace probe rays; update irradiance and visibility histories; relocate/classify when needed; invalidate moved or reactivated probes. | Deferred lighting blends ready probe irradiance using directional visibility. |
 | SDFGI | Voxelize changed regions; construct distance fields and occlusion; inject direct lighting and emission; trace probes; integrate and store temporal irradiance. | Deferred lighting gathers diffuse probes and specular field lighting. |
 | HDDAGI | Voxelize changed regions; update occupancy hierarchy and compact lighting cells; inject lights; integrate cached HDDA probe rays; filter diffuse probes. | Surface preparation, full-resolution GI gather, optional two-pass reflection filtering, then deferred composition. |
 
@@ -57,10 +58,13 @@ Defaults trace 64 scene rays and eight explicit emissive-triangle rays per updat
 updates in steps of five, defaulting to 30. Irradiance and visibility use rolling histories that continue updating after
 the window fills. Longer histories smooth changes over more updates; they do not stop tracing after convergence.
 
-Relocation moves probes away from geometry within a bounded offset. Classification disables probes considered inside
-geometry. Both can affect thin or double-sided content; their changes clear affected history before reuse. Visibility
-stores directional distance moments and weights neighboring probes during reconstruction. It also helps attenuate rough
-reflection-probe leakage, but DDGI irradiance is not a sharp, view-dependent reflection source.
+**Use Occlusion** and **Probe Classification** default on. Classification independently disables probes inside geometry
+or far from surfaces. Occlusion uses HDDAGI's voxel occupancy and visibility field with fixed probes; fully blocked
+contributions remain zero. It needs no signed distance field or HDDAGI lighting/transport histories.
+
+Occlusion disables relocation without clearing its saved preference. Turning occlusion off releases the voxel field,
+restores that preference, and uses directional distance moments for visibility. Relocation moves probes away from
+geometry within a bounded offset. DDGI still traces triangle lighting and maintains its own histories in either mode.
 
 ## SDFGI
 
@@ -108,10 +112,9 @@ Python exposes `GetCurrentSceneGiSettings`, `SetCurrentSceneGiSettings`, and `Ge
 contain the shared probes, provider, and DDGI/SDFGI/HDDAGI controls. Check the effective provider and completed transport,
 not only the requested provider, when recording results.
 
-A black seam at the Sponza pillar/ground junction is observed with both SDFGI and HDDAGI. Its cause is unresolved and
-investigation is deferred. It also appears in the previous SDFGI golden; the accepted replacement records current
-appearance rather than claiming a seam fix. Thin-wall leaks, corner darkening, cascade transitions, and delayed lighting
-response should be reviewed separately from traversal speed.
+SDFGI and HDDAGI have an unresolved black seam at Sponza's pillar/ground junction, also present in the previous golden.
+Thin-wall leaks, corner darkening, cascade transitions, and delayed lighting response require separate review from
+traversal speed.
 
 Use [Rendering validation](rendering-validation.md) for capture and regression procedures. Compare providers with the
 same scene, camera, probe coverage, warmup, and resolution, and record both shared GI and complete camera/frame costs.

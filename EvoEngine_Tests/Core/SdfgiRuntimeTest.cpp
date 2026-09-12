@@ -1425,6 +1425,7 @@ TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
   lighting.hddagi_settings.normal_bias = 0.4f;
   lighting.hddagi_settings.probe_bias = 0.6f;
   lighting.hddagi_settings.reflection_bias = 0.8f;
+  lighting.use_occlusion = false;
   lighting.hddagi_settings.use_occlusion = false;
   YAML::Emitter out;
   out << YAML::BeginMap;

@@ -34,6 +34,7 @@ struct EVOENGINE_API DdgiSettings {
     float irradiance_gamma = 5.0f;
     float visibility_moment_bias = 0.02f;
     bool enable_probe_relocation = true;
+    bool use_voxel_occlusion = false;
     bool enable_probe_classification = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;

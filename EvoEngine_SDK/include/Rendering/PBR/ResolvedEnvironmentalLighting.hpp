@@ -85,6 +85,7 @@ struct ResolvedEnvironmentalLighting {
   IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings{};
   HddagiSettings hddagi_settings{};
+  bool use_occlusion = true;
   DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiCascade> ddgi_cascades;

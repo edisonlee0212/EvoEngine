@@ -48,6 +48,8 @@ void RecordProbeTrace(const VkCommandBuffer vk_command_buffer, const RenderGraph
   ray_output_descriptor_set->UpdateBufferDescriptorBinding(2, diagnostics_binding->buffer);
   ray_output_descriptor_set->UpdateBufferDescriptorBinding(
       21, parameters.use_emissive_sampling ? sample_info_binding->buffer : binding->buffer);
+  for (uint32_t plane = 0; plane < 2; ++plane)
+    ray_output_descriptor_set->UpdateImageDescriptorBinding(22 + plane, parameters.voxel_occlusion[plane]);
   VkDescriptorImageInfo atlas_info{};
   atlas_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   atlas_info.sampler = parameters.atlas_sampler->GetVkSampler();

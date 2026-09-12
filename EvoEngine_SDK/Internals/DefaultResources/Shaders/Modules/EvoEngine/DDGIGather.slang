@@ -1,6 +1,9 @@
 __exported import EvoEngine.PerFrame;
 __exported import EvoEngine.DDGI;
 
+[[vk::binding(22, 2)]] public Sampler3D<float4> EE_DDGI_VOXEL_OCCLUSION0;
+[[vk::binding(23, 2)]] public Sampler3D<float4> EE_DDGI_VOXEL_OCCLUSION1;
+
 public interface IDdgiGatherResources {
   float4 loadProbeState(uint volume_index, uint probe_index);
   float4 sampleIrradiance(uint volume_index, float2 uv);
@@ -90,6 +93,22 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
                    EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_y.xyz),
                    EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_z.xyz)),
             float3(0.0f), float3(1.0f));
+  const bool voxel_occlusion = volume.volume_parameters.x > 0.5f;
+  const int3 voxel_grid = int3(probe_counts - 1u) * 8;
+  const int3 world_probe_offset = int3(round(float3(
+      EE_DDGI_AXIS_COORDINATE(volume.first_probe.xyz, volume.probe_step_x.xyz),
+      EE_DDGI_AXIS_COORDINATE(volume.first_probe.xyz, volume.probe_step_y.xyz),
+      EE_DDGI_AXIS_COORDINATE(volume.first_probe.xyz, volume.probe_step_z.xyz))));
+  float4 occlusion0 = float4(1), occlusion1 = float4(1);
+  if (voxel_occlusion) {
+    float3 cell = clamp(biased_probe_coordinate * 8, float3(0), float3(voxel_grid) - 0.0001f);
+    int3 wrapped = ((int3(cell) + world_probe_offset * 8) % voxel_grid + voxel_grid) % voxel_grid;
+    wrapped += int3(1, 1 + (voxel_grid.y + 2) * volume_index, 1);
+    float3 size = float3(voxel_grid + 2) * float3(1, EE_RENDER_INFO.ddgi_volume_header.x, 1);
+    float3 uv = (float3(wrapped) + frac(cell)) / size;
+    occlusion0 = EE_DDGI_VOXEL_OCCLUSION0.SampleLevel(uv, 0);
+    occlusion1 = EE_DDGI_VOXEL_OCCLUSION1.SampleLevel(uv, 0);
+  }
   float3 irradiance_sum = float3(0.0f);
   float3 linear_irradiance_sum = float3(0.0f);
   float radiance_weight_sum = 0.0f;
@@ -137,15 +156,18 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
         }
         const float valid_probe_weight = trilinear_weight * irradiance_validity;
         valid_probe_weight_sum += valid_probe_weight;
-        const float probe_visibility =
-            EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias);
+        int3 parity = (world_probe_offset + int3(probe_grid)) & 1;
+        uint channel = uint(parity.x | (parity.y << 1) | (parity.z << 2));
+        const float probe_visibility = voxel_occlusion
+            ? (channel < 4 ? occlusion0[channel] : occlusion1[channel - 4])
+            : EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias);
         const float clamped_probe_visibility =
             isnan(probe_visibility) || isinf(probe_visibility) ? 0.0f : clamp(probe_visibility, 0.0f, 1.0f);
         visibility_sum += clamped_probe_visibility * valid_probe_weight;
         const float wrap_shading = (dot(surface_to_probe_direction, normal) + 1.0f) * 0.5f;
         float visibility_weight = wrap_shading * wrap_shading + 0.2f;
-        visibility_weight *= max(0.05f, clamped_probe_visibility);
-        visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(max(0.000001f, visibility_weight));
+        visibility_weight *= voxel_occlusion ? clamped_probe_visibility : max(0.05f, clamped_probe_visibility);
+        visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(voxel_occlusion ? visibility_weight : max(0.000001f, visibility_weight));
         const float sample_weight = valid_probe_weight * visibility_weight;
         const float3 encoded_irradiance = max(irradiance.rgb, float3(0.0f));
         irradiance_sum += pow(encoded_irradiance, float3(irradiance_gamma * 0.5f)) * sample_weight;
@@ -155,6 +177,13 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
         radiance_weight_sum += sample_weight;
       }
     }
+  }
+  // Fully blocked valid probes represent darkness, not missing GI that should fall back to the environment.
+  if (voxel_occlusion && radiance_weight_sum == 0 && valid_probe_weight_sum > 0 && active_probe_weight_sum > 0) {
+    result.coverage = 1;
+    result.confidence = saturate(valid_probe_weight_sum / active_probe_weight_sum);
+    result.visibility = 0;
+    return result;
   }
   if (isnan(active_probe_weight_sum) || isinf(active_probe_weight_sum) || active_probe_weight_sum <= 0.0f ||
       isnan(valid_probe_weight_sum) || isinf(valid_probe_weight_sum) || valid_probe_weight_sum <= 0.0f ||

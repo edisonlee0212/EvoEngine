@@ -46,9 +46,11 @@ struct EVOENGINE_API HddagiCapabilityReport {
 };
 
 EVOENGINE_API std::vector<HddagiImageRequirement> GetHddagiImageRequirements(const GiProbeSettings& probes,
-                                                                             const HddagiSettings& settings);
+                                                                             const HddagiSettings& settings,
+                                                                             bool occlusion_only = false);
 EVOENGINE_API HddagiCapabilityReport QueryHddagiCapabilities(const GiProbeSettings& probes,
-                                                             const HddagiSettings& settings);
+                                                             const HddagiSettings& settings,
+                                                             bool occlusion_only = false);
 EVOENGINE_API uint64_t HddagiLogicalTemporalBytes(const GiProbeSettings& probes, const HddagiSettings& settings);
 
 struct HddagiImage {
@@ -62,6 +64,7 @@ class EVOENGINE_API HddagiResources {
  public:
   GiProbeSettings probes;
   HddagiSettings settings;
+  bool occlusion_only = false;
   std::map<std::string, HddagiImage> images;
   std::map<std::string, std::shared_ptr<Buffer>> buffers;
   uint32_t light_cell_capacity = 0;
@@ -113,7 +116,8 @@ class EVOENGINE_API HddagiResources {
   void OrderAccess(VkCommandBuffer command, VkPipelineStageFlags2 stages, VkAccessFlags2 access) const;
 
   static std::shared_ptr<HddagiResources> TryCreate(const GiProbeSettings& probes, const HddagiSettings& settings,
-                                                    std::string& failure, uint32_t fail_after_allocations = UINT32_MAX);
+                                                    std::string& failure, uint32_t fail_after_allocations = UINT32_MAX,
+                                                    bool occlusion_only = false);
 };
 
 struct EVOENGINE_API HddagiRuntime {

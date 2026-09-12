@@ -18,10 +18,9 @@ Focused guides:
 
 ### Image layouts and synchronization
 
-First-party GPU images use `VK_IMAGE_LAYOUT_GENERAL` for sampled, storage, attachment, and transfer access.
-New images transition from `UNDEFINED`; swapchain images transition to `PRESENT_SRC_KHR` for presentation.
-Render-graph access declarations still drive memory barriers and queue ownership. Equal layouts do not remove
-synchronization requirements. DDGI atlases are initialized before their descriptors are published.
+First-party GPU images use `VK_IMAGE_LAYOUT_GENERAL`. New images transition from `UNDEFINED`; presentation uses
+`PRESENT_SRC_KHR`. Render-graph declarations drive barriers and queue ownership even with equal layouts.
+DDGI atlases are initialized before descriptor publication.
 
 ### Rendering flow
 
@@ -47,14 +46,13 @@ flowchart LR
 | `RenderGraph` | Logical resources, pass ordering, access declarations, transient allocation, and Vulkan barrier planning. |
 | `RenderLayer` | Pipeline creation, frame preparation, shadows, camera rendering, probe work, extension callbacks, diagnostics, and output handoff. |
 
-Camera passes consume an immutable render-instance snapshot rather than mutable scene components. Static rigid
-renderers may reuse cached records; camera visibility, LOD selection, and draw lists still update each frame.
+Camera passes consume immutable snapshots. Static rigid renderers may reuse records; visibility, LOD, and draw lists
+update each frame.
 
 ## Shader Source Policy
 
-All first-party shaders use native Slang source in `.slang` or `.slangh` files. Use Slang modules and `import` for shared
-code; legacy shader extensions, GLSL compatibility syntax, and textual `#include` directives are rejected before the
-Slang frontend runs. `Extern/` is third-party scope and is exempt from this source policy.
+First-party shaders use `.slang` or `.slangh`, with modules and `import` for shared code. Legacy extensions, GLSL
+compatibility syntax, and textual `#include` are rejected. Third-party `Extern/` code is exempt.
 
 ## Frame Flow
 
@@ -65,8 +63,7 @@ Slang frontend runs. `Extern/` is third-party scope and is exempt from this sour
 5. Each camera executes its raster, ray-tracing, or ray-query graph.
 6. Post-processing writes the final camera image for the editor, application window, render texture, or capture path.
 
-Frame-slot fences protect resources still used by submitted GPU work. Transient graph resources and replaced renderer
-objects remain alive until their owning slot is recycled.
+Frame-slot fences keep transient resources and replaced renderer objects alive until submitted GPU work finishes.
 
 ## Static Scene Contract
 
@@ -76,7 +73,6 @@ Skinned meshes, particles, strands, splats, external renderers, and API draws re
 Scene/editor structural edits invalidate caches automatically. Code that directly changes a static transform or renderer
 must call `RenderLayer::NotifyStaticEntityChanged(scene, entity)` afterward. Otherwise raster and ray inputs can remain
 stale. Unchanged TLAS inputs reuse existing acceleration structures; changed inputs trigger the required build or update.
-Frame-slot lifetime tracking protects submitted resources.
 
 ## Camera Techniques
 
@@ -90,8 +86,8 @@ The resolved technique is reported when it differs from the camera request. Ray 
 evaluation, BSDF logic, environment and emissive sampling, path controls, debug views, and optional outputs. Only their
 traversal adapters differ.
 
-Ray-camera accumulation belongs to each camera. Resizing, technique changes, relevant camera settings, and scene changes
-invalidate the affected history. An unchanged camera continues accumulating samples across frames.
+Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
+unchanged cameras continue accumulating.
 
 ### Ray-tracing camera pass flow
 
@@ -143,7 +139,20 @@ Optional outputs include albedo, normal, ray count, path length, timing, and deb
 
 ```mermaid
 flowchart TD
-  A[Prepared scene, selected GI field, reflection probes] --> B[Directional shadow maps]
+  subgraph S[Shared scene GI updates]
+    S0{GI provider} -->|DDGI| S1{Use Occlusion?}
+    S1 -->|On| S2[Voxelize changes; update occupancy and visibility]
+    S1 -->|Off: no voxel field| S3[DDGI probe rays and histories]
+    S2 --> S3
+    S3 --> S4[Classify; relocate only when occlusion is off]
+    S0 -->|SDFGI| S5[Voxelize; build SDF and occlusion; update lighting]
+    S0 -->|HDDAGI| S6[Voxelize; update occupancy and occlusion; update lighting]
+  end
+  S4 --> A[Updated GI and reflection probes]
+  S5 --> A
+  S6 --> A
+  S0 -->|Environment| A
+  A --> B[Directional shadow maps]
   B --> C[DeferredGeometry: raw GBuffer and depth]
   C --> D[MotionVectors and MotionCoverage]
   D --> E[DepthPyramid]
@@ -153,7 +162,7 @@ flowchart TD
   H --> I[HddagiCameraGather: full-resolution GI]
   I --> J[Optional horizontal and vertical reflection filters]
   subgraph K[DeferredCamera: material evaluation and lighting]
-    KD[Gather DDGI diffuse probes]
+    KD[Gather DDGI diffuse probes with voxel or distance-moment visibility]
     KS[Gather SDFGI diffuse and specular]
     KH[Compose HDDAGI camera images]
     KE[Environment and reflection probes]
@@ -174,9 +183,10 @@ flowchart TD
   Q --> R[Camera output]
 ```
 
-Disabled stages are skipped. Point/spot shadows and GI updates are shared work. The `DeferredCamera` branches show
-provider-specific work within one pass; HDDAGI alone prepares separate camera images first. Extensions declare their
-own dependencies. Reflection captures use a reduced path and diffuse GI only.
+GI updates and point/spot shadows are shared across cameras. DDGI reuses HDDAGI's voxel visibility structures only with
+occlusion enabled; it builds no SDF or HDDAGI transport history. Classification remains optional and independent.
+`DeferredCamera` branches run within one pass; HDDAGI first prepares camera images. Disabled stages are skipped.
+Reflection captures use a reduced, diffuse-only GI path.
 
 Opaque geometry writes raw attributes and IDs; masked geometry additionally samples base-color alpha for coverage.
 GTAO uses geometric normals before deferred compute evaluates materials, resolves the GBuffer, and combines direct

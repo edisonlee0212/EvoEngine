@@ -14,8 +14,10 @@
 using namespace evo_engine;
 
 GiSettings EnvironmentalLighting::GetGiSettings() const {
-  return {gi_probe_settings, indirect_gi_provider, DeriveSdfgiSettings(gi_probe_settings, sdfgi_settings),
-          ddgi_settings, hddagi_settings};
+  GiSettings result{gi_probe_settings, indirect_gi_provider, DeriveSdfgiSettings(gi_probe_settings, sdfgi_settings),
+                    ddgi_settings,     hddagi_settings,      use_occlusion};
+  result.sdfgi_settings.use_occlusion = result.hddagi_settings.use_occlusion = use_occlusion;
+  return result;
 }
 
 void EnvironmentalLighting::ApplyGiSettings(const GiSettings& settings) {
@@ -24,6 +26,8 @@ void EnvironmentalLighting::ApplyGiSettings(const GiSettings& settings) {
   sdfgi_settings = DeriveSdfgiSettings(gi_probe_settings, settings.sdfgi_settings);
   ddgi_settings = settings.ddgi_settings;
   hddagi_settings = settings.hddagi_settings;
+  use_occlusion = settings.use_occlusion;
+  sdfgi_settings.use_occlusion = hddagi_settings.use_occlusion = use_occlusion;
 }
 
 bool EnvironmentalLighting::TrySetGiSettings(const GiSettings& settings, std::string& error) {
@@ -36,7 +40,8 @@ bool EnvironmentalLighting::TrySetGiSettings(const GiSettings& settings, std::st
 }
 
 bool GiSettings::operator==(const GiSettings& other) const {
-  return gi_probe_settings == other.gi_probe_settings && indirect_gi_provider == other.indirect_gi_provider &&
+  return use_occlusion == other.use_occlusion && gi_probe_settings == other.gi_probe_settings &&
+         indirect_gi_provider == other.indirect_gi_provider &&
          DeriveSdfgiSettings(gi_probe_settings, sdfgi_settings) ==
              DeriveSdfgiSettings(other.gi_probe_settings, other.sdfgi_settings) &&
          ddgi_settings == other.ddgi_settings && hddagi_settings == other.hddagi_settings;
@@ -74,6 +79,15 @@ std::string GiSettings::Validate(const bool device_limits) const {
   }
   if (indirect_gi_provider != IndirectGiProvider::AutomaticDdgi)
     return "Unknown indirect GI provider.";
+  if (use_occlusion) {
+    if (const auto error = HddagiSettings{}.Validate(gi_probe_settings); !error.empty())
+      return error;
+    if (device_limits) {
+      const auto report = QueryHddagiCapabilities(gi_probe_settings, {}, true);
+      if (!report.Supported())
+        return report.failure;
+    }
+  }
   const auto& runtime = ddgi_settings.runtime;
   const auto in_range = [](const float value, const float minimum, const float maximum) {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -243,6 +257,7 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
   out << YAML::Key << "gi_probe_settings" << YAML::Value;
   SerializeGiProbeSettings(out, lighting.gi_probe_settings);
   out << YAML::Key << "indirect_gi_provider" << YAML::Value << static_cast<uint32_t>(lighting.indirect_gi_provider);
+  out << YAML::Key << "use_occlusion" << YAML::Value << lighting.use_occlusion;
   if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi ||
       !(lighting.sdfgi_settings == SdfgiSettings{})) {
     out << YAML::Key << "sdfgi_settings" << YAML::Value;
@@ -299,6 +314,12 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   if (const auto settings = in["gi_probe_settings"])
     DeserializeGiProbeSettings(settings, lighting.gi_probe_settings);
   lighting.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
+  lighting.use_occlusion = in["use_occlusion"] ? in["use_occlusion"].as<bool>()
+                           : lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi ? false
+                           : lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi
+                               ? lighting.hddagi_settings.use_occlusion
+                               : lighting.sdfgi_settings.use_occlusion;
+  lighting.sdfgi_settings.use_occlusion = lighting.hddagi_settings.use_occlusion = lighting.use_occlusion;
   if (in["local_reflection_probes_enabled"])
     lighting.local_reflection_probes_enabled = in["local_reflection_probes_enabled"].as<bool>();
   lighting.reflection_probe_pack.Load("reflection_probe_pack", in);

@@ -1191,3 +1191,42 @@ TEST(EnvironmentalLightingAsset, LegacyEmbeddedScenePackDoesNotBlockSceneLoading
   ASSERT_TRUE(restored->environmental_lighting.Get<EnvironmentalLighting>());
   EXPECT_TRUE(ResolveEnvironmentalLighting(restored).ddgi_cascades.empty());
 }
+
+TEST(EnvironmentalLightingAsset, SharedOcclusionMigratesAndExcludesDdgiRelocationAtRuntime) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  auto scene = std::make_shared<Scene>();
+  auto lighting = std::make_shared<EnvironmentalLighting>();
+  scene->environmental_lighting = lighting;
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
+  EXPECT_TRUE(lighting->GetGiSettings().use_occlusion);
+  EXPECT_TRUE(lighting->ddgi_settings.runtime.enable_probe_classification);
+  auto resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.use_voxel_occlusion);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.enable_probe_classification);
+  EXPECT_FALSE(resolved.ddgi_settings.runtime.enable_probe_relocation);
+  EXPECT_TRUE(lighting->ddgi_settings.runtime.enable_probe_relocation);
+  lighting->use_occlusion = false;
+  resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_FALSE(resolved.ddgi_settings.runtime.use_voxel_occlusion);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.enable_probe_relocation);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.enable_probe_classification);
+  DeserializeEnvironmentalLighting(YAML::Load("indirect_gi_provider: 1"), *lighting);
+  EXPECT_FALSE(lighting->use_occlusion);
+  DeserializeEnvironmentalLighting(YAML::Load("indirect_gi_provider: 2\nsdfgi_settings: {use_occlusion: false}"),
+                                   *lighting);
+  EXPECT_FALSE(lighting->use_occlusion);
+  DeserializeEnvironmentalLighting(YAML::Load("indirect_gi_provider: 3\nhddagi_settings: {occlusion_bias: 1}"),
+                                   *lighting);
+  EXPECT_FALSE(lighting->use_occlusion);
+  DeserializeEnvironmentalLighting(YAML::Load("indirect_gi_provider: 1\nuse_occlusion: true"), *lighting);
+  EXPECT_TRUE(lighting->use_occlusion);
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeEnvironmentalLighting(out, *lighting);
+  out << YAML::EndMap;
+  EnvironmentalLighting restored;
+  DeserializeEnvironmentalLighting(YAML::Load(out.c_str()), restored);
+  EXPECT_EQ(restored.GetGiSettings(), lighting->GetGiSettings());
+}

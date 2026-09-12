@@ -7,6 +7,7 @@
 #include "HddagiVoxelizer.hpp"
 
 #include <stb_image_write.h>
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 #include "Platform.hpp"
@@ -218,7 +219,8 @@ uint64_t evo_engine::HddagiLogicalTemporalBytes(const GiProbeSettings& p, const 
 }
 
 std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const GiProbeSettings& p,
-                                                                           const HddagiSettings& s) {
+                                                                           const HddagiSettings& s,
+                                                                           const bool occlusion_only) {
   if (!s.Validate(p).empty())
     return {};
   const uint32_t x = (p.probe_count_x - 1) * 8, y = (p.probe_count_y - 1) * 8, c = p.cascade_count;
@@ -241,6 +243,15 @@ std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const
   volume("EmissionAniso", VK_FORMAT_R32_UINT, {x / 2, y / 2, x / 2});
   for (const auto name : {"Occlusion0", "Occlusion1"})
     volume(name, VK_FORMAT_R16_UINT, {x + 2, c * (y + 2), x + 2}, VK_FORMAT_R4G4B4A4_UNORM_PACK16);
+  if (occlusion_only) {
+    result.erase(std::remove_if(result.begin(), result.end(),
+                                [](const auto& image) {
+                                  return image.name == "Light" || image.name == "StaticLight" ||
+                                         image.name == "Disocclusion" || image.name == "LightNeighbors";
+                                }),
+                 result.end());
+    return result;
+  }
   const auto probes = [&](const char* name, VkFormat format, uint32_t tile, uint32_t layers, bool temporal = false,
                           VkFormat sampled = VK_FORMAT_UNDEFINED, uint32_t width = 1) {
     result.push_back({name,
@@ -277,7 +288,8 @@ std::vector<HddagiImageRequirement> evo_engine::GetHddagiImageRequirements(const
   return result;
 }
 
-HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings& p, const HddagiSettings& s) {
+HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings& p, const HddagiSettings& s,
+                                                           const bool occlusion_only) {
   HddagiCapabilityReport report;
   report.failure = s.Validate(p);
   if (!report.failure.empty())
@@ -297,7 +309,7 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
     report.failure = "HDDAGI shader feature/workgroup/descriptor limits are unavailable";
     return report;
   }
-  for (const auto& r : GetHddagiImageRequirements(p, s)) {
+  for (const auto& r : GetHddagiImageRequirements(p, s, occlusion_only)) {
     const auto storage = Platform::GetPhysicalDeviceFormatProperties(r.storage_format).optimalTilingFeatures;
     const auto sampled = Platform::GetPhysicalDeviceFormatProperties(r.sampled_format).optimalTilingFeatures;
     const VkFormatFeatureFlags2 storage_required =
@@ -344,6 +356,8 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
       return report;
     }
   }
+  if (occlusion_only)
+    return report;
   for (const auto bytes : {uint64_t(LightCellCapacity(p)) * 16, uint64_t(20), uint64_t(16)}) {
     if (bytes > limits.maxStorageBufferRange) {
       report.failure = "HDDAGI light payload exceeds the storage-buffer range";
@@ -365,15 +379,17 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
 
 std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSettings& probes,
                                                             const HddagiSettings& settings, std::string& failure,
-                                                            const uint32_t fail_after_allocations) {
-  failure = QueryHddagiCapabilities(probes, settings).failure;
+                                                            const uint32_t fail_after_allocations,
+                                                            const bool occlusion_only) {
+  failure = QueryHddagiCapabilities(probes, settings, occlusion_only).failure;
   if (!failure.empty())
     return {};
   try {
     auto result = std::make_shared<HddagiResources>();
     result->probes = probes;
     result->settings = settings;
-    for (const auto& r : GetHddagiImageRequirements(probes, settings)) {
+    result->occlusion_only = occlusion_only;
+    for (const auto& r : GetHddagiImageRequirements(probes, settings, occlusion_only)) {
       if (result->images.size() == fail_after_allocations)
         throw std::runtime_error("Injected partial allocation failure");
       auto info = ImageInfo(r);
@@ -407,6 +423,8 @@ std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSetting
         result->temporal_bytes += image->GetVmaAllocationInfo().size;
       result->images.emplace(r.name, HddagiImage{r, image, storage, sampled});
     }
+    if (occlusion_only)
+      return result;
     result->light_cell_capacity = LightCellCapacity(probes);
     if (result->images.size() == fail_after_allocations)
       throw std::runtime_error("Injected partial allocation failure");
