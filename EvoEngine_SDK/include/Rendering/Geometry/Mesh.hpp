@@ -171,13 +171,6 @@ class EVOENGINE_API Mesh final : public IAsset, public IGeometry {
   }
 
   /**
-   * @brief Generates a thumbnail texture for the mesh.
-   *
-   * @return A shared pointer to the generated thumbnail texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Initializes the mesh asset.
    */
   void OnCreate() override;

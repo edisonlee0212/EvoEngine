@@ -44,23 +44,24 @@ def module_name(relative: Path) -> str:
 
 
 def collect_sources(root: Path) -> list[dict[str, object]]:
-    shader_root = root / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders"
     records: list[dict[str, object]] = []
-    for path in sorted(candidate for candidate in shader_root.rglob("*") if candidate.suffix in SHADER_EXTENSIONS):
-        relative = path.relative_to(shader_root)
-        source = path.read_text(encoding="utf-8", errors="replace")
-        uncommented = strip_comments(source)
-        records.append(
-            {
-                "path": relative.as_posix(),
-                "module": module_name(relative),
-                "compatibility": uses_compatibility_syntax(uncommented),
-                "includes": INCLUDE_RE.findall(uncommented),
-                "imports": IMPORT_RE.findall(uncommented),
-                "macro_controls": len(MACRO_RE.findall(uncommented)),
-            }
-        )
-    return records
+    for base in (root / "EvoEngine_SDK", root / "EvoEngine_SDK" / "Editor"):
+        shader_root = base / "Internals" / "DefaultResources" / "Shaders"
+        for path in sorted(candidate for candidate in shader_root.rglob("*") if candidate.suffix in SHADER_EXTENSIONS):
+            relative = path.relative_to(shader_root)
+            source = path.read_text(encoding="utf-8", errors="replace")
+            uncommented = strip_comments(source)
+            records.append(
+                {
+                    "path": relative.as_posix(),
+                    "module": module_name(relative),
+                    "compatibility": uses_compatibility_syntax(uncommented),
+                    "includes": INCLUDE_RE.findall(uncommented),
+                    "imports": IMPORT_RE.findall(uncommented),
+                    "macro_controls": len(MACRO_RE.findall(uncommented)),
+                }
+            )
+    return sorted(records, key=lambda record: Path(record["path"]))
 
 
 def make_policy(root: Path) -> dict[str, object]:

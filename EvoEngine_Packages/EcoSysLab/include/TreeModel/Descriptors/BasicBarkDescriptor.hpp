@@ -53,13 +53,6 @@ class BasicBarkDescriptor : public IBarkDescriptor {
   AssetRef bark_material_ref;
 
   /**
-   * @brief Inspects and modifies the asset's properties in the editor.
-   * @param editor_layer The current editor layer.
-   * @return True if the asset's content remains unmodified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Computes a bark pattern value based on input parameters.
    * @param x_factor A factor affecting the bark pattern along the X-axis.
    * @param distance_to_root Distance from the root of the tree.

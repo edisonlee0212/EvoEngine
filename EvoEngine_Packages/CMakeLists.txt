@@ -10,6 +10,14 @@ set_property(GLOBAL PROPERTY EVOENGINE_REGISTERING_RUNTIME_PACKAGE_NAMES "")
 function(evoengine_configure_runtime_package target_name)
 	set(multi_value_args EXTRA_PCH RESOURCES)
 	cmake_parse_arguments(PACKAGE "" "" "${multi_value_args}" ${ARGN})
+	target_include_directories(${target_name} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/BuildIdentity/$<CONFIG>")
+  target_sources(${target_name} PRIVATE "${CMAKE_SOURCE_DIR}/EvoEngine_Packages/src/PackageRuntimeIdentity.cpp")
+  target_compile_definitions(${target_name} PRIVATE
+    EVOENGINE_RUNTIME_IDENTITY_FUNCTION=EvoEngineRuntimeModuleIdentity_${EVOENGINE_CURRENT_PACKAGE_NAME})
+	set_target_properties(${target_name} PROPERTIES
+		EVOENGINE_PACKAGE_NAME "${EVOENGINE_CURRENT_PACKAGE_NAME}"
+		EVOENGINE_PACKAGE_DEPENDENCIES "${EVOENGINE_CURRENT_PACKAGE_DEPENDENCIES}"
+		EVOENGINE_PACKAGE_RESOURCES "${PACKAGE_RESOURCES}")
 
 	target_precompile_headers(${target_name}
 		PRIVATE
@@ -43,26 +51,34 @@ function(evoengine_configure_runtime_package target_name)
 			get_filename_component(resource_folder_name "${resource_dir}" NAME)
 			if (resource_folder_name STREQUAL "Internals")
 				add_custom_command(TARGET ${target_name} POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_directory
-						"${resource_dir}" "$<TARGET_FILE_DIR:${target_name}>/.."
+					COMMAND ${CMAKE_COMMAND}
+						"-DSOURCE=${resource_dir}"
+						"-DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/.."
+						-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
 					VERBATIM)
 				if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
 					add_custom_command(TARGET ${target_name} POST_BUILD
-						COMMAND ${CMAKE_COMMAND} -E copy_directory
-							"${resource_dir}" "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}"
+						COMMAND ${CMAKE_COMMAND}
+							"-DSOURCE=${resource_dir}"
+							"-DDESTINATION=${EVOENGINE_APP_INSTALL_RUNTIME_DIR}"
+							-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
 						VERBATIM)
 				endif()
 				install(DIRECTORY "${resource_dir}/"
 					DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
 			else()
 				add_custom_command(TARGET ${target_name} POST_BUILD
-					COMMAND ${CMAKE_COMMAND} -E copy_directory
-						"${resource_dir}" "$<TARGET_FILE_DIR:${target_name}>/../${resource_folder_name}"
+					COMMAND ${CMAKE_COMMAND}
+						"-DSOURCE=${resource_dir}"
+						"-DDESTINATION=$<TARGET_FILE_DIR:${target_name}>/../${resource_folder_name}"
+						-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
 					VERBATIM)
 				if (DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
 					add_custom_command(TARGET ${target_name} POST_BUILD
-						COMMAND ${CMAKE_COMMAND} -E copy_directory
-							"${resource_dir}" "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/${resource_folder_name}"
+						COMMAND ${CMAKE_COMMAND}
+							"-DSOURCE=${resource_dir}"
+							"-DDESTINATION=${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/${resource_folder_name}"
+							-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
 						VERBATIM)
 				endif()
 				install(DIRECTORY "${resource_dir}/"
@@ -79,6 +95,73 @@ function(evoengine_configure_runtime_package target_name)
 			"${EVOENGINE_CURRENT_PACKAGE_DESCRIPTION}"
 			"${EVOENGINE_CURRENT_PACKAGE_DEPENDENCIES}")
 	endif()
+endfunction()
+
+function(evoengine_configure_editor_package target_name runtime_target)
+  cmake_parse_arguments(EDITOR "" "" "DEPENDS" ${ARGN})
+  get_target_property(package_name ${runtime_target} EVOENGINE_PACKAGE_NAME)
+  set_property(TARGET ${runtime_target} PROPERTY EVOENGINE_EDITOR_MANIFEST "Editor/${package_name}.eveeditorpackage")
+  get_target_property(runtime_dependencies ${runtime_target} EVOENGINE_PACKAGE_DEPENDENCIES)
+  foreach(dependency IN LISTS EDITOR_DEPENDS)
+    if(NOT dependency IN_LIST runtime_dependencies OR NOT TARGET ${dependency}EditorPackage)
+      message(FATAL_ERROR "${package_name}: editor dependency ${dependency} must have a companion and be a runtime dependency.")
+    endif()
+    target_link_libraries(${target_name} PRIVATE ${dependency}EditorPackage)
+  endforeach()
+  set_property(TARGET ${runtime_target} PROPERTY EVOENGINE_EDITOR_DEPENDENCIES "${EDITOR_DEPENDS}")
+  list(JOIN EDITOR_DEPENDS "|" editor_dependencies)
+  get_target_property(runtime_binary_dir ${runtime_target} BINARY_DIR)
+  target_link_libraries(${target_name} PRIVATE ${runtime_target} EvoEngine_EditorSDK)
+  target_include_directories(${target_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${runtime_binary_dir}/BuildIdentity/$<CONFIG>")
+  set(editor_identity_header "${CMAKE_CURRENT_BINARY_DIR}/EvoEngineEditorPackageIdentity.hpp")
+  file(GENERATE OUTPUT "${editor_identity_header}" CONTENT
+    "#pragma once\nextern \"C\" const void* EvoEngineRuntimeModuleIdentity_${package_name}();\n#define EVOENGINE_PACKAGE_RUNTIME_DESCRIPTOR EvoEngineRuntimeModuleIdentity_${package_name}()\n")
+  target_precompile_headers(${target_name} PRIVATE ${EVOENGINE_EDITOR_PCH} ${EVOENGINE_PACKAGE_PCH}
+    "${editor_identity_header}"
+    "${EVOENGINE_BUILD_IDENTITY_DIR}/EvoEngineEditorBuildIdentity.hpp"
+    "${runtime_binary_dir}/BuildIdentity/$<CONFIG>/EvoEngineEditorPackageBuildIdentity.hpp")
+  set_target_properties(${target_name} PROPERTIES
+    FOLDER "Editor Packages"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/EvoEngine_App/$<CONFIG>/Packages/Editor"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/EvoEngine_App/$<CONFIG>/Packages/Editor"
+    PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/EvoEngine_App/$<CONFIG>/Packages/Editor")
+  add_custom_command(TARGET ${target_name} POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+      "-DOUTPUT=$<TARGET_FILE_DIR:${target_name}>/${package_name}.eveeditorpackage"
+      "-DNAME=${package_name}" "-DEDITOR_API_VERSION=2"
+      "-DLIBRARY=$<TARGET_FILE_NAME:${target_name}>" "-DLIBRARY_PATH=$<TARGET_FILE:${target_name}>"
+      "-DIDENTITY_FILE=${EVOENGINE_BUILD_IDENTITY_DIR}/identity.cmake"
+      "-DDEPENDENCIES=${editor_dependencies}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineWritePackageManifest.cmake"
+    VERBATIM)
+  if(DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+    evoengine_deploy_target_runtime(${target_name} "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Packages/Editor")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE_DIR:${target_name}>/${package_name}.eveeditorpackage"
+        "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}/Packages/Editor/${package_name}.eveeditorpackage"
+      VERBATIM)
+  endif()
+  install(TARGETS ${target_name}
+    RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Packages/Editor"
+    LIBRARY DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Packages/Editor")
+  evoengine_install_target_pdb(${target_name} "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Packages/Editor")
+  install(FILES "$<TARGET_FILE_DIR:${target_name}>/${package_name}.eveeditorpackage"
+    DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}/Packages/Editor")
+  set_property(GLOBAL APPEND PROPERTY EVOENGINE_EDITOR_PACKAGE_TARGETS ${target_name})
+  if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Internals")
+    set(editor_resources "${CMAKE_CURRENT_SOURCE_DIR}/Internals")
+    add_custom_command(TARGET ${target_name} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory "${editor_resources}" "$<TARGET_FILE_DIR:${runtime_target}>/.."
+      VERBATIM)
+    if(DEFINED EVOENGINE_APP_INSTALL_RUNTIME_DIR)
+      add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${editor_resources}" "${EVOENGINE_APP_INSTALL_RUNTIME_DIR}"
+        VERBATIM)
+    endif()
+    install(DIRECTORY "${editor_resources}/" DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+  endif()
 endfunction()
 
 function(evoengine_discover_runtime_packages out_packages)
@@ -156,6 +239,9 @@ function(evoengine_generate_runtime_package_manifest package_name target_name pa
 			"-DOUTPUT=$<TARGET_FILE_DIR:${target_name}>/${package_name}.evepackage"
 			"-DNAME=${package_name}"
 			"-DLIBRARY=$<TARGET_FILE_NAME:${target_name}>"
+			"-DEDITOR_MANIFEST=$<TARGET_PROPERTY:${target_name},EVOENGINE_EDITOR_MANIFEST>"
+			"-DLIBRARY_PATH=$<TARGET_FILE:${target_name}>"
+			"-DIDENTITY_FILE=${EVOENGINE_BUILD_IDENTITY_DIR}/identity.cmake"
 			"-DVERSION=${package_version}"
 			"-DDESCRIPTION=${package_description}"
 			"-DDEPENDENCIES=${dependencies_encoded}"

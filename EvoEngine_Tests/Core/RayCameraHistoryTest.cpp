@@ -235,7 +235,7 @@ TEST(RayCameraHistory, InvalidationAndSceneChangesDoNotResetUnrelatedCameras) {
 TEST(RayCameraHistory, CameraChangesStayOutOfGlobalRenderInstanceInvalidation) {
   const auto storage_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
-  const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
 
   const auto comparison_start = storage_source.find("bool RenderInstanceStorage::operator!=");
   const auto comparison_end =

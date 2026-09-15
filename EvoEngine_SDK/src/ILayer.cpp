@@ -11,10 +11,11 @@ Application& ILayer::GetApplication() const {
   return *application_;
 }
 
-void ILayer::OnInputEvent(const Input::InputEvent& input_event) {
-  if (!subsequent_layer_.expired()) {
-    subsequent_layer_.lock()->OnInputEvent(input_event);
+bool ILayer::OnInputEvent(const Input::InputEvent& input_event) {
+  if (const auto next = subsequent_layer_.lock()) {
+    return next->OnInputEvent(input_event);
   }
+  return false;
 }
 std::shared_ptr<ILayer> ILayer::GetSelf() const {
   return self_.lock();

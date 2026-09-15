@@ -2,25 +2,6 @@
 
 using namespace eco_sys_lab_package;
 
-bool SkeletalGraphSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::DragFloat("Line thickness", &line_thickness, 0.001f, 0.0f, 1.0f);
-  ImGui::DragFloat("Fixed line thickness", &fixed_line_thickness, 0.001f, 0.0f, 1.0f);
-  ImGui::DragFloat("Branch point size", &branch_point_size, 0.01f, 0.0f, 1.0f);
-  ImGui::DragFloat("Junction point size", &junction_point_size, 0.01f, 0.0f, 1.0f);
-
-  ImGui::Checkbox("Fixed point size", &fixed_point_size);
-  if (fixed_point_size) {
-    ImGui::DragFloat("Fixed point size multiplier", &fixed_point_size_factor, 0.001f, 0.0f, 1.0f);
-  }
-
-  ImGui::ColorEdit4("Line color", &line_color.x);
-  ImGui::ColorEdit4("Branch point color", &branch_point_color.x);
-  ImGui::ColorEdit4("Junction point color", &junction_point_color.x);
-
-  return changed;
-}
-
 void SkeletalGraphSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::BeginMap;
 

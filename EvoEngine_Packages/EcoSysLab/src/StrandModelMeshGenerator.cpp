@@ -14,55 +14,6 @@
 
 using namespace eco_sys_lab_package;
 
-void StrandModelMeshGeneratorSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Combo("Mode", {"Iterative Slicing", "Marching Cube", "Alpha Shape", "Kinetic Voronoi"}, generator_type);
-  if (generator_type == 0 && ImGui::TreeNode("Iterative Slicing settings")) {
-    ImGui::DragInt("Steps per segment", &steps_per_segment, 1.0f, 1, 99);
-
-    // ImGui::Checkbox("[DEBUG] Limit Profile Iterations", &m_limitProfileIterations);
-    // ImGui::DragInt("[DEBUG] Limit", &m_maxProfileIterations);
-
-    ImGui::DragFloat("[DEBUG] MaxParam", &max_param);
-    // ImGui::Checkbox("Compute branch joints", &branch_connections);
-    ImGui::DragInt("uCoord multiplier", &u_multiplier, 1, 1);
-    ImGui::DragFloat("vCoord multiplier", &v_multiplier, 0.1f);
-    ImGui::DragFloat("cluster distance factor", &cluster_distance, 0.1f, 1.0f, 10.0f);
-    ImGui::TreePop();
-  }
-
-  if (generator_type == 1 && ImGui::TreeNode("Marching Cube settings")) {
-    ImGui::Checkbox("Auto set level", &auto_level);
-    if (!auto_level)
-      ImGui::DragInt("Voxel subdivision level", &voxel_subdivision_level, 1, 5, 16);
-    else
-      ImGui::DragFloat("Min Cube size", &marching_cube_radius, 0.0001f, 0.001f, 1.0f);
-    if (smooth_iteration == 0)
-      ImGui::Checkbox("Remove duplicate", &remove_duplicate);
-    ImGui::ColorEdit4("Marching cube color", &marching_cube_color.x);
-    ImGui::ColorEdit4("Cylindrical color", &cylindrical_color.x);
-    ImGui::DragInt("uCoord multiplier", &root_distance_multiplier, 1, 1, 100);
-    ImGui::DragFloat("vCoord multiplier", &circle_multiplier, 0.1f);
-    ImGui::TreePop();
-  }
-
-  if (generator_type == 2 && ImGui::TreeNode("Alpha Shape settings")) {
-    ImGui::DragInt("Steps per segment", &steps_per_segment, 1.0f, 1, 99);
-    ImGui::DragFloat("alpha factor", &cluster_distance, 0.1f, 1.0f, 10.0f);
-    ImGui::DragInt("uCoord multiplier", &u_multiplier, 1, 1);
-    ImGui::DragFloat("vCoord multiplier", &v_multiplier, 0.1f);
-    ImGui::TreePop();
-  }
-
-  ImGui::DragInt("Major branch cell min", &min_cell_count_for_major_branches, 1, 0, 1000);
-  ImGui::DragInt("Minor branch cell max", &max_cell_count_for_minor_branches, 1, 0, 1000);
-
-  ImGui::Checkbox("Recalculate UV", &recalculate_uv);
-  ImGui::Checkbox("Fast UV", &fast_uv);
-  ImGui::DragInt("Smooth iteration", &smooth_iteration, 0, 0, 10);
-  ImGui::Checkbox("Branch", &enable_branch);
-  ImGui::Checkbox("Foliage", &enable_foliage);
-}
-
 void StrandModelMeshGenerator::Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                         std::vector<unsigned>& indices,
                                         const StrandModelMeshGeneratorSettings& settings) {

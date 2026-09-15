@@ -347,42 +347,6 @@ bool BtfMaterial::ImportFromFolder(const std::filesystem::path &path) {
 #pragma endregion
 }
 
-bool BtfMaterial::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
-  bool changed = false;
-  FileUtils::OpenFolder(
-      "Import Database",
-      [&](const std::filesystem::path &path) {
-        try {
-          const bool succeed = ImportFromFolder(path);
-          if (succeed)
-            changed = true;
-          EVOENGINE_LOG((std::string("BTF Material import ") + (succeed ? "succeed" : "failed")))
-        } catch (const std::exception &e) {
-          EVOENGINE_ERROR(std::string(e.what()))
-        }
-      },
-      false);
-
-  if (btf_base.has_data) {
-    if (ImGui::DragFloat("TexCoord Multiplier", &btf_base.tex_coord_multiplier, 0.1f)) {
-      changed = true;
-    }
-
-    if (ImGui::Checkbox("HDR", &btf_base.hdr)) {
-      changed = true;
-    }
-    if (btf_base.hdr) {
-      if (ImGui::DragFloat("HDR Value", &btf_base.hdr_value, 0.01f)) {
-        changed = true;
-      }
-    }
-    if (ImGui::DragFloat("Gamma Value", &btf_base.gamma, 0.01f)) {
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 void SerializeSharedCoordinates(const SharedCoordinates &shared_coordinates, YAML::Emitter &out) {
   out << YAML::Key << "use_cos_beta" << YAML::Value << shared_coordinates.use_cos_beta;
 

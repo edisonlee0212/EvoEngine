@@ -26,6 +26,11 @@ target_link_libraries(UniversePackage
 	PRIVATE
 	EvoEngine_SDK
 	)
+target_include_directories(UniversePackage PUBLIC ${UNIVERSE_INCLUDES})
 evoengine_configure_runtime_package(UniversePackage
 	RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Internals
 	)
+
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

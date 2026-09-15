@@ -1,7 +1,5 @@
 #include "WindowLayer.hpp"
 #include "Application.hpp"
-#include "EditorLayer.hpp"
-#include "ImGuiLayer.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -122,8 +120,10 @@ void CopySwapchainImageToBuffer(const VkCommandBuffer vk_command_buffer, const s
 }  // namespace
 
 void WindowLayer::FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
-  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>(); window_layer->window_ == window) {
+  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+      window_layer && window_layer->window_ == window) {
     window_layer->window_size_ = {width, height};
+    Platform::NotifyRecreateSwapChain();
   }
 }
 
@@ -147,11 +147,14 @@ void WindowLayer::SetMonitorCallback(GLFWmonitor* monitor, int event) {
 }
 
 void WindowLayer::WindowFocusCallback(GLFWwindow* window, const int focused) {
+  Platform::NotifyWindowFocus(focused != 0);
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
   if (focused && window_layer) {
     window_layer->RefreshCustomTitleBar();
-    ProjectManager::DispatchScanAssetsTask();
+    if (!ApplicationContext::Get().GetApplicationInfo().strict_runtime) {
+      ProjectManager::DispatchScanAssetsTask();
+    }
   }
 }
 
@@ -339,7 +342,7 @@ void WindowLayer::Render() {
     CopySwapchainImageToBuffer(vk_command_buffer, swapchain, *screenshot_buffer);
     transition_to_present(vk_command_buffer, swapchain, VK_IMAGE_LAYOUT_GENERAL);
   };
-  if (const auto imgui_layer = ApplicationContext::Get().GetLayer<ImGuiLayer>()) {
+  if (window_layer && window_layer->presentation_renderer_) {
     const auto swapchain = Platform::GetSwapchain();
     const auto screenshot_buffer = prepare_screenshot_capture(swapchain);
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -368,17 +371,13 @@ void WindowLayer::Render() {
       render_info.pColorAttachments = &color_attachment_info;
 
       Platform::BeginRendering(vk_command_buffer, render_info);
-      ImGui::Render();
-      ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), vk_command_buffer);
+      window_layer->presentation_renderer_(vk_command_buffer);
       Platform::EndRendering(vk_command_buffer);
       copy_screenshot_then_present(vk_command_buffer, swapchain, screenshot_buffer);
     });
 
-    if (const ImGuiIO& io = ImGui::GetIO(); io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-      const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
-      ImGui::UpdatePlatformWindows();
-      ImGui::RenderPlatformWindowsDefault();
-    }
+    if (window_layer->after_presentation_render_)
+      window_layer->after_presentation_render_();
   } else {
     const auto& graphics = Platform::GetInstance();
     bool recorded_present = false;
@@ -491,6 +490,107 @@ bool WindowLayer::UsesCustomTitleBar() const {
   return custom_title_bar_;
 }
 
+WindowDisplayMode WindowLayer::GetDisplayMode() const {
+  return display_mode_;
+}
+WindowDisplayMode WindowLayer::GetRequestedDisplayMode() const {
+  return requested_display_mode_;
+}
+glm::ivec2 WindowLayer::GetFramebufferSize() const {
+  int width = 0, height = 0;
+  if (window_)
+    glfwGetFramebufferSize(window_, &width, &height);
+  return {width, height};
+}
+
+void WindowLayer::InitializeDisplayPolicy(const WindowDisplayMode mode, const glm::ivec2 configured_size,
+                                          const bool allow_resize, const bool allow_resolution_change) {
+  explicit_display_policy_ = true;
+  window_resizable_ = allow_resize;
+  int x = 0, y = 0, width = configured_size.x, height = configured_size.y;
+  if (primary_monitor_) {
+    glfwGetMonitorWorkarea(primary_monitor_, &x, &y, &width, &height);
+    x += std::max(0, (width - configured_size.x) / 2);
+    y += std::max(0, (height - configured_size.y) / 2);
+  }
+  glfwSetWindowPos(window_, x, y);
+  mode_policy_ = WindowModePolicy({x, y, configured_size.x, configured_size.y});
+  mode_policy_.SetPermissions(allow_resize, allow_resolution_change);
+  ApplyNativeDisplayMode(mode);
+}
+
+void WindowLayer::ApplyNativeDisplayMode(const WindowDisplayMode mode) {
+  if (!window_)
+    return;
+  Platform::GetInstance().ReleaseFullScreenExclusive();
+  requested_display_mode_ = mode;
+  primary_monitor_ = glfwGetPrimaryMonitor();
+  if (WindowModePolicy::IsFullscreen(mode) && (!primary_monitor_ || !glfwGetVideoMode(primary_monitor_))) {
+    FallBackFromExclusive("primary monitor mode is unavailable");
+    return;
+  }
+  glfwGetError(nullptr);
+  glfwRestoreWindow(window_);
+  if (!WindowModePolicy::IsFullscreen(display_mode_)) {
+    int x, y, width, height;
+    glfwGetWindowPos(window_, &x, &y);
+    glfwGetWindowSize(window_, &width, &height);
+    mode_policy_.RecordApplied(display_mode_, {x, y, width, height});
+  }
+  if (WindowModePolicy::IsFullscreen(mode)) {
+    const auto video = glfwGetVideoMode(primary_monitor_);
+    int x, y;
+    glfwGetMonitorPos(primary_monitor_, &x, &y);
+    glfwSetWindowAttrib(window_, GLFW_DECORATED, GLFW_FALSE);
+    glfwSetWindowMonitor(window_, nullptr, x, y, video->width, video->height, GLFW_DONT_CARE);
+    display_mode_ = mode == WindowDisplayMode::ExclusiveFullscreen ? WindowDisplayMode::BorderlessFullscreen : mode;
+    if (mode != WindowDisplayMode::ExclusiveFullscreen)
+      mode_policy_.RecordApplied(mode, {x, y, video->width, video->height});
+  } else {
+    const auto placement = mode_policy_.WindowedPlacement();
+    glfwSetWindowAttrib(window_, GLFW_DECORATED, mode == WindowDisplayMode::Windowed ? GLFW_TRUE : GLFW_FALSE);
+    glfwSetWindowMonitor(window_, nullptr, placement.x, placement.y, placement.width, placement.height, GLFW_DONT_CARE);
+    display_mode_ = mode;
+    mode_policy_.RecordApplied(mode, placement);
+  }
+  glfwSetWindowAttrib(window_, GLFW_RESIZABLE,
+                      window_resizable_ && !WindowModePolicy::IsFullscreen(mode) ? GLFW_TRUE : GLFW_FALSE);
+  window_size_ = GetFramebufferSize();
+  const char* error = nullptr;
+  if (glfwGetError(&error) != GLFW_NO_ERROR) {
+    const std::string reason = error ? error : "native window transition failed";
+    if (mode == WindowDisplayMode::Windowed) {
+      throw std::runtime_error("Cannot restore windowed mode: " + reason);
+    }
+    FallBackFromExclusive(reason);
+    return;
+  }
+  Platform::NotifyRecreateSwapChain();
+}
+
+bool WindowLayer::SetDisplayMode(const WindowDisplayMode mode) {
+  ApplyNativeDisplayMode(mode);
+  return window_ && requested_display_mode_ == mode;
+}
+void WindowLayer::ToggleFullscreen() {
+  SetDisplayMode(mode_policy_.ToggleTarget(display_mode_));
+}
+void WindowLayer::ConfirmExclusiveMode() {
+  display_mode_ = WindowDisplayMode::ExclusiveFullscreen;
+  mode_policy_.RecordApplied(display_mode_, {0, 0, window_size_.x, window_size_.y});
+}
+void WindowLayer::FallBackFromExclusive(const std::string& reason) {
+  EVOENGINE_WARNING("Requested display mode unavailable; using windowed mode: " + reason)
+  ApplyNativeDisplayMode(WindowDisplayMode::Windowed);
+}
+bool WindowLayer::SetResolution(const int width, const int height) {
+  if (!mode_policy_.AllowsResolutionChange() || WindowModePolicy::IsFullscreen(requested_display_mode_) || width <= 0 ||
+      height <= 0 || !window_)
+    return false;
+  glfwSetWindowSize(window_, width, height);
+  return true;
+}
+
 bool WindowLayer::IsWindowMaximized() const {
   return window_ && glfwGetWindowAttrib(window_, GLFW_MAXIMIZED) == GLFW_TRUE;
 }
@@ -503,7 +603,7 @@ void WindowLayer::ShowWindow() const {
 
 void WindowLayer::RefreshCustomTitleBar() {
 #ifdef EVOENGINE_WINDOWS
-  if (!custom_title_bar_ || !window_) {
+  if (!custom_title_bar_ || !window_ || explicit_display_policy_) {
     return;
   }
   const auto hwnd = native_window_handle_ ? static_cast<HWND>(native_window_handle_) : glfwGetWin32Window(window_);
@@ -664,6 +764,9 @@ void WindowLayer::CenterWindow() const {
 }
 
 void WindowLayer::ResizeWindow(int x, int y) const {
+  if (explicit_display_policy_ &&
+      (!mode_policy_.AllowsResolutionChange() || WindowModePolicy::IsFullscreen(requested_display_mode_)))
+    return;
 #ifdef EVOENGINE_WINDOWS
   if (custom_title_bar_ && native_window_handle_) {
     SetWindowPos(static_cast<HWND>(native_window_handle_), nullptr, 0, 0, x, y,
@@ -672,4 +775,10 @@ void WindowLayer::ResizeWindow(int x, int y) const {
   }
 #endif
   glfwSetWindowSize(window_, x, y);
+}
+
+void WindowLayer::SetPresentationCallbacks(std::function<void(VkCommandBuffer)> renderer,
+                                           std::function<void()> after_render) {
+  presentation_renderer_ = std::move(renderer);
+  after_presentation_render_ = std::move(after_render);
 }

@@ -22,6 +22,7 @@ struct RadialBoundingVolumeSlice {
  * @brief A class representing a radial bounding volume used for spatial calculations.
  */
 class RadialBoundingVolume : public IVolume {
+  friend struct RadialBoundingVolumeInspector;
   friend void DeserializeRadialBoundingVolume(const YAML::Node& in, RadialBoundingVolume& target);
 
   std::vector<std::shared_ptr<Mesh>> m_boundMeshes;  ///< Mesh representations of the bounding volume.
@@ -101,13 +102,6 @@ class RadialBoundingVolume : public IVolume {
    * @param points A vector of points to define the volume.
    */
   void CalculateVolume(const std::vector<glm::vec3>& points);
-
-  /**
-   * @brief Inspects the bounding volume in the editor.
-   * @param editorLayer Shared pointer to the editor layer.
-   * @return True if the asset content is unmodified during inspection, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) override;
 
   /**
    * @brief Resizes the bounding volumes based on new parameters.

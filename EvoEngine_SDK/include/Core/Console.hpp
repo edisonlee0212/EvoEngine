@@ -4,10 +4,24 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include <vector>
 
 namespace evo_engine {
-class EVOENGINE_API EditorLayer;
-enum class ConsoleMessageType;
+/**
+ * @brief Enumeration of console message types.
+ */
+enum class ConsoleMessageType {
+  Log,     /**< Log type message. */
+  Warning, /**< Warning type message. */
+  Error    /**< Error type message. */
+};
+
+struct ConsoleMessage {
+  ConsoleMessageType m_type = ConsoleMessageType::Log;
+  std::string m_value;
+  double m_time = 0;
+  std::time_t m_timestamp = 0;
+};
 
 /**
  * \class Console
@@ -18,14 +32,13 @@ class EVOENGINE_API Console final {
   std::unique_ptr<StreamRedirectState> stream_redirect_state_;
 
   static void PushMessage(ConsoleMessageType type, const std::string& msg);
-  static void AppendMessageToEditor(const std::shared_ptr<EditorLayer>& editor_layer, ConsoleMessageType type,
-                                    const std::string& msg, double time, std::time_t timestamp);
 
  public:
   Console();
   ~Console();
 
   static Console& GetInstance();
+  static std::vector<ConsoleMessage> DrainPendingMessages();
 
   void InstallStandardStreamRedirectors();
   void RestoreStandardStreamRedirectors();

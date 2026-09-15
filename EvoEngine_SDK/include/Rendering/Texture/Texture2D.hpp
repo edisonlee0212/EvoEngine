@@ -40,6 +40,8 @@ class EVOENGINE_API Texture2D : public IAsset {
   void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, bool local_copy);
   void DownloadData();
   std::vector<glm::vec4> local_data_;
+  std::shared_ptr<const std::vector<std::byte>> compressed_data_;
+  std::shared_ptr<const Texture2D> shared_source_;
 
  protected:
   bool SaveInternal(const std::filesystem::path& path) const;
@@ -88,7 +90,6 @@ class EVOENGINE_API Texture2D : public IAsset {
                                    const Texture2DSamplerSettings& sampler_settings);
   [[nodiscard]] bool SamplesLinearSrgb() const;
   [[nodiscard]] std::shared_ptr<Image> GetImage() const;
-  ImTextureID GetImTextureId() const;
   [[nodiscard]] uint32_t GetTextureStorageIndex() const;
   ~Texture2D() override;
   [[nodiscard]] glm::uvec2 GetResolution() const;
@@ -103,8 +104,16 @@ class EVOENGINE_API Texture2D : public IAsset {
   void GetData(std::vector<T>& dst);
 
   [[nodiscard]] const std::vector<glm::vec4>& PeekLocalData() const;
+  [[nodiscard]] const std::vector<glm::vec4>& PeekSerializableLocalData() const;
+  [[nodiscard]] const std::vector<std::byte>& PeekCompressedData() const;
+  [[nodiscard]] std::shared_ptr<const Texture2D> GetSerializableSource() const;
+  [[nodiscard]] VkFormat GetCompressedFormat() const;
+  [[nodiscard]] uint32_t GetCompressedMipLevels() const;
+  bool SetCompressedData(std::vector<std::byte> data, const glm::uvec2& resolution, VkFormat format,
+                         uint32_t mip_levels);
+  void CollectAssetRef(std::vector<AssetRef>& list);
   const std::vector<glm::vec4>& GetLocalData();
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
+
   void GetRgbaChannelData(std::vector<glm::vec4>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x = -1, int resize_y = -1) const;
   void GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x = -1, int resize_y = -1) const;

@@ -7,7 +7,6 @@
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
-#include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
@@ -152,16 +151,6 @@ Entity ForestPatch::InstantiatePatch(
   return retVal;
 }
 
-std::shared_ptr<Texture2D> ForestPatch::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestPatch.png"));
-  }
-  return thumbnail;
-}
-
 void ForestPatch::CollectAssetRef(std::vector<AssetRef>& list) {
   if (tree_descriptor.Get<TreeDescriptor>())
     list.push_back(tree_descriptor);
@@ -200,71 +189,6 @@ void eco_sys_lab_package::DeserializeForestPatch(const YAML::Node& in, ForestPat
   target.simulation_settings.Load("simulation_settings", in);
 }
 
-bool ForestPatch::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
-  bool changed = false;
-  editorLayer->DragAndDropButton<TreeDescriptor>(tree_descriptor, "TreeDescriptor");
-  static glm::ivec2 gridSize = {8, 8};
-  ImGui::DragInt2("Grid size", &gridSize.x, 1, 0, 100);
-  if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  ImGui::Separator();
-  if (ImGui::DragFloat2("Position offset mean", &position_offset_mean.x, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat2("Position offset variance", &position_offset_variance.x, 0.01f, 0.0f, 5.f))
-    changed = true;
-  if (ImGui::DragFloat2("Rotation offset variance", &rotation_offset_variance.x, 0.01f, 0.0f, 5.f))
-    changed = true;
-  static bool setParent = true;
-  ImGui::Checkbox("Set Parent", &setParent);
-  static bool setSimulationSettings = true;
-  ImGui::Checkbox("Set Simulation settings", &setSimulationSettings);
-  if (ImGui::TreeNodeEx("Simulation Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (simulation_settings.DrawGui(editorLayer))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  if (ImGui::DragFloat("Simulation time", &simulation_time, 0.1f, 0.0f, 100.f))
-    changed = true;
-  if (ImGui::DragFloat("Start time max", &start_time_max, 0.01f, 0.0f, 10.f))
-    changed = true;
-
-  if (ImGui::Button("Instantiate")) {
-    InstantiatePatch(gridSize, setParent);
-  }
-  FileUtils::OpenFolder("Create forest from folder...", [&](const std::filesystem::path& folderPath) {
-    int index = 0;
-    const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-    std::shared_ptr<Soil> soil;
-    const auto soilCandidate = EcoSysLabLayer::FindSoil();
-    if (!soilCandidate.expired())
-      soil = soilCandidate.lock();
-    std::shared_ptr<SoilDescriptor> soilDescriptor;
-    if (soil) {
-      soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-    }
-    std::shared_ptr<HeightField> heightField{};
-    if (soilDescriptor) {
-      heightField = soilDescriptor->height_field.Get<HeightField>();
-    }
-    std::vector<std::pair<TreeGrowthSettings, std::shared_ptr<TreeDescriptor>>> treeDescriptors;
-    for (const auto& i : std::filesystem::recursive_directory_iterator(folderPath)) {
-      if (i.is_regular_file() && i.path().extension().string() == ".tree") {
-        const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-            ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
-        if (treeDescriptor) {
-          treeDescriptors.emplace_back(std::make_pair(tree_growth_settings, treeDescriptor));
-        }
-        index++;
-      }
-    }
-    if (!treeDescriptors.empty()) {
-      const auto patch = InstantiatePatch(treeDescriptors, gridSize, setParent);
-    }
-  });
-  return changed;
-}
-
 void eco_sys_lab_package::SerializeTreeInfo(YAML::Emitter& out, const TreeInfo& target) {
   out << YAML::Key << "global_transform" << YAML::Value << target.global_transform.value;
   target.tree_descriptor.Save("tree_descriptor", out);
@@ -278,16 +202,6 @@ void eco_sys_lab_package::DeserializeTreeInfo(const YAML::Node& in, TreeInfo& ta
 
 void TreeInfo::CollectAssetRef(std::vector<AssetRef>& list) const {
   list.push_back(tree_descriptor);
-}
-
-std::shared_ptr<Texture2D> ForestDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ForestDescriptor.png"));
-  }
-  return thumbnail;
 }
 
 void ForestDescriptor::ApplyTreeDescriptor(const std::shared_ptr<TreeDescriptor>& treeDescriptor) {
@@ -355,94 +269,6 @@ void ForestDescriptor::ApplyTreeDescriptors(const std::filesystem::path& folderP
     }
   }
   ApplyTreeDescriptors(collectedTreeDescriptors, ratios);
-}
-
-bool ForestDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
-  bool changed = false;
-  static glm::ivec2 gridSize = {4, 4};
-  static float gridDistance = 1.5f;
-  static float randomShift = 0.5f;
-  static bool setParent = true;
-  static bool enableHistory = false;
-  static int historyIteration = 30;
-  ImGui::Checkbox("Enable history", &enableHistory);
-  if (enableHistory)
-    ImGui::DragInt("History iteration", &historyIteration, 1, 1, 999);
-  if (ImGui::TreeNodeEx("Grid...", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragInt2("Grid size", &gridSize.x, 1, 0, 100);
-    ImGui::DragFloat("Grid distance", &gridDistance, 0.1f, 0.0f, 100.0f);
-    ImGui::DragFloat("Random shift", &randomShift, 0.01f, 0.0f, 0.5f);
-    if (ImGui::Button("Reset Grid")) {
-      SetupGrid(gridSize, gridDistance, randomShift);
-    }
-    ImGui::TreePop();
-  }
-
-  FileUtils::OpenFolder(
-      "Parameters sample",
-      [&](const std::filesystem::path& path) {
-        int index = 0;
-        const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-        std::shared_ptr<Soil> soil;
-        const auto soilCandidate = EcoSysLabLayer::FindSoil();
-        if (!soilCandidate.expired())
-          soil = soilCandidate.lock();
-        std::shared_ptr<SoilDescriptor> soilDescriptor;
-        if (soil) {
-          soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-        }
-        std::shared_ptr<HeightField> heightField{};
-        if (soilDescriptor) {
-          heightField = soilDescriptor->height_field.Get<HeightField>();
-        }
-        for (const auto& i : std::filesystem::recursive_directory_iterator(path)) {
-          if (i.is_regular_file() && i.path().extension().string() == ".tree") {
-            const auto treeDescriptor = std::dynamic_pointer_cast<TreeDescriptor>(
-                ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(i.path())));
-            tree_infos.emplace_back();
-            glm::vec3 position = glm::vec3(5.f * index, 0.0f, 0.0f);
-            if (heightField)
-              position.y = heightField->GetValue({position.x, position.z}) - 0.05f;
-            tree_infos.back().global_transform.SetPosition(position);
-            tree_infos.back().tree_descriptor = treeDescriptor;
-            index++;
-          }
-        }
-      },
-      false);
-
-  FileUtils::OpenFolder(
-      "Randomly assign tree descriptors",
-      [&](const std::filesystem::path& path) {
-        ApplyTreeDescriptors(path);
-      },
-      false);
-  static AssetRef treeDescriptorRef;
-  if (editorLayer->DragAndDropButton<TreeDescriptor>(treeDescriptorRef, "Apply all with tree descriptor...", true)) {
-    if (const auto treeDescriptor = treeDescriptorRef.Get<TreeDescriptor>()) {
-      ApplyTreeDescriptor(treeDescriptor);
-    }
-    treeDescriptorRef.Clear();
-  }
-
-  if (ImGui::TreeNode("Tree Instances")) {
-    int index = 1;
-    for (auto& i : tree_infos) {
-      editorLayer->DragAndDropButton<TreeDescriptor>(i.tree_descriptor, "Tree No." + std::to_string(index), true);
-      index++;
-    }
-    ImGui::TreePop();
-  }
-
-  if (ImGui::Button("Instantiate patch")) {
-    InstantiatePatch(setParent, 0);
-  }
-
-  if (!tree_infos.empty() && ImGui::Button("Clear")) {
-    tree_infos.clear();
-  }
-
-  return changed;
 }
 
 void ForestDescriptor::OnCreate() {

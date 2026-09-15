@@ -24,15 +24,6 @@ class IDsPhysicsOperator {
                        const std::shared_ptr<DynamicStrands>& target_dynamic_strands) = 0;
 
   /**
-   * @brief Inspects and potentially modifies the operator in the editor.
-   * @param editor_layer The current editor layer.
-   * @return True if the asset content is unmodified, false otherwise.
-   */
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
-
-  /**
    * @brief Indicates whether the operator is enabled.
    */
   bool enabled = true;
@@ -73,13 +64,6 @@ class DsLeafDrop final : public IDsPhysicsOperator {
    */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-
-  /**
-   * @brief Inspects parameters in the editor.
-   * @param editor_layer The editor layer.
-   * @return True if content is unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   /**
    * @brief Constructor for setting default values.
@@ -139,13 +123,6 @@ class DsAttraction final : public IDsPhysicsOperator {
    */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-
-  /**
-   * @brief Inspects parameters in the editor.
-   * @param editor_layer The editor layer.
-   * @return True if content is unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**
@@ -164,15 +141,6 @@ class IDsOperator {
    * @param target_dynamic_strands The target DynamicStrands to apply the operation.
    */
   virtual void Execute(const std::shared_ptr<DynamicStrands>& target_dynamic_strands) = 0;
-
-  /**
-   * @brief Inspects and potentially modifies the operator in the editor.
-   * @param editor_layer The current editor layer.
-   * @return True if the asset content is unmodified, false otherwise.
-   */
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
 
   /**
    * @brief Indicates whether the operator is enabled.
@@ -460,13 +428,6 @@ class DsSnow : public IDsPhysicsOperator {
    */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-
-  /**
-   * @brief Inspects parameters in the editor.
-   * @param editor_layer The editor layer.
-   * @return True if content is unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**
@@ -523,13 +484,6 @@ class DsWind : public IDsPhysicsOperator {
    */
   void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                const std::shared_ptr<DynamicStrands>& target_dynamic_strands) override;
-
-  /**
-   * @brief Inspects parameters in the editor.
-   * @param editor_layer The editor layer.
-   * @return True if content is unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 /**

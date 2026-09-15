@@ -2,7 +2,6 @@
 
 #include "ClassRegistry.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
 #include "MikkTangentSpace.hpp"
@@ -86,10 +85,6 @@ bool Mesh::RegisterAssetIoHandlers(const std::string& owner_name, const std::str
         return asset.SupportsStagedLoading();
       },
       {}, {}, owner_name, type_name);
-}
-
-std::shared_ptr<Texture2D> Mesh::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Mesh");
 }
 
 void Mesh::OnCreate() {

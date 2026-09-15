@@ -2,19 +2,70 @@
 
 #include "Application.hpp"
 #include "AssetManager.hpp"
-#include "InspectorRegistry.hpp"
+#include "NativeLibrary.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
+#include "RuntimePaths.hpp"
 #include "Scene.hpp"
 
 #include <cstring>
 
-#if !defined(_WIN32)
-#  include <dlfcn.h>
-#endif
-
 using namespace evo_engine;
+
+class PackageManager::Mutation {
+  PackageManager& manager_;
+  std::string name_;
+  bool active_;
+
+ public:
+  explicit Mutation(std::string name) : manager_(GetInstance()), name_(std::move(name)) {
+    std::lock_guard lock(manager_.mutex_);
+    active_ = !manager_.shutting_down_lifecycle_ && manager_.active_mutations_.empty();
+    if (active_)
+      manager_.active_mutations_.insert(name_);
+    if (!active_)
+      EVOENGINE_ERROR("A package mutation is already active: " + name_)
+  }
+  ~Mutation() {
+    if (active_) {
+      std::lock_guard lock(manager_.mutex_);
+      manager_.active_mutations_.erase(name_);
+    }
+  }
+  explicit operator bool() const {
+    return active_;
+  }
+};
+
+bool PackageManager::SetLifecycleCallbacks(PackageLifecycleCallbacks callbacks) {
+  auto& manager = GetInstance();
+  std::lock_guard lock(manager.mutex_);
+  if (!manager.active_mutations_.empty() || !manager.loaded_packages_.empty() || manager.shutting_down_lifecycle_) {
+    EVOENGINE_ERROR("Package lifecycle integration must be installed before packages are loaded.")
+    return false;
+  }
+  manager.lifecycle_callbacks_ = std::move(callbacks);
+  return true;
+}
+
+void PackageManager::ShutdownLifecycleCallbacks() {
+  auto& manager = GetInstance();
+  PackageLifecycleCallbacks callbacks;
+  {
+    std::lock_guard lock(manager.mutex_);
+    manager.shutting_down_lifecycle_ = true;
+    callbacks = std::move(manager.lifecycle_callbacks_);
+    manager.lifecycle_callbacks_ = {};
+  }
+  AssetManager::WaitForPendingLoads();
+  if (callbacks.shutdown)
+    callbacks.shutdown();
+  {
+    std::lock_guard lock(manager.mutex_);
+    manager.shutting_down_lifecycle_ = false;
+  }
+}
 
 PackageRegistrar::PackageRegistrar(std::string package_name,
                                    std::vector<std::string>& registered_private_component_names,
@@ -30,6 +81,15 @@ PackageRegistrar::PackageRegistrar(std::string package_name,
       registered_layer_names_(&registered_layer_names) {
 }
 
+std::shared_ptr<ISerializable> PackageRegistrar::AdoptObject(ISerializable* object, const std::string& package_name) {
+  PackageManager::IncrementLiveObject(package_name);
+  // Weak references may outlive the DLL; their control block must belong to the SDK.
+  return std::shared_ptr<ISerializable>(object, [package_name](ISerializable* value) {
+    delete value;
+    PackageManager::DecrementLiveObject(package_name);
+  });
+}
+
 ProfilerItemHandle PackageRegistrar::RegisterProfilerItem(const ProfilerItemDescriptor& descriptor) {
   return Profiler::GetInstance().RegisterItem(package_name_, descriptor);
 }
@@ -41,11 +101,15 @@ bool PackageManager::IsRuntimeBusy() {
 }
 
 bool PackageManager::CanModifyPackages() {
-  return !IsRuntimeBusy();
+  return !ApplicationContext::Get().RuntimeOperationBusy() && !IsRuntimeBusy();
 }
 
 namespace {
 bool RejectPackageMutationWhenBusy(const std::string& operation, const std::string& package_name = {}) {
+  if (ApplicationContext::Get().IsDispatchingLayers()) {
+    EVOENGINE_WARNING("Package mutations must be queued until the application frame finishes.")
+    return true;
+  }
   if (PackageManager::CanModifyPackages()) {
     return false;
   }
@@ -58,90 +122,10 @@ bool RejectPackageMutationWhenBusy(const std::string& operation, const std::stri
 }
 }  // namespace
 
-bool PackageManager::OpenLibrary(const std::filesystem::path& path, void*& handle) {
-#if defined(_WIN32)
-  handle = LoadLibraryW(path.wstring().c_str());
-  if (!handle) {
-    EVOENGINE_ERROR("Failed to load runtime package library: " + path.string() +
-                    ". Windows error: " + std::to_string(GetLastError()))
-    return false;
-  }
-#else
-  handle = dlopen(path.string().c_str(), RTLD_NOW);
-  if (!handle) {
-    EVOENGINE_ERROR("Failed to load runtime package library: " + path.string() + ". " + dlerror())
-    return false;
-  }
-#endif
-  return true;
-}
-
-void PackageManager::CloseLibrary(void* handle) {
-  if (!handle)
-    return;
-#if defined(_WIN32)
-  FreeLibrary(static_cast<HMODULE>(handle));
-#else
-  dlclose(handle);
-#endif
-}
-
-void* PackageManager::GetSymbol(void* handle, const char* name) {
-  if (!handle)
-    return nullptr;
-#if defined(_WIN32)
-  return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(handle), name));
-#else
-  return dlsym(handle, name);
-#endif
-}
-
-std::filesystem::path PackageManager::CreateShadowCopy(const std::filesystem::path& source) {
-#if defined(_WIN32)
-  auto& manager = GetInstance();
-  uint64_t copy_index;
-  {
-    std::lock_guard lock(manager.mutex_);
-    copy_index = ++manager.shadow_copy_index_;
-  }
-
-  std::error_code ec;
-  const auto shadow_root =
-      std::filesystem::temp_directory_path(ec) / "EvoEnginePackageShadow" / std::to_string(GetCurrentProcessId());
-  if (ec) {
-    EVOENGINE_ERROR("Failed to find temporary directory for runtime package shadow copy: " + ec.message())
-    return {};
-  }
-  std::filesystem::create_directories(shadow_root, ec);
-  if (ec) {
-    EVOENGINE_ERROR("Failed to create runtime package shadow directory: " + shadow_root.string())
-    return {};
-  }
-
-  const auto timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  const auto shadow_directory =
-      shadow_root / (source.stem().string() + "_" + std::to_string(timestamp) + "_" + std::to_string(copy_index));
-  std::filesystem::create_directories(shadow_directory, ec);
-  if (ec) {
-    EVOENGINE_ERROR("Failed to create runtime package shadow directory: " + shadow_directory.string())
-    return {};
-  }
-
-  const auto shadow_path = shadow_directory / source.filename();
-  std::filesystem::copy_file(source, shadow_path, std::filesystem::copy_options::overwrite_existing, ec);
-  if (ec) {
-    EVOENGINE_ERROR("Failed to shadow-copy runtime package " + source.string() + ": " + ec.message())
-    return {};
-  }
-  return shadow_path;
-#else
-  return source;
-#endif
-}
-
 std::vector<std::filesystem::path> PackageManager::BuildDefaultSearchPaths() {
+  if (runtime_paths::IsStrict()) {
+    return {runtime_paths::Resolve("Packages")};
+  }
   std::vector<std::filesystem::path> ret_val;
   path_utils::AddUniqueNormalizedPath(ret_val, std::filesystem::current_path() / "Packages");
   if (const auto executable_path = path_utils::CurrentExecutablePath(); !executable_path.empty()) {
@@ -162,6 +146,15 @@ bool PackageManager::ReadManifest(const std::filesystem::path& manifest_path, Pa
     manifest.library = in["library"].as<std::string>();
     manifest.version = in["version"] ? in["version"].as<std::string>() : "";
     manifest.description = in["description"] ? in["description"].as<std::string>() : "";
+    manifest.sdk_source_id = in["sdk_source_id"] ? in["sdk_source_id"].as<std::string>() : "";
+    manifest.package_source_id = in["package_source_id"] ? in["package_source_id"].as<std::string>() : "";
+    manifest.compiler_id = in["compiler_id"] ? in["compiler_id"].as<std::string>() : "";
+    manifest.compiler_version = in["compiler_version"] ? in["compiler_version"].as<std::string>() : "";
+    manifest.configuration = in["configuration"] ? in["configuration"].as<std::string>() : "";
+    manifest.platform = in["platform"] ? in["platform"].as<std::string>() : "";
+    manifest.architecture = in["architecture"] ? in["architecture"].as<std::string>() : "";
+    manifest.with_editor = in["with_editor"] ? in["with_editor"].as<bool>() : false;
+    manifest.library_sha256 = in["library_sha256"] ? in["library_sha256"].as<std::string>() : "";
     manifest.dependencies.clear();
     if (in["dependencies"] && in["dependencies"].IsSequence()) {
       for (const auto& dependency : in["dependencies"]) {
@@ -175,6 +168,47 @@ bool PackageManager::ReadManifest(const std::filesystem::path& manifest_path, Pa
     EVOENGINE_WARNING("Failed to read runtime package manifest " + manifest_path.string() + ": " + e.what())
     return false;
   }
+}
+
+bool PackageManager::ValidateManifestCompatibility(const PackageManifest& manifest) {
+  const auto& expected = GetNativeBuildIdentity();
+  NativeBuildIdentity candidate{manifest.sdk_source_id.c_str(),
+                                manifest.compiler_id.c_str(),
+                                manifest.compiler_version.c_str(),
+                                manifest.configuration.c_str(),
+                                manifest.platform.c_str(),
+                                manifest.architecture.c_str(),
+                                manifest.with_editor};
+  std::string reason;
+  if (!IsNativeBuildCompatible(expected, candidate, &reason)) {
+    EVOENGINE_ERROR("Runtime package manifest is incompatible [" + manifest.name + "]: " + reason)
+    return false;
+  }
+  if (manifest.package_source_id.empty() || manifest.library_sha256.empty()) {
+    EVOENGINE_ERROR("Runtime package manifest has empty provenance fields: " + manifest.name)
+    return false;
+  }
+  return native_library::VerifyLibraryHash(manifest.library_path, manifest.library_sha256);
+}
+
+bool PackageManager::ValidateDescriptorCompatibility(const PackageDescriptor& descriptor,
+                                                     const PackageManifest* manifest) {
+  std::string reason;
+  if (!IsNativeBuildCompatible(GetNativeBuildIdentity(), descriptor.build_identity, &reason)) {
+    EVOENGINE_ERROR("Runtime package descriptor is incompatible: " + reason)
+    return false;
+  }
+  const std::string_view package_source_id = descriptor.package_source_id ? descriptor.package_source_id : "";
+  const std::string_view package_name = descriptor.name ? descriptor.name : "";
+  if (package_name.empty() || package_source_id.empty()) {
+    EVOENGINE_ERROR("Runtime package descriptor is missing its name or package source ID.")
+    return false;
+  }
+  if (manifest && (manifest->name != package_name || manifest->package_source_id != package_source_id)) {
+    EVOENGINE_ERROR("Runtime package descriptor does not match its manifest: " + manifest->name)
+    return false;
+  }
+  return true;
 }
 
 void PackageManager::RefreshManifests() {
@@ -218,9 +252,11 @@ bool PackageManager::LoadManifestWithDependencies(const std::string& package_nam
   {
     auto& manager = GetInstance();
     std::lock_guard lock(manager.mutex_);
-    if (manager.loaded_packages_.find(package_name) != manager.loaded_packages_.end()) {
-      return true;
-    }
+    if (manager.shutting_down_lifecycle_ ||
+        manager.active_mutations_.find(package_name) != manager.active_mutations_.end())
+      return false;
+    if (const auto loaded = manager.loaded_packages_.find(package_name); loaded != manager.loaded_packages_.end())
+      return loaded->second.info.ready;
   }
 
   if (std::find(loading_stack.begin(), loading_stack.end(), package_name) != loading_stack.end()) {
@@ -359,8 +395,10 @@ void PackageManager::Initialize(const std::vector<std::filesystem::path>& packag
   {
     std::lock_guard lock(manager.mutex_);
     manager.search_paths_ = BuildDefaultSearchPaths();
-    for (const auto& path : package_search_paths) {
-      path_utils::AddUniqueNormalizedPath(manager.search_paths_, path);
+    if (!runtime_paths::IsStrict()) {
+      for (const auto& path : package_search_paths) {
+        path_utils::AddUniqueNormalizedPath(manager.search_paths_, path);
+      }
     }
   }
   RefreshManifests();
@@ -396,7 +434,12 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
     return false;
   }
 
-  std::vector<std::string> manifest_dependencies;
+  if (runtime_paths::IsStrict() && !path_utils::IsSameOrChildPath(original_path, runtime_paths::Resolve("Packages"))) {
+    EVOENGINE_ERROR("Runtime packages must be inside the distribution Packages directory.")
+    return false;
+  }
+
+  std::optional<PackageManifest> package_manifest;
   {
     auto& manager = GetInstance();
     std::lock_guard lock(manager.mutex_);
@@ -404,50 +447,106 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
       std::error_code manifest_ec;
       const auto manifest_library_path = std::filesystem::absolute(manifest.library_path, manifest_ec);
       if (!manifest_ec && manifest_library_path == original_path) {
-        manifest_dependencies = manifest.dependencies;
+        package_manifest = manifest;
         break;
       }
     }
   }
+  if (runtime_paths::IsStrict() && !package_manifest) {
+    EVOENGINE_ERROR("Runtime package is missing its distribution manifest: " + original_path.string())
+    return false;
+  }
+  if (package_manifest && !ValidateManifestCompatibility(*package_manifest)) {
+    return false;
+  }
 
-  const auto loaded_path = CreateShadowCopy(original_path);
+  const auto loaded_path = native_library::CreateShadowCopy(original_path);
   if (loaded_path.empty())
     return false;
 
   void* library_handle = nullptr;
-  if (!OpenLibrary(loaded_path, library_handle))
+  const bool opened =
+      (!package_manifest || native_library::VerifyLibraryHash(loaded_path, package_manifest->library_sha256)) &&
+      native_library::OpenLibrary(loaded_path, library_handle);
+  const auto library = std::shared_ptr<void>(library_handle, [loaded_path, original_path](void* handle) {
+    native_library::CloseLibrary(handle);
+    if (loaded_path != original_path) {
+      std::error_code error;
+      std::filesystem::remove(loaded_path, error);
+      std::filesystem::remove(loaded_path.parent_path(), error);
+    }
+  });
+  if (!opened)
     return false;
 
-  const auto get_descriptor =
-      reinterpret_cast<EvoEnginePackageGetDescriptorFn>(GetSymbol(library_handle, "EvoEnginePackageGetDescriptor"));
-  const auto register_types =
-      reinterpret_cast<EvoEnginePackageRegisterTypesFn>(GetSymbol(library_handle, "EvoEnginePackageRegisterTypes"));
-  const auto load = reinterpret_cast<EvoEnginePackageLoadFn>(GetSymbol(library_handle, "EvoEnginePackageLoad"));
-  const auto unload = reinterpret_cast<EvoEnginePackageUnloadFn>(GetSymbol(library_handle, "EvoEnginePackageUnload"));
+  const auto get_descriptor = reinterpret_cast<EvoEnginePackageGetDescriptorFn>(
+      native_library::GetSymbol(library_handle, "EvoEnginePackageGetDescriptor"));
+  const auto register_types = reinterpret_cast<EvoEnginePackageRegisterTypesFn>(
+      native_library::GetSymbol(library_handle, "EvoEnginePackageRegisterTypes"));
+  const auto load =
+      reinterpret_cast<EvoEnginePackageLoadFn>(native_library::GetSymbol(library_handle, "EvoEnginePackageLoad"));
+  const auto unload =
+      reinterpret_cast<EvoEnginePackageUnloadFn>(native_library::GetSymbol(library_handle, "EvoEnginePackageUnload"));
   if (!get_descriptor || !load || !unload) {
     EVOENGINE_ERROR("Runtime package is missing required entrypoints: " + original_path.string())
-    CloseLibrary(library_handle);
     return false;
   }
 
   const auto descriptor = get_descriptor();
   if (!descriptor || descriptor->api_version != EVOENGINE_PACKAGE_API_VERSION) {
     EVOENGINE_ERROR("Runtime package has an incompatible descriptor: " + original_path.string())
-    CloseLibrary(library_handle);
+    return false;
+  }
+  if (!ValidateDescriptorCompatibility(*descriptor, package_manifest ? &*package_manifest : nullptr)) {
     return false;
   }
 
   const std::string package_name =
       descriptor->name && std::strlen(descriptor->name) > 0 ? descriptor->name : original_path.stem().string();
+  const auto get_module_identity = reinterpret_cast<const void* (*)()>(
+      native_library::GetSymbol(library_handle, ("EvoEngineRuntimeModuleIdentity_" + package_name).c_str()));
+  if (!get_module_identity) {
+    EVOENGINE_ERROR("Runtime package is missing its module identity: " + package_name)
+    return false;
+  }
+  Mutation mutation(package_name);
+  if (!mutation) {
+    return false;
+  }
+  PackageLifecycleCallbacks callbacks;
+
   {
     auto& manager = GetInstance();
     std::lock_guard lock(manager.mutex_);
     if (manager.loaded_packages_.find(package_name) != manager.loaded_packages_.end()) {
       EVOENGINE_WARNING("Runtime package already loaded: " + package_name)
-      CloseLibrary(library_handle);
-      return true;
+      return manager.loaded_packages_.at(package_name).info.ready;
     }
     manager.live_object_counts_[package_name] = 0;
+    callbacks = manager.lifecycle_callbacks_;
+  }
+
+  LoadedPackage package;
+  package.info.module_identity = get_module_identity();
+  package.info.name = package_name;
+  package.info.version = descriptor->version ? descriptor->version : "";
+  package.info.description = descriptor->description ? descriptor->description : "";
+  package.info.package_source_id = descriptor->package_source_id;
+  if (package_manifest) {
+    package.info.dependencies = package_manifest->dependencies;
+    package.info.manifest_path = package_manifest->manifest_path;
+  }
+  package.info.original_path = original_path;
+  package.info.loaded_path = loaded_path;
+  package.library = library;
+  package.unload = unload;
+  if (callbacks.validate && !callbacks.validate(package.info)) {
+    {
+      auto& manager = GetInstance();
+      std::lock_guard lock(manager.mutex_);
+      manager.live_object_counts_.erase(package_name);
+    }
+    return false;
   }
 
   std::vector<std::string> registered_private_component_names;
@@ -457,10 +556,45 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
   std::vector<std::string> registered_layer_names;
   PackageRegistrar registrar(package_name, registered_private_component_names, registered_asset_names,
                              registered_data_component_names, registered_system_names, registered_layer_names);
-  if (register_types && !register_types(&registrar)) {
-    EVOENGINE_ERROR("Runtime package type registration failed: " + package_name)
+  bool activated = false;
+  try {
+    activated = (!register_types || register_types(&registrar)) && load(&registrar);
+    package.info.private_component_types = registered_private_component_names;
+    package.info.asset_types = registered_asset_names;
+    package.info.data_component_types = registered_data_component_names;
+    package.info.system_types = registered_system_names;
+    package.info.layer_types = registered_layer_names;
+    activated = activated && (!callbacks.activate || callbacks.activate(package.info));
+  } catch (const std::exception& error) {
+    activated = false;
+    EVOENGINE_ERROR("Package activation failed: " + package_name + ". " + error.what())
+  }
+  if (!activated) {
+    AssetManager::WaitForPendingLoads();
+    bool can_deactivate = !callbacks.prepare_unload || callbacks.prepare_unload(package.info);
+    if (can_deactivate && callbacks.deactivate)
+      can_deactivate = callbacks.deactivate(package.info);
+    bool layers_removed = false;
+    if (can_deactivate) {
+      const auto type_ids = Serialization::GetPackageOwnedPrivateComponentTypeIds(package_name);
+      layers_removed = ApplicationContext::Get().RemoveLayersOwnedByPackage(package_name);
+      ClearPrivateComponentPools(type_ids);
+      if (layers_removed) {
+        unload(&registrar);
+        package.unload = nullptr;
+      }
+      Platform::DrainGpuResourceWork();
+    }
+    if (!layers_removed || GetLiveObjectCount(package_name) != 0) {
+      package.info.ready = false;
+      auto& manager = GetInstance();
+      std::lock_guard lock(manager.mutex_);
+      manager.loaded_packages_[package_name] = std::move(package);
+      EVOENGINE_ERROR("Package activation failed; release its remaining objects and unload it: " + package_name)
+      return false;
+    }
     Serialization::UnregisterPackageOwnedTypes(package_name);
-    InspectorRegistry::GetInstance().UnregisterOwner(package_name);
+    NotifyTypeCleanup(package_name);
     Platform::RemoveGpuTimestampOwnerHistory(package_name);
     Profiler::GetInstance().UnregisterOwner(package_name);
     {
@@ -468,40 +602,9 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
       std::lock_guard lock(manager.mutex_);
       manager.live_object_counts_.erase(package_name);
     }
-    CloseLibrary(library_handle);
+    EVOENGINE_ERROR("Package activation failed: " + package_name)
     return false;
   }
-
-  if (!load(&registrar)) {
-    EVOENGINE_ERROR("Runtime package load callback failed: " + package_name)
-    Serialization::UnregisterPackageOwnedTypes(package_name);
-    InspectorRegistry::GetInstance().UnregisterOwner(package_name);
-    Platform::RemoveGpuTimestampOwnerHistory(package_name);
-    Profiler::GetInstance().UnregisterOwner(package_name);
-    {
-      auto& manager = GetInstance();
-      std::lock_guard lock(manager.mutex_);
-      manager.live_object_counts_.erase(package_name);
-    }
-    CloseLibrary(library_handle);
-    return false;
-  }
-
-  LoadedPackage package;
-  package.info.name = package_name;
-  package.info.version = descriptor->version ? descriptor->version : "";
-  package.info.description = descriptor->description ? descriptor->description : "";
-  package.info.dependencies = std::move(manifest_dependencies);
-  package.info.original_path = original_path;
-  package.info.loaded_path = loaded_path;
-  package.info.private_component_types = std::move(registered_private_component_names);
-  package.info.asset_types = std::move(registered_asset_names);
-  package.info.data_component_types = std::move(registered_data_component_names);
-  package.info.system_types = std::move(registered_system_names);
-  package.info.layer_types = std::move(registered_layer_names);
-  package.info.live_object_count = GetLiveObjectCount(package_name);
-  package.library_handle = library_handle;
-  package.unload = unload;
 
   {
     auto& manager = GetInstance();
@@ -588,6 +691,10 @@ bool PackageManager::Unload(const std::string& package_name) {
     return false;
   }
 
+  Mutation mutation(package_name);
+  if (!mutation)
+    return false;
+  PackageLifecycleCallbacks callbacks;
   LoadedPackage package;
   {
     auto& manager = GetInstance();
@@ -598,6 +705,7 @@ bool PackageManager::Unload(const std::string& package_name) {
       return false;
     }
     package = search->second;
+    callbacks = manager.lifecycle_callbacks_;
   }
 
   std::string dependent_name;
@@ -607,6 +715,9 @@ bool PackageManager::Unload(const std::string& package_name) {
     return false;
   }
 
+  if (callbacks.prepare_unload && !callbacks.prepare_unload(package.info))
+    return false;
+  AssetManager::WaitForPendingLoads();
   const auto type_ids = Serialization::GetPackageOwnedPrivateComponentTypeIds(package_name);
   if (HasLivePrivateComponentOwners(type_ids)) {
     EVOENGINE_WARNING("Cannot unload runtime package because package-owned private component instances still exist: " +
@@ -633,20 +744,20 @@ bool PackageManager::Unload(const std::string& package_name) {
   std::vector<std::string> registered_layer_names = package.info.layer_types;
   PackageRegistrar registrar(package_name, registered_private_component_names, registered_asset_names,
                              registered_data_component_names, registered_system_names, registered_layer_names);
-  package.unload(&registrar);
+  if (callbacks.deactivate && !callbacks.deactivate(package.info)) {
+    auto& manager = GetInstance();
+    std::lock_guard lock(manager.mutex_);
+    manager.loaded_packages_.at(package_name).info.ready = false;
+    EVOENGINE_ERROR("Package deactivation failed; release its remaining objects and unload it: " + package_name)
+    return false;
+  }
+  if (package.unload)
+    package.unload(&registrar);
+  Platform::DrainGpuResourceWork();
   Serialization::UnregisterPackageOwnedTypes(package_name);
-  InspectorRegistry::GetInstance().UnregisterOwner(package_name);
+  NotifyTypeCleanup(package_name);
   Platform::RemoveGpuTimestampOwnerHistory(package_name);
   Profiler::GetInstance().UnregisterOwner(package_name);
-  CloseLibrary(package.library_handle);
-
-#if defined(_WIN32)
-  if (!package.info.loaded_path.empty() && package.info.loaded_path != package.info.original_path) {
-    std::error_code ec;
-    std::filesystem::remove(package.info.loaded_path, ec);
-    std::filesystem::remove(package.info.loaded_path.parent_path(), ec);
-  }
-#endif
 
   {
     auto& manager = GetInstance();
@@ -785,4 +896,28 @@ size_t PackageManager::GetLiveObjectCount(const std::string& package_name) {
     return search->second;
   }
   return 0;
+}
+
+uint64_t PackageManager::RegisterTypeCleanupCallback(std::function<void(const std::string&)> callback) {
+  auto& manager = GetInstance();
+  std::lock_guard lock(manager.mutex_);
+  const auto id = ++manager.next_type_cleanup_id_;
+  manager.type_cleanup_callbacks_.emplace(id, std::move(callback));
+  return id;
+}
+void PackageManager::UnregisterTypeCleanupCallback(const uint64_t id) {
+  auto& manager = GetInstance();
+  std::lock_guard lock(manager.mutex_);
+  manager.type_cleanup_callbacks_.erase(id);
+}
+void PackageManager::NotifyTypeCleanup(const std::string& package_name) {
+  auto& manager = GetInstance();
+  std::map<uint64_t, std::function<void(const std::string&)>> callbacks;
+  {
+    std::lock_guard lock(manager.mutex_);
+    callbacks = manager.type_cleanup_callbacks_;
+  }
+  for (const auto& [id, callback] : callbacks)
+    if (callback)
+      callback(package_name);
 }

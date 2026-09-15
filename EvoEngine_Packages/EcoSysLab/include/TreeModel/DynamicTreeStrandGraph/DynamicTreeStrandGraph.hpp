@@ -50,26 +50,23 @@ enum class NodeType {
 };
 
 class INode;
+std::shared_ptr<INode> CreateStrandGraphNode(NodeType type);
 
 struct NodeData {
   NodeType type{};
   std::shared_ptr<INode> node_impl;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 
 struct InputPinData {
   std::string name = "Input";
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 
 struct OutputPinData {
   std::string name = "Output";
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const;
 };
 
 class INode {
  public:
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   static void PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                             NodeGraphNodeHandle node_handle,
                             std::unordered_map<NodeGraphOutputPinHandle, float>& results);
@@ -92,7 +89,6 @@ class OutputNode : public INode {
 class IDynamicTreeStrands {
  public:
   virtual void Reset() = 0;
-  bool ShowGraph(const std::string& window_title, const std::shared_ptr<EditorLayer>& editor_layer);
   NodeGraph<InputPinData, OutputPinData, NodeData, int> node_graph{};
 };
 
@@ -134,7 +130,6 @@ class ModulusGraph : public IAsset, public IDynamicTreeStrands {
   Output GetValues(const Input& input) const;
   void SetValues(const Output& values);
   void OnCreate() override;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
  private:
   template <typename ReturnType>
@@ -223,7 +218,6 @@ class StrengthGraph : public IAsset, public IDynamicTreeStrands {
   Output GetValues(const Input& input) const;
   void SetValues(const Output& values);
   void OnCreate() override;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
  private:
   template <typename ReturnType>
@@ -287,7 +281,6 @@ class BiologicalPropertiesGraph : public IAsset, public IDynamicTreeStrands {
   Output GetValues(const Input& input) const;
   void SetValues(const Output& values);
   void OnCreate() override;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
  private:
   // Store handles to the output nodes for easier access

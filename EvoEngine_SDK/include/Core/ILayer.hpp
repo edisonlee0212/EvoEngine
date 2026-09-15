@@ -17,7 +17,7 @@ class EVOENGINE_API Scene;
  * @brief Forward declaration of the EditorLayer class.
  * This class is used in the ILayer class as a friend class and shared pointer.
  */
-class EVOENGINE_API EditorLayer;
+class EditorLayer;
 
 /**
  * @class ILayer
@@ -54,6 +54,7 @@ class EVOENGINE_API ILayer {
    * @brief Grants Application class access to private and protected members of ILayer.
    */
   friend class Application;
+  friend class Platform;
 
   /**
    * @brief Grants EditorLayer class access to private and protected members of ILayer.
@@ -65,6 +66,10 @@ class EVOENGINE_API ILayer {
    */
   friend class Input;
 
+  // Called once for startup layers after window graphics are ready, before texture storage initializes.
+  virtual void OnWindowGraphicsInitialized() {
+  }
+
   /**
    * @brief Invoked when the layer is created.
    *
@@ -74,6 +79,17 @@ class EVOENGINE_API ILayer {
   }
 
   virtual void RegisterTypes(Application& application) {
+  }
+
+  virtual bool AllowsAutoplay() const {
+    return true;
+  }
+
+  virtual void OnRuntimeStart() {
+  }
+
+  // Called after scene rendering and before window presentation.
+  virtual void OnPostRender() {
   }
 
   /**
@@ -122,8 +138,9 @@ class EVOENGINE_API ILayer {
    * Derived classes can override this function to handle specific input events.
    *
    * @param input_event The input event to process.
+   * @return True if this layer chain consumed the event; otherwise it reaches the active scene.
    */
-  virtual void OnInputEvent(const Input::InputEvent& input_event);
+  virtual bool OnInputEvent(const Input::InputEvent& input_event);
 
  public:
   [[nodiscard]] Application& GetApplication() const;

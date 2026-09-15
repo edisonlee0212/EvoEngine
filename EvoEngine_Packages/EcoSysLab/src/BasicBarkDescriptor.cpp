@@ -3,28 +3,6 @@
 
 using namespace eco_sys_lab_package;
 
-bool BasicBarkDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Bark X Frequency", &bark_x_frequency, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Bark Y Frequency", &bark_y_frequency, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Bark Depth", &bark_depth, 0.01f, 0.0f, 1.0f))
-    changed = true;
-
-  if (ImGui::DragFloat("Base Frequency", &base_frequency, 0.01f, 0.0f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Base Max Distance", &base_max_distance, 0.01f, 0.0f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Base Distance Decrease Factor", &base_distance_decrease_factor, 0.01f, 0.0f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Base Depth", &base_depth, 0.01f, 0.0f, 1.0f))
-    changed = true;
-  if (editor_layer->DragAndDropButton<Material>(bark_material_ref, "Bark Material"))
-    changed = true;
-  return changed;
-}
-
 float BasicBarkDescriptor::GetValue(const float x_factor, const float distance_to_root) const {
   const float bark = bark_depth * glm::perlin(glm::vec3(bark_x_frequency * glm::sin(x_factor * 2.0f * glm::pi<float>()),
                                                         bark_x_frequency * glm::cos(x_factor * 2.0f * glm::pi<float>()),

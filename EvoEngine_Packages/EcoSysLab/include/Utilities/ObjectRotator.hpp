@@ -23,14 +23,6 @@ class ObjectRotator : public IPrivateComponent {
   glm::vec3 rotation = glm::vec3(0, 0, 0);
 
   /**
-   * @brief Displays the inspection UI for the component.
-   *
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return true if the asset's content is not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Called every fixed update step to handle physics-based updates.
    */
   void FixedUpdate() override;

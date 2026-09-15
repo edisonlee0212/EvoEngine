@@ -88,16 +88,10 @@ class EVOENGINE_API Texture2DStorage {
     uint32_t remaining_frames = 0;
   };
   std::vector<RetiredSampler> retired_samplers_;
-  struct RetiredTextureId {
-    ImTextureID id = 0;
-    uint32_t remaining_frames = 0;
-  };
-  std::vector<RetiredTextureId> retired_texture_ids_;
   struct RetiredResources {
     std::shared_ptr<Image> image;
     std::shared_ptr<ImageView> image_view;
     std::shared_ptr<Sampler> sampler;
-    ImTextureID texture_id = 0;
     uint32_t remaining_frames = 0;
   };
   std::vector<RetiredResources> retired_resources_;
@@ -122,7 +116,6 @@ class EVOENGINE_API Texture2DStorage {
   std::shared_ptr<ImageView> image_view = {};  ///< GPU image view resource.
   std::shared_ptr<Sampler> sampler = {};       ///< GPU sampler resource.
 
-  ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
   std::shared_ptr<std::atomic_size_t> gpu_upload_in_flight =
       std::make_shared<std::atomic_size_t>(0);  ///< Async GPU uploads currently mutating image state.
   std::shared_ptr<std::atomic_size_t> gpu_upload_generation = std::make_shared<std::atomic_size_t>(0);
@@ -225,7 +218,6 @@ class EVOENGINE_API CubemapStorage {
   void Clear();
 
   std::vector<std::shared_ptr<ImageView>> face_views;  ///< Image views for each face of the cubemap.
-  std::vector<ImTextureID> im_texture_ids;             ///< ImGui texture IDs for each face of the cubemap.
 
   /**
    * @brief Initializes the GPU resources for the cubemap with the given resolution and mip levels.

@@ -31,15 +31,6 @@ std::shared_ptr<GraphicsPipeline> CreateMaskedRawPipeline(const std::shared_ptr<
 }
 }  // namespace
 
-bool FoliageRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  if (ImGui::Checkbox("Wireframe", &wireframe)) {
-    changed = true;
-  }
-  return changed;
-}
-
 struct FoliageRenderPushConstant {
   union Index1 {
     int instance_index;

@@ -6,9 +6,7 @@
 #include <glm/vec4.hpp>
 #include <random>
 #include <vector>
-#include "ILSystemExplorableDescriptor.hpp"
 #include "LSystemRuleHelpers.hpp"
-#include "ParamSpaceExplorer.hpp"
 
 namespace l_system_package {
 
@@ -234,7 +232,7 @@ struct SampledPineParams {
  *
  * File extension: .spine
  */
-class ScotsPineDescriptor : public evo_engine::IAsset, public ILSystemExplorableDescriptor {
+class ScotsPineDescriptor : public evo_engine::IAsset {
  public:
   ScotsPineDescriptor();
 
@@ -412,26 +410,15 @@ class ScotsPineDescriptor : public evo_engine::IAsset, public ILSystemExplorable
 
   /// Sample all distributions deterministically; lock RNG draw order.
   SampledPineParams Sample(std::mt19937& rng) const;
+  [[nodiscard]] float SampleTargetGdd(uint32_t seed) const;
 
   [[nodiscard]] evo_engine::Entity Instantiate() const;
 
   // ===== IAsset =====
-  bool DrawEditorControls(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer);
   [[nodiscard]] bool SupportsDefaultsOverwrite() const {
     return true;
   }
   [[nodiscard]] std::filesystem::path ResolveWritableDefaultsPath() const;
-
-  // ===== ILSystemExplorableDescriptor =====
-  void RegisterExplorableAxes(ParamSpaceExplorer& explorer) override;
-  uint64_t ExplorableSchemaFingerprint() const override {
-    // Bump when the explorable axis schema changes shape (added/removed
-    // axes). The dynamic tropism count is folded in to keep the existing
-    // contract that adding tropism entries also invalidates cached layouts.
-    // Constant 0x4E45454458534537 spells "NEEDXSE7".
-    // change.
-    return 0x4E45454458534537ull ^ static_cast<uint64_t>(tropisms.size());
-  }
 
   // ===== Editor preferences (serialized) =====
   bool live_preview = false;
@@ -444,21 +431,6 @@ class ScotsPineDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   int grid_cols = 5;
   float grid_spacing = 3.0f;
   float triangle_side_length = 3.0f;
-
-  ParamSpaceExplorer explorer_;
-
- private:
-  // Live-preview scheduling state (not serialized).
-  bool live_preview_dirty_ = false;
-  double live_preview_last_apply_seconds_ = -1.0;
-  bool live_preview_was_dragging_ = false;
-  bool live_preview_needs_full_apply_ = false;
-
-  uint32_t live_preview_request_count_ = 0;
-  uint32_t live_preview_apply_count_ = 0;
-  uint32_t live_preview_coalesced_count_ = 0;
-  double live_preview_last_apply_ms_ = 0.0;
-  double live_preview_total_apply_ms_ = 0.0;
 };
 
 }  // namespace l_system_package

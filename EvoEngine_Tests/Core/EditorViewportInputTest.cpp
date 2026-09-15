@@ -168,3 +168,24 @@ TEST(EditorViewportInput, SpaceToggleRequiresVisibleFocusedUncapturedViewportAnd
   ImGui::DestroyContext(context);
   ImGui::SetCurrentContext(previous_context);
 }
+
+TEST(EditorViewportInput, UnregisteringCompanionCameraReleasesItAndPreservesPrimaryCamera) {
+  EditorLayer layer;
+  const auto primary = std::make_shared<Camera>();
+  layer.RegisterEditorCamera(primary);
+  std::weak_ptr<Camera> companion;
+  Handle companion_handle;
+  {
+    const auto camera = std::make_shared<Camera>();
+    companion = camera;
+    companion_handle = camera->GetHandle();
+    layer.RegisterEditorCamera(camera);
+  }
+  ASSERT_FALSE(companion.expired());
+  EXPECT_TRUE(layer.UnregisterEditorCamera(companion_handle));
+  EXPECT_TRUE(companion.expired());
+  EXPECT_EQ(layer.GetSceneCamera(), primary);
+  EXPECT_FALSE(layer.UnregisterEditorCamera(companion_handle));
+  EXPECT_FALSE(layer.UnregisterEditorCamera(primary->GetHandle()));
+  EXPECT_EQ(layer.GetSceneCamera(), primary);
+}

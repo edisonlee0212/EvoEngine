@@ -1,7 +1,5 @@
 #include "DistributionDefaults.hpp"
 
-#include <imgui.h>
-
 #include <algorithm>
 
 using namespace l_system_package;
@@ -74,34 +72,4 @@ SingleDistribution<float> DistributionDefaults::MakeSingleDefaults(const float m
   SingleDistribution<float> distribution{};
   ApplySingleDefaults(distribution, mean, deviation);
   return distribution;
-}
-
-evo_engine::PlottedDistributionSettings DistributionDefaults::MakePlottedGuiSettings(const std::string& tip) {
-  evo_engine::PlottedDistributionSettings settings;
-  settings.tip = tip;
-  settings.mean_settings.m_tip = "Mean response curve. x is normalized axis [0, 1].";
-  settings.dev_settings.m_tip = "Standard deviation (sigma) curve. Zero keeps deterministic behavior.";
-  return settings;
-}
-
-bool DistributionDefaults::InspectPlottedDistributionCategory(
-    const char* category_label, const std::initializer_list<PlottedDistributionUiEntry> entries,
-    const int tree_node_flags) {
-  if (!category_label || category_label[0] == '\0') {
-    return false;
-  }
-
-  bool changed = false;
-  if (ImGui::TreeNodeEx(category_label, static_cast<ImGuiTreeNodeFlags>(tree_node_flags))) {
-    for (const auto& entry : entries) {
-      if (!entry.distribution || !entry.label || entry.label[0] == '\0') {
-        continue;
-      }
-      const std::string tip = entry.tip ? entry.tip : "";
-      changed |= entry.distribution->Draw(entry.label, MakePlottedGuiSettings(tip));
-    }
-    ImGui::TreePop();
-  }
-
-  return changed;
 }

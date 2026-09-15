@@ -30,44 +30,6 @@ struct SimulationParams {
   glm::mat3 matrixAc;
 };
 
-bool FungusTest::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Enable Update", &update);
-  if (update) {
-    DownloadGpuResults();
-    update = false;
-  }
-
-  static std::shared_ptr<ParticleInfoList> particle_info_list;
-  if (!particle_info_list) {
-    particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-  }
-  std::vector<ParticleInfo> particle_infos(num_nodes);
-  // const auto time = ApplicationContext::Get().GetTimes().Now();
-  Jobs::RunParallelFor(particle_infos.size(), [&](size_t i) {
-    auto& particle_info = particle_infos[i];
-    particle_info.instance_matrix.SetPosition(
-        glm::vec3(Tree_Graph.nodes[i].x, Tree_Graph.nodes[i].y, Tree_Graph.nodes[i].z));
-    // particle_info.instance_color = glm::vec4(0.55f * (RW[i]),
-    //                                          0.7f * (1.f - (RW[i])) + 0.3f,
-    //                                          0.15f * (RW[i]),
-    //                                          0.5f
-    //);
-    particle_info.instance_color =
-        glm::vec4(0.55f + 0.45f * (1.f - HL[i]), 0.3f + 0.7f * (1.f - HL[i]), 0.15f + 0.85 * (1.f - HL[i]), 1.f);
-  });
-
-  particle_info_list->SetParticleInfos(particle_infos);
-  GizmoSettings gizmo_settings{};
-  gizmo_settings.draw_settings.blending = false;
-  gizmo_settings.depth_test = true;
-  gizmo_settings.depth_write = true;
-
-  editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().sphere,
-                                              editor_layer->GetSceneCamera(), particle_info_list, glm::mat4(1), 0.02f,
-                                              gizmo_settings);
-  return false;
-}
-
 std::string removeChars(const std::string& str, const std::string& charsToRemove) {
   std::string result;
   for (char c : str) {

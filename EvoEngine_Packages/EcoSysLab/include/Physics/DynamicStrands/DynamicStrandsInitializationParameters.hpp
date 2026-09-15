@@ -22,7 +22,6 @@ struct BundleSolverSettings {
   float slice_spacing_factor = 1.f;
   int minimum_slice_members = 8;
 
-  bool DrawGui();
   void Save(const std::string& name, YAML::Emitter& out) const;
   void Load(const std::string& name, const YAML::Node& in);
 };
@@ -44,15 +43,13 @@ struct DynamicStrandsInitializeParameters {
   float wood_transition = 0.005f;  ///< Transition factor between different wood types.
 
   ModulusGraph modulus_graph{ModulusGraph::Output()};  ///< Graph for offset distance for trunk-based calculations.
-  bool show_modulus_graph = false;                     ///< Whether to show the trunk offset graph.
 
   StrengthGraph strength_graph{StrengthGraph::Output()};  ///< Graph for strength calculations.
-  bool show_strength_graph = false;                       ///< Whether to show the strength graph.
-  bool trunk_additional_strength = true;                  ///< Whether the model contains a trunk structure.
+
+  bool trunk_additional_strength = true;  ///< Whether the model contains a trunk structure.
 
   BiologicalPropertiesGraph biological_properties_graph{
-      BiologicalPropertiesGraph::Output()};       ///< Graph for biological properties calculations.
-  bool show_biological_properties_graph = false;  ///< Whether to show the biological properties graph.
+      BiologicalPropertiesGraph::Output()};  ///< Graph for biological properties calculations.
 
   SingleDistribution<float> leaf_position_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf positioning.
   SingleDistribution<float> leaf_rotation_alpha = {0.01f, 0.1f};      ///< Alpha parameter for leaf rotation.
@@ -73,13 +70,6 @@ struct DynamicStrandsInitializeParameters {
   BundleSolverSettings bundle_solver{};
 
   AssetRef foliage_descriptor;  ///< Descriptor reference for foliage data.
-
-  /**
-   * \brief Editor inspection function.
-   * \param editor_layer The editor layer to be modified.
-   * \return True if contents are unchanged during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Saves to a YAML emitter.

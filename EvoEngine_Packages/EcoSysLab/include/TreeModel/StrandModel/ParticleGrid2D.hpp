@@ -62,6 +62,12 @@ class ParticleGrid2D {
   friend class StrandModelProfile;
 
  public:
+  [[nodiscard]] glm::ivec2 GetResolution() const {
+    return resolution_;
+  }
+  [[nodiscard]] float GetCellSize() const {
+    return cell_size_;
+  }
   /**
    * @brief Applies boundary constraints to the grid.
    * @param profile_boundaries The boundary constraints to apply.

@@ -89,13 +89,6 @@ class LSystemString : public IAsset {
    */
   void ParseLString(const std::string& string);
 
-  /**
-   * @brief Inspects the L-system string within the editor.
-   * @param editor_layer Shared pointer to the editor layer.
-   * @return True if the asset's content remains unmodified during inspection, otherwise false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
   std::vector<LSystemCommand> m_commands;  ///< A sequence of parsed L-system commands.
 };
 }  // namespace eco_sys_lab_package

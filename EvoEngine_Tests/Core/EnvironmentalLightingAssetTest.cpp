@@ -730,7 +730,7 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
   const auto scene_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Core/ECS/Scene.hpp"));
   const auto asset_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));
   const auto application_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Application.cpp"));
-  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto render_layer_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/RenderLayer.hpp"));
   const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto render_instance_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
@@ -795,9 +795,9 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
 TEST(EnvironmentalLightingAsset, LocalProbeInspectorDoesNotSynchronouslyLoadProbePayloads) {
   const auto asset_ref_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Core/ECS/AssetRef.hpp"));
   const auto asset_ref_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/AssetRef.cpp"));
-  const auto editor_layer_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
-  const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
-  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor_layer_header = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/include/EditorLayer.hpp"));
+  const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
+  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
 
   ASSERT_FALSE(asset_ref_header.empty());
   ASSERT_FALSE(asset_ref_source.empty());
@@ -941,7 +941,7 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
 }
 
 TEST(EnvironmentalLightingAsset, SdfgiInspectorKeepsControlsWithoutAnalysisPanels) {
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   for (const auto* removed :
        {"BuildSdfgiDebugSnapshot", "CaptureSdfgiDebugImage", "Full runtime snapshot", "Capture SDFGI timings",
         "Maintenance calls:", "Cascade rebuilds:", "Cascade 0 Distance", "Max Distance"})

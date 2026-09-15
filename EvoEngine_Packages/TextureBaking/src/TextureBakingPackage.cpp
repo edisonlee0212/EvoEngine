@@ -1,21 +1,19 @@
 #include "PackageManager.hpp"
 
-#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 #include "TextureBaking.hpp"
-#include "TextureBakingInspectionAdapters.hpp"
 #include "TextureBakingSerializationAdapters.hpp"
 
 using namespace evo_engine;
 using namespace texture_baking_package;
 
 namespace {
-PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "TextureBaking", "0.1.0",
-                             "Mesh texture baking runtime package."};
-
-void RegisterTextureBakingInspectors(const std::string& owner_name) {
-  InspectorRegistry::GetInstance().RegisterInspector<TextureBaking>(InspectTextureBaking, owner_name, "TextureBaking");
-}
+PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION,
+                             "TextureBaking",
+                             "0.1.0",
+                             "Mesh texture baking runtime package.",
+                             EVOENGINE_PACKAGE_BUILD_IDENTITY,
+                             EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterTextureBakingSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<TextureBaking>(SerializeTextureBaking, DeserializeTextureBaking,
@@ -31,7 +29,6 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
   const bool registered = registrar && registrar->RegisterPrivateComponent<TextureBaking>("TextureBaking");
   if (registered) {
     RegisterTextureBakingSerializationHandlers(descriptor.name);
-    RegisterTextureBakingInspectors(descriptor.name);
   }
   return registered;
 }

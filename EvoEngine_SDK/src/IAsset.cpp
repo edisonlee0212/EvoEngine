@@ -1,10 +1,15 @@
 #include <IAsset.hpp>
 #include "Console.hpp"
 #include "ProjectManager.hpp"
+#include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 using namespace evo_engine;
 
 bool IAsset::Save() {
+  if (runtime_paths::IsStrict()) {
+    EVOENGINE_ERROR("Cannot save project assets in strict runtime mode.")
+    return false;
+  }
   if (IsTemporary())
     return false;
   if (const auto path = GetAbsolutePath(); Serialization::SaveAsset(*this, path)) {
@@ -119,6 +124,10 @@ uint32_t IAsset::GetVersion() const {
 }
 
 bool IAsset::SetPathAndSave(const std::filesystem::path &asset_folder_relative_path) {
+  if (runtime_paths::IsStrict()) {
+    EVOENGINE_ERROR("Cannot create or relocate project assets in strict runtime mode.")
+    return false;
+  }
   if (!asset_folder_relative_path.is_relative()) {
     EVOENGINE_ERROR("Not relative path!")
     return false;

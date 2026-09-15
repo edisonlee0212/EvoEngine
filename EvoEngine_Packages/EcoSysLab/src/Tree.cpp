@@ -13,11 +13,9 @@
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
-#include "EditorLayer.hpp"
 #include "Octree.hpp"
 #include "Soil.hpp"
 #include "StrandModelProfileSerializer.hpp"
-#include "assimp/contrib/zip/src/miniz.h"
 
 using namespace eco_sys_lab_package;
 
@@ -38,321 +36,10 @@ void Tree::Reset() {
   root_model.Clear();
   shoot_strand_model = {};
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
-  shoot_visualizer.Reset(shoot_model);
-  root_visualizer.Reset(root_model);
-}
-
-bool Tree::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::TreeNode("Preset settings")) {
-    if (ImGui::Button("Oak Trunk Crack Process")) {
-      strand_model_parameters.end_node_strands = 3200;
-      strand_model_parameters.strand_radius_distribution.mean.max_value = 0.003f;
-      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.8f, {0, 0}, {1, 1});
-      changed = true;
-    }
-    if (ImGui::Button("Oak Trunk Full Process")) {
-      strand_model_parameters.end_node_strands = 3200;
-      strand_model_parameters.strand_radius_distribution.mean.max_value = 0.004f;
-      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.6f, {0, 0}, {1, 1});
-      auto& values = strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
-      // First logical point (index 0)
-      // values[0] = glm::vec2(-0.05f, 0.0f);  // left tangent offset
-      values[2] = glm::vec2(0.0f, -0.4f);  // right tangent offset
-
-      // Second logical point (index 1)
-      values[3] = glm::vec2(-0.1f, 0.0f);  // left tangent offset
-      // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
-      changed = true;
-    }
-    if (ImGui::Button("Elm")) {
-      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.65f, 0.5f, {0, 0}, {1, 1});
-      changed = true;
-    }
-    if (ImGui::Button("Spruce")) {
-      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.5f, 0.7f, {0, 0}, {1, 1});
-      auto& values = strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
-      // First logical point (index 0)
-      // values[0] = glm::vec2(-0.05f, 0.0f);  // left tangent offset
-      values[2] = glm::vec2(0.1f, -0.03f);  // right tangent offset
-
-      // Second logical point (index 1)
-      values[3] = glm::vec2(-0.06f, -0.12f);  // left tangent offset
-      // values[5] = glm::vec2(0.04f, 0.0f);     // right tangent offset
-      changed = true;
-    }
-    if (ImGui::Button("Oak")) {
-      strand_model_parameters.strand_radius_distribution.mean.max_value = 0.003f;
-      strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(0.9f, 0.5f, {0, 0}, {1, 1});
-      changed = true;
-    }
-    ImGui::TreePop();
-  }
-#ifdef BILLBOARD_CLOUDS_PACKAGE
-  static BillboardCloud::GenerateSettings foliage_billboard_cloud_generate_settings{};
-
-  foliage_billboard_cloud_generate_settings.DrawGui("Foliage billboard cloud settings");
-
-  if (ImGui::Button("Generate billboard")) {
-    GenerateBillboardClouds(foliage_billboard_cloud_generate_settings);
-  }
-#endif
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  const auto scene = GetScene();
-  editor_layer->DragAndDropButton<TreeDescriptor>(tree_descriptor_ref, "TreeDescriptor", true);
-  static bool show_space_colonization_grid = true;
-
-  static std::shared_ptr<ParticleInfoList> space_colonization_grid_particle_info_list;
-  if (!space_colonization_grid_particle_info_list) {
-    space_colonization_grid_particle_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-  }
-
-  if (const auto td = tree_descriptor_ref.Get<TreeDescriptor>()) {
-    const auto sd = td->shoot_descriptor.Get<BasicShootDescriptor>();
-    if (sd) {
-      ImGui::DragInt("TreeModel Seed", &shoot_model.seed, 1, 0);
-      ImGui::DragInt("StrandModel Seed", &shoot_strand_model.seed, 1, 0);
-      if (ImGui::TreeNode("Tree settings")) {
-        if (ImGui::DragFloat("Start time", &start_time, 0.01f, 0.0f, 100.f))
-          changed = true;
-        ImGui::Checkbox("Enable History", &enable_history);
-        if (enable_history) {
-          ImGui::DragInt("History per iteration", &history_iteration, 1, 1, 1000);
-        }
-        if (ImGui::TreeNode("Sagging")) {
-          bool bending_changed = false;
-          bending_changed =
-              ImGui::DragFloat("Bending strength", &sd->gravity_bending_strength, 0.01f, 0.0f, 1.0f, "%.3f") ||
-              bending_changed;
-          bending_changed = ImGui::DragFloat("Bending thickness factor", &sd->gravity_bending_thickness_factor, 0.1f,
-                                             0.0f, 10.f, "%.3f") ||
-                            bending_changed;
-          bending_changed =
-              ImGui::DragFloat("Bending angle factor", &sd->gravity_bending_max, 0.01f, 0.0f, 1.0f, "%.3f") ||
-              bending_changed;
-          if (bending_changed) {
-            shoot_growth_controller_.sagging = [=](std::mt19937& random_engine,
-                                                   const ShootGrowthData& shoot_growth_data,
-                                                   const SkeletonNode<InternodeGrowthData>& internode) {
-              float strength =
-                  internode.data.sagging_force * sd->gravity_bending_strength /
-                  glm::pow(internode.info.thickness / sd->end_node_thickness, sd->gravity_bending_thickness_factor);
-              strength = sd->gravity_bending_max * (1.f - glm::exp(-glm::abs(strength)));
-              return strength;
-            };
-            shoot_model.CalculateTransform(shoot_growth_controller_, true);
-            shoot_visualizer.need_update = true;
-          }
-          ImGui::TreePop();
-        }
-        if (shoot_model.tree_growth_settings.DrawGui(editor_layer))
-          changed = true;
-
-        if (shoot_model.tree_growth_settings.use_space_colonization &&
-            !shoot_model.tree_growth_settings.space_colonization_auto_resize) {
-          static float radius = 1.5f;
-          static int markers_per_voxel = 5;
-          ImGui::DragFloat("Import radius", &radius, 0.01f, 0.01f, 10.0f);
-          ImGui::DragInt("Markers per voxel", &markers_per_voxel);
-          FileUtils::OpenFile(
-              "Load Voxel Data", "Binvox", {".binvox"},
-              [&](const std::filesystem::path& path) {
-                auto& occupancy_grid = shoot_model.tree_occupancy_grid;
-                if (VoxelGrid<TreeOccupancyGridBasicData> input_grid{}; ParseBinvox(path, input_grid, 1.f)) {
-                  occupancy_grid.Initialize(
-                      input_grid, glm::vec3(-radius, 0, -radius), glm::vec3(radius, 2.0f * radius, radius),
-                      sd->internode_length, shoot_model.tree_growth_settings.space_colonization_removal_distance_factor,
-                      shoot_model.tree_growth_settings.space_colonization_theta,
-                      shoot_model.tree_growth_settings.space_colonization_detection_distance_factor, markers_per_voxel);
-                }
-              },
-              false);
-
-          static PrivateComponentRef private_component_ref{};
-
-          if (editor_layer->DragAndDropButton<MeshRenderer>(private_component_ref, "Add Obstacle")) {
-            if (const auto mmr = private_component_ref.Get<MeshRenderer>()) {
-              const auto cube_volume = AssetManager::CreateTemporaryAsset<CubeVolume>();
-              cube_volume->ApplyMeshBounds(mmr->mesh.Get<Mesh>());
-              const auto global_transform = scene->GetDataComponent<GlobalTransform>(mmr->GetOwner());
-              shoot_model.tree_occupancy_grid.InsertObstacle(global_transform, cube_volume);
-              private_component_ref.Clear();
-            }
-          }
-        }
-
-        ImGui::TreePop();
-      }
-      static int mesh_generate_iterations = 0;
-      if (ImGui::TreeNode("Cylindrical Mesh generation settings")) {
-        ImGui::DragInt("Iterations", &mesh_generate_iterations, 1, 0, shoot_model.CurrentIteration());
-        mesh_generate_iterations = glm::clamp(mesh_generate_iterations, 0, shoot_model.CurrentIteration());
-        tree_mesh_generator_settings.DrawGui(editor_layer);
-
-        ImGui::TreePop();
-      }
-      if (ImGui::Button("Generate Cylindrical Mesh")) {
-        GenerateGeometryEntities(tree_mesh_generator_settings, mesh_generate_iterations);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Cylindrical Mesh")) {
-        ClearGeometryEntities();
-      }
-
-      if (ImGui::Button("Generate Animated Cylindrical Mesh")) {
-        GenerateAnimatedGeometryEntities(tree_mesh_generator_settings, mesh_generate_iterations);
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Clear Animated Cylindrical Mesh")) {
-        ClearAnimatedGeometryEntities();
-      }
-    }
-
-    if (shoot_model.tree_growth_settings.use_space_colonization) {
-      bool need_grid_update = false;
-      if (shoot_visualizer.need_update) {
-        need_grid_update = true;
-      }
-      if (ImGui::Button("Update grids"))
-        need_grid_update = true;
-      ImGui::Checkbox("Show Space Colonization Grid", &show_space_colonization_grid);
-      if (show_space_colonization_grid) {
-        if (need_grid_update) {
-          auto& occupancy_grid = shoot_model.tree_occupancy_grid;
-          auto& voxel_grid = occupancy_grid.RefGrid();
-          const auto num_voxels = voxel_grid.GetVoxelCount();
-          std::vector<ParticleInfo> scalar_matrices{};
-
-          if (scalar_matrices.size() != num_voxels) {
-            scalar_matrices.resize(num_voxels);
-          }
-
-          if (scalar_matrices.size() != num_voxels) {
-            scalar_matrices.reserve(occupancy_grid.GetMarkersPerVoxel() * num_voxels);
-          }
-          int i = 0;
-          for (const auto& voxel : voxel_grid.RefData()) {
-            for (const auto& marker : voxel.markers) {
-              scalar_matrices.resize(i + 1);
-              scalar_matrices[i].instance_matrix.value = glm::translate(marker.position) *
-                                                         glm::mat4_cast(glm::quat(glm::vec3(0.0f))) *
-                                                         glm::scale(glm::vec3(voxel_grid.GetVoxelSize() * 0.2f));
-              if (marker.node_handle == -1)
-                scalar_matrices[i].instance_color = glm::vec4(1.0f, 1.0f, 1.0f, 0.75f);
-              else {
-                scalar_matrices[i].instance_color =
-                    glm::vec4(eco_sys_lab_layer->RandomColors()[marker.node_handle], 1.0f);
-              }
-              i++;
-            }
-          }
-          space_colonization_grid_particle_info_list->SetParticleInfos(scalar_matrices);
-        }
-        GizmoSettings gizmo_settings{};
-        gizmo_settings.draw_settings.blending = true;
-        editor_layer->DrawGizmoMeshInstancedColored(Resources::GetInstance().GetPrimitives().cube,
-                                                    space_colonization_grid_particle_info_list, glm::mat4(1.0f), 1.0f,
-                                                    gizmo_settings);
-      }
-    }
-
-    if (enable_history) {
-      if (ImGui::Button("Temporal Progression")) {
-        temporal_progression = true;
-        temporal_progression_iteration = 0;
-      }
-    }
-  }
-
-  /*
-  ImGui::Checkbox("Split root test", &splitRootTest);
-  ImGui::Checkbox("Biomass history", &record_biomass_history);
-
-  if (splitRootTest) ImGui::Text(("Left/Right side biomass: [" + std::to_string(m_leftSideBiomass) + ", " +
-  std::to_string(right_side_biomass) + "]").c_str());
-  */
-
-  if (ImGui::TreeNode("Strand Model")) {
-    if (strand_model_parameters.DrawGui(editor_layer))
-      changed = true;
-
-    ImGui::Text(("Strand count: " +
-                 std::to_string(shoot_strand_model.strand_model_skeleton.data.strand_group.PeekStrands().size()))
-                    .c_str());
-    ImGui::Text(
-        ("Total particle count: " + std::to_string(shoot_strand_model.strand_model_skeleton.data.num_of_particles))
-            .c_str());
-
-    if (ImGui::Button("Rebuild Strand Model")) {
-      BuildStrandModel();
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button("Clear Strand Model")) {
-      shoot_strand_model = {};
-    }
-
-    if (ImGui::TreeNodeEx("Strand Model Mesh Generator Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-      strand_model_mesh_generator_settings.DrawGui(editor_layer);
-      ImGui::TreePop();
-    }
-
-    ImGui::TreePop();
-  }
-
-  if (ImGui::Button("Build StrandRenderer")) {
-    InitializeStrandRenderer();
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Clear StrandRenderer")) {
-    ClearStrandRenderer();
-  }
-  if (ImGui::Button("Build Strand Particles")) {
-    InitializeStrandParticles();
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Clear Strand Particles")) {
-    ClearStrandParticles();
-  }
-  if (ImGui::Button("Build Strand Mesh")) {
-    InitializeStrandModelMeshRenderer(strand_model_mesh_generator_settings);
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Clear Strand Mesh")) {
-    ClearStrandModelMeshRenderer();
-  }
-
-  shoot_visualizer.Visualize(shoot_strand_model);
-  if (ImGui::TreeNode("Skeletal graph settings")) {
-    if (skeletal_graph_settings.DrawGui(editor_layer))
-      changed = true;
-
-    ImGui::TreePop();
-  }
-  if (ImGui::Button("Build skeletal graph")) {
-    GenerateSkeletalGraph(skeletal_graph_settings, -1, Resources::GetInstance().GetPrimitives().sphere,
-                          Resources::GetInstance().GetPrimitives().cube);
-  }
-  ImGui::SameLine();
-  if (ImGui::Button("Clear skeletal graph")) {
-    ClearSkeletalGraph();
-  }
-
-  FileUtils::SaveFile(
-      "Export Cylindrical Mesh", "OBJ", {".obj"},
-      [&](const std::filesystem::path& path) {
-        ExportObj(path, tree_mesh_generator_settings);
-      },
-      false);
-  ImGui::SameLine();
-  FileUtils::SaveFile(
-      "Export Strand Mesh", "OBJ", {".obj"},
-      [&](const std::filesystem::path& path) {
-        ExportStrandModelObj(path, strand_model_mesh_generator_settings);
-      },
-      false);
-
-  return changed;
+  ++shoot_model_revision_.content;
+  ++shoot_model_revision_.topology;
+  ++root_model_revision_.content;
+  ++root_model_revision_.topology;
 }
 
 void Tree::Update() {
@@ -365,16 +52,9 @@ void Tree::Update() {
       temporal_progression = false;
     }
   }
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 }
 
 void Tree::OnCreate() {
-  shoot_visualizer.Initialize();
-  shoot_visualizer.need_update = true;
-  root_visualizer.Initialize();
-  root_visualizer.need_update = true;
-
   strand_model_parameters.branch_twist_distribution.mean = {-60.0f, 60.0f};
   strand_model_parameters.branch_twist_distribution.deviation = {0.0f, 1.0f, {0, 0}};
 
@@ -397,9 +77,6 @@ void Tree::OnDestroy() {
   soil.Clear();
   climate.Clear();
   enable_history = false;
-
-  shoot_visualizer.Clear();
-  root_visualizer.Clear();
 
   left_side_biomass = right_side_biomass = 0.0f;
   root_biomass_history.clear();
@@ -511,9 +188,9 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
                     shoot_grown;
     }
     if (shoot_grown) {
+      ++shoot_model_revision_.content;
       if (pruning)
-        shoot_visualizer.ClearSelections();
-      shoot_visualizer.need_update = true;
+        ++shoot_model_revision_.topology;
       if (!shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty())
         root_model.shoot_skeleton_base_thickness = shoot_model.PeekShootSkeleton().PeekNode(0).info.thickness;
     }
@@ -528,9 +205,9 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
                    root_grown;
     }
     if (root_grown) {
+      ++root_model_revision_.content;
       if (pruning)
-        root_visualizer.ClearSelections();
-      root_visualizer.need_update = true;
+        ++root_model_revision_.topology;
     }
   }
   if (enable_history && shoot_model.iteration_ % history_iteration == 0) {
@@ -555,6 +232,10 @@ void eco_sys_lab_package::SerializeTree(YAML::Emitter& out, const Tree& target) 
 }
 
 void eco_sys_lab_package::DeserializeTree(const YAML::Node& in, Tree& target) {
+  ++target.shoot_model_revision_.content;
+  ++target.shoot_model_revision_.topology;
+  ++target.root_model_revision_.content;
+  ++target.root_model_revision_.topology;
   target.tree_descriptor_ref.Load("tree_descriptor_ref", in);
 
   target.strand_model_parameters.Load("strand_model_parameters", in);

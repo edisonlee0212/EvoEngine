@@ -128,6 +128,7 @@ class EVOENGINE_API AssetRef final : public ISerializable {
 
   /**
    * @brief Retrieves the underlying asset.
+   * Concurrent reads are safe after resolution; resolving or changing a reference requires exclusive access.
    * @tparam T The asset type, defaults to `IAsset`.
    * @return Shared pointer to the asset if available, otherwise `nullptr`.
    */

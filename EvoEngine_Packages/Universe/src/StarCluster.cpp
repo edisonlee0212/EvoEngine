@@ -1,6 +1,5 @@
 #include "StarCluster.hpp"
 
-#include "EditorLayer.hpp"
 #include "Serialization.hpp"
 
 using namespace universe_package;
@@ -67,74 +66,6 @@ void StarCluster::OnCreate() {
 
 void StarCluster::OnDestroy() {
   ResetAuthoringState();
-}
-
-bool universe_package::InspectStarCluster(InspectorContext&, StarCluster& cluster) {
-  bool changed = false;
-  changed |= ImGui::InputScalar("Star count", ImGuiDataType_U32, &cluster.star_count_);
-  changed |= ImGui::InputScalar("Seed", ImGuiDataType_U64, &cluster.seed);
-  const double minimum_distance = 0.001, maximum_distance = (std::numeric_limits<double>::max)();
-  changed |= ImGui::DragScalar("Star minimum distance", ImGuiDataType_Double, &cluster.star_minimum_distance, 0.01f,
-                               &minimum_distance, &maximum_distance, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-  if (ImGui::IsItemHovered())
-    ImGui::SetTooltip(
-        "Nominal center spacing in cluster-local units. Gaussian offsets and motion can reduce separation.");
-  changed |= ImGui::Checkbox("Paused", &cluster.paused);
-  changed |= ImGui::DragScalar("Time scale", ImGuiDataType_Double, &cluster.time_scale, 0.1f);
-  changed |= ImGui::DragScalar("Phase", ImGuiDataType_Double, &cluster.phase, 1.0f);
-  if (ImGui::TreeNode("Star size")) {
-    const double zero = 0;
-    const double maximum = (std::numeric_limits<double>::max)();
-    changed |= ImGui::DragScalar("Minimum radius", ImGuiDataType_Double, &cluster.radius_min, 0.01f, &zero, &maximum,
-                                 "%.3f", ImGuiSliderFlags_AlwaysClamp);
-    changed |= ImGui::DragScalar("Maximum radius", ImGuiDataType_Double, &cluster.radius_max, 0.01f,
-                                 &cluster.radius_min, &maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp);
-    changed |= ImGui::DragScalar("Normalized deviation", ImGuiDataType_Double, &cluster.radius_deviation, 0.001f, &zero,
-                                 &maximum, "%.4f", ImGuiSliderFlags_AlwaysClamp);
-    if (cluster.radius_max < cluster.radius_min) {
-      cluster.radius_max = cluster.radius_min;
-      changed = true;
-    }
-    ImGui::TextUnformatted("Radius = mix(min, max, clamp(0.5 + Gaussian x deviation, 0, 1)).");
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Density wave")) {
-    changed |= ImGui::DragScalar("Disk diameter", ImGuiDataType_Double, &cluster.disk_diameter, 1.0f);
-    changed |= ImGui::DragScalar("Disk eccentricity", ImGuiDataType_Double, &cluster.disk_eccentricity, 0.01f);
-    changed |= ImGui::DragScalar("Core proportion", ImGuiDataType_Double, &cluster.core_proportion, 0.01f);
-    changed |= ImGui::DragScalar("Core eccentricity", ImGuiDataType_Double, &cluster.core_eccentricity, 0.01f);
-    changed |= ImGui::DragScalar("Center diameter", ImGuiDataType_Double, &cluster.center_diameter, 1.0f);
-    changed |= ImGui::DragScalar("Center eccentricity", ImGuiDataType_Double, &cluster.center_eccentricity, 0.01f);
-    changed |= ImGui::DragScalar("Y spread", ImGuiDataType_Double, &cluster.y_spread, 0.001f);
-    changed |= ImGui::DragScalar("XZ spread", ImGuiDataType_Double, &cluster.xz_spread, 0.001f);
-    changed |= ImGui::DragScalar("Twist", ImGuiDataType_Double, &cluster.twist, 1.0f);
-    changed |= ImGui::DragScalarN("Center offset", ImGuiDataType_Double, &cluster.center_offset.x, 3, 1.0f);
-    changed |= ImGui::DragScalarN("Center position", ImGuiDataType_Double, &cluster.center_position.x, 3, 1.0f);
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Movement")) {
-    changed |= ImGui::DragScalar("Disk speed", ImGuiDataType_Double, &cluster.disk_speed, 0.1f);
-    changed |= ImGui::DragScalar("Core speed", ImGuiDataType_Double, &cluster.core_speed, 0.1f);
-    changed |= ImGui::DragScalar("Center speed", ImGuiDataType_Double, &cluster.center_speed, 0.1f);
-    changed |= ImGui::DragScalar("Disk X tilt", ImGuiDataType_Double, &cluster.disk_tilt_x, 1.0f);
-    changed |= ImGui::DragScalar("Disk Z tilt", ImGuiDataType_Double, &cluster.disk_tilt_z, 1.0f);
-    changed |= ImGui::DragScalar("Core X tilt", ImGuiDataType_Double, &cluster.core_tilt_x, 1.0f);
-    changed |= ImGui::DragScalar("Core Z tilt", ImGuiDataType_Double, &cluster.core_tilt_z, 1.0f);
-    changed |= ImGui::DragScalar("Center X tilt", ImGuiDataType_Double, &cluster.center_tilt_x, 1.0f);
-    changed |= ImGui::DragScalar("Center Z tilt", ImGuiDataType_Double, &cluster.center_tilt_z, 1.0f);
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Colors and emission")) {
-    changed |= ImGui::ColorEdit3("Disk color", &cluster.disk_color.x);
-    changed |= ImGui::ColorEdit3("Core color", &cluster.core_color.x);
-    changed |= ImGui::ColorEdit3("Center color", &cluster.center_color.x);
-    changed |= ImGui::DragFloat("Disk emission", &cluster.disk_emission_intensity, 0.01f);
-    changed |= ImGui::DragFloat("Core emission", &cluster.core_emission_intensity, 0.01f);
-    changed |= ImGui::DragFloat("Center emission", &cluster.center_emission_intensity, 0.01f);
-    ImGui::TreePop();
-  }
-  ImGui::TextUnformatted("Simulation and rendering are managed by Universe Layer.");
-  return changed;
 }
 
 void universe_package::SerializeStarCluster(YAML::Emitter& out, const StarCluster& cluster) {

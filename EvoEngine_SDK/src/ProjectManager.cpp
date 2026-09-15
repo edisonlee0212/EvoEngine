@@ -1,8 +1,8 @@
 #include "ProjectManager.hpp"
 #include "Application.hpp"
-#include "EditorLayer.hpp"
 #include "PathUtils.hpp"
 #include "Profiler.hpp"
+#include "RuntimePaths.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
 #include "WindowLayer.hpp"
@@ -23,7 +23,33 @@ constexpr const char* kDefaultEditorName = "EvoEngineEditor";
 constexpr const char* kDefaultApplicationName = "EvoEngine Editor";
 using LoadingClock = std::chrono::steady_clock;
 
-enum class ProjectEditorStateApplyMode { Full, LayoutOnly, SceneStateOnly };
+uint64_t ReadStartSceneHandle(const YAML::Node& in);
+
+bool StrictRuntime() {
+  return runtime_paths::IsStrict();
+}
+
+std::optional<std::string> ValidateStrictProject(const std::filesystem::path& project_path) {
+  if (!std::filesystem::is_regular_file(project_path)) {
+    return "Runtime project file does not exist: " + project_path.string();
+  }
+  try {
+    const auto project = YAML::LoadFile(project_path.string());
+    if (!project.IsMap()) {
+      return "Runtime project file must contain a YAML map: " + project_path.string();
+    }
+    if (ReadStartSceneHandle(project) == 0) {
+      return "Runtime project does not declare a startup scene handle: " + project_path.string();
+    }
+  } catch (const std::exception& error) {
+    return "Failed to parse runtime project file " + project_path.string() + ": " + error.what();
+  }
+  const auto assets_path = project_path.parent_path() / "Assets";
+  if (!std::filesystem::is_directory(assets_path)) {
+    return "Runtime project Assets directory does not exist: " + assets_path.string();
+  }
+  return std::nullopt;
+}
 
 int64_t ElapsedMilliseconds(const LoadingClock::time_point start) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(LoadingClock::now() - start).count();
@@ -89,10 +115,34 @@ std::optional<uint64_t> ReadExistingStartSceneHandle(const std::filesystem::path
   return std::nullopt;
 }
 
-void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMetadata& metadata,
-                      const std::optional<uint64_t> start_scene_handle) {
-  if (const auto directory = path.parent_path(); !directory.empty() && !std::filesystem::exists(directory)) {
-    std::filesystem::create_directories(directory);
+bool WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMetadata& metadata,
+                      const std::optional<uint64_t> start_scene_handle, const ProjectHostCallbacks* host) {
+  std::error_code error;
+  if (const auto directory = path.parent_path(); !directory.empty()) {
+    std::filesystem::create_directories(directory, error);
+    if (error) {
+      EVOENGINE_ERROR("Failed to create project directory: " + error.message())
+      return false;
+    }
+  }
+
+  YAML::Node extensions(YAML::NodeType::Map);
+  try {
+    if (std::filesystem::is_regular_file(path)) {
+      extensions = YAML::LoadFile(path.string());
+      if (!extensions || extensions.IsNull())
+        extensions = YAML::Node(YAML::NodeType::Map);
+      if (!extensions.IsMap())
+        throw std::runtime_error("Project file must contain a YAML map.");
+    }
+    if (host && host->save_extensions)
+      host->save_extensions(extensions);
+    for (const auto* key : {"application_name", "preferred_editor", "startup_runtime_packages", "build_settings",
+                            "start_scene_handle", "m_startSceneHandle"})
+      extensions.remove(key);
+  } catch (const std::exception& error) {
+    EVOENGINE_ERROR("Failed to preserve project metadata: " + std::string(error.what()))
+    return false;
   }
 
   YAML::Emitter out;
@@ -104,91 +154,33 @@ void WriteProjectFile(const std::filesystem::path& path, const ProjectLaunchMeta
     out << package_name;
   }
   out << YAML::EndSeq;
+  out << YAML::Key << "build_settings" << YAML::Value;
+  SerializeProjectBuildSettings(metadata.build_settings, out);
   if (start_scene_handle) {
     out << YAML::Key << "start_scene_handle" << YAML::Value << *start_scene_handle;
   }
-  if (const auto application = ApplicationContext::TryGet()) {
-    if (const auto editor_layer = application->GetLayer<EditorLayer>()) {
-      out << YAML::Key << "EditorLayer" << YAML::Value << YAML::BeginMap;
-      editor_layer->Serialize(out);
-      out << YAML::EndMap;
-    }
+  for (const auto& entry : extensions) {
+    out << YAML::Key << entry.first << YAML::Value << entry.second;
   }
+
   out << YAML::EndMap;
+  if (!out.good()) {
+    EVOENGINE_ERROR("Failed to serialize project file: " + path.string())
+    return false;
+  }
 
   std::ofstream file_out(path.string());
+  if (!file_out) {
+    EVOENGINE_ERROR("Failed to open project file for writing: " + path.string())
+    return false;
+  }
   file_out << out.c_str();
   file_out.flush();
-}
-
-void ApplyProjectEditorState(const std::filesystem::path& path,
-                             const ProjectEditorStateApplyMode mode = ProjectEditorStateApplyMode::Full) {
-  const auto application = ApplicationContext::TryGet();
-  if (!application) {
-    return;
-  }
-  const auto editor_layer = application->GetLayer<EditorLayer>();
-  if (!editor_layer) {
-    return;
-  }
-  const auto apply = [&](const YAML::Node& editor_state) {
-    switch (mode) {
-      case ProjectEditorStateApplyMode::LayoutOnly:
-        editor_layer->DeserializeLayout(editor_state);
-        return;
-      case ProjectEditorStateApplyMode::SceneStateOnly:
-        editor_layer->DeserializeSceneState(editor_state);
-        return;
-      case ProjectEditorStateApplyMode::Full:
-        editor_layer->Deserialize(editor_state);
-        return;
-    }
-  };
-  if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
-    apply(YAML::Node());
-    return;
-  }
-  try {
-    const auto in = YAML::LoadFile(path.string());
-    if (const auto editor_state = in["EditorLayer"]) {
-      apply(editor_state);
-    } else {
-      apply(YAML::Node());
-    }
-  } catch (const std::exception& error) {
-    EVOENGINE_ERROR("Failed to read project editor state: " + std::string(error.what()))
-    apply(YAML::Node());
-  }
-}
-
-bool ProjectStateHasUsableEditorDockLayout(const YAML::Node& in) {
-  const auto editor_state = in["EditorLayer"];
-  if (!editor_state || !editor_state.IsMap()) {
+  if (!file_out) {
+    EVOENGINE_ERROR("Failed to write project file: " + path.string())
     return false;
   }
-  try {
-    const auto imgui_ini = editor_state["ImGuiIni"];
-    if (!imgui_ini || !imgui_ini.IsScalar()) {
-      return false;
-    }
-    return EditorLayer::HasUsableImGuiDockLayout(imgui_ini.as<std::string>());
-  } catch (const std::exception&) {
-    return false;
-  }
-}
-
-void RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(const YAML::Node& project_state) {
-  if (ProjectStateHasUsableEditorDockLayout(project_state)) {
-    return;
-  }
-  const auto application = ApplicationContext::TryGet();
-  if (!application) {
-    return;
-  }
-  const auto editor_layer = application->GetLayer<EditorLayer>();
-  if (editor_layer) {
-    editor_layer->RequestDefaultEditorLayout();
-  }
+  return true;
 }
 
 std::filesystem::path NormalizePathForContainment(const std::filesystem::path& path) {
@@ -333,55 +325,13 @@ void MergeApplicationLaunchMetadata(ProjectLaunchMetadata& metadata) {
   }
 }
 
-std::filesystem::path CurrentExecutablePath() {
-#ifdef EVOENGINE_WINDOWS
-  return path_utils::CurrentExecutablePath("EvoEngineEditor.exe");
-#else
-  return path_utils::CurrentExecutablePath(kDefaultEditorName);
-#endif
-}
-
-std::filesystem::path LauncherExecutablePath() {
-#ifdef EVOENGINE_WINDOWS
-  return CurrentExecutablePath().parent_path() / "EvoEngineLauncher.exe";
-#else
-  return CurrentExecutablePath().parent_path() / "EvoEngineLauncher";
-#endif
-}
-
-bool LaunchLauncherProcess(std::string& error) {
-  const auto launcher_path = LauncherExecutablePath();
-  if (!std::filesystem::exists(launcher_path)) {
-    error = "Could not find EvoEngineLauncher next to the editor executable.";
-    return false;
-  }
-
-#ifdef EVOENGINE_WINDOWS
-  std::wstring command_line = L"\"" + launcher_path.wstring() + L"\"";
-  STARTUPINFOW startup_info{};
-  startup_info.cb = sizeof(startup_info);
-  PROCESS_INFORMATION process_info{};
-  const auto working_directory = launcher_path.parent_path().wstring();
-  if (!CreateProcessW(nullptr, command_line.data(), nullptr, nullptr, FALSE, 0, nullptr, working_directory.c_str(),
-                      &startup_info, &process_info)) {
-    error = "Failed to launch EvoEngineLauncher.";
-    return false;
-  }
-  CloseHandle(process_info.hProcess);
-  CloseHandle(process_info.hThread);
-  return true;
-#else
-  const auto command = "\"" + launcher_path.string() + "\" &";
-  if (std::system(command.c_str()) != 0) {
-    error = "Failed to launch EvoEngineLauncher.";
-    return false;
-  }
-  return true;
-#endif
-}
 }  // namespace
 
 std::weak_ptr<Folder> ProjectManager::GetOrCreateFolder(const std::filesystem::path& assets_relative_path) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot create project folders in strict runtime mode.")
+    return {};
+  }
   const auto& project_manager = GetInstance();
   if (!assets_relative_path.is_relative()) {
     EVOENGINE_ERROR("Path not relative!")
@@ -410,6 +360,35 @@ std::shared_ptr<IAsset> ProjectManager::GetOrCreateAsset(const std::filesystem::
     extension = file_name;
   }
   return folder->GetOrCreateAsset(stem, extension);
+}
+
+std::shared_ptr<IAsset> ProjectManager::GetAsset(const std::filesystem::path& assets_relative_path) {
+  const auto& project_manager = GetInstance();
+  if (!project_manager.assets_folder_ || !assets_relative_path.is_relative() || assets_relative_path.empty()) {
+    return {};
+  }
+  auto folder = project_manager.assets_folder_;
+  for (const auto& part : assets_relative_path.parent_path()) {
+    if (part == ".") {
+      continue;
+    }
+    if (part == "..") {
+      return {};
+    }
+    const auto child = std::find_if(folder->children_.begin(), folder->children_.end(), [&](const auto& candidate) {
+      return candidate.second->name_ == part.string();
+    });
+    if (child == folder->children_.end()) {
+      return {};
+    }
+    folder = child->second;
+  }
+  const auto& filename = assets_relative_path.filename();
+  const auto file = std::find_if(folder->files.begin(), folder->files.end(), [&](const auto& candidate) {
+    return candidate.second->asset_file_name_ == filename.stem().string() &&
+           candidate.second->asset_extension_ == filename.extension().string();
+  });
+  return file == folder->files.end() ? nullptr : AssetManager::GetAssetImpl(file->first);
 }
 
 std::shared_ptr<Folder> ProjectManager::CreateFolder(const std::shared_ptr<Folder>& folder,
@@ -515,6 +494,9 @@ bool ProjectManager::MoveFolder(const Handle& folder_handle, const std::shared_p
 
 bool ProjectManager::CopyProjectItemToAssets(const std::filesystem::path& source_path,
                                              const std::shared_ptr<Folder>& destination_folder) {
+  if (StrictRuntime()) {
+    return false;
+  }
   if (!destination_folder) {
     return false;
   }
@@ -531,6 +513,9 @@ bool ProjectManager::CopyProjectItemToAssets(const std::filesystem::path& source
 
 bool ProjectManager::CopyAssetFileToProjectFolder(const Handle& asset_handle,
                                                   const std::filesystem::path& destination_folder) {
+  if (StrictRuntime()) {
+    return false;
+  }
   const auto file = FileManager::GetFile(asset_handle);
   if (!file) {
     return false;
@@ -545,6 +530,9 @@ bool ProjectManager::CopyAssetFileToProjectFolder(const Handle& asset_handle,
 
 bool ProjectManager::CopyAssetFolderToProjectFolder(const Handle& folder_handle,
                                                     const std::filesystem::path& destination_folder) {
+  if (StrictRuntime()) {
+    return false;
+  }
   if (folder_handle.GetValue() == 0) {
     return false;
   }
@@ -563,6 +551,9 @@ bool ProjectManager::CopyAssetFolderToProjectFolder(const Handle& folder_handle,
 
 bool ProjectManager::CopyProjectItemToProjectFolder(const std::filesystem::path& source_path,
                                                     const std::filesystem::path& destination_folder) {
+  if (StrictRuntime()) {
+    return false;
+  }
   const auto normalized_source_path = NormalizePathForContainment(source_path);
   const auto normalized_destination_folder = NormalizePathForContainment(destination_folder);
   if (IsProtectedProjectPath(normalized_source_path) || !std::filesystem::is_directory(normalized_destination_folder) ||
@@ -577,6 +568,9 @@ bool ProjectManager::CopyProjectItemToProjectFolder(const std::filesystem::path&
 }
 
 bool ProjectManager::RenameProjectItem(const std::filesystem::path& path, const std::string& new_name) {
+  if (StrictRuntime()) {
+    return false;
+  }
   if (!path_utils::IsValidFileName(new_name)) {
     return false;
   }
@@ -598,6 +592,9 @@ bool ProjectManager::RenameProjectItem(const std::filesystem::path& path, const 
 }
 
 bool ProjectManager::DeleteProjectItem(const std::filesystem::path& path) {
+  if (StrictRuntime()) {
+    return false;
+  }
   const auto normalized_path = NormalizePathForContainment(path);
   if (IsProtectedProjectPath(normalized_path)) {
     return false;
@@ -645,11 +642,12 @@ bool ProjectManager::DeleteFolder(const Handle& folder_handle) {
 }
 
 void ProjectManager::SetupDefaultScene() {
-  if (ArmSceneLoadingPopupBeforeSetup()) {
+  auto& project_manager = GetInstance();
+  if (project_manager.host_callbacks_.defer_scene_setup && project_manager.host_callbacks_.defer_scene_setup()) {
+    project_manager.loading_status_ = "Loading start scene...";
     return;
   }
   const ProfilerScope profiler_scope("ProjectManager::SetupDefaultScene", "Scene Load");
-  auto& project_manager = GetInstance();
   project_manager.loading_status_ = "Loading start scene...";
   const auto setup_start = LoadingClock::now();
   auto project_absolute_path = std::filesystem::absolute(project_manager.new_project_path_);
@@ -663,20 +661,34 @@ void ProjectManager::SetupDefaultScene() {
     YAML::Node in = YAML::Load(string_stream.str());
     LogLoadingDuration("Project manifest read", project_file_read_start, project_absolute_path.filename().string());
     const uint64_t scene_handle = ReadStartSceneHandle(in);
-    RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(in);
+    if (project_manager.host_callbacks_.scene_metadata_loaded)
+      project_manager.host_callbacks_.scene_metadata_loaded(in);
     if (scene_handle != 0) {
       project_manager.loading_status_ = "Loading start scene asset...";
       const auto scene_load_start = LoadingClock::now();
-      if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
-        scene = std::dynamic_pointer_cast<Scene>(temp);
-        SetStartScene(scene);
-        LogLoadingDuration("Start scene asset load", scene_load_start);
-        project_manager.loading_status_ = "Attaching start scene...";
-        const auto attach_start = LoadingClock::now();
-        ApplicationContext::Get().Attach(scene);
-        ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::SceneStateOnly);
-        LogLoadingDuration("Start scene attach", attach_start);
-        found_scene = true;
+      try {
+        if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
+          scene = std::dynamic_pointer_cast<Scene>(temp);
+          if (StrictRuntime() && !scene) {
+            FailProject("Runtime startup asset is not a Scene: " + std::to_string(scene_handle));
+            return;
+          }
+          SetStartScene(scene);
+          LogLoadingDuration("Start scene asset load", scene_load_start);
+          project_manager.loading_status_ = "Attaching start scene...";
+          const auto attach_start = LoadingClock::now();
+          ApplicationContext::Get().Attach(scene);
+          if (project_manager.host_callbacks_.scene_attached)
+            project_manager.host_callbacks_.scene_attached(project_absolute_path);
+          LogLoadingDuration("Start scene attach", attach_start);
+          found_scene = true;
+        }
+      } catch (const std::exception& error) {
+        if (StrictRuntime()) {
+          FailProject("Failed to load runtime startup scene " + std::to_string(scene_handle) + ": " + error.what());
+          return;
+        }
+        EVOENGINE_ERROR("Failed to load start scene: " + std::string(error.what()))
       }
     }
     if (found_scene && project_manager.scene_post_load_function_.has_value()) {
@@ -691,9 +703,14 @@ void ProjectManager::SetupDefaultScene() {
       LogLoadingDuration("Scene transform graph sync", transform_start);
     }
   } else {
-    RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(YAML::Node());
+    if (project_manager.host_callbacks_.scene_metadata_loaded)
+      project_manager.host_callbacks_.scene_metadata_loaded(YAML::Node());
   }
   if (!found_scene) {
+    if (StrictRuntime()) {
+      FailProject("Runtime startup scene is missing or failed to load: " + project_absolute_path.string());
+      return;
+    }
     project_manager.loading_status_ = "Creating start scene...";
     const auto create_scene_start = LoadingClock::now();
     scene = AssetManager::CreateTemporaryAsset<Scene>();
@@ -705,7 +722,8 @@ void ProjectManager::SetupDefaultScene() {
     project_manager.loading_status_ = "Attaching start scene...";
     const auto attach_start = LoadingClock::now();
     ApplicationContext::Get().Attach(scene);
-    ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::SceneStateOnly);
+    if (project_manager.host_callbacks_.scene_attached)
+      project_manager.host_callbacks_.scene_attached(project_absolute_path);
     LogLoadingDuration("Start scene attach", attach_start);
 
     if (project_manager.new_scene_customizer_.has_value()) {
@@ -728,24 +746,14 @@ void ProjectManager::SetupDefaultScene() {
   project_manager.new_project_path_ = "";
 }
 
-bool ProjectManager::ArmSceneLoadingPopupBeforeSetup() {
-  auto& project_manager = GetInstance();
-  if (project_manager.scene_loading_popup_visible_) {
-    return false;
-  }
-  if (!ApplicationContext::Get().GetLayer<WindowLayer>() || !ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    return false;
-  }
-  project_manager.scene_loading_popup_visible_ = true;
-  project_manager.loading_status_ = "Loading start scene...";
-  return true;
-}
-
 void ProjectManager::PreUpdate() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (window_layer && Platform::GetFrameCount() < 4)
     return;
   auto& project_manager = GetInstance();
+  if (!project_manager.project_failure_.empty()) {
+    return;
+  }
 
   if (project_manager.scan_assets_pending) {
     ScanAssets();
@@ -792,6 +800,9 @@ bool ProjectManager::IsProjectIdle() {
 
 ProjectState ProjectManager::GetProjectState() {
   const auto& project_manager = GetInstance();
+  if (!project_manager.project_failure_.empty()) {
+    return ProjectState::Failed;
+  }
   if (!HasProject()) {
     return ProjectState::NoProject;
   }
@@ -801,6 +812,10 @@ ProjectState ProjectManager::GetProjectState() {
     return ProjectState::Loaded;
   }
   return ProjectState::Loading;
+}
+
+std::string ProjectManager::GetProjectFailure() {
+  return GetInstance().project_failure_;
 }
 
 bool ProjectManager::HasProject() {
@@ -823,6 +838,7 @@ ProjectLaunchMetadata ProjectManager::LoadProjectLaunchMetadata(const std::files
     ReadStringKey(in, "application_name", metadata.application_name);
     ReadStringKey(in, "preferred_editor", metadata.preferred_editor);
     ReadStringSequenceKey(in, "startup_runtime_packages", metadata.startup_runtime_packages);
+    metadata.build_settings = DeserializeProjectBuildSettings(in["build_settings"]);
   } catch (const std::exception& error) {
     EVOENGINE_ERROR("Failed to read project launch metadata: " + std::string(error.what()))
   }
@@ -837,12 +853,32 @@ ProjectLaunchMetadata ProjectManager::LoadProjectLaunchMetadata(const std::files
 
 void ProjectManager::SaveProjectLaunchMetadata(const std::filesystem::path& path,
                                                const ProjectLaunchMetadata& metadata) {
-  WriteProjectFile(path, metadata, ReadExistingStartSceneHandle(path));
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot write project launch metadata in strict runtime mode.")
+    return;
+  }
+  WriteProjectFile(path, metadata, ReadExistingStartSceneHandle(path),
+                   ApplicationContext::TryGet() ? &GetInstance().host_callbacks_ : nullptr);
 }
 
 ProjectLaunchMetadata ProjectManager::GetProjectLaunchMetadata() {
   const auto& project_manager = GetInstance();
   return project_manager.project_launch_metadata_;
+}
+
+ProjectBuildSettings ProjectManager::GetBuildSettings() {
+  return GetInstance().project_launch_metadata_.build_settings;
+}
+void ProjectManager::SetBuildSettings(const ProjectBuildSettings& settings) {
+  auto& manager = GetInstance();
+  if (manager.project_launch_metadata_.build_settings == settings)
+    return;
+  manager.project_launch_metadata_.build_settings = settings;
+  manager.build_settings_saved_ = false;
+}
+bool ProjectManager::ProjectMetadataSaved() {
+  const auto& manager = GetInstance();
+  return manager.build_settings_saved_ && manager.current_start_scene_handle_ == manager.saved_start_scene_handle_;
 }
 
 void ProjectManager::LoadAllPendingAssets() {
@@ -897,9 +933,19 @@ void ProjectManager::LoadAllPendingAssets() {
 }
 
 void ProjectManager::SaveProject() {
-  const auto& project_manager = GetInstance();
-  WriteProjectFile(project_manager.project_path_, project_manager.project_launch_metadata_,
-                   static_cast<uint64_t>(project_manager.start_scene_->GetHandle()));
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot write project metadata in strict runtime mode.")
+    return;
+  }
+  auto& project_manager = GetInstance();
+  const auto start_scene_handle = project_manager.current_start_scene_handle_ != 0
+                                      ? std::optional<uint64_t>(project_manager.current_start_scene_handle_)
+                                      : std::nullopt;
+  if (WriteProjectFile(project_manager.project_path_, project_manager.project_launch_metadata_, start_scene_handle,
+                       &project_manager.host_callbacks_)) {
+    project_manager.build_settings_saved_ = true;
+    project_manager.saved_start_scene_handle_ = start_scene_handle.value_or(0);
+  }
 }
 
 std::filesystem::path ProjectManager::GetProjectPath() {
@@ -921,11 +967,6 @@ std::string ProjectManager::GetProjectName() {
   const auto& project_manager = GetInstance();
   return project_manager.project_path_.stem().string();
 }
-std::weak_ptr<Folder> ProjectManager::GetCurrentFocusedFolder() {
-  auto& project_manager = GetInstance();
-  return project_manager.current_focused_folder_;
-}
-
 std::shared_ptr<Folder> ProjectManager::GetAssetsFolder() {
   auto& project_manager = GetInstance();
   return project_manager.assets_folder_;
@@ -980,27 +1021,34 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     EVOENGINE_ERROR("Wrong extension!")
     return;
   }
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    editor_layer->ClearConsoleMessages();
+  project_manager.project_failure_.clear();
+  if (StrictRuntime()) {
+    if (const auto failure = ValidateStrictProject(project_absolute_path)) {
+      FailProject(*failure);
+      return;
+    }
   }
+  if (project_manager.host_callbacks_.before_project_change)
+    project_manager.host_callbacks_.before_project_change();
   project_manager.new_project_path_ = project_absolute_path;
   project_manager.project_path_ = project_absolute_path;
   project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
   project_manager.project_launch_metadata_ = LoadProjectLaunchMetadata(project_absolute_path);
+  project_manager.build_settings_saved_ = true;
+  project_manager.saved_start_scene_handle_ = ReadExistingStartSceneHandle(project_absolute_path).value_or(0);
+  project_manager.current_start_scene_handle_ = project_manager.saved_start_scene_handle_;
   project_manager.loading_status_ = "Opening project...";
-  project_manager.scene_loading_popup_visible_ = false;
   project_manager.start_scene_.reset();
   MergeApplicationLaunchMetadata(project_manager.project_launch_metadata_);
   AssetManager::Clear();
   FileManager::Clear();
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    editor_layer->ClearEntitySelectionState();
-  }
+
   ApplicationContext::Get().Reset();
-  ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::LayoutOnly);
+  if (project_manager.host_callbacks_.project_opened)
+    project_manager.host_callbacks_.project_opened(project_absolute_path);
 
   auto& file_manager = FileManager::GetInstance();
-  project_manager.current_focused_folder_ = project_manager.assets_folder_ = std::make_shared<Folder>();
+  project_manager.assets_folder_ = std::make_shared<Folder>();
   project_manager.assets_folder_->name_ = "Assets";
   file_manager.file_registry_mutex.lock();
   file_manager.folder_registry_[0] = project_manager.assets_folder_;
@@ -1011,6 +1059,9 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     DispatchScanAssetsTask();
   } else {
     ScanAssets();
+    if (!project_manager.project_failure_.empty()) {
+      return;
+    }
     if (ApplicationContext::Get().GetApplicationInfo().load_project_assets) {
       LoadAllPendingAssets();
     } else {
@@ -1061,14 +1112,29 @@ void ProjectManager::ScanAssets() {
   if (!project_manager.assets_folder_)
     return;
   if (!std::filesystem::exists(project_manager.assets_folder_->GetAbsolutePath())) {
+    if (StrictRuntime()) {
+      FailProject("Runtime project Assets directory does not exist: " +
+                  project_manager.assets_folder_->GetAbsolutePath().string());
+      return;
+    }
     std::filesystem::create_directories(project_manager.assets_folder_->GetAbsolutePath());
   }
   auto& file_manager = FileManager::GetInstance();
-  file_manager.file_registry_mutex.lock();
+  std::unique_lock registry_lock(file_manager.file_registry_mutex);
   project_manager.assets_folder_->handle_ = 0;
   std::vector<Handle> missing_asset_handles;
-  project_manager.assets_folder_->Refresh(missing_asset_handles);
-  file_manager.file_registry_mutex.unlock();
+  std::string scan_error;
+  bool scan_succeeded = false;
+  try {
+    scan_succeeded = project_manager.assets_folder_->Refresh(missing_asset_handles, StrictRuntime(), &scan_error);
+  } catch (const std::exception& error) {
+    scan_error = error.what();
+  }
+  registry_lock.unlock();
+  if (!scan_succeeded) {
+    FailProject("Runtime project asset scan failed: " + scan_error);
+    return;
+  }
   project_manager.pending_assets.clear();
   project_manager.pending_asset_size = missing_asset_handles.size();
   for (const auto& i : missing_asset_handles) {
@@ -1087,44 +1153,26 @@ void ProjectManager::Initialize() {
 
 void ProjectManager::OnDestroy() {
   auto& project_manager = GetInstance();
+  project_manager.host_callbacks_ = {};
 
   project_manager.scan_assets_pending = false;
   project_manager.project_asset_load_dispatched = false;
   project_manager.pending_asset_size = 0;
   project_manager.pending_assets.clear();
-  project_manager.scene_loading_popup_visible_ = false;
   project_manager.assets_folder_.reset();
   project_manager.new_scene_customizer_.reset();
-  project_manager.current_focused_folder_.reset();
   project_manager.start_scene_.reset();
   project_manager.project_launch_metadata_ = {};
+  project_manager.build_settings_saved_ = true;
+  project_manager.current_start_scene_handle_ = 0;
+  project_manager.saved_start_scene_handle_ = 0;
+  project_manager.project_failure_.clear();
   project_manager.new_project_path_ = "";
   project_manager.project_path_ = "";
   project_manager.assets_folder_path = "";
   project_manager.loading_status_.clear();
 
   project_manager.initialized = false;
-}
-
-void ProjectManager::DrawProjectMenuItems() {
-  static std::string close_project_error;
-
-  if (ImGui::MenuItem("Save Project")) {
-    SaveProject();
-  }
-  if (ImGui::MenuItem("Close Project")) {
-    close_project_error.clear();
-    SaveProject();
-    std::string error;
-    if (LaunchLauncherProcess(error)) {
-      ApplicationContext::Get().End();
-    } else {
-      close_project_error = error;
-    }
-  }
-  if (!close_project_error.empty()) {
-    ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.35f, 1.0f), "%s", close_project_error.c_str());
-  }
 }
 
 std::weak_ptr<Scene> ProjectManager::GetStartScene() {
@@ -1134,6 +1182,20 @@ std::weak_ptr<Scene> ProjectManager::GetStartScene() {
 void ProjectManager::SetStartScene(const std::shared_ptr<Scene>& scene) {
   auto& project_manager = GetInstance();
   project_manager.start_scene_ = scene;
+  project_manager.current_start_scene_handle_ = scene ? scene->GetHandle().GetValue() : uint64_t{0};
+}
+
+void ProjectManager::FailProject(const std::string& message) {
+  auto& project_manager = GetInstance();
+  project_manager.project_failure_ = message.empty() ? "Project loading failed." : message;
+  project_manager.loading_status_ = project_manager.project_failure_;
+  project_manager.scan_assets_pending = false;
+  project_manager.project_asset_load_dispatched = false;
+  project_manager.pending_asset_size = 0;
+  project_manager.pending_assets.clear();
+  project_manager.new_project_path_.clear();
+  project_manager.start_scene_.reset();
+  EVOENGINE_ERROR(project_manager.project_failure_)
 }
 
 std::filesystem::path ProjectManager::GetAssetsRelativePath(const std::filesystem::path& absolute_path) {
@@ -1144,4 +1206,8 @@ std::filesystem::path ProjectManager::GetAssetsRelativePath(const std::filesyste
     return {};
   const auto relative_path = path_utils::RelativePathIfContained(absolute_path, project_manager.assets_folder_path);
   return relative_path.value_or(std::filesystem::path());
+}
+
+void ProjectManager::SetHostCallbacks(ProjectHostCallbacks callbacks) {
+  GetInstance().host_callbacks_ = std::move(callbacks);
 }

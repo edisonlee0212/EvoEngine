@@ -130,12 +130,6 @@ struct TreeMeshGeneratorSettings {
   float marching_cube_radius = 0.01f;  ///< Radius for marching cubes.
 
   /**
-   * @brief Inspects the tree mesh generator settings.
-   * @param editor_layer The editor layer requesting the inspection.
-   */
-  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Saves the settings to YAML format.
    * @param name The name of the settings.
    * @param out The YAML emitter to save the settings into.

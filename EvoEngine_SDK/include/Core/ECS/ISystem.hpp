@@ -18,7 +18,7 @@ class EVOENGINE_API Scene;
 /**
  * @brief EditorLayer class declaration.
  */
-class EVOENGINE_API EditorLayer;
+class EditorLayer;
 
 /**
  * @brief Base class for all systems in the engine. Provides functionality for

@@ -1,6 +1,5 @@
 
 #pragma once
-#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -141,7 +140,6 @@ void ClassRegistry::RegisterPrivateComponent(const std::string &name) {
   Serialization::RegisterPrivateComponentType<T>(name);
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -168,8 +166,6 @@ void ClassRegistry::RegisterAsset(const std::string &name, const std::vector<std
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
   Serialization::RegisterDefaultAssetIoHandler<T>({}, name);
-  Serialization::RegisterDefaultAssetPreviewHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -184,7 +180,6 @@ void ClassRegistry::RegisterSystem(const std::string &name) {
   Serialization::RegisterSystemType<T>(name);
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**

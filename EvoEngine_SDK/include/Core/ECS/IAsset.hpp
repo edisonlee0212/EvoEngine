@@ -13,7 +13,7 @@ namespace evo_engine {
 /**
  * Forward declarations of other classes.
  */
-class EVOENGINE_API EditorLayer;
+class EditorLayer;
 class EVOENGINE_API AssetRef;
 class EVOENGINE_API File;
 class EVOENGINE_API Folder;
@@ -60,12 +60,6 @@ class EVOENGINE_API IAsset : public ISerializable {
   std::weak_ptr<File> file_record_; /**< Weak reference to the file metadata associated with this asset. */
 
   /**
-   * @brief Gets a shared pointer to the current asset instance.
-   * @return A shared pointer to this asset.
-   */
-  [[nodiscard]] std::shared_ptr<IAsset> GetSelf() const;
-
-  /**
    * @brief Tracks asynchronous GPU work that must complete before this asset is fully ready.
    */
   void TrackPendingGpuWork(const JobHandle& handle);
@@ -84,6 +78,12 @@ class EVOENGINE_API IAsset : public ISerializable {
   uint32_t version_ = 0; /**< The version number of the asset. */
 
  public:
+  /**
+   * @brief Gets a shared pointer to the current asset instance.
+   * @return A shared pointer to this asset.
+   */
+  [[nodiscard]] std::shared_ptr<IAsset> GetSelf() const;
+
   /**
    * @brief Gets the version number of the asset.
    * @return The version number.

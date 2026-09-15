@@ -66,6 +66,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | --- | --- |
 | Getting started | [docs/getting-started.md](docs/getting-started.md) |
 | Build and install | [docs/building.md](docs/building.md) |
+| Build Manager and runtime exports | [docs/runtime-builds.md](docs/runtime-builds.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
 | CPU and GPU profiler | [docs/profiler.md](docs/profiler.md) |
@@ -81,7 +82,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 
 | Path | Purpose |
 | --- | --- |
-| `EvoEngine_SDK` | Core runtime, ECS, editor, renderer, assets, serialization, jobs, input, and utilities. |
+| `EvoEngine_SDK` | Core runtime, ECS, renderer, assets, serialization, jobs, input and utilities; separate editor target under `Editor/`. |
 | `EvoEngine_App` | Executable apps, shared demo setup, app entry points, and app resources/configuration. |
 | `EvoEngine_Packages` | Runtime package shared-library modules loaded from `Packages` folders. |
 | `EvoEngine_Services` | Build-time domain modules linked into apps, packages, or Python bindings. |
@@ -132,3 +133,5 @@ EvoEngine supports research workflows used in digital forestry and digital agric
 EvoEngine is source-available for inspection, learning, and direct contribution only. It is not open source. You may not copy, reuse, redistribute, publish, sublicense, incorporate, or commercially use EvoEngine code, assets, documentation, or other repository content without prior written permission.
 
 Contributions are welcome. You may fork, clone, build, and modify EvoEngine solely to prepare contributions directly back to this repository. See [LICENSE](LICENSE) for the full terms.
+
+Runtime components and editor inspectors use separate targets and source folders. See [the editor extension workflow](docs/editor-extension-workflow.md) for component, inspector, companion and resource registration.

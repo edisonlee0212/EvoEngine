@@ -7,6 +7,10 @@
 #include <string>
 #include <vector>
 
+namespace evo_engine {
+struct InspectorContext;
+}
+
 namespace l_system_package {
 bool InspectLSystemLayer(evo_engine::InspectorContext& context, class LSystemLayer& layer);
 void SerializeLSystemLayer(YAML::Emitter& out, const class LSystemLayer& target);

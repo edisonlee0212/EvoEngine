@@ -1,15 +1,6 @@
 #include "Times.hpp"
 using namespace evo_engine;
 
-void Times::Draw() {
-  if (ImGui::CollapsingHeader("Times Settings")) {
-    float time_step = time_step_;
-    if (ImGui::DragFloat("Times step", &time_step, 0.001f, 0.001f, 1.0f)) {
-      time_step_ = time_step;
-    }
-  }
-}
-
 double Times::TimeStep() const {
   return time_step_;
 }

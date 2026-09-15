@@ -121,15 +121,6 @@ void TreeGraph::Deserialize(const YAML::Node& in) {
   }
 }
 
-bool TreeGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Checkbox("Length limit", &enable_instantiate_length_limit);
-  if (enable_instantiate_length_limit)
-    ImGui::DragFloat("Length limit", &instantiate_length_limit, 0.1f);
-
-  return false;
-}
-
 void TreeGraph::CollectChild(const std::shared_ptr<TreeGraphNode>& node,
                              std::vector<std::vector<std::shared_ptr<TreeGraphNode>>>& graph_nodes,
                              const int current_layer) const {
@@ -196,13 +187,6 @@ void TreeGraphV2::Deserialize(const YAML::Node& in) {
     parent_node->children.push_back(new_node);
     new_node->parent = parent_node;
   }
-}
-
-bool TreeGraphV2::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Checkbox("Length limit", &enable_instantiate_length_limit);
-  ImGui::DragFloat("Length limit", &instantiate_length_limit, 0.1f);
-  return changed;
 }
 
 void TreeGraphV2::CollectChild(const std::shared_ptr<TreeGraphNode>& node,

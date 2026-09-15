@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Transform.hpp>
+#include "IAsset.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -56,10 +57,6 @@ class IVolume : public IAsset {
    * @param results A vector of boolean values indicating whether each corresponding position is inside the volume.
    */
   virtual void InVolume(const std::vector<glm::vec3>& positions, std::vector<bool>& results);
-
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
 };
 
 /**

@@ -128,13 +128,6 @@ struct StrandModelParameters {
   ParticlePhysicsSettings profile_physics_settings{};
 
   /**
-   * @brief Inspects in an editor.
-   * @param editor_layer The editor layer managing inspection.
-   * @return True if data was not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Saves to a YAML emitter.
    * @param name The name of the settings entry.
    * @param out The YAML emitter to serialize data into.

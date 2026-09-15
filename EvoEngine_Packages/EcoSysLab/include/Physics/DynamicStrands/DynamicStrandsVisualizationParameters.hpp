@@ -58,7 +58,5 @@ struct DynamicStrandsVisualizationParameters {
   glm::vec4 foliage_color_max = glm::vec4(1, 0, 0, 1);
 
   glm::vec4 foliage_color_main = glm::vec4(0, 1, 0, 1);
-
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

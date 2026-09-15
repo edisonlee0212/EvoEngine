@@ -5,6 +5,7 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
+#include "AssetRef.hpp"
 #include "EditorLayer.hpp"
 #include "IAsset.hpp"
 #include "Jobs.hpp"
@@ -15,6 +16,7 @@
 #include "Serialization.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
@@ -666,6 +668,22 @@ TEST(ProjectManager, LoadsLaunchMetadataFromProjectFile) {
   EXPECT_EQ(metadata.startup_runtime_packages[1], "PackageB");
 }
 
+TEST(ProjectManager, HeadlessMetadataSavePreservesProjectExtensions) {
+  TempProject project;
+  std::ofstream file(project.ProjectPath());
+  file << "m_startSceneHandle: 42\nEditorLayer:\n  velocity: 4.5\nCustomSettings:\n  values: [one, two]\n";
+  file.close();
+  ProjectLaunchMetadata metadata;
+  metadata.application_name = "Updated";
+  ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), metadata);
+  const auto saved = YAML::LoadFile(project.ProjectPath().string());
+  EXPECT_EQ(saved["application_name"].as<std::string>(), "Updated");
+  EXPECT_EQ(saved["start_scene_handle"].as<uint64_t>(), 42);
+  EXPECT_FALSE(saved["m_startSceneHandle"]);
+  EXPECT_FLOAT_EQ(saved["EditorLayer"]["velocity"].as<float>(), 4.5f);
+  EXPECT_EQ(saved["CustomSettings"]["values"].as<std::vector<std::string>>(), (std::vector<std::string>{"one", "two"}));
+}
+
 TEST(ProjectManager, SaveLaunchMetadataCreatesProjectManifestWithoutOpeningProject) {
   TempProject project;
   ProjectLaunchMetadata metadata;
@@ -833,6 +851,7 @@ TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresen
   editor_layer->editor_camera_control_key_bindings.move_up_key = GLFW_KEY_PAGE_UP;
   editor_layer->editor_camera_control_key_bindings.move_down_key = GLFW_KEY_PAGE_DOWN;
 
+  editor_layer->RegisterProjectCallbacks();
   ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), {});
 
   const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
@@ -1016,8 +1035,8 @@ camera_control_deceleration_time: -2.0
 }
 
 TEST(EditorLayer, CameraFreeFlyControlUsesRampedRuntimeState) {
-  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/include/EditorLayer.hpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
 
   EXPECT_NE(header.find("smoothed_move_velocity"), std::string::npos);
   EXPECT_NE(header.find("look_response"), std::string::npos);
@@ -1032,7 +1051,7 @@ TEST(EditorLayer, CameraFreeFlyControlUsesRampedRuntimeState) {
 }
 
 TEST(EditorLayer, AssetInspectorsDrawAfterPanelsAndLayerInspectors) {
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
   const auto begin = source.find("void EditorLayer::PreUpdate()");
   const auto end = source.find("void EditorLayer::OpenAssetInspector", begin);
   ASSERT_NE(begin, std::string::npos);
@@ -1059,11 +1078,11 @@ TEST(EditorLayer, AssetInspectorsDrawAfterPanelsAndLayerInspectors) {
 
 TEST(EditorLayer, SceneLoadingPopupWaitsForFirstFullyLitFrame) {
   const auto project_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/ProjectManager.cpp"));
-  const auto editor_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto editor_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
   const auto render_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
 
   const auto setup_begin = project_source.find("void ProjectManager::SetupDefaultScene()");
-  const auto setup_end = project_source.find("bool ProjectManager::ArmSceneLoadingPopupBeforeSetup()", setup_begin);
+  const auto setup_end = project_source.find("void ProjectManager::PreUpdate()", setup_begin);
   ASSERT_NE(setup_begin, std::string::npos);
   ASSERT_NE(setup_end, std::string::npos);
   const auto setup = project_source.substr(setup_begin, setup_end - setup_begin);
@@ -1100,8 +1119,8 @@ TEST(EditorLayer, SceneLoadingPopupWaitsForFirstFullyLitFrame) {
 }
 
 TEST(EditorLayer, AssetRefButtonsCaptureOpenRequestBeforeDragAndDropHelpers) {
-  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/include/EditorLayer.hpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
 
   const auto expect_asset_ref_button_contract = [](const std::string& body) {
     const auto button = body.find("ImGui::Button");
@@ -1280,6 +1299,43 @@ TEST(PackageManager, LoadAllIsRejectedWhileRuntimeIsBusy) {
   EXPECT_FALSE(PackageManager::LoadAll());
 }
 
+TEST(AssetRef, ResolvedReferenceSupportsConcurrentReads) {
+  TempProject project;
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<BlockingLoadAsset>(kBlockingAssetTypeName, {kBlockingAssetExtension});
+  app.Initialize(TestApplicationSettings(project));
+  const auto asset = AssetManager::CreateTemporaryAsset<BlockingLoadAsset>();
+  ASSERT_NE(asset, nullptr);
+  ASSERT_GT(asset->GetTypeName().size(), 15u);
+  AssetRef reference(asset);
+  std::atomic<bool> correct{true};
+  std::promise<void> begin;
+  const auto start = begin.get_future().share();
+  std::vector<std::thread> readers;
+  for (int i = 0; i < 8; ++i) {
+    readers.emplace_back([&]() {
+      start.wait();
+      for (int j = 0; j < 2000; ++j) {
+        if (reference.Get<BlockingLoadAsset>() != asset || reference.GetAssetHandle() != asset->GetHandle() ||
+            reference.GetAssetTypeName() != kBlockingAssetTypeName)
+          correct = false;
+      }
+    });
+  }
+  begin.set_value();
+  for (auto& reader : readers)
+    reader.join();
+  EXPECT_TRUE(correct);
+  YAML::Emitter serialized;
+  serialized << YAML::BeginMap;
+  reference.Save("asset", serialized);
+  serialized << YAML::EndMap;
+  const auto node = YAML::Load(serialized.c_str())["asset"];
+  EXPECT_EQ(node["asset_handle_"].as<uint64_t>(), asset->GetHandle().GetValue());
+  EXPECT_EQ(node["type_name_"].as<std::string>(), kBlockingAssetTypeName);
+}
+
 TEST(AssetManager, BlockingAccessJoinsInFlightSynchronousProjectLoad) {
   ResetBlockingLoadState();
   TempProject project;
@@ -1394,6 +1450,29 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
 
   const auto later_asset = AssetManager::GetAsset<StagedLoadAsset>(Handle(kStagedAssetHandle));
   EXPECT_EQ(later_asset, asset);
+}
+
+TEST(AssetManager, PendingLoadDrainFinalizesWithoutEvictingCachedAssets) {
+  ResetStagedLoadState();
+  TempProject project;
+  WriteStagedAssetFixture(project);
+  Application app;
+  ApplicationContextScope scope(app);
+  app.RegisterAsset<StagedLoadAsset>(kStagedAssetTypeName, {kStagedAssetExtension});
+  ASSERT_TRUE(StagedLoadAsset::RegisterAssetIoHandlers());
+  auto settings = TestApplicationSettings(project);
+  settings.load_project_assets = false;
+  app.Initialize(settings);
+  auto future = AssetManager::GetAssetFuture<StagedLoadAsset>(Handle(kStagedAssetHandle));
+  ScopedStagedPayloadRelease release_on_exit;
+  ASSERT_TRUE(WaitForStagedPayloadStartedWhilePumping(5s));
+  ReleaseStagedPayload();
+  AssetManager::WaitForPendingLoads();
+  const auto asset = future.get();
+  ASSERT_NE(asset, nullptr);
+  EXPECT_TRUE(SnapshotStagedLoadState().finalize_ran_on_main_thread);
+  EXPECT_FALSE(AssetManager::GetAssetLoadSnapshot().Active());
+  EXPECT_EQ(AssetManager::GetAsset<StagedLoadAsset>(Handle(kStagedAssetHandle)), asset);
 }
 
 TEST(AssetManager, AsyncStagedLoadWaitsForGpuReadinessBeforePublishing) {

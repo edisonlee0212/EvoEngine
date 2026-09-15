@@ -39,6 +39,8 @@ struct EVOENGINE_API StrandPointAttributes {
  */
 class EVOENGINE_API Strands final : public IAsset {
  public:
+  [[nodiscard]] const std::shared_ptr<RangeDescriptor>& GetStrandMeshletRange() const;
+  [[nodiscard]] const std::shared_ptr<RangeDescriptor>& GetSegmentRange() const;
   /**
    * @brief Provides unsafe access to the segments vector.
    * @return Reference to the vector of segments.

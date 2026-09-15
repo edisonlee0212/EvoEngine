@@ -63,7 +63,6 @@ class SorghumField : public IAsset {
    * @brief Generates a thumbnail texture for the sorghum field.
    * @return A shared pointer to the generated Texture2D.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Collects all asset references used in this field.

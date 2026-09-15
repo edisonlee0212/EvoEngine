@@ -19,29 +19,17 @@ void AssetRef::Deserialize(const YAML::Node& in) {
 }
 
 bool AssetRef::Update() {
-  if (!value_) {
-    if (asset_handle_.GetValue() == 0) {
-      value_.reset();
-      return false;
-    }
-    if (const auto ptr = AssetManager::PeekAssetImpl(asset_handle_)) {
-      value_ = ptr;
-      asset_type_name_ = ptr->GetTypeName();
-      return true;
-    }
-    if (FileManager::GetFile(asset_handle_)) {
-      if (const auto ptr = AssetManager::GetAssetImpl(asset_handle_)) {
-        value_ = ptr;
-        asset_type_name_ = ptr->GetTypeName();
-        return true;
-      }
-    }
-    value_.reset();
+  if (value_)
+    return true;
+  if (asset_handle_.GetValue() == 0)
     return false;
-  }
-
-  asset_handle_ = value_->GetHandle();
-  asset_type_name_ = value_->GetTypeName();
+  auto ptr = AssetManager::PeekAssetImpl(asset_handle_);
+  if (!ptr && FileManager::GetFile(asset_handle_))
+    ptr = AssetManager::GetAssetImpl(asset_handle_);
+  if (!ptr)
+    return false;
+  value_ = ptr;
+  asset_type_name_ = ptr->GetTypeName();
   return true;
 }
 

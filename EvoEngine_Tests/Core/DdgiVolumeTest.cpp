@@ -793,7 +793,7 @@ TEST(DdgiVolume, RenderLayerRejectsStorageBuffersBeyondDeviceRange) {
 
 TEST(DdgiVolume, InspectorUsesWholeConfigurationEditBoundary) {
   const auto inspector_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
-                                             "src" / "Editor" / "SDKInspectionAdapters.cpp");
+                                             "Editor" / "src" / "SDKInspectionAdapters.cpp");
   ASSERT_FALSE(inspector_source.empty());
 
   EXPECT_EQ(inspector_source.find("GetDdgiMaxStorageBufferRange"), std::string::npos);
@@ -884,7 +884,7 @@ TEST(DdgiVolume, EmissiveSamplingCandidateCountIsAnUpperBoundForNonFixedRays) {
 
 TEST(DdgiVolume, EmissiveMeshAuthoringReportsPowerEligibilityAndRequiresExplicitAdjustment) {
   const auto inspector_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
-                                             "src" / "Editor" / "SDKInspectionAdapters.cpp");
+                                             "Editor" / "src" / "SDKInspectionAdapters.cpp");
   ASSERT_FALSE(inspector_source.empty());
   const auto authoring = ExtractBetween(inspector_source, "struct EmissiveMeshAuthoringEstimate",
                                         "bool InspectMeshRenderer(InspectorContext& context");
@@ -1734,7 +1734,7 @@ TEST(DdgiVolume, OffscreenPreviewRenderingDoesNotTouchSceneDdgiTracking) {
 
 TEST(DdgiVolume, OffscreenPreviewThumbnailGpuCopyCompletesBeforeReturn) {
   const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
-  const auto preview_source = ReadTextFile(source_root / "src" / "OffscreenPreviewRenderer.cpp");
+  const auto preview_source = ReadTextFile(source_root / "Editor" / "src" / "OffscreenPreviewRenderer.cpp");
   ASSERT_FALSE(preview_source.empty());
 
   const auto copy_texture =
@@ -1753,7 +1753,7 @@ TEST(DdgiVolume, OffscreenPreviewThumbnailGpuCopyCompletesBeforeReturn) {
 
 TEST(DdgiVolume, OffscreenPreviewCreatesDirectionalLightWhenSceneHasNone) {
   const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
-  const auto preview_source = ReadTextFile(source_root / "src" / "OffscreenPreviewRenderer.cpp");
+  const auto preview_source = ReadTextFile(source_root / "Editor" / "src" / "OffscreenPreviewRenderer.cpp");
   ASSERT_FALSE(preview_source.empty());
 
   const auto configure_lighting = preview_source.find("void ConfigurePreviewLighting");
@@ -2238,7 +2238,7 @@ TEST(DdgiVolume, MultiVolumeGpuContractOwnsEightSlotsAndSumsPerFrameTiming) {
   const auto lighting_source = ReadTextFile(shader_root / "Modules" / "EvoEngine" / "Lighting.slang");
   const auto gather_source = ReadTextFile(shader_root / "Modules" / "EvoEngine" / "DDGIGatherMulti.slang");
   const auto closest_hit_source = ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeTrace.slang");
-  const auto inspection_source = ReadTextFile(root / "EvoEngine_SDK" / "src" / "Editor" / "SDKInspectionAdapters.cpp");
+  const auto inspection_source = ReadTextFile(root / "EvoEngine_SDK" / "Editor" / "src" / "SDKInspectionAdapters.cpp");
 
   EXPECT_NE(render_storage_header.find("static constexpr uint32_t kDdgiMaxVolumeCount = 8"), std::string::npos);
   EXPECT_NE(render_storage_header.find("static_assert(sizeof(DdgiVolumeInfoBlock) == 160)"), std::string::npos);

@@ -16,12 +16,6 @@ void ObjectRotator::FixedUpdate() {
   scene->SetDataComponent(GetOwner(), transform);
 }
 
-bool ObjectRotator::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::DragFloat("Speed", &rotate_speed);
-  ImGui::DragFloat3("Rotation", &rotation.x);
-  return false;
-}
-
 void eco_sys_lab_package::SerializeObjectRotator(YAML::Emitter& out, const ObjectRotator& target) {
   out << YAML::Key << "rotate_speed" << YAML::Value << target.rotate_speed;
   out << YAML::Key << "rotation" << YAML::Value << target.rotation;

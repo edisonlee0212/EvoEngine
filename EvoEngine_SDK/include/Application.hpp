@@ -1,13 +1,14 @@
 
 #pragma once
+#include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 
 #include "ApplicationContext.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "Console.hpp"
 #include "ILayer.hpp"
-#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
 class EVOENGINE_API AssetManager;
@@ -97,15 +98,26 @@ class EVOENGINE_API Application final {
   std::vector<std::function<void()>> external_update_functions_;       /**< External update functions. */
   std::vector<std::function<void()>> external_fixed_update_functions_; /**< External fixed update functions. */
   std::vector<std::function<void()>> external_late_update_functions_;  /**< External late update functions. */
-  std::vector<std::function<void()>> end_of_loop_actions_;             /**< One-shot actions executed after a loop. */
+  std::map<uint64_t, std::function<void()>> cleanup_functions_;
+  uint64_t next_cleanup_id_ = 0;
+  bool dispatching_layers_ = false;
+  void RunCleanupFunctions();
+  std::shared_ptr<ILayer> PushLayerInternal(std::shared_ptr<ILayer> existing, ILayer* (*create)(),
+                                            const std::string& layer_name, const std::string& package_owner,
+                                            std::shared_ptr<void> lifetime);
+
+  std::vector<std::function<void()>> end_of_loop_actions_; /**< One-shot actions executed after a loop. */
 
   std::vector<std::function<void(const std::shared_ptr<Scene>& new_scene)>>
       post_attach_scene_functions_; /**< Functions called after a scene is attached. */
 
   ExecutionOrder execution_order = ExecutionOrder::NotPlaying; /**< Current execution status of the application. */
   bool pending_player_autoplay_ = false; /**< Whether player mode should enter play once a start scene is attached. */
+  std::function<bool()> runtime_operation_busy_;
 
  public:
+  void SetRuntimeOperationBusyPredicate(std::function<bool()> predicate);
+  [[nodiscard]] bool RuntimeOperationBusy() const;
   [[nodiscard]] Serialization& GetSerialization();
   [[nodiscard]] const Serialization& GetSerialization() const;
   [[nodiscard]] AssetManager& GetAssetManager();
@@ -162,6 +174,10 @@ class EVOENGINE_API Application final {
    */
   void QueueEndOfLoopAction(const std::function<void()>& func);
 
+  // Cleanup runs once, in reverse registration order, before layers and managers are destroyed.
+  [[nodiscard]] uint64_t RegisterCleanupFunction(std::function<void()> function);
+  void UnregisterCleanupFunction(uint64_t id);
+
   /**
    * @brief Register a function to be called during the fixed update phase.
    * @param func The callback function to register.
@@ -199,7 +215,8 @@ class EVOENGINE_API Application final {
    * @return A shared pointer to the newly added layer.
    */
   template <typename T>
-  std::shared_ptr<T> PushLayer(const std::string& layer_name = "", const std::string& package_owner = "");
+  std::shared_ptr<T> PushLayer(const std::string& layer_name = "", const std::string& package_owner = "",
+                               std::shared_ptr<void> lifetime = {});
 
   /**
    * @brief Retrieve a layer of a specific type.
@@ -266,6 +283,10 @@ class EVOENGINE_API Application final {
    * @return True if all package-owned layers were removed safely.
    */
   bool RemoveLayersOwnedByPackage(const std::string& package_name);
+  [[nodiscard]] bool CanRemoveLayersOwnedByPackage(const std::string& package_name) const;
+  [[nodiscard]] bool IsDispatchingLayers() const {
+    return dispatching_layers_;
+  }
 
   /**
    * @brief Attach a new scene to the application.
@@ -311,7 +332,6 @@ void Application::RegisterPrivateComponent(const std::string& name) {
   Serialization::RegisterPrivateComponentType<T>(name);
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 template <typename T>
@@ -320,8 +340,6 @@ void Application::RegisterAsset(const std::string& name, const std::vector<std::
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
   Serialization::RegisterDefaultAssetIoHandler<T>({}, name);
-  Serialization::RegisterDefaultAssetPreviewHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 template <typename T>
@@ -330,7 +348,6 @@ void Application::RegisterSystem(const std::string& name) {
   Serialization::RegisterSystemType<T>(name);
   Serialization::RegisterDefaultSerializationHandler<T>({}, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>({}, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>({}, name);
 }
 
 /**
@@ -340,48 +357,14 @@ void Application::RegisterSystem(const std::string& name) {
  * @return A shared pointer to the newly added layer.
  */
 template <typename T>
-std::shared_ptr<T> Application::PushLayer(const std::string& layer_name, const std::string& package_owner) {
-  if (execution_status_ == ExecutionStatus::OnDestroy) {
-    EVOENGINE_ERROR("Unable to push layer! Application is being destroyed!");
-    return nullptr;
-  }
-  if (execution_status_ != ExecutionStatus::Uninitialized && package_owner.empty()) {
-    EVOENGINE_ERROR("Unable to push layer! Application already started!");
-    return nullptr;
-  }
-  auto test = GetLayer<T>();
-  if (!test) {
-    test = std::make_shared<T>();
-    if (!std::dynamic_pointer_cast<ILayer>(test)) {
-      EVOENGINE_ERROR("Not a layer!");
-      return nullptr;
-    }
-    if (!layers_.empty())
-      layers_.back()->subsequent_layer_ = test;
-    layers_.push_back(std::dynamic_pointer_cast<ILayer>(test));
-    layers_.back()->self_ = test;
-    layers_.back()->application_ = this;
-    layers_.back()->package_owner_ = package_owner;
-    InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_owner, layer_name);
-    if (this->active_scene_) {
-      layers_.back()->scene_ = this->active_scene_;
-    }
-    if (execution_status_ != ExecutionStatus::Uninitialized) {
-      if (package_owner.empty()) {
-        layers_.back()->RegisterTypes(*this);
-      }
-      layers_.back()->OnCreate();
-    }
-  } else if (!package_owner.empty()) {
-    const auto existing_layer = std::dynamic_pointer_cast<ILayer>(test);
-    if (existing_layer->package_owner_ != package_owner) {
-      EVOENGINE_ERROR("Unable to push runtime package layer! Layer type is already owned by another module.")
-      return nullptr;
-    }
-  }
-  if (!layer_name.empty())
-    std::dynamic_pointer_cast<ILayer>(test)->layer_name_ = layer_name;
-  return test;
+std::shared_ptr<T> Application::PushLayer(const std::string& layer_name, const std::string& package_owner,
+                                          std::shared_ptr<void> lifetime) {
+  return std::static_pointer_cast<T>(PushLayerInternal(
+      GetLayer<T>(),
+      []() -> ILayer* {
+        return new T();
+      },
+      layer_name, package_owner, std::move(lifetime)));
 }
 
 /**

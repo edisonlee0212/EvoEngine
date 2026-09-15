@@ -58,27 +58,6 @@ glm::vec3 BezierSpline::EvaluatePointFromCurves(float point) const {
   }
   return curves.at(curve_index).GetPoint(curve_u);
 }
-void BezierSpline::Draw() {
-  int size = curves.size();
-  if (ImGui::DragInt("Size of curves", &size, 0, 10)) {
-    size = glm::clamp(size, 0, 10);
-    curves.resize(size);
-  }
-  if (ImGui::TreeNode("Curves")) {
-    int index = 1;
-    for (auto& curve : curves) {
-      if (ImGui::TreeNode(("Curve " + std::to_string(index)).c_str())) {
-        ImGui::DragFloat3("CP0", &curve.p0.x, 0.01f);
-        ImGui::DragFloat3("CP1", &curve.p1.x, 0.01f);
-        ImGui::DragFloat3("CP2", &curve.p2.x, 0.01f);
-        ImGui::DragFloat3("CP3", &curve.p3.x, 0.01f);
-        ImGui::TreePop();
-      }
-      index++;
-    }
-    ImGui::TreePop();
-  }
-}
 void BezierSpline::Serialize(YAML::Emitter& out) const {
   if (!curves.empty()) {
     out << YAML::Key << "curves" << YAML::Value << YAML::BeginSeq;

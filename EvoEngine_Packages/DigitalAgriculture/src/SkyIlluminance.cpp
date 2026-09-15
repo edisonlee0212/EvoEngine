@@ -1,7 +1,6 @@
 //
 // Created by lllll on 2/23/2022.
 //
-#include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
 #include "rapidcsv.h"
 
@@ -64,26 +63,7 @@ void SkyIlluminance::ImportCsv(const std::filesystem::path& path) {
     }
   }
 }
-bool digital_agriculture_package::InspectSkyIlluminance(InspectorContext& context, SkyIlluminance& illuminance) {
-  (void)context;
-  bool changed = false;
-  FileUtils::OpenFile(
-      "Import CSV", "CSV", {".csv"},
-      [&illuminance, &changed](const std::filesystem::path& path) {
-        illuminance.ImportCsv(path);
-        changed = true;
-      },
-      false);
-  static float time;
-  static SkyIlluminanceSnapshot snapshot;
-  if (ImGui::SliderFloat("Time", &time, illuminance.min_time, illuminance.max_time)) {
-    snapshot = illuminance.Get(time);
-  }
-  ImGui::Text("Ghi: %.3f", snapshot.m_ghi);
-  ImGui::Text("Azimuth: %.3f", snapshot.m_azimuth);
-  ImGui::Text("Zenith: %.3f", snapshot.m_zenith);
-  return changed;
-}
+
 void digital_agriculture_package::SerializeSkyIlluminance(YAML::Emitter& out, const SkyIlluminance& target) {
   out << YAML::Key << "min_time" << YAML::Value << target.min_time;
   out << YAML::Key << "max_time" << YAML::Value << target.max_time;

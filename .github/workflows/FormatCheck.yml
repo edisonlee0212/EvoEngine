@@ -13,3 +13,5 @@ jobs:
       run: python -m pip install "clang-format==$(cat .clang-format-version)"
     - name: Run repository clang-format check
       run: python Scripts/format_cpp.py --check
+    - name: Test runtime dependency enforcement
+      run: python -m unittest Scripts.tests.test_runtime_boundary

@@ -55,13 +55,6 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
   AssetRef leaf_material_ref;
 
   /**
-   * @brief Inspects the foliage descriptor in the editor.
-   * @param[in] editor_layer Shared pointer to the editor layer.
-   * @return True if the asset's content is not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Collects asset references from this foliage descriptor.
    * @param[out] list Vector to collect asset references.
    */

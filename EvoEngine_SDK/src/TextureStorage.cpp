@@ -1,7 +1,6 @@
 #include "TextureStorage.hpp"
 
 #include "Application.hpp"
-#include "EditorLayer.hpp"
 #include "RenderLayer.hpp"
 
 #include <algorithm>
@@ -37,12 +36,6 @@ bool IsSampledDescriptorImageLayout(const VkImageLayout layout) {
 
 uint64_t MixTextureContentSignature(const uint64_t seed, const uint64_t value) {
   return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
-}
-
-void RemoveImGuiTexture(const ImTextureID texture_id) {
-  if (texture_id != 0 && ImGui::GetCurrentContext()) {
-    ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(texture_id));
-  }
 }
 
 class PendingGpuUploadCompletion {
@@ -413,11 +406,6 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const 
     face_views.emplace_back(std::make_shared<ImageView>(face_view_info));
   }
 
-  im_texture_ids.resize(6);
-  for (int i = 0; i < 6; i++) {
-    EditorLayer::UpdateTextureId(im_texture_ids[i], sampler->GetVkSampler(), face_views[i]->GetVkImageView(),
-                                 VK_IMAGE_LAYOUT_GENERAL);
-  }
   TextureStorage::SetCubemapSlotState(
       *this, transition_to_shader_read ? SampledViewSlotState::Ready : SampledViewSlotState::AllocatedPending);
 }
@@ -562,8 +550,6 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat f
     image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
-  EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
-                               image->GetLayout());
   TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::Ready);
 }
 
@@ -630,36 +616,20 @@ GpuWorkHandle Texture2DStorage::SetCompressedDataAsync(const std::vector<std::by
 void Texture2DStorage::Clear() {
   if (!Platform::Initialized())
     return;
-  if (im_texture_id != 0) {
-    RemoveImGuiTexture(im_texture_id);
-    im_texture_id = 0;
-  }
   sampler.reset();
   image_view.reset();
   image.reset();
   view_format_ = VK_FORMAT_UNDEFINED;
-  for (const auto& retired : retired_texture_ids_) {
-    if (retired.id != 0) {
-      RemoveImGuiTexture(retired.id);
-    }
-  }
-  retired_texture_ids_.clear();
-  for (const auto& retired : retired_resources_) {
-    if (retired.texture_id != 0) {
-      RemoveImGuiTexture(retired.texture_id);
-    }
-  }
   retired_resources_.clear();
   retired_samplers_.clear();
 }
 
 void Texture2DStorage::RetireCurrentResources() {
-  if (!image && !image_view && !sampler && im_texture_id == 0) {
+  if (!image && !image_view && !sampler) {
     return;
   }
-  retired_resources_.push_back({std::move(image), std::move(image_view), std::move(sampler), im_texture_id,
-                                Platform::GetMaxFramesInFlight() + 1u});
-  im_texture_id = 0;
+  retired_resources_.push_back(
+      {std::move(image), std::move(image_view), std::move(sampler), Platform::GetMaxFramesInFlight() + 1u});
   view_format_ = VK_FORMAT_UNDEFINED;
 }
 
@@ -694,8 +664,6 @@ bool Texture2DStorage::ShareImage(const Texture2DStorage& source, const VkFormat
   sampler_create_info_ = sampler_create_info;
   sampler_create_info_.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
   sampler_create_info_.pNext = nullptr;
-  EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
-                               image->GetLayout());
   TextureStorage::GetInstance().version_++;
   TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::Ready);
   return true;
@@ -704,12 +672,6 @@ bool Texture2DStorage::ShareImage(const Texture2DStorage& source, const VkFormat
 void CubemapStorage::Clear() {
   if (!Platform::Initialized())
     return;
-  for (auto& im_texture_id : im_texture_ids) {
-    if (im_texture_id != 0) {
-      RemoveImGuiTexture(im_texture_id);
-      im_texture_id = 0;
-    }
-  }
   sampler.reset();
   image_view.reset();
   image.reset();
@@ -804,13 +766,6 @@ void Texture2DStorage::SetSampler(const VkSamplerCreateInfo& sampler_create_info
     return;
   }
   auto replacement_sampler = std::make_shared<Sampler>(sampler_create_info_);
-  const auto previous_texture_id = im_texture_id;
-  im_texture_id = 0;
-  EditorLayer::UpdateTextureId(im_texture_id, replacement_sampler->GetVkSampler(), image_view->GetVkImageView(),
-                               image->GetLayout());
-  if (previous_texture_id != 0) {
-    retired_texture_ids_.push_back({previous_texture_id, Platform::GetMaxFramesInFlight() + 1u});
-  }
   if (sampler) {
     retired_samplers_.push_back({sampler, Platform::GetMaxFramesInFlight() + 1u});
   }
@@ -1071,17 +1026,6 @@ void TextureStorage::DeviceSync() {
                          return false;
                        }),
         texture_storage.retired_samplers_.end());
-    texture_storage.retired_texture_ids_.erase(
-        std::remove_if(texture_storage.retired_texture_ids_.begin(), texture_storage.retired_texture_ids_.end(),
-                       [](auto& retired) {
-                         if (retired.remaining_frames == 0) {
-                           RemoveImGuiTexture(retired.id);
-                           return true;
-                         }
-                         --retired.remaining_frames;
-                         return false;
-                       }),
-        texture_storage.retired_texture_ids_.end());
     if (!texture_storage.new_compressed_data_.empty()) {
       (void)texture_storage.SetCompressedDataAsync(
           texture_storage.new_compressed_data_, texture_storage.new_compressed_resolution_,
@@ -1118,9 +1062,6 @@ void TextureStorage::DeviceSync() {
                            return false;
                          }
                          if (retired.remaining_frames == 0) {
-                           if (retired.texture_id != 0) {
-                             RemoveImGuiTexture(retired.texture_id);
-                           }
                            return true;
                          }
                          --retired.remaining_frames;

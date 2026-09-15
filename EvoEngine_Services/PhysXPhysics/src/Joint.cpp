@@ -1,121 +1,12 @@
-#include "EditorLayer.hpp"
 #include "PhysXSerializationAdapters.hpp"
 #include "RigidBody.hpp"
 #include "Scene.hpp"
 using namespace evo_engine;
 #pragma region Fixed
-void Joint::FixedGui() {
-}
 #pragma endregion
-/*
-#pragma region Distance
-void Joint::DistanceGui()
-{
-        if (ImGui::DragFloat("Min", &m_minDistance, 0.1f, FLT_MIN, m_maxDistance))
-        {
-                SetMin(m_minDistance, m_minDistanceEnabled);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Enabled", &m_minDistanceEnabled))
-        {
-                SetMin(m_minDistance, m_minDistanceEnabled);
-        }
-        if (ImGui::DragFloat("Max", &m_maxDistance, 0.1f, m_minDistance, FLT_MAX))
-        {
-                SetMax(m_maxDistance, m_maxDistanceEnabled);
-        }
-        ImGui::SameLine();
-        if (ImGui::Checkbox("Enabled", &m_maxDistanceEnabled))
-        {
-                SetMax(m_maxDistance, m_maxDistanceEnabled);
-        }
 
-        if (ImGui::DragFloat("Stiffness", &m_stiffness))
-        {
-                SetStiffness(m_stiffness);
-        }
-        if (ImGui::DragFloat("Damping", &m_damping))
-        {
-                SetDamping(m_damping);
-        }
-}
-void Joint::SetMax(float value, const bool &enabled)
-{
-        if (!joint_)
-                return;
-        if (!TypeCheck(JointType::Distance))
-                return;
-        if (m_maxDistance != value || m_maxDistanceEnabled != enabled)
-        {
-                m_maxDistance = value;
-                m_maxDistanceEnabled = enabled;
-                static_cast<PxDistanceJoint *>(joint_)->setDistanceJointFlag(
-                        PxDistanceJointFlag::eMAX_DISTANCE_ENABLED, m_maxDistanceEnabled);
-                static_cast<PxDistanceJoint *>(joint_)->setMaxDistance(m_maxDistance);
-        }
-}
-void Joint::SetMin(float value, const bool &enabled)
-{
-        if (!joint_)
-                return;
-        if (!TypeCheck(JointType::Distance))
-                return;
-        if (m_minDistance != value || m_maxDistanceEnabled != enabled)
-        {
-                m_minDistance = value;
-                m_minDistanceEnabled = enabled;
-                static_cast<PxDistanceJoint *>(joint_)->setDistanceJointFlag(
-                        PxDistanceJointFlag::eMIN_DISTANCE_ENABLED, m_minDistanceEnabled);
-                static_cast<PxDistanceJoint *>(joint_)->setMinDistance(m_minDistance);
-        }
-}
-void Joint::SetStiffness(float value)
-{
-        if (!joint_)
-                return;
-        if (!TypeCheck(JointType::Distance))
-                return;
-        if (m_stiffness != value)
-        {
-                m_stiffness = value;
-                static_cast<PxDistanceJoint *>(joint_)->setStiffness(m_stiffness);
-        }
-}
-void Joint::SetDamping(float value)
-{
-        if (!joint_)
-                return;
-        if (!TypeCheck(JointType::Distance))
-                return;
-        if (m_damping != value)
-        {
-                m_damping = value;
-                static_cast<PxDistanceJoint *>(joint_)->setDamping(m_damping);
-        }
-}
-
-#pragma endregion
-#pragma region Spherical
-void Joint::SphericalGui()
-{
-}
-#pragma endregion
-#pragma region Revolute
-void Joint::RevoluteGui()
-{
-}
-#pragma endregion
-#pragma region Prismatic
-void Joint::PrismaticGui()
-{
-}
-#pragma endregion
- */
 #pragma region D6
 
-void Joint::D6Gui() {
-  auto* joint = static_cast<PxD6Joint*>(joint_);
-}
 #pragma endregion
 void Joint::Unlink() {
   if (!linked_)
@@ -131,51 +22,6 @@ bool Joint::Linked() {
 }
 
 void Joint::OnCreate() {
-}
-
-bool Joint::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  static int type = 0;
-  type = (int)joint_type_;
-  const char* joint_type_names[]{"Fixed", "D6"};
-  if (ImGui::Combo("Joint Type", &type, joint_type_names, IM_ARRAYSIZE(joint_type_names))) {
-    SetType((JointType)type);
-    changed = true;
-  }
-  const auto stored_rigid_body1 = rigid_body1.Get<RigidBody>();
-  const auto stored_rigid_body2 = rigid_body2.Get<RigidBody>();
-  if (editor_layer->DragAndDropButton<RigidBody>(rigid_body1, "Link 1"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<RigidBody>(rigid_body2, "Link 2"))
-    changed = true;
-  if (rigid_body1.Get<RigidBody>() != stored_rigid_body1 || rigid_body2.Get<RigidBody>() != stored_rigid_body2) {
-    Unlink();
-  }
-  if (joint_) {
-    switch (joint_type_) {
-      case JointType::Fixed:
-        FixedGui();
-        break;
-        /*
-case JointType::Distance:
-        DistanceGui();
-        break;
-case JointType::Spherical:
-        SphericalGui();
-        break;
-case JointType::Revolute:
-        RevoluteGui();
-        break;
-case JointType::Prismatic:
-        PrismaticGui();
-        break;
-         */
-      case JointType::D6:
-        D6Gui();
-        break;
-    }
-  }
-  return changed;
 }
 
 void Joint::OnDestroy() {
@@ -248,20 +94,7 @@ void evo_engine::SerializeJoint(YAML::Emitter& out, const Joint& target) {
     case JointType::Fixed:
 
       break;
-      /*
-case JointType::Distance:
-      DistanceGui();
-      break;
-case JointType::Spherical:
-      SphericalGui();
-      break;
-case JointType::Revolute:
-      RevoluteGui();
-      break;
-case JointType::Prismatic:
-      PrismaticGui();
-      break;
-       */
+
     case JointType::D6:
       out << YAML::Key << "motion_types_" << YAML::Value << YAML::BeginSeq;
       for (int i = 0; i < 6; i++) {
@@ -297,20 +130,7 @@ void evo_engine::DeserializeJoint(const YAML::Node& in, Joint& target) {
   switch (target.joint_type_) {
     case JointType::Fixed:
       break;
-      /*
-case JointType::Distance:
-      DistanceGui();
-      break;
-case JointType::Spherical:
-      SphericalGui();
-      break;
-case JointType::Revolute:
-      RevoluteGui();
-      break;
-case JointType::Prismatic:
-      PrismaticGui();
-      break;
-       */
+
     case JointType::D6:
       auto in_motion_types = in["motion_types_"];
       for (const auto& in_motion_type : in_motion_types) {

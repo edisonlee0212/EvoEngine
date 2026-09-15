@@ -4626,14 +4626,16 @@ TEST(GpuService, Texture2DRejectsUndersizedUpload) {
   EXPECT_EQ(texture_storage.GetVkImage(), original_image);
 }
 
-TEST(GpuService, Texture2DClearAfterImGuiShutdownSkipsBackendRemoval) {
+TEST(GpuService, Texture2DClearReleasesRuntimeResourcesWithoutEditorContext) {
   ScopedGpuPlatform platform;
   ASSERT_EQ(ImGui::GetCurrentContext(), nullptr);
   Texture2D texture;
   auto& texture_storage = texture.RefTexture2DStorage();
-  texture_storage.im_texture_id = static_cast<ImTextureID>(1);
+  ASSERT_NE(texture_storage.image_view, nullptr);
   texture_storage.Clear();
-  EXPECT_EQ(texture_storage.im_texture_id, 0);
+  EXPECT_EQ(texture_storage.image, nullptr);
+  EXPECT_EQ(texture_storage.image_view, nullptr);
+  EXPECT_EQ(texture_storage.sampler, nullptr);
 }
 
 TEST(GpuService, TextureStorageDeviceSyncUsesAsyncUploadPath) {

@@ -28,10 +28,11 @@ struct DsAlphaShapeVisualizationParameters {
   float uniform_particle_radius_multiplier = 2.f;
 
   // TODO: This isn't called anywhere
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 class DsAlphaShapeMeshing : public DsMeshing {
+  friend struct DynamicStrandsMeshingInspector;
+
  public:
   DsAlphaShapeMeshing();
   ~DsAlphaShapeMeshing();
@@ -55,10 +56,6 @@ class DsAlphaShapeMeshing : public DsMeshing {
 
   void UpdateBindings() const override;
 
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  void Stats(const std::shared_ptr<EditorLayer>& editor_layer) override;
-  static void DrawRenderSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
   void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene, Entity& owner) override;
 
   void Visualize(const std::shared_ptr<Camera>& target_camera,
@@ -75,8 +72,12 @@ class DsAlphaShapeMeshing : public DsMeshing {
     DsAlphaShapeVisualizationParameters meshing_visualization_parameters;
   };
 
+  static RenderSettings& RefRenderSettings();
+
+ private:
   static RenderSettings render_settings;
 
+ public:
   struct GpuUniformParticle {
     glm::vec3 position;
     float t;

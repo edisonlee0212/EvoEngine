@@ -3,8 +3,6 @@
 #include "IPrivateComponent.hpp"
 
 namespace evo_engine {
-void RegisterWayPointsHandlers();
-
 /**
  * @brief Class representing waypoints for an entity.
  *

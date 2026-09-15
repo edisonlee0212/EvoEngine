@@ -4,9 +4,7 @@
 #include "BtfMeshRenderer.hpp"
 #include "CBTFGroup.hpp"
 #include "CBTFImporter.hpp"
-#include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
-#include "InspectorRegistry.hpp"
 #include "PARSensorGroup.hpp"
 #include "Serialization.hpp"
 #include "SkyIlluminance.hpp"
@@ -23,25 +21,9 @@ using namespace digital_agriculture_package;
 using namespace evo_engine;
 
 namespace {
-PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "DigitalAgriculture", "0.1.0",
-                             "Digital agriculture runtime package."};
-
-template <typename T>
-void RegisterAssetPreviewHandler(const std::string& owner_name, const std::string& type_name) {
-  Serialization::RegisterAssetPreviewHandler<T>(
-      [](const std::shared_ptr<T>& asset, const OffscreenPreviewSettings&) {
-        return asset ? asset->GenerateThumbnailTexture() : nullptr;
-      },
-      owner_name, type_name);
-}
-
-void RegisterDigitalAgricultureAssetPreviewHandlers(const std::string& owner_name) {
-  RegisterAssetPreviewHandler<SorghumDescriptor>(owner_name, "SorghumDescriptor");
-  RegisterAssetPreviewHandler<SorghumGrowthStages>(owner_name, "SorghumGrowthStages");
-  RegisterAssetPreviewHandler<SorghumState>(owner_name, "SorghumState");
-  RegisterAssetPreviewHandler<SorghumGenerator>(owner_name, "SorghumGenerator");
-  RegisterAssetPreviewHandler<SorghumField>(owner_name, "SorghumField");
-}
+PackageDescriptor descriptor{
+    EVOENGINE_PACKAGE_API_VERSION,    "DigitalAgriculture",       "0.1.0", "Digital agriculture runtime package.",
+    EVOENGINE_PACKAGE_BUILD_IDENTITY, EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterDigitalAgricultureSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<SorghumDescriptor>(
@@ -69,36 +51,6 @@ void RegisterDigitalAgricultureSerializationHandlers(const std::string& owner_na
       SerializeSorghumCoordinates, DeserializeSorghumCoordinates, owner_name, "SorghumCoordinates");
 }
 
-void RegisterDigitalAgricultureInspectors(const std::string& owner_name) {
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumDescriptor>(InspectSorghumDescriptor, owner_name,
-                                                                        "SorghumDescriptor");
-  InspectorRegistry::GetInstance().RegisterInspector<Sorghum>(InspectSorghum, owner_name, "Sorghum");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumGrowthStages>(InspectSorghumGrowthStages, owner_name,
-                                                                          "SorghumGrowthStages");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumState>(InspectSorghumState, owner_name, "SorghumState");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumGenerator>(InspectSorghumGenerator, owner_name,
-                                                                       "SorghumGenerator");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumField>(InspectSorghumField, owner_name, "SorghumField");
-  InspectorRegistry::GetInstance().RegisterInspector<PARSensorGroup>(InspectPARSensorGroup, owner_name,
-                                                                     "PARSensorGroup");
-  InspectorRegistry::GetInstance().RegisterInspector<CBTFGroup>(InspectCBTFGroup, owner_name, "CBTFGroup");
-  InspectorRegistry::GetInstance().RegisterInspector<CBTFImporter>(InspectCBTFImporter, owner_name, "CBTFImporter");
-  InspectorRegistry::GetInstance().RegisterInspector<BtfMeshRenderer>(
-      [](InspectorContext& context, BtfMeshRenderer& renderer) {
-        return renderer.DrawGui(context.editor_layer);
-      },
-      owner_name, "BtfMeshRenderer");
-  InspectorRegistry::GetInstance().RegisterInspector<BtfMaterial>(
-      [](InspectorContext& context, BtfMaterial& material) {
-        return material.DrawGui(context.editor_layer);
-      },
-      owner_name, "BtfMaterial");
-  InspectorRegistry::GetInstance().RegisterInspector<SkyIlluminance>(InspectSkyIlluminance, owner_name,
-                                                                     "SkyIlluminance");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumCoordinates>(InspectSorghumCoordinates, owner_name,
-                                                                         "SorghumCoordinates");
-  InspectorRegistry::GetInstance().RegisterInspector<SorghumLayer>(InspectSorghumLayer, owner_name, "Sorghum Layer");
-}
 }  // namespace
 
 EVOENGINE_PACKAGE_EXPORT const PackageDescriptor* EvoEnginePackageGetDescriptor() {
@@ -126,8 +78,6 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
                registrar->RegisterLayer<SorghumLayer>("Sorghum Layer");
   if (registered) {
     RegisterDigitalAgricultureSerializationHandlers(descriptor.name);
-    RegisterDigitalAgricultureAssetPreviewHandlers(descriptor.name);
-    RegisterDigitalAgricultureInspectors(descriptor.name);
   }
   return registered;
 }

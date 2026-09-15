@@ -43,6 +43,7 @@ class EVOENGINE_API Input final {
   friend class Platform;    /**< Grants Platform class access to private members of Input. */
   friend class Application; /**< Grants Application class access to private members of Input. */
   friend class EditorLayer; /**< Grants EditorLayer class access to private members of Input. */
+  friend struct RuntimeInputTestAccess;
 
   std::unordered_map<int, KeyActionType> pressed_keys_ = {}; /**< Stores the state of keys pressed. */
   glm::vec2 mouse_position_ = glm::vec2(0.0f);               /**< Stores the current mouse position. */

@@ -10,26 +10,6 @@ void CubeVolume::ApplyMeshBounds(const std::shared_ptr<Mesh>& mesh) {
   min_max_bound = mesh->GetBound();
 }
 
-bool CubeVolume::DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) {
-  bool changed = false;
-  if (IVolume::DrawGui(editorLayer))
-    changed = true;
-  if (ImGui::DragFloat3("Min", &min_max_bound.min.x, 0.1f))
-    changed = true;
-  if (ImGui::DragFloat3("Max", &min_max_bound.max.x, 0.1f))
-    changed = true;
-  static PrivateComponentRef privateComponentRef{};
-
-  if (editorLayer->DragAndDropButton<MeshRenderer>(privateComponentRef, "Target MeshRenderer")) {
-    if (const auto mmr = privateComponentRef.Get<MeshRenderer>()) {
-      ApplyMeshBounds(mmr->mesh.Get<Mesh>());
-      privateComponentRef.Clear();
-      changed = true;
-    }
-  }
-  return changed;
-}
-
 bool CubeVolume::InVolume(const glm::vec3& position) {
   return min_max_bound.InBound(position);
 }

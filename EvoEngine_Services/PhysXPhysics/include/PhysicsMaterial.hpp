@@ -6,6 +6,7 @@
 namespace evo_engine {
 using namespace physx;
 class PhysicsMaterial : public IAsset {
+  friend class PhysXEditorLayer;
   friend class PhysicsLayer;
   friend class Collider;
   friend void SerializePhysicsMaterial(YAML::Emitter &out, const PhysicsMaterial &target);
@@ -20,7 +21,6 @@ class PhysicsMaterial : public IAsset {
   void SetStaticFriction(const float &value);
   void SetRestitution(const float &value);
   void OnCreate() override;
-  void OnGui();
   ~PhysicsMaterial();
 };
 }  // namespace evo_engine

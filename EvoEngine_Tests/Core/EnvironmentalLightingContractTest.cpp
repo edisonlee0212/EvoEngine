@@ -140,9 +140,9 @@ TEST(EnvironmentalLightingContract, LocalProbeAndDdgiContractsPreserveCurrentRen
 }
 
 TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTransientAndSceneScoped) {
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
-  const auto editor = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
-  const auto asset_manager = ReadTextFile(SourcePath("EvoEngine_SDK/src/AssetManager.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
+  const auto editor = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
+  const auto asset_manager = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/AssetInspector.cpp"));
   const auto serialization = ReadTextFile(SourcePath("EvoEngine_SDK/src/EnvironmentalLighting.cpp"));
 
   ASSERT_FALSE(inspector.empty());
@@ -181,7 +181,7 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));
   const auto serialization = ReadTextFile(SourcePath("EvoEngine_SDK/src/EnvironmentalLighting.cpp"));
   const auto resolver = ReadTextFile(SourcePath("EvoEngine_SDK/src/EnvironmentalLightingResolver.cpp"));
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
 
   ASSERT_FALSE(header.empty());
@@ -218,7 +218,7 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
 }
 
 TEST(EnvironmentalLightingContract, InspectorSeparatesAuthoringIntoOwnershipTabs) {
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(source.empty());
 
   const auto inspector_begin = source.find("bool InspectEnvironmentalLighting(");
@@ -309,7 +309,7 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang")) +
       ReadTextFile(
           SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/LightingFixedSet3.slang"));
-  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto demo_scene_source = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
 
   ASSERT_FALSE(scene_header.empty());

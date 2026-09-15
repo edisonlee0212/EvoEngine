@@ -39,3 +39,7 @@ set(DATASET_GENERATION_PCH ${DATASET_GENERATION_DIRECTORY}/include/DatasetGenera
 evoengine_configure_runtime_package(DatasetGenerationPackage
 	EXTRA_PCH ${DATASET_GENERATION_PCH}
 	)
+
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

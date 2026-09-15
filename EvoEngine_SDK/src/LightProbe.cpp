@@ -1,7 +1,6 @@
 #include "LightProbe.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
-#include "EditorLayer.hpp"
 #include "Mesh.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"

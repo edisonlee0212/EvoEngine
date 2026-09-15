@@ -1,8 +1,6 @@
 #include "PackageManager.hpp"
 
-#include "InspectorRegistry.hpp"
 #include "LSystemDescriptor.hpp"
-#include "LSystemInspectionAdapters.hpp"
 #include "LSystemLayer.hpp"
 #include "LSystemSerializationAdapters.hpp"
 #include "ScotsPine.hpp"
@@ -13,17 +11,12 @@ using namespace evo_engine;
 using namespace l_system_package;
 
 namespace {
-PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "LSystem", "0.1.0",
-                             "L-system grammar runtime package (plant-agnostic core)."};
-
-void RegisterLSystemInspectors(const std::string& owner_name) {
-  InspectorRegistry::GetInstance().RegisterInspector<LSystemDescriptor>(InspectLSystemDescriptor, owner_name,
-                                                                        "LSystemDescriptor");
-  InspectorRegistry::GetInstance().RegisterInspector<ScotsPineDescriptor>(InspectScotsPineDescriptor, owner_name,
-                                                                          "ScotsPineDescriptor");
-  InspectorRegistry::GetInstance().RegisterInspector<ScotsPine>(InspectScotsPine, owner_name, "ScotsPine");
-  InspectorRegistry::GetInstance().RegisterInspector<LSystemLayer>(InspectLSystemLayer, owner_name, "LSystem Layer");
-}
+PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION,
+                             "LSystem",
+                             "0.1.0",
+                             "L-system grammar runtime package (plant-agnostic core).",
+                             EVOENGINE_PACKAGE_BUILD_IDENTITY,
+                             EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterLSystemSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<LSystemDescriptor>(
@@ -52,7 +45,6 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
                           registrar->RegisterLayer<LSystemLayer>("LSystem Layer");
   if (registered) {
     RegisterLSystemSerializationHandlers(descriptor.name);
-    RegisterLSystemInspectors(descriptor.name);
   }
   return registered;
 }

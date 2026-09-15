@@ -9,6 +9,32 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+add_library(EvoEngineRuntimeHeaderCheck OBJECT Core/RuntimePublicHeaders.cpp)
+target_link_libraries(EvoEngineRuntimeHeaderCheck PRIVATE EvoEngine_SDK)
+set_target_properties(EvoEngineRuntimeHeaderCheck PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+if(TARGET LSystemPackage)
+	target_sources(EvoEngineRuntimeHeaderCheck PRIVATE Core/PackagePublicHeaders.cpp)
+	target_link_libraries(EvoEngineRuntimeHeaderCheck PRIVATE LSystemPackage)
+endif()
+
+add_test(NAME RuntimeTemplatePythonTests
+	COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_SOURCE_DIR}/Scripts/tests" -v)
+if(TARGET EvoEngineRuntimeExporter)
+	set_tests_properties(RuntimeTemplatePythonTests PROPERTIES
+		ENVIRONMENT "EVOENGINE_RUNTIME_EXPORTER=$<TARGET_FILE:EvoEngineRuntimeExporter>")
+endif()
+
+if(NOT EVOENGINE_WITH_EDITOR)
+	add_executable(EvoEngineRuntimeBoundaryTests Core/RuntimeBoundaryTest.cpp Core/RuntimeNodeGraphTest.cpp Core/NativeBuildIdentityTest.cpp Core/RuntimePathsTest.cpp Core/WindowModePolicyTest.cpp)
+	target_include_directories(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_INCLUDES})
+	target_compile_definitions(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_DEFS})
+	target_precompile_headers(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_PCHS})
+	target_link_libraries(EvoEngineRuntimeBoundaryTests PRIVATE EvoEngine_SDK GTest::gtest_main)
+	evoengine_copy_resources(EvoEngineRuntimeBoundaryTests "$<TARGET_FILE_DIR:EvoEngineRuntimeBoundaryTests>")
+	gtest_discover_tests(EvoEngineRuntimeBoundaryTests DISCOVERY_MODE PRE_TEST PROPERTIES TIMEOUT 120)
+	return()
+endif()
+
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" EVOENGINE_TEST_SOURCE_DIR_NORMALIZED)
@@ -16,6 +42,15 @@ file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" EVOENGINE_TEST_PYTHON_EXECUTABLE_NORM
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT_DIR_NORMALIZED)
 
 set(EVOENGINE_TEST_SOURCES
+	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoAuthoringCommandLine.cpp
+	Core/BuildManagerModelTest.cpp
+	Core/DemoAuthoringCommandLineTest.cpp
+	Core/ProjectBuildSettingsSerializationTest.cpp
+	Core/ProjectManagerBuildStateTest.cpp
+	Core/NativeBuildIdentityTest.cpp
+	Core/StrictRuntimeLoadingTest.cpp
+	Core/RuntimePathsTest.cpp
+	Core/WindowModePolicyTest.cpp
 	Core/TaskRuntimeTest.cpp
 	Core/ProfilerTest.cpp
 	Core/AssetManagerTest.cpp
@@ -58,6 +93,8 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RenderingDocumentationTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
+	Core/NodeGraphEditorTest.cpp Core/EditorWidgetTest.cpp
+	Core/PackageLifecycleTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
@@ -70,7 +107,7 @@ add_executable(EvoEngine_Tests
 	)
 target_link_libraries(EvoEngine_Tests
 	PRIVATE
-	EvoEngine_SDK
+	EvoEngine_EditorSDK
 	EvoEngine_DemoScene
 	GTest::gtest_main
 	)
@@ -89,8 +126,15 @@ target_compile_definitions(EvoEngine_Tests
 	EVOENGINE_PYEVOENGINE_DIR="$<TARGET_FILE_DIR:PyEvoEngine>"
 	EVOENGINE_RENDER_TEST_DIR="$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	)
-target_precompile_headers(EvoEngine_Tests PRIVATE ${EVOENGINE_SDK_PCH})
+target_precompile_headers(EvoEngine_Tests PRIVATE ${EVOENGINE_EDITOR_PCH})
 add_dependencies(EvoEngine_Tests PyEvoEngine)
+if(TARGET EvoEngineEditor)
+  target_compile_definitions(EvoEngine_Tests PRIVATE EVOENGINE_TEST_APP_DIR="$<TARGET_FILE_DIR:EvoEngineEditor>")
+  add_dependencies(EvoEngine_Tests EvoEngineEditor)
+endif()
+if(TARGET EvoEngineRuntimeExporter)
+	add_dependencies(EvoEngine_Tests EvoEngineRuntimeExporter)
+endif()
 evoengine_copy_resources(EvoEngine_Tests "$<TARGET_FILE_DIR:EvoEngine_Tests>")
 set_property(TARGET EvoEngine_Tests PROPERTY FOLDER Tests)
 
@@ -99,7 +143,7 @@ if(TARGET DigitalAgriculturePackage)
 	target_link_libraries(DigitalAgriculture_Tests PRIVATE DigitalAgriculturePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
 	target_compile_definitions(DigitalAgriculture_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(DigitalAgriculture_Tests PRIVATE
-		${EVOENGINE_SDK_PCH}
+		${EVOENGINE_EDITOR_PCH}
 		${EVOENGINE_PACKAGE_PCH}
 		${DIGITAL_AGRICULTURE_PCH}
 		)
@@ -128,7 +172,7 @@ if(TARGET UniversePackage)
 		)
 	target_compile_definitions(UniversePackage_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(UniversePackage_Tests PRIVATE
-		${EVOENGINE_SDK_PCH}
+		${EVOENGINE_EDITOR_PCH}
 		${EVOENGINE_PACKAGE_PCH}
 		)
 	add_custom_command(TARGET UniversePackage_Tests POST_BUILD
@@ -142,7 +186,7 @@ if(TARGET UniversePackage)
 endif()
 
 if(TARGET EcoSysLabPackage)
-	add_executable(EcoSysLab_Tests Core/DynamicStrandsBundleTest.cpp)
+	add_executable(EcoSysLab_Tests Core/DynamicStrandsBundleTest.cpp Core/TreeModelRevisionTest.cpp)
 	target_link_libraries(EcoSysLab_Tests PRIVATE EcoSysLabPackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
 	target_compile_definitions(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_PCH})
@@ -167,6 +211,30 @@ endif()
 add_custom_target(EvoEngine_RenderTests)
 add_dependencies(EvoEngine_RenderTests EvoEngine_Tests)
 set_property(TARGET EvoEngine_RenderTests PROPERTY FOLDER Tests)
+
+gtest_discover_tests(EvoEngine_Tests
+	TEST_FILTER NativeBuildIdentity.*:RuntimePaths.*:WindowModePolicy.*
+	DISCOVERY_MODE PRE_TEST
+	PROPERTIES LABELS "core,runtime"
+	)
+
+gtest_discover_tests(EvoEngine_Tests
+	TEST_FILTER ProjectBuildSettings.*:BuildManagerPreflight.*:ProjectManagerBuildState.*
+	DISCOVERY_MODE PRE_TEST
+	PROPERTIES LABELS "core,editor,build-manager"
+	)
+
+gtest_discover_tests(EvoEngine_Tests
+	TEST_FILTER DemoAuthoringCommandLineTest.*
+	DISCOVERY_MODE PRE_TEST
+	PROPERTIES LABELS "core,editor,demo-authoring"
+	)
+
+gtest_discover_tests(EvoEngine_Tests
+	TEST_FILTER StrictRuntimeLoading.*
+	DISCOVERY_MODE PRE_TEST
+	PROPERTIES LABELS "core,runtime,project"
+	)
 
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
@@ -437,3 +505,15 @@ if(WIN32 AND TARGET EvoEngineLauncher AND TARGET EvoEngineEditor)
 		TIMEOUT 90
 		)
 endif()
+
+gtest_discover_tests(EvoEngine_Tests
+  WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+  TEST_FILTER NodeGraphEditorTest.*
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS "core,editor,graph")
+
+gtest_discover_tests(EvoEngine_Tests
+  WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+  TEST_FILTER "EditorWidgetTest.*:ImGuiStartup.*"
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS "editor,graphics")

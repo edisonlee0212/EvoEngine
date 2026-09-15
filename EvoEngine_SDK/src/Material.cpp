@@ -1,6 +1,5 @@
 #include "Material.hpp"
 
-#include "EditorLayer.hpp"
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
 
@@ -57,10 +56,6 @@ void DrawSettings::Load(const std::string& name, const YAML::Node& in) {
     if (draw_settings["blending_dst_factor"])
       blending_dst_factor = static_cast<VkBlendFactor>(draw_settings["blending_dst_factor"].as<unsigned>());
   }
-}
-
-std::shared_ptr<Texture2D> Material::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Material");
 }
 
 Material::Material() {

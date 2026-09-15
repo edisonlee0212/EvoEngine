@@ -71,7 +71,9 @@ struct SoilLayer {
  */
 class VoxelSoilModel {
   friend class Soil;
+  friend struct SoilInspector;
   friend class EcoSysLabLayer;
+  friend class EcoSysLabEditorLayer;
 
  public:
   /**

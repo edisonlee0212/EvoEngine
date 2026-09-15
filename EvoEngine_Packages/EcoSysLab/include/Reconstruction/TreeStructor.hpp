@@ -115,7 +115,6 @@ struct ConnectivityGraphSettings {
   float connection_range_limit = 1.0f;
 
   float max_scatter_point_connection_height = 1.5f;
-  void DrawGui();
 };
 
 struct PointData {
@@ -167,8 +166,6 @@ struct ReconstructionSettings {
   int smooth_iteration = 10;
 
   bool use_foliage = true;
-
-  void DrawGui();
 };
 
 struct ReconstructionSkeletonData {
@@ -198,6 +195,7 @@ struct ReconstructionNodeData {
 typedef Skeleton<ReconstructionSkeletonData, ReconstructionFlowData, ReconstructionNodeData> ReconstructionSkeleton;
 
 class TreeStructor : public IPrivateComponent {
+  friend struct TreeStructorInspector;
   bool DirectConnectionCheck(const BezierCurve& parent_curve, const BezierCurve& child_curve, bool reverse);
 
   static void FindPoints(const glm::vec3& position, VoxelGrid<std::vector<PointData>>& point_voxel_grid, float radius,
@@ -231,45 +229,6 @@ class TreeStructor : public IPrivateComponent {
   void CalculateSkeletonGraphs();
 
  public:
-  std::shared_ptr<ParticleInfoList> allocated_point_info_list;
-  std::shared_ptr<ParticleInfoList> scattered_point_info_list;
-  std::shared_ptr<ParticleInfoList> scattered_point_connection_info_list;
-  std::shared_ptr<ParticleInfoList> candidate_branch_connection_info_list;
-  std::shared_ptr<ParticleInfoList> reversed_candidate_branch_connection_info_list;
-  std::shared_ptr<ParticleInfoList> filtered_branch_connection_info_list;
-  std::shared_ptr<ParticleInfoList> selected_branch_connection_info_list;
-  std::shared_ptr<ParticleInfoList> scatter_point_to_branch_connection_info_list;
-  std::shared_ptr<ParticleInfoList> selected_branch_info_list;
-  glm::vec4 scatter_point_to_branch_connection_color = glm::vec4(1, 0, 1, 1);
-  glm::vec4 allocated_point_color = glm::vec4(0, 0.5, 0.25, 1);
-  glm::vec4 scatter_point_color = glm::vec4(0.25, 0.5, 0, 1);
-  glm::vec4 scattered_point_connection_color = glm::vec4(0, 0, 0, 1);
-  glm::vec4 candidate_branch_connection_color = glm::vec4(1, 1, 0, 1);
-  glm::vec4 reversed_candidate_branch_connection_color = glm::vec4(0, 1, 1, 1);
-  glm::vec4 filtered_branch_connection_color = glm::vec4(0, 0, 1, 1);
-  glm::vec4 selected_branch_connection_color = glm::vec4(0.3, 0, 0, 1);
-  glm::vec4 selected_branch_color = glm::vec4(0.6, 0.3, 0.0, 1.0f);
-
-  bool enable_allocated_points = false;
-  bool enable_scattered_points = false;
-  bool enable_scattered_point_connections = false;
-  bool enable_scatter_point_to_branch_connections = false;
-  bool enable_candidate_branch_connections = false;
-  bool enable_reversed_candidate_branch_connections = false;
-  bool enable_filtered_branch_connections = false;
-  bool enable_selected_branch_connections = true;
-  bool enable_selected_branches = true;
-
-  bool debug_allocated_points = true;
-  bool debug_scattered_points = true;
-  bool debug_scattered_point_connections = false;
-  bool debug_scatter_point_to_branch_connections = false;
-  bool debug_candidate_connections = false;
-  bool debug_reversed_candidate_connections = false;
-  bool debug_filtered_connections = false;
-  bool debug_selected_branch_connections = true;
-  bool debug_selected_branches = true;
-
   VoxelGrid<std::vector<PointData>> scatter_points_voxel_grid;
   VoxelGrid<std::vector<PointData>> allocated_points_voxel_grid;
   VoxelGrid<std::vector<PointData>> space_colonization_voxel_grid;
@@ -289,8 +248,6 @@ class TreeStructor : public IPrivateComponent {
   std::vector<OperatorBranch> operating_branches;
   std::vector<TreePart> tree_parts;
 
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
   std::vector<ReconstructionSkeleton> skeletons;
 
   std::vector<std::pair<glm::vec3, glm::vec3>> scattered_point_to_branch_end_connections;
@@ -304,7 +261,7 @@ class TreeStructor : public IPrivateComponent {
 
   void BuildSkeletons();
   [[maybe_unused]] Entity GenerateForest();
-  void FormInfoEntities() const;
+
   void ClearForest();
   void ExportForestStatistics(const std::string& name, YAML::Emitter& out) const;
   void ExportForestStatistics(const std::filesystem::path& path) const;

@@ -23,11 +23,6 @@ struct SkeletalGraphSettings {
   glm::vec4 branch_focus_color = glm::vec4(1.f, 0.f, 0.f, 1.f);  ///< Color when a branch is in focus.
 
   /**
-   * @brief Handles inspection of graphical settings in the editor.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Saves to a YAML emitter.
    * @param name The name of the settings entry.
    * @param out The YAML emitter to serialize data into.

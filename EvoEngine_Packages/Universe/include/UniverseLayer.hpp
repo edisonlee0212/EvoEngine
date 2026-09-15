@@ -9,6 +9,7 @@
 #include "StarPicking.hpp"
 #include "Strands.hpp"
 #include "TerrainChunk.hpp"
+#include "UniverseViewHost.hpp"
 
 namespace universe_package {
 using namespace evo_engine;
@@ -164,6 +165,7 @@ class UniverseLayer final : public ILayer {
 
  public:
   void RegisterTypes(Application& application) override;
+  void SetViewHost(const std::shared_ptr<UniverseViewHost>& host);
   bool depth_write = true;
   float star_fade_strength = 0.5f;
   bool show_orbit_strands = false;
@@ -199,7 +201,8 @@ class UniverseLayer final : public ILayer {
   StarFollowState star_follow_;
   StarViewTransition star_view_;
   bool demo_needs_framing_ = false;
-  StarDemoCameraOverride demo_main_camera_, demo_scene_camera_;
+  StarDemoCameraOverride demo_main_camera_;
+  std::weak_ptr<UniverseViewHost> view_host_;
   std::shared_ptr<GraphicsPipeline> star_hover_pipeline_;
   float pick_minimum_radius_ = 3.0f;
   uint64_t last_viewport_click_ = 0;

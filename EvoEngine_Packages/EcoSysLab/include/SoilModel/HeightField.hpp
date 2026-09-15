@@ -37,21 +37,6 @@ class HeightField : public IAsset {
   void RandomOffset(float min, float max);
 
   /**
-   * @brief Handles editor inspection for the height field.
-   *
-   * This function will be invoked by the editor layer to inspect and modify the height field.
-   * @param editor_layer A shared pointer to the editor layer.
-   * @return True if the asset's content remains unmodified during inspection, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
-   * @brief Generates a thumbnail texture representing the height field.
-   * @return A shared pointer to the generated texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Generates a mesh representation of the height field.
    *
    * This function generates a mesh using the given parameters, storing the

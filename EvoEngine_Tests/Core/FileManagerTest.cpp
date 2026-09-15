@@ -1,3 +1,5 @@
+#include "AssetPreviewRegistry.hpp"
+#include "AssetThumbnailProvider.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include <gtest/gtest.h>
@@ -289,7 +291,7 @@ TEST(FileManager, ThumbnailLookupCanAvoidStartingAssetLoad) {
   ApplicationContextScope scope(app);
   app.RegisterAsset<ThumbnailProbeAsset>(kThumbnailProbeAssetTypeName, {kThumbnailProbeAssetExtension});
   ASSERT_TRUE(ThumbnailProbeAsset::RegisterAssetIoHandlers());
-  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<ThumbnailProbeAsset>(
+  ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<ThumbnailProbeAsset>(
       [](const std::shared_ptr<ThumbnailProbeAsset>&, const OffscreenPreviewSettings&) {
         return std::shared_ptr<Texture2D>();
       },
@@ -301,14 +303,14 @@ TEST(FileManager, ThumbnailLookupCanAvoidStartingAssetLoad) {
   const auto file = FileManager::GetFile(Handle(kThumbnailProbeAssetHandle));
   ASSERT_TRUE(file);
 
-  (void)file->GetThumbnail(false);
+  (void)AssetThumbnailProvider::GetFileThumbnail(file, false);
   for (size_t i = 0; i < 8; ++i) {
     AssetManager::ExecuteMainThreadAssetTasks(1);
     Jobs::ExecuteMainThreadJobs(1);
   }
   EXPECT_EQ(ThumbnailProbeLoadCount().load(), 0);
 
-  (void)file->GetThumbnail(true);
+  (void)AssetThumbnailProvider::GetFileThumbnail(file, true);
   EXPECT_TRUE(WaitForThumbnailProbeLoad(std::chrono::seconds(5)));
 }
 

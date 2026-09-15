@@ -5,6 +5,7 @@
 namespace evo_engine {
 using namespace physx;
 class RigidBody : public IPrivateComponent {
+  friend class PhysXEditorLayer;
   friend void SerializeRigidBody(YAML::Emitter &out, const RigidBody &target);
   friend void DeserializeRigidBody(const YAML::Node &in, RigidBody &target);
   glm::mat4 shape_transform_ =
@@ -51,7 +52,6 @@ class RigidBody : public IPrivateComponent {
   void OnDestroy() override;
   void RecreateBody();
   void OnCreate() override;
-  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
 
   void AddForce(const glm::vec3 &force) const;
   void AddTorque(const glm::vec3 &torque) const;

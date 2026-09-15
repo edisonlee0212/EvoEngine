@@ -32,3 +32,7 @@ set(LSYSTEM_PCH ${LSYSTEM_DIRECTORY}/include/LSystem_PCH.hpp)
 evoengine_configure_runtime_package(LSystemPackage
 	EXTRA_PCH ${LSYSTEM_PCH}
 	)
+
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

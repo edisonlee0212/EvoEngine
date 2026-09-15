@@ -9,22 +9,6 @@ using namespace eco_sys_lab_package;
 static void SerializeDynamicTreeStrandsGraph(YAML::Emitter& out, const IDynamicTreeStrands& target);
 static void DeserializeDynamicTreeStrandsGraph(const YAML::Node& in, IDynamicTreeStrands& target);
 
-bool NodeData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
-  return node_impl->DrawGui(editor_layer);
-}
-
-bool InputPinData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
-  bool changed = false;
-  ImGui::Text(name.c_str());
-  return changed;
-}
-
-bool OutputPinData::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) const {
-  bool changed = false;
-  ImGui::Text(name.c_str());
-  return changed;
-}
-
 #pragma region ModulusGraph
 void ModulusGraph::Reset() {
   node_graph = {};
@@ -75,17 +59,11 @@ void ModulusGraph::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_density_node_handle, ImVec2(500, 200));
-    ImNodes::SetNodeScreenSpacePos(output_shear_stretch_node_handle, ImVec2(500, 400));
-    ImNodes::SetNodeScreenSpacePos(output_bending_node_handle, ImVec2(500, 600));
-    ImNodes::SetNodeScreenSpacePos(output_twisting_node_handle, ImVec2(500, 800));
-
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 300));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_density_node_handle, glm::vec2(500, 200));
+  node_graph.SetNodePosition(output_shear_stretch_node_handle, glm::vec2(500, 400));
+  node_graph.SetNodePosition(output_bending_node_handle, glm::vec2(500, 600));
+  node_graph.SetNodePosition(output_twisting_node_handle, glm::vec2(500, 800));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 300));
 }
 
 ModulusGraph::ModulusGraph() {
@@ -158,83 +136,6 @@ void eco_sys_lab_package::DeserializeModulusGraph(const YAML::Node& in, ModulusG
   DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool ModulusGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  // Test output nodes for all their pins
-  static ModulusGraph::Input temp_input{};
-  static ModulusGraph::Output::DensityType temp_output_density = glm::vec2(0.0f);
-  static ModulusGraph::Output::ShearStretchModulusType temp_output_shear_stretch = glm::vec2(0.0f);
-  static ModulusGraph::Output::BendingModulusType temp_output_bending = glm::vec2(0.0f);
-  static ModulusGraph::Output::TwistingModulusType temp_output_twisting = glm::vec2(0.0f);
-
-  ImGui::Text("Test Inputs:");
-  if (ImGui::DragFloat("Root Distance", &temp_input.root_distance)) {
-    temp_output_density = GetDensity(temp_input);
-    temp_output_shear_stretch = GetShearStretchModulus(temp_input);
-    temp_output_bending = GetBendingModulus(temp_input);
-    temp_output_twisting = GetTwistingModulus(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Distance", &temp_input.polar_distance)) {
-    temp_output_density = GetDensity(temp_input);
-    temp_output_shear_stretch = GetShearStretchModulus(temp_input);
-    temp_output_bending = GetBendingModulus(temp_input);
-    temp_output_twisting = GetTwistingModulus(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Angle", &temp_input.polar_angle)) {
-    temp_output_density = GetDensity(temp_input);
-    temp_output_shear_stretch = GetShearStretchModulus(temp_input);
-    temp_output_bending = GetBendingModulus(temp_input);
-    temp_output_twisting = GetTwistingModulus(temp_input);
-  }
-  if (ImGui::DragFloat("Profile Boundary Distance", &temp_input.profile_boundary_distance)) {
-    temp_output_density = GetDensity(temp_input);
-    temp_output_shear_stretch = GetShearStretchModulus(temp_input);
-    temp_output_bending = GetBendingModulus(temp_input);
-    temp_output_twisting = GetTwistingModulus(temp_input);
-  }
-  if (ImGui::Button("Calculate")) {
-    temp_output_density = GetDensity(temp_input);
-    temp_output_shear_stretch = GetShearStretchModulus(temp_input);
-    temp_output_bending = GetBendingModulus(temp_input);
-    temp_output_twisting = GetTwistingModulus(temp_input);
-  }
-
-  ImGui::Text("Density min: %.3f", temp_output_density[0]);
-  ImGui::Text("Density max: %.3f", temp_output_density[1]);
-  ImGui::Text("Shear Stretch lower bound: %.3f", temp_output_shear_stretch[0]);
-  ImGui::Text("Shear Stretch upper bound: %.3f", temp_output_shear_stretch[1]);
-  ImGui::Text("Bending lower bound: %.3f", temp_output_bending[0]);
-  ImGui::Text("Bending upper bound: %.3f", temp_output_bending[1]);
-  ImGui::Text("Twisting lower bound: %.3f", temp_output_twisting[0]);
-  ImGui::Text("Twisting upper bound: %.3f", temp_output_twisting[1]);
-
-  // Test setting values
-  if (ImGui::Button("Set Density")) {
-    glm::vec2 values;
-    SetDensity(values);
-  }
-  if (ImGui::Button("Set Shear Stretch Modulus")) {
-    glm::vec2 values;
-    SetShearStretchModulus(values);
-  }
-  if (ImGui::Button("Set Bending Modulus")) {
-    glm::vec2 values;
-    SetBendingModulus(values);
-  }
-  if (ImGui::Button("Set Twisting Modulus")) {
-    glm::vec2 values;
-    SetTwistingModulus(values);
-  }
-
-  static bool show_node_graph = true;
-  ImGui::Checkbox("Show modulus node graph", &show_node_graph);
-  if (show_node_graph) {
-    changed = ShowGraph("Dynamic Tree Strands", editor_layer) || changed;
-  }
-  return changed;
-}
-
 void eco_sys_lab_package::ModulusGraph::SetOutput(NodeGraphNodeHandle output_node_handle, const glm::vec2& value) {
   // Create two new constant nodes to input the values into the output node
   const auto min_node_handle = node_graph.AllocateNode(0, 1);
@@ -274,17 +175,9 @@ void eco_sys_lab_package::ModulusGraph::SetOutput(NodeGraphNodeHandle output_nod
   node_graph.AllocateLink(max_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[1]);
 
   // Set node positions
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor_layer) {
-    ImNodesEditorContext* prev_editor_context = nullptr;
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-    ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
-    ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
-
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  glm::vec2 pos = node_graph.GetNodePosition(output_node.GetHandle());
+  node_graph.SetNodePosition(min_node_handle, glm::vec2(pos.x - 200, pos.y - 50));
+  node_graph.SetNodePosition(max_node_handle, glm::vec2(pos.x - 200, pos.y + 50));
 }
 #pragma endregion ModulusGraph
 
@@ -345,17 +238,12 @@ void StrengthGraph::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_shear_stretch_node_handle, ImVec2(500, 200));
-    ImNodes::SetNodeScreenSpacePos(output_bending_node_handle, ImVec2(500, 400));
-    ImNodes::SetNodeScreenSpacePos(output_twisting_node_handle, ImVec2(500, 600));
-    ImNodes::SetNodeScreenSpacePos(output_bundle_node_handle, ImVec2(500, 800));
-    ImNodes::SetNodeScreenSpacePos(output_connectivity_node_handle, ImVec2(500, 1000));
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 600));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_shear_stretch_node_handle, glm::vec2(500, 200));
+  node_graph.SetNodePosition(output_bending_node_handle, glm::vec2(500, 400));
+  node_graph.SetNodePosition(output_twisting_node_handle, glm::vec2(500, 600));
+  node_graph.SetNodePosition(output_bundle_node_handle, glm::vec2(500, 800));
+  node_graph.SetNodePosition(output_connectivity_node_handle, glm::vec2(500, 1000));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 600));
 }
 
 StrengthGraph::StrengthGraph() {
@@ -439,96 +327,6 @@ void eco_sys_lab_package::DeserializeStrengthGraph(const YAML::Node& in, Strengt
   DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool StrengthGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  // Test output nodes for all their pins
-  static StrengthGraph::Input temp_input{};
-  static StrengthGraph::Output::ShearStretchStrengthType temp_output_shear_stretch = glm::vec2(0.0f);
-  static StrengthGraph::Output::BendingStrengthType temp_output_bending = glm::vec2(0.0f);
-  static StrengthGraph::Output::TwistingStrengthType temp_output_twisting = glm::vec2(0.0f);
-  static StrengthGraph::Output::BundleStrengthType temp_output_bundle = glm::vec2(0.0f);
-  static StrengthGraph::Output::ConnectivityStrengthType temp_output_connectivity = glm::vec2(0.0f);
-
-  ImGui::Text("Test Inputs:");
-  if (ImGui::DragFloat("Root Distance", &temp_input.root_distance)) {
-    temp_output_shear_stretch = GetShearStretchStrength(temp_input);
-    temp_output_bending = GetBendingStrength(temp_input);
-    temp_output_twisting = GetTwistingStrength(temp_input);
-    temp_output_bundle = GetBundleStrength(temp_input);
-    temp_output_connectivity = GetConnectivityStrength(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Distance", &temp_input.polar_distance)) {
-    temp_output_shear_stretch = GetShearStretchStrength(temp_input);
-    temp_output_bending = GetBendingStrength(temp_input);
-    temp_output_twisting = GetTwistingStrength(temp_input);
-    temp_output_bundle = GetBundleStrength(temp_input);
-    temp_output_connectivity = GetConnectivityStrength(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Angle", &temp_input.polar_angle)) {
-    temp_output_shear_stretch = GetShearStretchStrength(temp_input);
-    temp_output_bending = GetBendingStrength(temp_input);
-    temp_output_twisting = GetTwistingStrength(temp_input);
-    temp_output_bundle = GetBundleStrength(temp_input);
-    temp_output_connectivity = GetConnectivityStrength(temp_input);
-  }
-  if (ImGui::DragFloat("Profile Boundary Distance", &temp_input.profile_boundary_distance)) {
-    temp_output_shear_stretch = GetShearStretchStrength(temp_input);
-    temp_output_bending = GetBendingStrength(temp_input);
-    temp_output_twisting = GetTwistingStrength(temp_input);
-    temp_output_bundle = GetBundleStrength(temp_input);
-    temp_output_connectivity = GetConnectivityStrength(temp_input);
-  }
-  if (ImGui::Button("Calculate")) {
-    temp_output_shear_stretch = GetShearStretchStrength(temp_input);
-    temp_output_bending = GetBendingStrength(temp_input);
-    temp_output_twisting = GetTwistingStrength(temp_input);
-    temp_output_bundle = GetBundleStrength(temp_input);
-    temp_output_connectivity = GetConnectivityStrength(temp_input);
-  }
-
-  ImGui::Text("Shear Stretch lower bound: %.3f", temp_output_shear_stretch[0]);
-  ImGui::Text("Shear Stretch upper bound: %.3f", temp_output_shear_stretch[1]);
-  ImGui::Text("Bending lower bound: %.3f", temp_output_bending[0]);
-  ImGui::Text("Bending upper bound: %.3f", temp_output_bending[1]);
-  ImGui::Text("Twisting lower bound: %.3f", temp_output_twisting[0]);
-  ImGui::Text("Twisting upper bound: %.3f", temp_output_twisting[1]);
-  ImGui::Text("Bundle lower bound: %.3f", temp_output_bundle[0]);
-  ImGui::Text("Bundle upper bound: %.3f", temp_output_bundle[1]);
-  ImGui::Text("Connectivity lower bound: %.3f", temp_output_connectivity[0]);
-  ImGui::Text("Connectivity upper bound: %.3f", temp_output_connectivity[1]);
-
-  // Test setting values
-  if (ImGui::Button("Set Shear Stretch Strength")) {
-    glm::vec2 values;
-    SetShearStretchStrength(values);
-  }
-  if (ImGui::Button("Set Bending Strength")) {
-    glm::vec2 values;
-    SetBendingStrength(values);
-  }
-  if (ImGui::Button("Set Twisting Strength")) {
-    glm::vec2 values;
-    SetTwistingStrength(values);
-  }
-  if (ImGui::Button("Set Bundle Strength")) {
-    glm::vec2 values;
-    SetBundleStrength(values);
-  }
-  if (ImGui::Button("Set Connectivity Strength")) {
-    glm::vec2 values;
-    SetConnectivityStrength(values);
-  }
-
-  static bool show_node_graph = true;
-  ImGui::Checkbox("Show strength node graph", &show_node_graph);
-  if (show_node_graph) {
-    changed = ShowGraph("Dynamic Tree Strands", editor_layer) || changed;
-  }
-
-  return changed;
-}
-
 void eco_sys_lab_package::StrengthGraph::SetOutput(NodeGraphNodeHandle output_node_handle, const glm::vec2& value) {
   // Create two new constant nodes to input the values into the output node
   const auto min_node_handle = node_graph.AllocateNode(0, 1);
@@ -568,16 +366,9 @@ void eco_sys_lab_package::StrengthGraph::SetOutput(NodeGraphNodeHandle output_no
   node_graph.AllocateLink(max_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[1]);
 
   // Set node positions
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor_layer) {
-    ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-    ImNodes::SetNodeScreenSpacePos(min_node_handle, ImVec2(pos.x - 200, pos.y - 50));
-    ImNodes::SetNodeScreenSpacePos(max_node_handle, ImVec2(pos.x - 200, pos.y + 50));
-
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  glm::vec2 pos = node_graph.GetNodePosition(output_node.GetHandle());
+  node_graph.SetNodePosition(min_node_handle, glm::vec2(pos.x - 200, pos.y - 50));
+  node_graph.SetNodePosition(max_node_handle, glm::vec2(pos.x - 200, pos.y + 50));
 }
 #pragma endregion StrengthGraph
 
@@ -602,13 +393,8 @@ void BiologicalPropertiesGraph::Reset() {
   node_graph.RefOutputPin(input_segment_node.GetOutputPinHandles()[2]).data.name = "polar angle";
   node_graph.RefOutputPin(input_segment_node.GetOutputPinHandles()[3]).data.name = "profile boundary distance";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 250));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_node_handle, glm::vec2(400, 250));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 250));
 }
 
 BiologicalPropertiesGraph::BiologicalPropertiesGraph() {
@@ -732,17 +518,10 @@ void BiologicalPropertiesGraph::SetValues(const BiologicalPropertiesGraph::Outpu
   auto& additional_strength_node = node_graph.RefNode(additional_strength_node_handle);
   node_graph.AllocateLink(additional_strength_node.GetOutputPinHandles()[0], output_node.GetInputPinHandles()[2]);
 
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor_layer) {
-    ImNodesEditorContext* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&node_graph.RefImNodesEditorContext()));
-    ImVec2 pos = ImNodes::GetNodeScreenSpacePos(output_node.GetHandle());
-    ImNodes::SetNodeScreenSpacePos(offset_node_handle, ImVec2(pos.x - 200, pos.y - 100));
-    ImNodes::SetNodeScreenSpacePos(transition_node_handle, ImVec2(pos.x - 200, pos.y));
-    ImNodes::SetNodeScreenSpacePos(additional_strength_node_handle, ImVec2(pos.x - 200, pos.y + 100));
-
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  glm::vec2 pos = node_graph.GetNodePosition(output_node.GetHandle());
+  node_graph.SetNodePosition(offset_node_handle, glm::vec2(pos.x - 200, pos.y - 100));
+  node_graph.SetNodePosition(transition_node_handle, glm::vec2(pos.x - 200, pos.y));
+  node_graph.SetNodePosition(additional_strength_node_handle, glm::vec2(pos.x - 200, pos.y + 100));
 }
 
 void BiologicalPropertiesGraph::OnCreate() {
@@ -759,434 +538,7 @@ void eco_sys_lab_package::DeserializeBiologicalPropertiesGraph(const YAML::Node&
   DeserializeDynamicTreeStrandsGraph(in, target);
 }
 
-bool BiologicalPropertiesGraph::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  // Test output node for all three pins
-  static BiologicalPropertiesGraph::Input temp_input{};
-  static BiologicalPropertiesGraph::Output temp_output;
-  ImGui::Text("Test Inputs:");
-  if (ImGui::DragFloat("Root Distance", &temp_input.root_distance)) {
-    temp_output = GetValues(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Distance", &temp_input.polar_distance)) {
-    temp_output = GetValues(temp_input);
-  }
-  if (ImGui::DragFloat("Polar Angle", &temp_input.polar_angle)) {
-    temp_output = GetValues(temp_input);
-  }
-  if (ImGui::DragFloat("Profile Boundary Distance", &temp_input.profile_boundary_distance)) {
-    temp_output = GetValues(temp_input);
-  }
-  if (ImGui::Button("Calculate")) {
-    temp_output = GetValues(temp_input);
-  }
-  ImGui::Text("input: %.3f", temp_output.trunk_offset);
-  ImGui::Text("transition: %.3f", temp_output.trunk_transition);
-  ImGui::Text("additional strength factor: %.3f", temp_output.trunk_additional_strength_factor);
-
-  // Test setting values
-  if (ImGui::Button("Set Values")) {
-    BiologicalPropertiesGraph::Output values;
-    SetValues(values);
-  }
-
-  static bool show_node_graph = true;
-  ImGui::Checkbox("Show biological properties node graph", &show_node_graph);
-  if (show_node_graph) {
-    changed = ShowGraph("Dynamic Tree Strands", editor_layer) || changed;
-  }
-
-  return changed;
-}
 #pragma endregion BiologicalPropertiesGraph
-
-bool IDynamicTreeStrands::ShowGraph(const std::string& window_title, const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Begin(window_title.c_str())) {
-    const auto id = ImGui::GetID(window_title.c_str());
-
-    static NodeGraphNodeHandle hovered_node_handle = -1;
-    static NodeGraphLinkHandle hovered_link_handle = -1;
-
-    node_graph.Draw(
-        id, editor_layer,
-        [&](const NodeGraphNodeHandle node_handle) {
-          const auto& node = node_graph.PeekNode(node_handle);
-          switch (node.data.type) {
-            case NodeType::Unknown:
-              ImGui::Text("Unknown");
-              break;
-            case NodeType::InputSegment:
-              ImGui::Text("Segment");
-              break;
-            case NodeType::InputParticle:
-              ImGui::Text("Particle");
-              break;
-            case NodeType::OutputDensity:
-              ImGui::Text("Density");
-              break;
-            case NodeType::OutputStretchShearModulus:
-              ImGui::Text("Stretch Shear Modulus");
-              break;
-            case NodeType::OutputBendingModulus:
-              ImGui::Text("Bending Modulus");
-              break;
-            case NodeType::OutputTwistingModulus:
-              ImGui::Text("Twisting Modulus");
-              break;
-            case NodeType::OutputSheerStretchStrength:
-              ImGui::Text("Sheer Stretch Strength");
-              break;
-            case NodeType::OutputBendingStrength:
-              ImGui::Text("Bending Strength");
-              break;
-            case NodeType::OutputTwistingStrength:
-              ImGui::Text("Twisting Strength");
-              break;
-            case NodeType::OutputBundleStrength:
-              ImGui::Text("Bundle Strength");
-              break;
-            case NodeType::OutputConnectivityStrength:
-              ImGui::Text("Connectivity Strength");
-              break;
-            case NodeType::OutputTrunk:
-              ImGui::Text("Trunk");
-              break;
-            case NodeType::Constant:
-              ImGui::Text("Constant");
-              break;
-            case NodeType::Add:
-              ImGui::Text("Add");
-              break;
-            case NodeType::Subtract:
-              ImGui::Text("Subtract");
-              break;
-            case NodeType::Multiply:
-              ImGui::Text("Multiply");
-              break;
-            case NodeType::Divide:
-              ImGui::Text("Divide");
-              break;
-            case NodeType::Power:
-              ImGui::Text("Pow");
-              break;
-            case NodeType::Min:
-              ImGui::Text("Min");
-              break;
-            case NodeType::Max:
-              ImGui::Text("Max");
-              break;
-
-            case NodeType::Abs:
-              ImGui::Text("Abs");
-              break;
-            case NodeType::Clamp:
-              ImGui::Text("Clamp");
-              break;
-            case NodeType::Exponent:
-              ImGui::Text("Exponent");
-              break;
-            case NodeType::Negate:
-              ImGui::Text("Negate");
-              break;
-
-            case NodeType::FlipUp:
-              ImGui::Text("FlipUp");
-              break;
-            case NodeType::FlipDown:
-              ImGui::Text("FlipDown");
-              break;
-
-            case NodeType::Sigmoid:
-              ImGui::Text("Sigmoid");
-              break;
-            case NodeType::SoftSign:
-              ImGui::Text("SoftSign");
-              break;
-            case NodeType::Tanh:
-              ImGui::Text("Tanh");
-              break;
-          }
-        },
-        [&](const NodeGraphNodeHandle node_handle) {
-          if (node_graph.RefNode(node_handle).data.DrawGui(editor_layer)) {
-            changed = true;
-          }
-        },
-        [&](const NodeGraphInputPinHandle input_pin_handle) {
-          if (node_graph.RefInputPin(input_pin_handle).data.DrawGui(editor_layer)) {
-            changed = true;
-          }
-        },
-        [&](const NodeGraphOutputPinHandle output_pin_handle) {
-          if (node_graph.RefOutputPin(output_pin_handle).data.DrawGui(editor_layer)) {
-            changed = true;
-          }
-        },
-        [&](const NodeGraphNodeHandle node_handle, const NodeGraphLinkHandle link_handle,
-            const NodeGraphInputPinHandle input_pin_handle, const NodeGraphOutputPinHandle output_pin_handle) {
-          hovered_node_handle = node_handle;
-          hovered_link_handle = link_handle;
-        },
-        [&](const std::vector<NodeGraphNodeHandle>& selected_node_handles,
-            const std::vector<NodeGraphLinkHandle>& selected_link_handles) {
-        },
-        [&](const ImVec2 click_pos) {
-          if (hovered_node_handle > 1) {
-            if (ImGui::MenuItem("Delete node")) {
-              node_graph.RecycleNode(hovered_node_handle);
-              changed = true;
-            }
-          } else if (hovered_link_handle != -1) {
-            if (ImGui::MenuItem("Delete link")) {
-              node_graph.RecycleLink(hovered_link_handle);
-              changed = true;
-            }
-          } else {
-            if (ImGui::BeginMenu("New node...")) {
-              if (ImGui::BeginMenu("Generators")) {
-                if (ImGui::MenuItem("Constant")) {
-                  const auto new_node_handle = node_graph.AllocateNode(0, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Constant;
-                  const auto node_impl = std::make_shared<ConstantNode>();
-                  node_impl->value = 0.f;
-                  node.data.node_impl = node_impl;
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                ImGui::EndMenu();
-              }
-              if (ImGui::BeginMenu("Combiners")) {
-                if (ImGui::MenuItem("Add")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Add;
-                  const auto node_impl = std::make_shared<AddNode>();
-                  node.data.node_impl = node_impl;
-
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Subtract")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Subtract;
-                  const auto node_impl = std::make_shared<SubtractNode>();
-                  node.data.node_impl = node_impl;
-
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Multiply")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Multiply;
-                  const auto node_impl = std::make_shared<MultiplyNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Divide")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Divide;
-                  const auto node_impl = std::make_shared<DivideNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Power")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Power;
-                  const auto node_impl = std::make_shared<PowerNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "x";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "power";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Min")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Min;
-                  const auto node_impl = std::make_shared<MinNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("Max")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Max;
-                  const auto node_impl = std::make_shared<MaxNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                ImGui::EndMenu();
-              }
-              if (ImGui::BeginMenu("Modifiers")) {
-                if (ImGui::MenuItem("Abs")) {
-                  const auto new_node_handle = node_graph.AllocateNode(1, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Abs;
-                  const auto node_impl = std::make_shared<AbsNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "x";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("Negate")) {
-                  const auto new_node_handle = node_graph.AllocateNode(1, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Negate;
-                  const auto node_impl = std::make_shared<NegateNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "x";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("Exponent")) {
-                  const auto new_node_handle = node_graph.AllocateNode(1, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Exponent;
-                  const auto node_impl = std::make_shared<ExponentNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "x";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("Clamp")) {
-                  const auto new_node_handle = node_graph.AllocateNode(3, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Clamp;
-                  const auto node_impl = std::make_shared<ClampNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "x";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "lower";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[2]).data.name = "upper";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("FlipUp")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::FlipUp;
-                  const auto node_impl = std::make_shared<FlipUpNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "base";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-
-                if (ImGui::MenuItem("FlipDown")) {
-                  const auto new_node_handle = node_graph.AllocateNode(2, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::FlipDown;
-                  const auto node_impl = std::make_shared<FlipDownNode>();
-                  node.data.node_impl = node_impl;
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "base";
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                ImGui::EndMenu();
-              }
-
-              if (ImGui::BeginMenu("Activation")) {
-                if (ImGui::MenuItem("Sigmoid")) {
-                  const auto new_node_handle = node_graph.AllocateNode(4, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Sigmoid;
-                  const auto node_impl = std::make_shared<SigmoidNode>();
-                  node.data.node_impl = node_impl;
-
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[2]).data.name = "speed";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[3]).data.name = "x";
-
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("SoftSign")) {
-                  const auto new_node_handle = node_graph.AllocateNode(4, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::SoftSign;
-                  const auto node_impl = std::make_shared<SoftSignNode>();
-                  node.data.node_impl = node_impl;
-
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[2]).data.name = "speed";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[3]).data.name = "x";
-
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                if (ImGui::MenuItem("Tanh")) {
-                  const auto new_node_handle = node_graph.AllocateNode(4, 1);
-                  auto& node = node_graph.RefNode(new_node_handle);
-                  node.data.type = NodeType::Tanh;
-                  const auto node_impl = std::make_shared<TanhNode>();
-                  node.data.node_impl = node_impl;
-
-                  node_graph.RefInputPin(node.GetInputPinHandles()[0]).data.name = "a";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[1]).data.name = "b";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[2]).data.name = "speed";
-                  node_graph.RefInputPin(node.GetInputPinHandles()[3]).data.name = "x";
-
-                  ImNodes::SetNodeScreenSpacePos(new_node_handle, click_pos);
-                  changed = true;
-                }
-                ImGui::EndMenu();
-              }
-              ImGui::EndMenu();
-            }
-          }
-        },
-        [&](const NodeGraphOutputPinHandle start_handle, const NodeGraphInputPinHandle end_handle) {
-          const auto& input_pin = node_graph.PeekInputPin(end_handle);
-          if (input_pin.GetLinkHandle() == -1) {
-            node_graph.AllocateLink(start_handle, end_handle);
-            changed = true;
-          }
-        },
-        [&](const NodeGraphLinkHandle link_handle) {
-          node_graph.RecycleLink(link_handle);
-          changed = true;
-        }
-
-    );
-  }
-  ImGui::End();
-  return changed;
-}
 
 static void SerializeDynamicTreeStrandsGraph(YAML::Emitter& out, const IDynamicTreeStrands& target) {
   target.node_graph.Save(
@@ -1228,98 +580,8 @@ static void DeserializeDynamicTreeStrandsGraph(const YAML::Node& in, IDynamicTre
         if (node_in["T"]) {
           data.type = static_cast<NodeType>(node_in["T"].as<unsigned>());
         }
-        switch (data.type) {
-          case NodeType::Unknown:
-            break;
-          case NodeType::InputSegment:
-            data.node_impl = std::make_shared<InputNode>();
-            break;
-          case NodeType::InputParticle:
-            data.node_impl = std::make_shared<InputNode>();
-            break;
-          case NodeType::OutputDensity:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputStretchShearModulus:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputBendingModulus:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputTwistingModulus:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputSheerStretchStrength:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputBendingStrength:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputTwistingStrength:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputBundleStrength:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputConnectivityStrength:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::OutputTrunk:
-            data.node_impl = std::make_shared<OutputNode>();
-            break;
-          case NodeType::Constant:
-            data.node_impl = std::make_shared<ConstantNode>();
-            break;
-          case NodeType::Add:
-            data.node_impl = std::make_shared<AddNode>();
-            break;
-          case NodeType::Subtract:
-            data.node_impl = std::make_shared<SubtractNode>();
-            break;
-          case NodeType::Multiply:
-            data.node_impl = std::make_shared<MultiplyNode>();
-            break;
-          case NodeType::Divide:
-            data.node_impl = std::make_shared<DivideNode>();
-            break;
-          case NodeType::Power:
-            data.node_impl = std::make_shared<PowerNode>();
-            break;
-          case NodeType::Min:
-            data.node_impl = std::make_shared<MinNode>();
-            break;
-          case NodeType::Max:
-            data.node_impl = std::make_shared<MaxNode>();
-            break;
-          case NodeType::Abs:
-            data.node_impl = std::make_shared<AbsNode>();
-            break;
-          case NodeType::Clamp:
-            data.node_impl = std::make_shared<ClampNode>();
-            break;
-          case NodeType::Negate:
-            data.node_impl = std::make_shared<NegateNode>();
-            break;
-          case NodeType::Exponent:
-            data.node_impl = std::make_shared<ExponentNode>();
-            break;
-          case NodeType::FlipUp:
-            data.node_impl = std::make_shared<FlipUpNode>();
-            break;
-          case NodeType::FlipDown:
-            data.node_impl = std::make_shared<FlipDownNode>();
-            break;
+        data.node_impl = CreateStrandGraphNode(data.type);
 
-          case NodeType::Sigmoid:
-            data.node_impl = std::make_shared<SigmoidNode>();
-            break;
-          case NodeType::SoftSign:
-            data.node_impl = std::make_shared<SoftSignNode>();
-            break;
-          case NodeType::Tanh:
-            data.node_impl = std::make_shared<TanhNode>();
-            break;
-        }
         if (node_in["C"]) {
           if (data.type == NodeType::Constant) {
             if (const auto constant_node = std::dynamic_pointer_cast<ConstantNode>(data.node_impl);
@@ -1331,10 +593,6 @@ static void DeserializeDynamicTreeStrandsGraph(const YAML::Node& in, IDynamicTre
       },
       [&](const YAML::Node& link_in, int& data) {
       });
-}
-
-bool INode::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
 }
 
 void INode::PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
@@ -1363,4 +621,71 @@ void OutputNode::Process(const NodeGraph<InputPinData, OutputPinData, NodeData, 
                          const NodeGraphNodeHandle node_handle,
                          std::unordered_map<NodeGraphOutputPinHandle, float>& results) const {
   PrepareInputs(graph, node_handle, results);
+}
+
+std::shared_ptr<INode> eco_sys_lab_package::CreateStrandGraphNode(const NodeType type) {
+  switch (type) {
+    case NodeType::Unknown:
+      break;
+    case NodeType::InputSegment:
+      return std::make_shared<InputNode>();
+    case NodeType::InputParticle:
+      return std::make_shared<InputNode>();
+    case NodeType::OutputDensity:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputStretchShearModulus:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputBendingModulus:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputTwistingModulus:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputSheerStretchStrength:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputBendingStrength:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputTwistingStrength:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputBundleStrength:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputConnectivityStrength:
+      return std::make_shared<OutputNode>();
+    case NodeType::OutputTrunk:
+      return std::make_shared<OutputNode>();
+    case NodeType::Constant:
+      return std::make_shared<ConstantNode>();
+    case NodeType::Add:
+      return std::make_shared<AddNode>();
+    case NodeType::Subtract:
+      return std::make_shared<SubtractNode>();
+    case NodeType::Multiply:
+      return std::make_shared<MultiplyNode>();
+    case NodeType::Divide:
+      return std::make_shared<DivideNode>();
+    case NodeType::Power:
+      return std::make_shared<PowerNode>();
+    case NodeType::Min:
+      return std::make_shared<MinNode>();
+    case NodeType::Max:
+      return std::make_shared<MaxNode>();
+    case NodeType::Abs:
+      return std::make_shared<AbsNode>();
+    case NodeType::Clamp:
+      return std::make_shared<ClampNode>();
+    case NodeType::Negate:
+      return std::make_shared<NegateNode>();
+    case NodeType::Exponent:
+      return std::make_shared<ExponentNode>();
+    case NodeType::FlipUp:
+      return std::make_shared<FlipUpNode>();
+    case NodeType::FlipDown:
+      return std::make_shared<FlipDownNode>();
+
+    case NodeType::Sigmoid:
+      return std::make_shared<SigmoidNode>();
+    case NodeType::SoftSign:
+      return std::make_shared<SoftSignNode>();
+    case NodeType::Tanh:
+      return std::make_shared<TanhNode>();
+  }
+  return {};
 }

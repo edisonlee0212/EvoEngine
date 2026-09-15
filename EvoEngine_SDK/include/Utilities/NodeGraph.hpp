@@ -1,6 +1,5 @@
 #pragma once
-#include "EditorLayer.hpp"
-#include "imnodes.hpp"
+#include "Serialization.hpp"
 namespace evo_engine {
 /** @brief Handle type for identifying a node in the node graph. */
 typedef int NodeGraphNodeHandle;
@@ -260,14 +259,29 @@ class NodeGraph {
    * @param handle Handle of the input pin to recycle.
    */
   void RecycleInputPin(NodeGraphInputPinHandle handle);
-  ImNodesEditorContext editor_context_{};
+  glm::vec2 editor_panning_{};
+  glm::vec2 editor_auto_panning_delta_{};
+  std::vector<glm::vec2> editor_node_positions_{};
 
  public:
-  /**
-   * \brief Get ImNodes editor context.
-   * \return Reference to editor context.
-   */
-  ImNodesEditorContext& RefImNodesEditorContext();
+  [[nodiscard]] glm::vec2 GetPanning() const {
+    return editor_panning_;
+  }
+  void SetPanning(const glm::vec2& value) {
+    editor_panning_ = value;
+  }
+  [[nodiscard]] glm::vec2 GetAutoPanningDelta() const {
+    return editor_auto_panning_delta_;
+  }
+  void SetAutoPanningDelta(const glm::vec2& value) {
+    editor_auto_panning_delta_ = value;
+  }
+  [[nodiscard]] glm::vec2 GetNodePosition(NodeGraphNodeHandle handle) const {
+    return editor_node_positions_.at(static_cast<size_t>(handle));
+  }
+  void SetNodePosition(NodeGraphNodeHandle handle, const glm::vec2& position) {
+    editor_node_positions_.at(static_cast<size_t>(handle)) = position;
+  }
 
   /**
    * \brief Access all input pins.
@@ -389,36 +403,6 @@ class NodeGraph {
    * @return Reference to target link.
    */
   NodeGraphLink<Ld>& RefLink(NodeGraphLinkHandle link_handle);
-
-  /**
-   * @brief Draws the node graph in the editor.
-   * @param id ImGui ID for current window.
-   * @param editor_layer Shared pointer to the editor layer drawing the graph.
-   * @param canvas_popup_gui Callback for handling canvas right-click popups in the graph editor.
-   * @param node_title_bar_gui Callback for rendering the title bar of nodes.
-   * @param node_content_gui Callback for rendering the content of nodes.
-   * @param node_input_pin_gui Callback for rendering input pins.
-   * @param node_output_pin_gui Callback for rendering output pins.
-   * @param link_create_handler Callback for handling new link creation.
-   * @param link_destroy_handler Callback for handling link deletion.
-   * @param hover_handler Callback for handling hover events over nodes, links, or pins.
-   * @param selection_handler Callback for handling node/link selection.
-   * @return True if the graph content was modified; otherwise, false.
-   */
-  bool Draw(ImGuiID id, const std::shared_ptr<EditorLayer>& editor_layer,
-            const std::function<void(NodeGraphNodeHandle node_handle)>& node_title_bar_gui,
-            const std::function<void(NodeGraphNodeHandle node_handle)>& node_content_gui,
-            const std::function<void(NodeGraphInputPinHandle input_pin_handle)>& node_input_pin_gui,
-            const std::function<void(NodeGraphOutputPinHandle output_pin_handle)>& node_output_pin_gui,
-            const std::function<void(NodeGraphNodeHandle node_handle, NodeGraphLinkHandle link_handle,
-                                     NodeGraphInputPinHandle input_pin_handle,
-                                     NodeGraphOutputPinHandle output_pin_handle)>& hover_handler,
-            const std::function<void(const std::vector<NodeGraphNodeHandle>& selected_node_handles,
-                                     const std::vector<NodeGraphLinkHandle>& selected_link_handles)>& selection_handler,
-            const std::function<void(ImVec2 click_pos)>& canvas_popup_gui,
-            const std::function<void(NodeGraphOutputPinHandle start_handle, NodeGraphInputPinHandle end_handle)>&
-                link_create_handler,
-            const std::function<void(NodeGraphLinkHandle link_handle)>& link_destroy_handler);
 
   void Serialize(YAML::Emitter& out, const std::function<void(YAML::Emitter&, const Id&)>& input_pin_func,
                  const std::function<void(YAML::Emitter&, const Od&)>& output_pin_func,
@@ -654,10 +638,6 @@ const std::vector<NodeGraphOutputPin<Od>>& NodeGraph<Id, Od, Nd, Ld>::PeekOutput
   return output_pins_;
 }
 template <typename Id, typename Od, typename Nd, typename Ld>
-ImNodesEditorContext& NodeGraph<Id, Od, Nd, Ld>::RefImNodesEditorContext() {
-  return editor_context_;
-}
-template <typename Id, typename Od, typename Nd, typename Ld>
 const std::vector<NodeGraphInputPin<Id>>& NodeGraph<Id, Od, Nd, Ld>::PeekInputPins() const {
   return input_pins_;
 }
@@ -692,10 +672,12 @@ NodeGraphNodeHandle NodeGraph<Id, Od, Nd, Ld>::AllocateNode(const size_t input_p
   NodeGraphNodeHandle new_node_handle;
   if (node_pool_.empty()) {
     nodes_.emplace_back(static_cast<NodeGraphNodeHandle>(nodes_.size()));
+    editor_node_positions_.emplace_back();
     new_node_handle = nodes_.back().handle_;
   } else {
     new_node_handle = node_pool_.front();
     node_pool_.pop();
+    editor_node_positions_[new_node_handle] = {};
   }
   auto& node = nodes_[new_node_handle];
   node.data = {};
@@ -726,6 +708,7 @@ void NodeGraph<Id, Od, Nd, Ld>::RecycleNode(const NodeGraphNodeHandle handle) {
   assert(!nodes_[handle].recycled_);
   auto& node = nodes_[handle];
   node.data = {};
+  editor_node_positions_[handle] = {};
   for (const auto& i : node.input_pin_handles_) {
     RecycleInputPin(i);
   }
@@ -762,150 +745,15 @@ NodeGraphLink<Ld>& NodeGraph<Id, Od, Nd, Ld>::RefLink(NodeGraphLinkHandle link_h
 }
 
 template <typename Id, typename Od, typename Nd, typename Ld>
-bool NodeGraph<Id, Od, Nd, Ld>::Draw(
-    const ImGuiID id, const std::shared_ptr<EditorLayer>& editor_layer,
-    const std::function<void(NodeGraphNodeHandle node_handle)>& node_title_bar_gui,
-    const std::function<void(NodeGraphNodeHandle node_handle)>& node_content_gui,
-    const std::function<void(NodeGraphInputPinHandle input_pin_handle)>& node_input_pin_gui,
-    const std::function<void(NodeGraphOutputPinHandle output_pin_handle)>& node_output_pin_gui,
-    const std::function<void(NodeGraphNodeHandle node_handle, NodeGraphLinkHandle link_handle,
-                             NodeGraphInputPinHandle input_pin_handle, NodeGraphOutputPinHandle output_pin_handle)>&
-        hover_handler,
-    const std::function<void(const std::vector<NodeGraphNodeHandle>& selected_node_handles,
-                             const std::vector<NodeGraphLinkHandle>& selected_link_handles)>& selection_handler,
-    const std::function<void(ImVec2 click_pos)>& canvas_popup_gui,
-    const std::function<void(NodeGraphOutputPinHandle start_handle, NodeGraphInputPinHandle end_handle)>&
-        link_create_handler,
-    const std::function<void(NodeGraphLinkHandle link_handle)>& link_destroy_handler) {
-  auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-  ImNodes::EditorContextSet(&editor_context_);
-
-  ImNodesIO& io = ImNodes::GetIO();
-  io.LinkDetachWithModifierClick.Modifier = &ImGui::GetIO().KeyAlt;
-  io.MultipleSelectModifier.Modifier = &ImGui::GetIO().KeyCtrl;
-
-  ImNodes::BeginNodeEditor();
-
-  if (const bool open_popup = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-                              ImNodes::IsEditorHovered() &&
-                              editor_layer->GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press;
-      !ImGui::IsAnyItemHovered() && open_popup) {
-    ImGui::OpenPopup(id);
-  }
-  if (ImGui::BeginPopupEx(id, ImGuiWindowFlags_NoDecoration)) {
-    const ImVec2 click_pos = ImGui::GetMousePosOnOpeningCurrentPopup();
-    canvas_popup_gui(click_pos);
-    ImGui::EndPopup();
-  }
-
-  for (auto& node : nodes_) {
-    if (node.recycled_)
-      continue;
-    ImNodes::BeginNode(node.handle_);
-    ImNodes::BeginNodeTitleBar();
-    node_title_bar_gui(node.handle_);
-    ImNodes::EndNodeTitleBar();
-    node_content_gui(node.handle_);
-    for (const auto input_pin_handle : node.input_pin_handles_) {
-      ImNodes::BeginInputAttribute(input_pin_handle + (1 << 16), ImNodesPinShape_QuadFilled);
-      // in between Begin|EndAttribute calls, you can call ImGui
-      // UI functions
-      node_input_pin_gui(input_pin_handle);
-      ImNodes::EndInputAttribute();
-    }
-
-    for (const auto output_pin_handle : node.output_pin_handles_) {
-      ImNodes::BeginOutputAttribute(output_pin_handle + (1 << 17));
-      // in between Begin|EndAttribute calls, you can call ImGui
-      // UI functions
-      node_output_pin_gui(output_pin_handle);
-      ImNodes::EndOutputAttribute();
-    }
-    ImNodes::EndNode();
-  }
-
-  for (const auto& link : links_) {
-    if (link.recycled_)
-      continue;
-    ImNodes::Link(link.handle_, link.start_ + (1 << 17), link.end_ + (1 << 16));
-  }
-  ImNodes::MiniMap();
-
-  ImNodes::EndNodeEditor();
-
-  if (ImNodes::IsEditorHovered() && ImGui::GetIO().MouseWheel != 0) {
-    // const float zoom = ImNodes::EditorContextGet().+ ImGui::GetIO().MouseWheel * 0.1f;
-    // ImNodes::EditorContextSetZoom(zoom, ImGui::GetMousePos());
-  }
-
-  NodeGraphNodeHandle hovered_node_handle = -1;
-  NodeGraphLinkHandle hovered_link_handle = -1;
-  NodeGraphInputPinHandle hovered_input_pin_handle = -1;
-  NodeGraphOutputPinHandle hovered_output_pin_handle = -1;
-  std::vector<NodeGraphNodeHandle> selected_nodes;
-  std::vector<NodeGraphLinkHandle> selected_links;
-  int handle = -1;
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.f, 8.f));
-  {
-    if (ImNodes::IsNodeHovered(&handle)) {
-      hovered_node_handle = handle;
-    }
-    if (ImNodes::IsLinkHovered(&handle)) {
-      hovered_link_handle = handle;
-    }
-    if (ImNodes::IsPinHovered(&handle)) {
-      if (handle < 1 << 17)
-        hovered_input_pin_handle = handle - (1 << 16);
-      else
-        hovered_output_pin_handle = handle - (1 << 17);
-    }
-    hover_handler(hovered_node_handle, hovered_link_handle, hovered_input_pin_handle, hovered_output_pin_handle);
-  }
-  ImGui::PopStyleVar();
-  if (const int num_selected_nodes = ImNodes::NumSelectedNodes(); num_selected_nodes > 0) {
-    selected_nodes.resize(num_selected_nodes);
-    ImNodes::GetSelectedNodes(selected_nodes.data());
-  }
-  if (const int num_selected_links = ImNodes::NumSelectedLinks(); num_selected_links > 0) {
-    selected_links.resize(num_selected_links);
-    ImNodes::GetSelectedLinks(selected_links.data());
-  }
-  selection_handler(selected_nodes, selected_links);
-
-  {
-    NodeGraphOutputPinHandle output_handle;
-    NodeGraphInputPinHandle input_handle;
-    if (ImNodes::IsLinkCreated(&output_handle, &input_handle)) {
-      link_create_handler(output_handle - (1 << 17), input_handle - (1 << 16));
-    }
-  }
-  {
-    NodeGraphLinkHandle link_handle;
-    if (ImNodes::IsLinkDestroyed(&link_handle)) {
-      link_destroy_handler(link_handle);
-    }
-  }
-
-  ImNodes::EditorContextSet(prev_editor_context);
-  return false;
-}
-template <typename Id, typename Od, typename Nd, typename Ld>
 void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
                                           const std::function<void(YAML::Emitter&, const Id&)>& input_pin_func,
                                           const std::function<void(YAML::Emitter&, const Od&)>& output_pin_func,
                                           const std::function<void(YAML::Emitter&, const Nd&)>& node_func,
                                           const std::function<void(YAML::Emitter&, const Ld&)>& link_func) const {
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  ImNodesEditorContext* prev_editor_context = nullptr;
-  if (editor_layer) {
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
-
-    // out << YAML::Key << "ZoomScale" << YAML::Value << editor_context_.ZoomScale;
-    out << YAML::Key << "Panning" << YAML::Value << glm::vec2(editor_context_.Panning.x, editor_context_.Panning.y);
-    out << YAML::Key << "AutoPanningDelta" << YAML::Value
-        << glm::vec2(editor_context_.AutoPanningDelta.x, editor_context_.AutoPanningDelta.y);
-  }
+  const glm::vec2 panning = editor_panning_;
+  const glm::vec2 auto_panning_delta = editor_auto_panning_delta_;
+  out << YAML::Key << "Panning" << YAML::Value << panning;
+  out << YAML::Key << "AutoPanningDelta" << YAML::Value << auto_panning_delta;
 
   std::unordered_map<NodeGraphOutputPinHandle, int> output_pin_map;
   std::unordered_map<NodeGraphInputPinHandle, int> input_pin_map;
@@ -947,10 +795,8 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
     const auto& node = nodes_[handle];
     if (!node.recycled_) {
       out << YAML::BeginMap;
-      if (editor_layer) {
-        const auto& screen_pos = ImNodes::GetNodeScreenSpacePos(node.handle_);
-        out << YAML::Key << "P" << YAML::Value << glm::vec2(screen_pos.x, screen_pos.y);
-      }
+      glm::vec2 node_position = (handle < editor_node_positions_.size() ? editor_node_positions_[handle] : glm::vec2{});
+      out << YAML::Key << "P" << YAML::Value << node_position;
       if (!node.input_pin_handles_.empty()) {
         out << YAML::Key << "I" << YAML::BeginSeq;
         for (const auto& input_pin_handle : node.input_pin_handles_) {
@@ -1023,9 +869,6 @@ void NodeGraph<Id, Od, Nd, Ld>::Serialize(YAML::Emitter& out,
     }
   }
   out << YAML::EndSeq;
-  if (editor_layer) {
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
 }
 template <typename Id, typename Od, typename Nd, typename Ld>
 void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
@@ -1033,28 +876,14 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
                                             const std::function<void(const YAML::Node&, Od&)>& output_pin_func,
                                             const std::function<void(const YAML::Node&, Nd&)>& node_func,
                                             const std::function<void(const YAML::Node&, Ld&)>& link_func) {
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  ImNodesEditorContext* prev_editor_context = nullptr;
-  if (editor_layer) {
-    prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(const_cast<ImNodesEditorContext*>(&editor_context_));
-    // if (in["ZoomScale"]) {
-    //   editor_context_.ZoomScale = in["ZoomScale"].as<float>();
-    // }
-    if (in["Panning"]) {
-      const auto t = in["Panning"].as<glm::vec2>();
-      editor_context_.Panning = ImVec2(t.x, t.y);
-    }
-    if (in["AutoPanningDelta"]) {
-      const auto t = in["AutoPanningDelta"].as<glm::vec2>();
-      editor_context_.Panning = ImVec2(t.x, t.y);
-    }
-  }
+  editor_panning_ = in["Panning"] ? in["Panning"].as<glm::vec2>() : glm::vec2{};
+  editor_auto_panning_delta_ = in["AutoPanningDelta"] ? in["AutoPanningDelta"].as<glm::vec2>() : glm::vec2{};
 
   nodes_.clear();
   input_pins_.clear();
   output_pins_.clear();
   links_.clear();
+  editor_node_positions_.clear();
   node_pool_ = {};
   input_pin_pool_ = {};
   output_pin_pool_ = {};
@@ -1101,10 +930,8 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
       auto& new_node = nodes_.back();
       new_node.handle_ = current_handle;
 
-      if (editor_layer && in_node["P"]) {
-        const auto position = in_node["P"].as<glm::vec2>();
-        ImNodes::SetNodeEditorSpacePos(new_node.handle_, ImVec2(position.x, position.y));
-      }
+      const auto position = in_node["P"] ? in_node["P"].as<glm::vec2>() : glm::vec2{};
+      editor_node_positions_.emplace_back(position);
       if (in_node["I"]) {
         for (const auto& i : in_node["I"]) {
           const auto input_pin_handle = i.as<NodeGraphInputPinHandle>();
@@ -1145,9 +972,6 @@ void NodeGraph<Id, Od, Nd, Ld>::Deserialize(const YAML::Node& in,
 
       current_handle++;
     }
-  }
-  if (editor_layer) {
-    ImNodes::EditorContextSet(prev_editor_context);
   }
 }
 template <typename Id, typename Od, typename Nd, typename Ld>

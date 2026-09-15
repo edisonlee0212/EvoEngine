@@ -1,15 +1,13 @@
 #include "AssetManager.hpp"
+#include "Application.hpp"
 #include "ApplicationContext.hpp"
-#include "AssetThumbnailProvider.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "FileManager.hpp"
-#include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
-#include "OffscreenPreviewRenderer.hpp"
 #include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
+#include "RuntimePaths.hpp"
 #include "Texture2D.hpp"
 #include "UnknownPrivateComponent.hpp"
 
@@ -21,29 +19,10 @@
 using namespace evo_engine;
 
 namespace {
-struct InspectorThumbnailCache {
-  uint64_t asset_handle = 0;
-  uint32_t asset_version = 0;
-  glm::vec2 subject_rotation = glm::vec2(0.0f);
-  float camera_zoom = 1.0f;
-  std::shared_ptr<Texture2D> thumbnail;
-};
+bool StrictRuntime() {
+  return runtime_paths::IsStrict();
+}
 
-struct InspectorPreviewInteraction {
-  uint64_t asset_handle = 0;
-  bool interaction_mode = false;
-  glm::vec2 subject_rotation = glm::vec2(0.0f);
-  float camera_zoom = 1.0f;
-};
-
-std::unordered_map<uint64_t, InspectorThumbnailCache> inspector_thumbnail_cache;
-std::unordered_map<uint64_t, InspectorPreviewInteraction> inspector_preview_interaction;
-
-constexpr float kInspectorPreviewRotationSensitivity = 0.01f;
-constexpr float kInspectorPreviewMinPitch = -1.4f;
-constexpr float kInspectorPreviewMaxPitch = 1.4f;
-constexpr float kInspectorPreviewMinZoom = 0.4f;
-constexpr float kInspectorPreviewMaxZoom = 3.0f;
 constexpr auto kMainThreadAssetTaskHitchThreshold = std::chrono::milliseconds(16);
 
 std::string AssetTaskLabel(const std::string& action, const Handle& asset_handle) {
@@ -90,161 +69,6 @@ std::string AssetLoadStateName(const AssetManager::AssetLoadState state) {
   }
 }
 
-bool IsInspectorPreviewInteractive(const std::shared_ptr<IAsset>& asset) {
-  if (!asset) {
-    return false;
-  }
-  const auto& type_name = asset->GetTypeName();
-  return type_name == "Material" || type_name == "Mesh";
-}
-
-InspectorPreviewInteraction& GetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset) {
-  const uint64_t asset_handle = asset ? asset->GetHandle().GetValue() : 0;
-  auto& preview_interaction = inspector_preview_interaction[asset_handle];
-  preview_interaction.asset_handle = asset_handle;
-  return preview_interaction;
-}
-
-OffscreenPreviewSettings CreateInspectorPreviewSettings(const std::shared_ptr<IAsset>& asset) {
-  OffscreenPreviewSettings settings;
-  if (IsInspectorPreviewInteractive(asset)) {
-    const auto& preview_interaction = GetInspectorPreviewInteraction(asset);
-    settings.subject_rotation = preview_interaction.subject_rotation;
-    settings.camera_zoom = preview_interaction.camera_zoom;
-  }
-  return settings;
-}
-
-bool InspectorThumbnailCacheMatches(const uint64_t asset_handle, const uint32_t asset_version,
-                                    const OffscreenPreviewSettings& settings) {
-  const auto search = inspector_thumbnail_cache.find(asset_handle);
-  return search != inspector_thumbnail_cache.end() && search->second.asset_version == asset_version &&
-         search->second.subject_rotation == settings.subject_rotation &&
-         search->second.camera_zoom == settings.camera_zoom;
-}
-
-std::shared_ptr<Texture2D> GetInspectorThumbnail(const std::shared_ptr<IAsset>& asset,
-                                                 const OffscreenPreviewSettings& settings) {
-  if (!asset || !AssetThumbnailProvider::SupportsGeneratedThumbnail(asset->GetTypeName())) {
-    return {};
-  }
-
-  const auto asset_handle = asset->GetHandle().GetValue();
-  const auto asset_version = asset->GetVersion();
-  if (InspectorThumbnailCacheMatches(asset_handle, asset_version, settings)) {
-    return inspector_thumbnail_cache[asset_handle].thumbnail;
-  }
-
-  auto& cache = inspector_thumbnail_cache[asset_handle];
-  cache.asset_handle = asset_handle;
-  cache.asset_version = asset_version;
-  cache.subject_rotation = settings.subject_rotation;
-  cache.camera_zoom = settings.camera_zoom;
-  cache.thumbnail = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
-  return cache.thumbnail;
-}
-
-void InvalidateInspectorThumbnailCache(const std::shared_ptr<IAsset>& asset) {
-  if (!asset) {
-    return;
-  }
-
-  inspector_thumbnail_cache.erase(asset->GetHandle().GetValue());
-}
-
-void ClearInspectorPreviewState() {
-  inspector_thumbnail_cache.clear();
-  inspector_preview_interaction.clear();
-}
-
-void ResetInspectorPreviewInteraction(const std::shared_ptr<IAsset>& asset,
-                                      InspectorPreviewInteraction& preview_interaction) {
-  const bool changed = preview_interaction.interaction_mode ||
-                       preview_interaction.subject_rotation != glm::vec2(0.0f) ||
-                       preview_interaction.camera_zoom != 1.0f;
-  preview_interaction.interaction_mode = false;
-  preview_interaction.subject_rotation = glm::vec2(0.0f);
-  preview_interaction.camera_zoom = 1.0f;
-  if (changed) {
-    InvalidateInspectorThumbnailCache(asset);
-  }
-}
-
-void DrawInspectorThumbnail(const std::shared_ptr<IAsset>& asset) {
-  if (!IsInspectorPreviewInteractive(asset)) {
-    return;
-  }
-
-  auto& preview_interaction = GetInspectorPreviewInteraction(asset);
-  const auto settings = CreateInspectorPreviewSettings(asset);
-  const auto thumbnail = GetInspectorThumbnail(asset, settings);
-  if (!thumbnail) {
-    return;
-  }
-
-  const float available_width = ImGui::GetContentRegionAvail().x;
-  const float preview_extent = available_width;
-  if (preview_extent <= 0.0f) {
-    return;
-  }
-
-  ImVec2 image_size(preview_extent, preview_extent);
-  const glm::vec2 texture_resolution = thumbnail->GetResolution();
-  if (texture_resolution.x > 0.0f && texture_resolution.y > 0.0f) {
-    if (texture_resolution.x > texture_resolution.y) {
-      image_size.y *= texture_resolution.y / texture_resolution.x;
-    } else {
-      image_size.x *= texture_resolution.x / texture_resolution.y;
-    }
-  }
-
-  ImGui::Separator();
-  ImGui::TextUnformatted("Preview");
-  ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, (available_width - image_size.x) * 0.5f));
-  ImGui::InvisibleButton("##InspectorAssetPreview", image_size);
-  const bool hovered = ImGui::IsItemHovered();
-  const bool active = ImGui::IsItemActive();
-  const ImVec2 image_min = ImGui::GetItemRectMin();
-  const ImVec2 image_max = ImGui::GetItemRectMax();
-  auto* draw_list = ImGui::GetWindowDrawList();
-  draw_list->AddImage(thumbnail->GetImTextureId(), image_min, image_max, ImVec2(0, 1), ImVec2(1, 0));
-
-  if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-    preview_interaction.interaction_mode = !preview_interaction.interaction_mode;
-  }
-
-  if (preview_interaction.interaction_mode) {
-    if (!hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-      ResetInspectorPreviewInteraction(asset, preview_interaction);
-      return;
-    }
-    draw_list->AddRect(image_min, image_max, ImGui::GetColorU32(ImGuiCol_NavHighlight), 0.0f, 0, 2.0f);
-    if (hovered || active) {
-      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
-    }
-
-    bool interaction_changed = false;
-    const auto& io = ImGui::GetIO();
-    if ((hovered || active) && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-      const ImVec2 mouse_delta = io.MouseDelta;
-      if (mouse_delta.x != 0.0f || mouse_delta.y != 0.0f) {
-        preview_interaction.subject_rotation.x += mouse_delta.x * kInspectorPreviewRotationSensitivity;
-        preview_interaction.subject_rotation.y =
-            std::clamp(preview_interaction.subject_rotation.y + mouse_delta.y * kInspectorPreviewRotationSensitivity,
-                       kInspectorPreviewMinPitch, kInspectorPreviewMaxPitch);
-        interaction_changed = true;
-      }
-    }
-    if (hovered && io.MouseWheel != 0.0f) {
-      preview_interaction.camera_zoom = std::clamp(preview_interaction.camera_zoom * std::pow(1.12f, io.MouseWheel),
-                                                   kInspectorPreviewMinZoom, kInspectorPreviewMaxZoom);
-      interaction_changed = true;
-    }
-    if (interaction_changed) {
-      InvalidateInspectorThumbnailCache(asset);
-    }
-  }
-}
 }  // namespace
 
 bool AssetManager::AssetLoadSnapshot::Active() const {
@@ -254,68 +78,6 @@ bool AssetManager::AssetLoadSnapshot::Active() const {
 void AssetManager::Initialize() {
   auto& asset_manager = GetInstance();
   asset_manager.initialized = true;
-}
-
-void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer,
-                                             const std::shared_ptr<IAsset>& asset) {
-  if (asset) {
-    bool asset_changed = false;
-    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-    ImGui::Button(asset->GetTitle().c_str());
-    ImGui::PopStyleColor(3);
-    editor_layer->DraggableAsset(asset);
-    ImGui::SameLine();
-    ImGui::Text("Type:");
-    ImGui::SameLine();
-    ImGui::Text(asset->GetTypeName().c_str());
-    if (!asset->IsTemporary()) {
-      if (ImGui::Button("Save")) {
-        asset->Save();
-      }
-      ImGui::SameLine();
-      if (ImGui::Button("Reload")) {
-        asset_changed = asset->Load();
-      }
-    }
-    ImGui::SameLine();
-    FileUtils::SaveFile(
-        "Export...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
-        [&](const std::filesystem::path& path) {
-          asset->Export(path);
-        },
-        false);
-    ImGui::SameLine();
-    FileUtils::OpenFile(
-        "Import...", asset->GetTypeName(), Serialization::PeekAssetExtensions(asset->GetTypeName()),
-        [&](const std::filesystem::path& path) {
-          asset_changed = asset->Import(path);
-        },
-        false);
-
-    if (asset_changed) {
-      editor_layer->ClearEnvironmentalLightingGizmoTarget(asset->GetHandle());
-      InvalidateInspectorThumbnailCache(asset);
-      if (const auto file = asset->GetFileRecord().lock()) {
-        file->InvalidateThumbnail();
-      }
-    }
-    DrawInspectorThumbnail(asset);
-
-    ImGui::Separator();
-    InspectorContext context;
-    context.editor_layer = editor_layer;
-    if (InspectorRegistry::GetInstance().Inspect(context, *asset)) {
-      asset->SetUnsaved();
-      InvalidateInspectorThumbnailCache(asset);
-      if (const auto file = asset->GetFileRecord().lock()) {
-        file->InvalidateThumbnail();
-      }
-    }
-  } else {
-    ImGui::Text("None");
-  }
 }
 
 void AssetManager::OnDestroy() {
@@ -362,15 +124,8 @@ size_t AssetManager::RestoreUnknownAssets() {
   return restored_count;
 }
 
-void AssetManager::Clear() {
+void AssetManager::WaitForPendingLoads() {
   auto& asset_manager = GetInstance();
-  if (const auto application = ApplicationContext::TryGet()) {
-    if (const auto editor_layer = application->GetLayer<EditorLayer>()) {
-      editor_layer->ClearAssetInspectors();
-    }
-  }
-  ClearInspectorPreviewState();
-  OffscreenPreviewRenderer::Reset();
   struct LoadingFutureSnapshot {
     std::thread::id owner_thread_id;
     std::shared_future<std::shared_ptr<IAsset>> future;
@@ -395,7 +150,11 @@ void AssetManager::Clear() {
       }
     }
   }
+}
 
+void AssetManager::Clear() {
+  WaitForPendingLoads();
+  auto& asset_manager = GetInstance();
   {
     std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
     asset_manager.asset_registry_.assets_.clear();
@@ -549,6 +308,15 @@ std::shared_ptr<IAsset> AssetManager::LoadAssetImpl(const Handle& asset_handle) 
     }
   }
   if (const std::shared_ptr<File> file = FileManager::GetFile(asset_handle)) {
+    if (StrictRuntime() && !Serialization::HasSerializableType(file->asset_type_name_)) {
+      EVOENGINE_ERROR("Unknown required runtime asset type: " + file->asset_type_name_)
+      return nullptr;
+    }
+    const auto absolute_path = file->GetAbsolutePath();
+    if (StrictRuntime() && !std::filesystem::is_regular_file(absolute_path)) {
+      EVOENGINE_ERROR("Missing required runtime asset file: " + absolute_path.string())
+      return nullptr;
+    }
     size_t hash_code;
     auto ret_val = std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(
         Serialization::HasSerializableType(file->asset_type_name_) ? file->asset_type_name_ : "UnknownAsset", hash_code,
@@ -560,13 +328,15 @@ std::shared_ptr<IAsset> AssetManager::LoadAssetImpl(const Handle& asset_handle) 
     ret_val->self_ = ret_val;
     SetLoadingAssetImpl(asset_handle, ret_val, true);
     ret_val->OnCreate();
-    if (const auto absolute_path = file->GetAbsolutePath(); std::filesystem::exists(absolute_path)) {
-      ret_val->Load();
+    if (std::filesystem::exists(absolute_path)) {
+      if (!ret_val->Load() && StrictRuntime()) {
+        EVOENGINE_ERROR("Failed to load required runtime asset: " + absolute_path.string())
+        return nullptr;
+      }
     } else {
       ret_val->Save();
     }
     file->asset_ = ret_val;
-    // file->GetThumbnail();
     {
       std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
       asset_manager.asset_registry_.assets_[asset_handle] = ret_val;
@@ -578,6 +348,7 @@ std::shared_ptr<IAsset> AssetManager::LoadAssetImpl(const Handle& asset_handle) 
 
 void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
                                              const std::shared_ptr<std::promise<std::shared_ptr<IAsset>>>& promise) {
+  const bool strict = StrictRuntime();
   struct AssetServiceLoadContext {
     std::shared_ptr<IAsset> asset;
     std::shared_ptr<File> file;
@@ -597,7 +368,7 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
     auto context_promise = std::make_shared<std::promise<AssetServiceLoadContext>>();
     const auto context_future = context_promise->get_future().share();
     ScheduleMainThreadAssetTaskImpl(
-        [asset_handle, context_promise]() {
+        [asset_handle, context_promise, strict]() {
           const ProfilerScope profiler_scope("AssetManager::CreateAssetObject", "Asset Finalize");
           try {
             auto& asset_manager = GetInstance();
@@ -615,6 +386,9 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
             AssetServiceLoadContext context;
             context.file = FileManager::GetFile(asset_handle);
             if (context.file) {
+              if (strict && !Serialization::HasSerializableType(context.file->asset_type_name_)) {
+                throw std::runtime_error("Unknown required runtime asset type: " + context.file->asset_type_name_);
+              }
               size_t hash_code;
               context.asset = std::dynamic_pointer_cast<IAsset>(Serialization::ProduceSerializable(
                   Serialization::HasSerializableType(context.file->asset_type_name_) ? context.file->asset_type_name_
@@ -631,6 +405,9 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
               context.asset->OnCreate();
               context.absolute_path = context.file->GetAbsolutePath();
               context.path_exists = std::filesystem::exists(context.absolute_path);
+              if (strict && !std::filesystem::is_regular_file(context.absolute_path)) {
+                throw std::runtime_error("Missing required runtime asset file: " + context.absolute_path.string());
+              }
               context.staged = context.path_exists &&
                                Serialization::SupportsStagedAssetLoading(*context.asset, context.absolute_path);
               SetLoadingAssetImpl(asset_handle, context.asset, !context.staged);
@@ -735,11 +512,13 @@ void AssetManager::StartAssetServiceLoadImpl(const Handle& asset_handle,
 
     UpdateAssetLoadStateImpl(asset_handle, AssetLoadState::WaitingForFinalize, "Waiting for legacy asset load.");
     ScheduleMainThreadAssetTaskImpl(
-        [asset_handle, context = std::move(context), promise]() {
+        [asset_handle, context = std::move(context), promise, strict]() {
           const ProfilerScope profiler_scope("AssetManager::FinalizeLegacyAsset", "Asset Finalize");
           try {
             if (context.path_exists) {
-              context.asset->Load();
+              if (!context.asset->Load() && strict) {
+                throw std::runtime_error("Failed to load required runtime asset: " + context.absolute_path.string());
+              }
             } else {
               context.asset->Save();
             }
@@ -925,6 +704,19 @@ void AssetManager::FinishAssetLoadingImpl(const Handle& asset_handle) {
 
 std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetAssetFutureImpl(const Handle& asset_handle) {
   return GetOrCreateAssetLoadFutureImpl(asset_handle, true);
+}
+
+std::vector<AssetManager::LoadedAssetState> AssetManager::GetLoadedAssetStates() {
+  auto& registry = GetInstance().asset_registry_;
+  std::scoped_lock lock(registry.asset_registry_mutex);
+  std::vector<LoadedAssetState> result;
+  result.reserve(registry.assets_.size());
+  for (const auto& [handle, weak_asset] : registry.assets_) {
+    if (const auto asset = weak_asset.lock()) {
+      result.push_back({handle, asset->GetAbsolutePath(), asset->GetTypeName(), asset->IsTemporary(), asset->Saved()});
+    }
+  }
+  return result;
 }
 
 std::shared_ptr<IAsset> AssetManager::CreateTemporaryAsset(const std::string& type_name) {

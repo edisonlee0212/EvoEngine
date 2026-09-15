@@ -3,7 +3,6 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 using namespace evo_engine;
 
 namespace {
@@ -33,12 +32,6 @@ const Serialization::AssetIoHandlerRecord *Serialization::FindAssetIoRecord(cons
                                                                             const size_t &type_id) {
   const auto search = serialization.asset_io_handlers_.find(type_id);
   return search == serialization.asset_io_handlers_.end() ? nullptr : &search->second;
-}
-
-const Serialization::AssetPreviewHandlerRecord *Serialization::FindAssetPreviewRecord(
-    const Serialization &serialization, const size_t &type_id) {
-  const auto search = serialization.asset_preview_handlers_.find(type_id);
-  return search == serialization.asset_preview_handlers_.end() ? nullptr : &search->second;
 }
 
 void Serialization::SerializeObject(YAML::Emitter &out, const ISerializable &serializable) {
@@ -382,86 +375,6 @@ bool Serialization::ApplyStagedAssetPayload(IAsset &asset, const std::filesystem
   return false;
 }
 
-bool Serialization::RegisterAssetPreviewHandler(const size_t &type_id, AssetPreviewHandler generate_thumbnail_handler,
-                                                const std::string &owner_name, const std::string &type_name,
-                                                const uint32_t version) {
-  if (!generate_thumbnail_handler) {
-    return false;
-  }
-
-  GetInstance().asset_preview_handlers_.insert_or_assign(
-      type_id, AssetPreviewHandlerRecord{std::move(generate_thumbnail_handler),
-                                         AssetPreviewHandlerInfo{type_id, type_name, owner_name, version}});
-  return true;
-}
-
-bool Serialization::UnregisterAssetPreviewHandler(const size_t &type_id) {
-  return GetInstance().asset_preview_handlers_.erase(type_id) != 0;
-}
-
-size_t Serialization::UnregisterAssetPreviewHandlersByOwner(const std::string &owner_name) {
-  if (owner_name.empty()) {
-    return 0;
-  }
-
-  auto &serialization = GetInstance();
-  size_t removed = 0;
-  for (auto it = serialization.asset_preview_handlers_.begin(); it != serialization.asset_preview_handlers_.end();) {
-    if (it->second.info.owner_name == owner_name) {
-      it = serialization.asset_preview_handlers_.erase(it);
-      ++removed;
-    } else {
-      ++it;
-    }
-  }
-  return removed;
-}
-
-bool Serialization::HasAssetPreviewHandler(const size_t &type_id) {
-  return FindAssetPreviewRecord(GetInstance(), type_id) != nullptr;
-}
-
-bool Serialization::HasAssetPreviewHandler(const std::string &type_name) {
-  const auto &serialization = GetInstance();
-  if (const auto id_search = serialization.serializable_ids_.find(type_name);
-      id_search != serialization.serializable_ids_.end() &&
-      serialization.asset_preview_handlers_.find(id_search->second) != serialization.asset_preview_handlers_.end()) {
-    return true;
-  }
-  for (const auto &[type_id, record] : serialization.asset_preview_handlers_) {
-    if (record.info.type_name == type_name) {
-      return true;
-    }
-  }
-  return false;
-}
-
-const Serialization::AssetPreviewHandlerInfo *Serialization::FindAssetPreviewHandler(const size_t &type_id) {
-  if (const auto *record = FindAssetPreviewRecord(GetInstance(), type_id)) {
-    return &record->info;
-  }
-  return nullptr;
-}
-
-std::shared_ptr<Texture2D> Serialization::GenerateAssetThumbnail(const std::shared_ptr<IAsset> &asset,
-                                                                 const OffscreenPreviewSettings &settings) {
-  if (!asset) {
-    return {};
-  }
-
-  const auto &serialization = GetInstance();
-  if (const auto *record = FindAssetPreviewRecord(serialization, typeid(*asset).hash_code());
-      record && record->generate_thumbnail_handler) {
-    return record->generate_thumbnail_handler(asset, settings);
-  }
-  return {};
-}
-
-std::shared_ptr<Texture2D> Serialization::GenerateDefaultAssetThumbnail(const OffscreenPreviewSettings &settings) {
-  static_cast<void>(settings);
-  return EditorLayer::FindIcon("Binary");
-}
-
 void Serialization::SerializeObject(YAML::Emitter &out, const IAsset &asset) {
   SerializeObject(out, static_cast<const ISerializable &>(asset));
 }
@@ -642,7 +555,6 @@ bool Serialization::UnregisterAssetType(const std::string &type_name) {
   const auto id_search = serialization.serializable_ids_.find(type_name);
   if (id_search != serialization.serializable_ids_.end()) {
     serialization.asset_io_handlers_.erase(id_search->second);
-    serialization.asset_preview_handlers_.erase(id_search->second);
   }
   if (const auto extension_search = serialization.asset_extensions_.find(type_name);
       extension_search != serialization.asset_extensions_.end()) {
@@ -702,10 +614,6 @@ void Serialization::SetSerializableTypeOwner(const std::string &type_name, const
     if (const auto asset_io_search = serialization.asset_io_handlers_.find(id_search->second);
         asset_io_search != serialization.asset_io_handlers_.end()) {
       asset_io_search->second.info.owner_name = owner_name;
-    }
-    if (const auto asset_preview_search = serialization.asset_preview_handlers_.find(id_search->second);
-        asset_preview_search != serialization.asset_preview_handlers_.end()) {
-      asset_preview_search->second.info.owner_name = owner_name;
     }
   }
 }
@@ -782,7 +690,6 @@ void Serialization::UnregisterPackageOwnedTypes(const std::string &owner_name) {
   UnregisterSerializationHandlersByOwner(owner_name);
   UnregisterSerializationSupportHandlersByOwner(owner_name);
   UnregisterAssetIoHandlersByOwner(owner_name);
-  UnregisterAssetPreviewHandlersByOwner(owner_name);
 
   std::vector<std::string> data_component_names;
   for (const auto &[type_name, owner] : serialization.data_component_type_owners_) {

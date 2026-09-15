@@ -20,6 +20,8 @@ struct Graph {
 };
 
 class FungusTest : public IPrivateComponent {
+  friend struct FungusTestInspector;
+
  public:
   Graph Tree_Graph;
   int num_nodes = 3750;
@@ -57,8 +59,6 @@ class FungusTest : public IPrivateComponent {
   float dt = 0.001f;      // Time step for simulation
   void Initialize();      // Initialize the fungus model
   void ExplicitUpdate();  // Update using explicit scheme
-
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   void FixedUpdate() override;
 

@@ -26,4 +26,8 @@ target_link_libraries(TextureBakingPackage
 	PRIVATE
 	EvoEngine_SDK
 	)
+target_include_directories(TextureBakingPackage PUBLIC ${TEXTURE_BAKING_INCLUDES})
 evoengine_configure_runtime_package(TextureBakingPackage)
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

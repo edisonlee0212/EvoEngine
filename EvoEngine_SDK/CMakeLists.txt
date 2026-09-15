@@ -5,8 +5,8 @@
 set(EVOENGINE_SDK_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(EVOENGINE_SDK_DIR ${EVOENGINE_SDK_DIR} PARENT_SCOPE)
 
-file(GLOB_RECURSE EVOENGINE_SDK_HEADERS ${EVOENGINE_SDK_DIR}/include/*.hpp)
-file(GLOB_RECURSE EVOENGINE_SDK_SOURCES ${EVOENGINE_SDK_DIR}/src/*.cpp)
+file(GLOB_RECURSE EVOENGINE_SDK_HEADERS CONFIGURE_DEPENDS ${EVOENGINE_SDK_DIR}/include/*.hpp)
+file(GLOB_RECURSE EVOENGINE_SDK_SOURCES CONFIGURE_DEPENDS ${EVOENGINE_SDK_DIR}/src/*.cpp)
 set(EVOENGINE_MIKKTSPACE_SOURCES
 	${EVOENGINE_SDK_DIR}/src/ThirdParty/MikkTSpace/mikktspace.c
 	${EVOENGINE_SDK_DIR}/src/ThirdParty/MikkTSpace/mikktspace.h)
@@ -19,13 +19,13 @@ endif()
 
 add_library(EvoEngine_SDK
 	${EVOENGINE_SDK_LIBRARY_TYPE}
-	${IMGUI_SOURCES}
 	${EVOENGINE_SDK_HEADERS}
 	${EVOENGINE_SDK_SOURCES}
 	${EVOENGINE_MIKKTSPACE_SOURCES}
 	)
 
 set(EVOENGINE_SDK_INCLUDES
+	${EVOENGINE_BUILD_IDENTITY_DIR}
 	${3RDPARTY_INCLUDES}
 	${EVOENGINE_SDK_DIR}/include
 	${EVOENGINE_SDK_DIR}/include/Core
@@ -44,7 +44,6 @@ set(EVOENGINE_SDK_INCLUDES
 	${EVOENGINE_SDK_DIR}/include/Rendering/Texture
 	${EVOENGINE_SDK_DIR}/include/Rendering/Platform
 	${EVOENGINE_SDK_DIR}/include/Rendering/PostProcessing
-	${EVOENGINE_SDK_DIR}/include/Editor
 	${EVOENGINE_SDK_DIR}/include/Utilities
 	${EVOENGINE_SDK_DIR}/include/Utilities/NsightAftermath
 	${EVOENGINE_SDK_DIR}/include/Utilities/ProceduralNoise
@@ -53,7 +52,7 @@ set(EVOENGINE_SDK_INCLUDES
 set(EVOENGINE_SDK_INCLUDES ${EVOENGINE_SDK_INCLUDES} PARENT_SCOPE)
 
 target_include_directories(EvoEngine_SDK
-	PRIVATE
+	PUBLIC
 	${EVOENGINE_SDK_INCLUDES}
 	)
 
@@ -96,13 +95,13 @@ if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
 		)
 	if (WIN32)
 		target_compile_definitions(EvoEngine_SDK PRIVATE
-			"IMGUI_API=__declspec(dllexport)"
 			"TINYPLY_API=__declspec(dllexport)"
 			)
 	endif()
 endif()
 
 if (WIN32)
+	target_link_libraries(EvoEngine_SDK bcrypt)
 	# Compiler settings for Windows platform
 	target_compile_definitions(EvoEngine_SDK
 		PRIVATE
@@ -136,11 +135,12 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 	target_compile_options(EvoEngine_SDK PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
 endif ()
 
-set(EVOENGINE_SDK_DEFS NOMINMAX)
+set(EVOENGINE_SDK_DEFS NOMINMAX EVOENGINE_WITH_EDITOR=$<BOOL:${EVOENGINE_WITH_EDITOR}>)
 if (EVOENGINE_ENABLE_RUNTIME_PACKAGES)
 	list(APPEND EVOENGINE_SDK_DEFS EVOENGINE_RUNTIME_PACKAGES)
 endif()
 set(EVOENGINE_SDK_DEFS ${EVOENGINE_SDK_DEFS} PARENT_SCOPE)
+target_compile_definitions(EvoEngine_SDK PUBLIC ${EVOENGINE_SDK_DEFS})
 
 set(EVOENGINE_SDK_RUNTIME_LIBRARIES "")
 set(EVOENGINE_SDK_PDBS "")
@@ -158,7 +158,32 @@ set(EVOENGINE_SDK_PDBS ${EVOENGINE_SDK_PDBS} PARENT_SCOPE)
 # ------------------------------------------------------------------
 function(evoengine_sdk_copy_resources dst_target dst_dir)
 	add_custom_command(TARGET ${dst_target} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-		${EVOENGINE_SDK_DIR}/Internals ${dst_dir}
+		COMMAND ${CMAKE_COMMAND}
+			"-DSOURCE=${EVOENGINE_SDK_DIR}/Internals"
+			"-DDESTINATION=${dst_dir}"
+			"-DWITH_EDITOR=${EVOENGINE_WITH_EDITOR}"
+			-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
 		VERBATIM)
+	if(EVOENGINE_WITH_EDITOR)
+		add_custom_command(TARGET ${dst_target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND}
+				"-DSOURCE=${EVOENGINE_SDK_DIR}/Editor/Internals"
+				"-DDESTINATION=${dst_dir}"
+				-DWITH_EDITOR=ON
+				-P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineCopyResources.cmake"
+			VERBATIM)
+	endif()
 endfunction()
+
+if(EVOENGINE_WITH_EDITOR)
+	add_subdirectory(Editor)
+	set(EVOENGINE_EDITOR_PCH ${EVOENGINE_EDITOR_PCH} PARENT_SCOPE)
+	if(EVOENGINE_ENABLE_RUNTIME_PACKAGES)
+		list(APPEND EVOENGINE_SDK_RUNTIME_LIBRARIES "$<TARGET_FILE:EvoEngine_EditorSDK>")
+		if(MSVC)
+			list(APPEND EVOENGINE_SDK_PDBS "$<TARGET_PDB_FILE:EvoEngine_EditorSDK>")
+		endif()
+		set(EVOENGINE_SDK_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} PARENT_SCOPE)
+		set(EVOENGINE_SDK_PDBS ${EVOENGINE_SDK_PDBS} PARENT_SCOPE)
+	endif()
+endif()

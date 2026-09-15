@@ -65,12 +65,5 @@ class BasicReproductionModuleDescriptor : public IReproductionModuleDescriptor {
    */
   void GenerateFruitMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
                              float tree_size) const override;
-
-  /**
-   * @brief Inspects the foliage descriptor in the editor.
-   * @param[in] editor_layer Shared pointer to the editor layer.
-   * @return True if the asset's content is not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

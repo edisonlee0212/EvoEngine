@@ -29,10 +29,6 @@ class IDsConstraint {
   virtual void UpdateBindings() {
   }
 
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-    return false;
-  }
-
   bool enabled = true;
 };
 
@@ -163,7 +159,6 @@ class DsStiffRod final : public IDsConstraint {
   };
 
   int sub_iteration = 1;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 
   inline static std::shared_ptr<ComputePipeline> pipeline{};
 
@@ -354,8 +349,6 @@ class DsBundle : public IDsConstraint {
                       const DynamicStrands& target_dynamic_strands) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
-
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) override;
 };
 
 class DsLeafAttachment : public IDsConstraint {

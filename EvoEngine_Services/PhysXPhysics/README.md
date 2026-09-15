@@ -29,3 +29,7 @@ The intended design appears to be a Service layer plus private components/assets
 ## Future Work Notes
 
 Before using this Service, decide whether PhysX support is still desired. Enabling it will require removing the early `return()`, verifying the third-party PhysX paths, registering the Service from the parent CMake, checking DLL/SO copy behavior, and then validating component registration and runtime lifecycle.
+
+GUI inspection lives in `Editor/include` and `Editor/src`, built by `PhysXPhysicsEditorService`. When restoring this disabled service, editor applications must link that target and add `PhysXEditorLayer` alongside `PhysicsLayer`; player applications use only the runtime service. Runtime types no longer declare GUI methods. The legacy serialized `draw_bounds_` value remains preserved for asset compatibility.
+
+The source separation does not enable or validate PhysX: this checkout has no PhysX SDK headers, and the service CMake entry still returns immediately. Dependency restoration and a native service build remain necessary before using it.

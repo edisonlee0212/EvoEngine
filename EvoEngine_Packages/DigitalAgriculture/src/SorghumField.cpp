@@ -4,9 +4,7 @@
 
 #include "DigitalAgricultureSerializationAdapters.hpp"
 
-#include "DigitalAgricultureInspectionAdapters.hpp"
 #include "EcoSysLabLayer.hpp"
-#include "EditorLayer.hpp"
 #include "Scene.hpp"
 #include "Soil.hpp"
 #include "Sorghum.hpp"
@@ -50,33 +48,6 @@ void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
   }
 }
 
-bool digital_agriculture_package::InspectSorghumField(InspectorContext& context, SorghumField& field) {
-  const auto& editor_layer = context.editor_layer;
-  bool changed = false;
-  if (ImGui::DragInt("Size limit", &field.size_limit, 1, 0, 10000))
-    changed = false;
-  if (ImGui::DragFloat("Sorghum size", &field.sorghum_size, 0.01f, 0, 10))
-    changed = false;
-  if (ImGui::Button("Instantiate")) {
-    field.InstantiateField();
-  }
-
-  static int index = 200;
-  static float radius = 2.5f;
-  ImGui::DragInt("Index", &index);
-  ImGui::DragFloat("Radius", &radius);
-  static AssetRef temp_coordinates;
-  if (editor_layer->DragAndDropButton<SorghumCoordinates>(temp_coordinates, "Apply from sorghum coordinates")) {
-    if (const auto coordinates = temp_coordinates.Get<SorghumCoordinates>()) {
-      glm::dvec2 offset;
-      coordinates->Apply(field, offset, index, radius);
-      temp_coordinates.Clear();
-    }
-  }
-  ImGui::Text("Matrices count: %d", (int)field.matrices.size());
-
-  return changed;
-}
 void digital_agriculture_package::SerializeSorghumField(YAML::Emitter& out, const SorghumField& target) {
   out << YAML::Key << "size_limit" << YAML::Value << target.size_limit;
   out << YAML::Key << "sorghum_size" << YAML::Value << target.sorghum_size;
@@ -103,16 +74,6 @@ void digital_agriculture_package::DeserializeSorghumField(const YAML::Node& in, 
       target.matrices.emplace_back(spd, i["Transform"].as<glm::mat4>());
     }
   }
-}
-
-std::shared_ptr<Texture2D> SorghumField::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./DigitalAgricultureResources") / "Icons/SorghumField.png"));
-  }
-  return thumbnail;
 }
 
 void SorghumField::CollectAssetRef(std::vector<AssetRef>& list) {

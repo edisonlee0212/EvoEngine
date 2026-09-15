@@ -1,9 +1,7 @@
 #include "PackageManager.hpp"
 
-#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 #include "StarCluster.hpp"
-#include "UniverseInspectionAdapters.hpp"
 #include "UniverseLayer.hpp"
 #include "UniverseProfiler.hpp"
 #include "UniverseSerializationAdapters.hpp"
@@ -12,14 +10,12 @@ using namespace evo_engine;
 using namespace universe_package;
 
 namespace {
-PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "Universe", "0.1.0",
-                             "Universe simulation runtime package."};
-
-void RegisterUniverseInspectors(const std::string& owner_name) {
-  InspectorRegistry::GetInstance().RegisterInspector<PlanetTerrain>(InspectPlanetTerrain, owner_name, "PlanetTerrain");
-  InspectorRegistry::GetInstance().RegisterInspector<StarCluster>(InspectStarCluster, owner_name, "Star Cluster");
-  InspectorRegistry::GetInstance().RegisterInspector<UniverseLayer>(InspectUniverseLayer, owner_name, "Universe Layer");
-}
+PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION,
+                             "Universe",
+                             "0.1.0",
+                             "Universe simulation runtime package.",
+                             EVOENGINE_PACKAGE_BUILD_IDENTITY,
+                             EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterUniverseSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<PlanetTerrain>(SerializePlanetTerrain, DeserializePlanetTerrain,
@@ -43,7 +39,6 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
                           registrar->RegisterLayer<UniverseLayer>("Universe Layer");
   if (registered) {
     RegisterUniverseSerializationHandlers(descriptor.name);
-    RegisterUniverseInspectors(descriptor.name);
   }
   return registered;
 }

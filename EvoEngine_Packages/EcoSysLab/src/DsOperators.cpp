@@ -26,27 +26,6 @@ void DsLeafDrop::Execute(const DynamicStrands::PhysicsParameters& physics_parame
   });
 }
 
-bool DsLeafDrop::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Enabled", &enabled)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Ground height", &ground_height, 0.01f, -100.0f, 100.0f))
-    changed = true;
-
-  if (ImGui::DragFloat("Rotation correction strength", &rotation_correction_strength, 0.001f, 0.01f, 1.0f))
-    changed = true;
-
-  if (ImGui::DragFloat("Air resistance strength", &air_resistance_strength, 0.01f, 0.01f, 1.0f))
-    changed = true;
-
-  if (ImGui::DragFloat("Disturbance strength", &disturbance_strength, 0.01f, 0.01f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat3("Disturbance frequency", &disturbance_frequency.x, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  return changed;
-}
-
 DsLeafDrop::DsLeafDrop() {
   if (!pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -151,14 +130,6 @@ void DsAttraction::Execute(const DynamicStrands::PhysicsParameters& physics_para
                                   Platform::DivUp(push_constant.commands_size, work_group_invocations), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
-}
-
-bool DsAttraction::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Multiplier", &distance_multiplier, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  return changed;
 }
 
 DsBoxSelection::DsBoxSelection() {
@@ -534,20 +505,6 @@ void DsSnow::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
   });
 }
 
-bool DsSnow::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Enabled", &enabled)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Snow intensity", &snow_intensity, 0.0001f, -0.002f, 0.002f, "%.4f")) {
-    changed = true;
-  }
-  if (ImGui::SliderFloat("Snow retain ratio after break", &snow_retain_ratio, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  return changed;
-}
-
 DsWind::DsWind() {
   enabled = false;
   if (!segment_pipeline) {
@@ -629,26 +586,6 @@ void DsWind::Execute(const DynamicStrands::PhysicsParameters& physics_parameters
                             1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
-}
-
-bool DsWind::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Enabled", &enabled)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat3("Main force", &main_force.x, 0.001f, -1.f, 1.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Turbulence strength", &turbulence_strength, 0.01f, 0.f, 2.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Turbulence directional frequency", &turbulence_direction_frequency, 0.01f, -100.f, 100.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Turbulence speed frequency", &turbulence_speed_frequency, 0.01f, -100.f, 100.f)) {
-    changed = true;
-  }
-  return changed;
 }
 
 DsStopAll::DsStopAll() {

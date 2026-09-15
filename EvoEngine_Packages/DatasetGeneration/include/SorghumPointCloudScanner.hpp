@@ -14,7 +14,6 @@ struct SorghumPointCloudPointSettings {
 
   float bounding_box_limit = 2.f;
 
-  bool DrawGui();
   void Save(const std::string& name, YAML::Emitter& out) const;
   void Load(const std::string& name, const YAML::Node& in);
 };
@@ -28,7 +27,6 @@ class SorghumPointCloudGridCaptureSettings : public PointCloudCaptureSettings {
   float step = 0.01f;
   int drone_sample = 512;
   float drone_height = 2.5f;
-  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };
@@ -44,7 +42,6 @@ class SorghumGantryCaptureSettings : public PointCloudCaptureSettings {
 
   std::vector<float> scanner_angles = {30.f};
 
-  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };

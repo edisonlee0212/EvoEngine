@@ -1,3 +1,4 @@
+#include "AssetPreviewRegistry.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include <gtest/gtest.h>
@@ -2043,7 +2044,7 @@ TEST(SerializationRegistry, DefaultAssetIoHandlersUseGenericYamlAndDefaultPrevie
   const auto preview_asset = AssetManager::CreateTemporaryAsset<TestAssetIo>();
   ASSERT_TRUE(preview_asset);
   OffscreenPreviewSettings settings;
-  EXPECT_EQ(Serialization::GenerateAssetThumbnail(preview_asset, settings), nullptr);
+  EXPECT_EQ(AssetPreviewRegistry::GenerateAssetThumbnail(preview_asset, settings), nullptr);
   EXPECT_EQ(preview_asset->concrete_generate_thumbnail_count, 0);
 }
 
@@ -2233,7 +2234,7 @@ TEST(SerializationRegistry, MissingAssetPreviewHandlersDoNotCallConcreteThumbnai
   OffscreenPreviewSettings settings;
   settings.camera_zoom = 1.25f;
 
-  EXPECT_EQ(Serialization::GenerateAssetThumbnail(asset, settings), nullptr);
+  EXPECT_EQ(AssetPreviewRegistry::GenerateAssetThumbnail(asset, settings), nullptr);
   EXPECT_EQ(asset->concrete_generate_thumbnail_count, 0);
 }
 
@@ -2243,7 +2244,7 @@ TEST(SerializationRegistry, UsesExactAssetPreviewHandlerBeforeDefaultHandler) {
 
   int preview_count = 0;
   const auto expected_thumbnail = std::make_shared<Texture2D>();
-  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<TestAssetIo>(
+  ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<TestAssetIo>(
       [&](const std::shared_ptr<TestAssetIo>& asset, const OffscreenPreviewSettings& settings) {
         ++preview_count;
         asset->value = static_cast<int>(settings.camera_zoom * 10.0f);
@@ -2251,7 +2252,7 @@ TEST(SerializationRegistry, UsesExactAssetPreviewHandlerBeforeDefaultHandler) {
       },
       "test-owner", "TestAssetIo", 9));
 
-  const auto* info = Serialization::FindAssetPreviewHandler(typeid(TestAssetIo).hash_code());
+  const auto* info = AssetPreviewRegistry::FindAssetPreviewHandler(typeid(TestAssetIo).hash_code());
   ASSERT_NE(info, nullptr);
   EXPECT_EQ(info->type_id, typeid(TestAssetIo).hash_code());
   EXPECT_EQ(info->type_name, "TestAssetIo");
@@ -2262,7 +2263,7 @@ TEST(SerializationRegistry, UsesExactAssetPreviewHandlerBeforeDefaultHandler) {
   OffscreenPreviewSettings settings;
   settings.camera_zoom = 1.7f;
 
-  EXPECT_EQ(Serialization::GenerateAssetThumbnail(asset, settings), expected_thumbnail);
+  EXPECT_EQ(AssetPreviewRegistry::GenerateAssetThumbnail(asset, settings), expected_thumbnail);
   EXPECT_EQ(preview_count, 1);
   EXPECT_EQ(asset->concrete_generate_thumbnail_count, 0);
   EXPECT_EQ(asset->value, 17);
@@ -2275,7 +2276,7 @@ TEST(SerializationRegistry, AssetThumbnailProviderUsesPreviewRegistry) {
   app.RegisterAsset<TestAssetIo>("TestAssetIo", {".evetestassetio"});
 
   const auto expected_thumbnail = std::make_shared<Texture2D>();
-  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<TestAssetIo>(
+  ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<TestAssetIo>(
       [&](const std::shared_ptr<TestAssetIo>& asset, const OffscreenPreviewSettings& settings) {
         asset->value = static_cast<int>(settings.camera_zoom * 10.0f);
         return expected_thumbnail;
@@ -2703,25 +2704,25 @@ TEST(SerializationRegistry, UnregistersOwnerAssetPreviewHandlers) {
   Application app;
   ApplicationContextScope scope(app);
 
-  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<TestAssetIo>(
+  ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<TestAssetIo>(
       [](const std::shared_ptr<TestAssetIo>&, const OffscreenPreviewSettings&) {
         return nullptr;
       },
       "owner-a", "TestAssetIo"));
-  ASSERT_TRUE(Serialization::RegisterAssetPreviewHandler<IAsset>(
+  ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<IAsset>(
       [](const std::shared_ptr<IAsset>&, const OffscreenPreviewSettings&) {
         return nullptr;
       },
       "owner-b", "IAsset"));
 
-  EXPECT_TRUE(Serialization::HasAssetPreviewHandler("TestAssetIo"));
-  EXPECT_EQ(Serialization::UnregisterAssetPreviewHandlersByOwner("owner-a"), 1);
-  EXPECT_FALSE(Serialization::HasAssetPreviewHandler<TestAssetIo>());
-  EXPECT_TRUE(Serialization::HasAssetPreviewHandler<IAsset>());
-  EXPECT_FALSE(Serialization::HasAssetPreviewHandler("TestAssetIo"));
+  EXPECT_TRUE(AssetPreviewRegistry::HasAssetPreviewHandler("TestAssetIo"));
+  EXPECT_EQ(AssetPreviewRegistry::UnregisterAssetPreviewHandlersByOwner("owner-a"), 1);
+  EXPECT_FALSE(AssetPreviewRegistry::HasAssetPreviewHandler<TestAssetIo>());
+  EXPECT_TRUE(AssetPreviewRegistry::HasAssetPreviewHandler<IAsset>());
+  EXPECT_FALSE(AssetPreviewRegistry::HasAssetPreviewHandler("TestAssetIo"));
 }
 
-TEST(SerializationRegistry, ApplicationRegistersPilotExternalHandlers) {
+TEST(SerializationRegistry, RuntimeStartupRegistersAssetIoWithoutEditorInspectors) {
   Application app;
   ApplicationContextScope scope(app);
   InspectorRegistry::GetInstance().Clear();
@@ -2732,12 +2733,10 @@ TEST(SerializationRegistry, ApplicationRegistersPilotExternalHandlers) {
   EXPECT_EQ(json_io->type_name, "Json");
 
   const auto* json_inspector = InspectorRegistry::GetInstance().FindInspector(typeid(Json));
-  ASSERT_NE(json_inspector, nullptr);
-  EXPECT_EQ(json_inspector->type_name, "Json");
+  EXPECT_EQ(json_inspector, nullptr);
 
   const auto* way_points_inspector = InspectorRegistry::GetInstance().FindInspector(typeid(WayPoints));
-  ASSERT_NE(way_points_inspector, nullptr);
-  EXPECT_EQ(way_points_inspector->type_name, "WayPoints");
+  EXPECT_EQ(way_points_inspector, nullptr);
 }
 
 TEST(SerializationRegistry, SceneSerializationRoutesComponentsAndSystemsThroughHandlers) {
@@ -2819,4 +2818,30 @@ TEST(SerializationRegistry, SceneSerializationRoutesComponentsAndSystemsThroughH
   const auto routed_system = target->GetSystem<RoutedSceneSystem>();
   ASSERT_TRUE(routed_system);
   EXPECT_EQ(routed_system->value, 231);
+}
+
+TEST(SerializationRegistry, EditorPreviewHandlersAreApplicationScopedAndReleasedBeforeDestruction) {
+  std::weak_ptr<int> captured;
+  Application first;
+  ApplicationContextScope first_scope(first);
+  {
+    Application second;
+    ApplicationContextScope second_scope(second);
+    auto lifetime = std::make_shared<int>(1);
+    captured = lifetime;
+    ASSERT_TRUE(AssetPreviewRegistry::RegisterAssetPreviewHandler<TestAssetIo>(
+        [lifetime](const std::shared_ptr<TestAssetIo>&, const OffscreenPreviewSettings&) {
+          return nullptr;
+        },
+        "preview-owner", "TestAssetIo"));
+    EXPECT_TRUE(AssetPreviewRegistry::HasAssetPreviewHandler<TestAssetIo>());
+    {
+      ApplicationContextScope nested_scope(first);
+      EXPECT_FALSE(AssetPreviewRegistry::HasAssetPreviewHandler<TestAssetIo>());
+    }
+    EXPECT_FALSE(captured.expired());
+  }
+  ApplicationContextScope restored_scope(first);
+  EXPECT_TRUE(captured.expired());
+  EXPECT_FALSE(AssetPreviewRegistry::HasAssetPreviewHandler<TestAssetIo>());
 }
