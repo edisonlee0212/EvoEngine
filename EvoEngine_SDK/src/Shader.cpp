@@ -17,6 +17,7 @@
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
+#include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 #include "Utilities.hpp"
 #include "slang-com-ptr.h"
@@ -51,6 +52,9 @@ struct ShaderCompileResult {
 };
 
 std::filesystem::path GetShaderBinaryDirectory() {
+  if (runtime_paths::IsStrict()) {
+    return runtime_paths::Resolve("Cache/ShaderBinaries");
+  }
   if (const char* path = std::getenv("EVOENGINE_SHADER_CACHE_DIR"); path && path[0] != '\0') {
     return path_utils::NormalizeAbsolutePath(path);
   }
@@ -701,6 +705,7 @@ void CompileShaderWithCache(const ShaderCompileRequest& request, const ShaderCac
       std::filesystem::remove(cache_path, error);
     }
     compilation_count.fetch_add(1);
+    EVOENGINE_LOG("Compiling Shaders: " + request.path.string())
     success = compile_func(result.binaries);
     if (success) {
       PublishShaderCacheEntry(cache_path, key, request, result.binaries);

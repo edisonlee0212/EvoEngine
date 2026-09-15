@@ -1,29 +1,8 @@
 #include "DynamicStrandsInitializationParameters.hpp"
 
 #include "BasicFoliageDescriptor.hpp"
-#include "SDKInspectionAdapters.hpp"
 
 using namespace eco_sys_lab_package;
-
-bool BundleSolverSettings::DrawGui() {
-  bool changed = false;
-  auto mode_index = static_cast<unsigned>(mode);
-  if (ImGui::Combo("Mode (reinitialize)", {"Legacy", "Coupled XPBD", "Hybrid"}, mode_index)) {
-    mode = static_cast<BundleSolverMode>(mode_index);
-    changed = true;
-  }
-  changed = ImGui::DragInt("Legacy iterations", &legacy_iterations, 1, 1, 100) || changed;
-  changed = ImGui::DragInt("Pair iterations", &pair_iterations, 1, 1, 100) || changed;
-  changed = ImGui::DragInt("Coarse iterations", &coarse_iterations, 1, 1, 100) || changed;
-  changed = ImGui::DragFloat("Position compliance scale", &position_compliance_scale, 0.01f, 0.f, 100.f) || changed;
-  changed = ImGui::DragFloat("Bending compliance scale", &bending_compliance_scale, 0.01f, 0.f, 100.f) || changed;
-  changed = ImGui::DragFloat("Torsion compliance scale", &torsion_compliance_scale, 0.01f, 0.f, 100.f) || changed;
-  changed = ImGui::SliderFloat("Shape matching strength", &shape_matching_strength, 0.f, 1.f) || changed;
-  changed =
-      ImGui::DragFloat("Slice spacing factor (reinitialize)", &slice_spacing_factor, 0.05f, 0.1f, 10.f) || changed;
-  changed = ImGui::DragInt("Minimum slice members (reinitialize)", &minimum_slice_members, 1, 1, 1024) || changed;
-  return changed;
-}
 
 void BundleSolverSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
@@ -68,111 +47,6 @@ void BundleSolverSettings::Load(const std::string& name, const YAML::Node& in) {
     slice_spacing_factor = glm::max(0.1f, settings["slice_spacing_factor"].as<float>());
   if (settings["minimum_slice_members"])
     minimum_slice_members = glm::max(1, settings["minimum_slice_members"].as<int>());
-}
-
-bool DynamicStrandsInitializeParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
-    changed = true;
-  if (ImGui::DragFloat("Max segment length", &max_segment_length, 0.001f, min_segment_length, 1.0f))
-    changed = true;
-  if (ImGui::DragInt("Uniform subdivision", &uniform_subdivision, 1, 1, 16)) {
-    uniform_subdivision = glm::clamp(uniform_subdivision, 1, 16);
-    changed = true;
-  }
-  if (ImGui::DragFloat("Neighbor vertical range", &neighbor_vertical_range, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  if (ImGui::DragFloat("Neighbor horizontal range", &neighbor_horizontal_range, 0.01f, 0.01f, 10.0f))
-    changed = true;
-  if (ImGui::TreeNodeEx("Physical properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-    static bool show_damage_graph = false;
-    ImGui::Checkbox("Show damage graph", &show_damage_graph);
-    if (show_damage_graph) {
-      changed = evo_engine::DrawProceduralNoiseGraph(damage_graph, "Damage graph", editor_layer) || changed;
-    }
-
-    if (ImGui::DragFloat3("Damage scale factor", &damage_scale_factor.x, 0.001f, 0.f, 1.f)) {
-      changed = true;
-    }
-
-    if (ImGui::DragFloat("Sapwood offset", &sapwood_offset, 0.01f, 0.0f, 1.0f)) {
-      changed = true;
-    }
-    if (ImGui::DragFloat("Sapwood transition", &wood_transition, 0.001f, 0.001f, 1.f)) {
-      wood_transition = glm::clamp(wood_transition, 0.001f, 1.f);
-      changed = true;
-    }
-    if (ImGui::TreeNode("Wood material")) {
-      ImGui::Checkbox("Show modulus graph", &show_modulus_graph);
-      if (show_modulus_graph) {
-        changed = modulus_graph.ShowGraph("modulus graph", editor_layer) || changed;
-      }
-      ImGui::TreePop();
-    }
-
-    ImGui::Checkbox("Show strength graph", &show_strength_graph);
-    if (show_strength_graph) {
-      changed = strength_graph.ShowGraph("Strength", editor_layer) || changed;
-    }
-    if (ImGui::Checkbox("Trunk", &trunk_additional_strength)) {
-      changed = true;
-    }
-
-    if (trunk_additional_strength) {
-      ImGui::Checkbox("Show trunk biological properties graph", &show_biological_properties_graph);
-      if (show_biological_properties_graph) {
-        changed = biological_properties_graph.ShowGraph("biological properties", editor_layer) || changed;
-      }
-    }
-
-    if (ImGui::TreeNode("Foliage attachments")) {
-      if (leaf_position_alpha.Draw("Leaf position alpha"))
-        changed = true;
-
-      if (leaf_rotation_alpha.Draw("Leaf rotation alpha"))
-        changed = true;
-
-      if (max_leaf_position_strain.Draw("Max leaf position strain"))
-        changed = true;
-
-      if (max_leaf_rotation_strain.Draw("Max leaf rotation strain"))
-        changed = true;
-
-      ImGui::TreePop();
-    }
-
-    ImGui::TreePop();
-  }
-
-  editor_layer->DragAndDropButton<BasicFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor");
-
-  if (ImGui::TreeNode("Meshing Properties")) {
-#ifdef USE_CGAL
-    if (ImGui::Checkbox("Use CGAL", &use_cgal))
-      changed = true;
-#endif  // USE_CGAL
-    if (ImGui::Checkbox("Triangulate per bundle", &triangulate_per_bundle))
-      changed = true;
-    if (ImGui::DragFloat("Alpha", &alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Bifurcation Alpha", &bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::DragFloat("Max Distance Squared", &max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
-      changed = true;
-    if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
-      changed = true;
-    if (ImGui::DragInt("Min bundle size", &min_bundle_size, 1, 1, 100))
-      changed = true;
-
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNode("Bundle solver")) {
-    changed = bundle_solver.DrawGui() || changed;
-    ImGui::TreePop();
-  }
-
-  return changed;
 }
 
 void DynamicStrandsInitializeParameters::Save(const std::string& name, YAML::Emitter& out) const {

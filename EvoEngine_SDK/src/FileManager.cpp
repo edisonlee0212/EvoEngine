@@ -1,10 +1,8 @@
 #include "FileManager.hpp"
 
 #include "AssetManager.hpp"
-#include "AssetThumbnailProvider.hpp"
-#include "EditorLayer.hpp"
-#include "Platform.hpp"
 #include "ProjectManager.hpp"
+#include "RuntimePaths.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -14,39 +12,21 @@
 using namespace evo_engine;
 
 namespace {
-constexpr uint32_t kMaxThumbnailGenerationsPerFrame = 2;
-constexpr auto kThumbnailGenerationBudget = std::chrono::milliseconds(8);
-constexpr glm::uvec2 kProjectThumbnailResolution = {256, 256};
-
-uint32_t thumbnail_generation_frame = 0;
-uint32_t thumbnail_generation_count = 0;
-std::chrono::steady_clock::duration thumbnail_generation_duration{};
-
-bool CanGenerateThumbnailThisFrame() {
-  if (!Platform::Initialized()) {
-    return true;
-  }
-
-  const auto current_frame_index = Platform::GetFrameCount();
-  if (thumbnail_generation_frame != current_frame_index) {
-    thumbnail_generation_frame = current_frame_index;
-    thumbnail_generation_count = 0;
-    thumbnail_generation_duration = {};
-  }
-  if (thumbnail_generation_count >= kMaxThumbnailGenerationsPerFrame ||
-      thumbnail_generation_duration >= kThumbnailGenerationBudget) {
-    return false;
-  }
-  ++thumbnail_generation_count;
-  return true;
+bool StrictRuntime() {
+  return runtime_paths::IsStrict();
 }
 
-void RecordThumbnailGenerationDuration(const std::chrono::steady_clock::duration duration) {
-  thumbnail_generation_duration += duration;
-}
-
-bool SupportsGeneratedThumbnail(const File& file) {
-  return AssetThumbnailProvider::SupportsGeneratedThumbnail(file.GetAssetTypeName());
+YAML::Node LoadStrictMetadata(const std::filesystem::path& path, const std::initializer_list<const char*> keys) {
+  const auto metadata = YAML::LoadFile(path.string());
+  if (!metadata.IsMap()) {
+    throw std::runtime_error("Metadata must contain a YAML map: " + path.string());
+  }
+  for (const auto key : keys) {
+    if (!metadata[key] || !metadata[key].IsScalar()) {
+      throw std::runtime_error("Metadata is missing required field " + std::string(key) + ": " + path.string());
+    }
+  }
+  return metadata;
 }
 
 std::string LowercaseExtension(std::string extension) {
@@ -126,6 +106,10 @@ std::filesystem::path File::GetAbsolutePath() const {
   return folder_.lock()->GetAbsolutePath() / (asset_file_name_ + asset_extension_);
 }
 void File::SetAssetFileName(const std::string& new_name) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot rename project assets in strict runtime mode.")
+    return;
+  }
   if (asset_file_name_ == new_name)
     return;
   // TODO: Check invalid filename.
@@ -141,10 +125,14 @@ void File::SetAssetFileName(const std::string& new_name) {
   if (std::filesystem::exists(old_path)) {
     std::filesystem::rename(old_path, new_path);
   }
-  InvalidateThumbnail();
+  NotifyContentChanged();
   Save();
 }
 void File::SetAssetExtension(const std::string& new_extension) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot change project asset extensions in strict runtime mode.")
+    return;
+  }
   if (asset_type_name_ == "Binary") {
     EVOENGINE_ERROR("File is binary!")
     return;
@@ -173,10 +161,14 @@ void File::SetAssetExtension(const std::string& new_extension) {
   if (std::filesystem::exists(old_path)) {
     std::filesystem::rename(old_path, new_path);
   }
-  InvalidateThumbnail();
+  NotifyContentChanged();
   Save();
 }
 void File::Save() const {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot write project file metadata in strict runtime mode.")
+    return;
+  }
   const auto path = FileMetadataPath(GetAbsolutePath());
   UnhideFileOnWindows(path);
   YAML::Emitter out;
@@ -196,6 +188,10 @@ Handle File::GetAssetHandle() const {
   return asset_handle_;
 }
 void File::DeleteMetadata() const {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot delete project file metadata in strict runtime mode.")
+    return;
+  }
   std::filesystem::remove(FileMetadataPath(GetAbsolutePath()));
 }
 void File::Load(const std::filesystem::path& path) {
@@ -218,113 +214,10 @@ void File::Load(const std::filesystem::path& path) {
       asset_handle_ = in["asset_handle_"].as<uint64_t>();
   }
 
-  if (!Serialization::HasSerializableType(asset_type_name_)) {
+  if (!StrictRuntime() && !Serialization::HasSerializableType(asset_type_name_)) {
     asset_type_name_ = "Binary";
   }
-  InvalidateThumbnail();
-}
-
-std::shared_ptr<Texture2D> File::GetThumbnail(const bool allow_asset_load) {
-  const auto fallback_thumbnail = GetFallbackThumbnail();
-  if (!SupportsGeneratedThumbnail(*this)) {
-    return fallback_thumbnail;
-  }
-
-  SyncThumbnailSourceWriteTime();
-  if (thumbnail_) {
-    return thumbnail_;
-  }
-  if (!allow_asset_load) {
-    return fallback_thumbnail;
-  }
-
-  if (!thumbnail_future_.valid()) {
-    try {
-      thumbnail_future_ = AssetManager::RequestAssetLoad(asset_handle_);
-    } catch (const std::exception& e) {
-      EVOENGINE_ERROR("Failed to request thumbnail asset load: " + std::string(e.what()))
-      thumbnail_ = fallback_thumbnail;
-    } catch (...) {
-      EVOENGINE_ERROR("Failed to request thumbnail asset load.")
-      thumbnail_ = fallback_thumbnail;
-    }
-    return fallback_thumbnail;
-  }
-  if (thumbnail_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready ||
-      !CanGenerateThumbnailThisFrame()) {
-    return fallback_thumbnail;
-  }
-
-  try {
-    auto asset = thumbnail_future_.get();
-    thumbnail_future_ = {};
-    if (!asset) {
-      return fallback_thumbnail;
-    }
-
-    if (thumbnail_asset_reload_required_) {
-      thumbnail_asset_reload_required_ = false;
-      if (!asset->Load()) {
-        thumbnail_ = fallback_thumbnail;
-        return fallback_thumbnail;
-      }
-    }
-
-    const auto generation_start = std::chrono::steady_clock::now();
-    OffscreenPreviewSettings settings;
-    settings.resolution = kProjectThumbnailResolution;
-    thumbnail_ = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
-    RecordThumbnailGenerationDuration(std::chrono::steady_clock::now() - generation_start);
-  } catch (const std::exception& e) {
-    EVOENGINE_ERROR("Failed to generate thumbnail: " + std::string(e.what()))
-    thumbnail_future_ = {};
-    thumbnail_ = fallback_thumbnail;
-  } catch (...) {
-    EVOENGINE_ERROR("Failed to generate thumbnail.")
-    thumbnail_future_ = {};
-    thumbnail_ = fallback_thumbnail;
-  }
-
-  if (!thumbnail_) {
-    return fallback_thumbnail;
-  }
-  return thumbnail_;
-}
-
-void File::InvalidateThumbnail() {
-  thumbnail_.reset();
-  thumbnail_future_ = {};
-  thumbnail_source_write_time_initialized_ = false;
-  thumbnail_asset_reload_required_ = false;
-}
-
-void File::SyncThumbnailSourceWriteTime() {
-  std::error_code error_code;
-  const auto source_write_time = std::filesystem::last_write_time(GetAbsolutePath(), error_code);
-  if (error_code) {
-    return;
-  }
-
-  if (!thumbnail_source_write_time_initialized_) {
-    thumbnail_source_write_time_ = source_write_time;
-    thumbnail_source_write_time_initialized_ = true;
-    return;
-  }
-  if (thumbnail_source_write_time_ == source_write_time) {
-    return;
-  }
-
-  thumbnail_source_write_time_ = source_write_time;
-  thumbnail_.reset();
-  thumbnail_future_ = {};
-  thumbnail_asset_reload_required_ = true;
-}
-
-std::shared_ptr<Texture2D> File::GetFallbackThumbnail() const {
-  if (const auto icon = EditorLayer::FindIcon(asset_type_name_)) {
-    return icon;
-  }
-  return EditorLayer::FindIcon("Binary");
+  NotifyContentChanged();
 }
 
 std::weak_ptr<Folder> File::GetFolder() const {
@@ -350,6 +243,10 @@ std::string Folder::GetName() const {
   return name_;
 }
 void Folder::Rename(const std::string& new_name) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot rename project folders in strict runtime mode.")
+    return;
+  }
   const auto old_path = GetAbsolutePath();
   auto new_path = old_path;
   new_path.replace_filename(new_name);
@@ -365,6 +262,10 @@ void Folder::Rename(const std::string& new_name) {
   Save();
 }
 void Folder::Save() const {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot write project folder metadata in strict runtime mode.")
+    return;
+  }
   const auto path = FolderMetadataPath(GetAbsolutePath());
   UnhideFileOnWindows(path);
   YAML::Emitter out;
@@ -392,9 +293,17 @@ void Folder::Load(const std::filesystem::path& path) {
     name_ = in["type_name"].as<std::string>();
 }
 void Folder::DeleteMetadata() const {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot delete project folder metadata in strict runtime mode.")
+    return;
+  }
   std::filesystem::remove(FolderMetadataPath(GetAbsolutePath()));
 }
 void Folder::MoveChild(const Handle& child_handle, const std::shared_ptr<Folder>& dest) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot move project folders in strict runtime mode.")
+    return;
+  }
   if (!dest) {
     EVOENGINE_ERROR("Destination folder not exist!")
     return;
@@ -432,6 +341,10 @@ std::weak_ptr<Folder> Folder::GetOrCreateChild(const std::string& folder_name) {
     if (i.second->name_ == folder_name)
       return i.second;
   }
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot create project folders in strict runtime mode.")
+    return {};
+  }
   auto& file_manager = FileManager::GetInstance();
   auto new_folder = std::make_shared<Folder>();
   new_folder->name_ = folder_name;
@@ -447,6 +360,10 @@ std::weak_ptr<Folder> Folder::GetOrCreateChild(const std::string& folder_name) {
   return new_folder;
 }
 void Folder::DeleteChild(const Handle& child_handle) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot delete project folders in strict runtime mode.")
+    return;
+  }
   const auto search = children_.find(child_handle);
   if (search == children_.end() || !search->second) {
     EVOENGINE_ERROR("Child not exist!")
@@ -469,6 +386,10 @@ std::shared_ptr<IAsset> Folder::GetOrCreateAsset(const std::string& file_name, c
   for (const auto& i : files) {
     if (i.second->asset_file_name_ == file_name && i.second->asset_extension_ == extension)
       return AssetManager::GetAssetImpl(i.second->asset_handle_);
+  }
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot create project assets in strict runtime mode.")
+    return {};
   }
   const auto record = std::make_shared<File>();
   record->folder_ = self_;
@@ -493,6 +414,10 @@ std::shared_ptr<IAsset> Folder::GetAsset(const Handle& asset_handle) {
 }
 
 std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot duplicate project assets in strict runtime mode.")
+    return std::nullopt;
+  }
   const auto search = files.find(handle);
   if (search == files.end() || !search->second) {
     EVOENGINE_ERROR("File not exist!")
@@ -533,6 +458,9 @@ std::optional<std::shared_ptr<IAsset>> Folder::Duplicate(const Handle& handle) {
 }
 
 std::shared_ptr<File> Folder::MoveAsset(const Handle& asset_handle, const std::shared_ptr<Folder>& dest) {
+  if (StrictRuntime()) {
+    throw std::runtime_error("Cannot move project assets in strict runtime mode.");
+  }
   if (!dest) {
     throw std::invalid_argument("Destination folder not exist!");
   }
@@ -557,6 +485,10 @@ std::shared_ptr<File> Folder::MoveAsset(const Handle& asset_handle, const std::s
   return asset_record;
 }
 void Folder::RemoveFile(const Handle& asset_handle) {
+  if (StrictRuntime()) {
+    EVOENGINE_ERROR("Cannot delete project assets in strict runtime mode.")
+    return;
+  }
   const auto search = files.find(asset_handle);
   if (search == files.end() || !search->second) {
     EVOENGINE_ERROR("File not exist!")
@@ -570,9 +502,15 @@ void Folder::RemoveFile(const Handle& asset_handle) {
   asset_record->DeleteMetadata();
   files.erase(search);
 }
-void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
+bool Folder::Refresh(std::vector<Handle>& assets_pending_loading, const bool strict, std::string* error) {
   auto& file_manager = FileManager::GetInstance();
   auto path = GetAbsolutePath();
+  const auto fail = [&](const std::string& message) {
+    if (error) {
+      *error = message;
+    }
+    return false;
+  };
   /**
    * 1. Scan folder for any unregistered folders and assets.
    */
@@ -588,10 +526,14 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
       child_folder_list.push_back(entry.path());
     } else if (entry.path().extension() == ".evefoldermeta") {
       child_folder_metadata_list.push_back(entry.path());
-      HideFileOnWindows(entry.path());
+      if (!strict) {
+        HideFileOnWindows(entry.path());
+      }
     } else if (entry.path().extension() == ".evefilemeta") {
       asset_metadata_list.push_back(entry.path());
-      HideFileOnWindows(entry.path());
+      if (!strict) {
+        HideFileOnWindows(entry.path());
+      }
     } else if (entry.path().filename() != "" && entry.path().extension() != ".eveproj") {
       file_list.push_back(entry.path());
     }
@@ -601,6 +543,9 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     child_folder_path.replace_extension("");
     if (!std::filesystem::exists(child_folder_path) || child_folder_path.filename().string() == "." ||
         child_folder_path.filename().string() == "..") {
+      if (strict) {
+        return fail("Orphan folder metadata: " + child_folder_metadata_path.string());
+      }
       std::filesystem::remove(child_folder_metadata_path);
     } else {
       auto folder_name = child_folder_metadata_path.filename();
@@ -612,11 +557,21 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
         }
       }
       if (!child) {
+        if (strict) {
+          LoadStrictMetadata(child_folder_metadata_path, {"handle_", "type_name"});
+        }
         auto new_folder = std::make_shared<Folder>();
         new_folder->self_ = new_folder;
         new_folder->name_ = folder_name.string();
         new_folder->parent_ = self_;
         new_folder->Load(child_folder_metadata_path);
+        if (strict && (new_folder->handle_.GetValue() == 0 || new_folder->name_ != folder_name.string())) {
+          return fail("Invalid folder metadata: " + child_folder_metadata_path.string());
+        }
+        if (strict && (file_manager.folder_registry_.find(new_folder->handle_) != file_manager.folder_registry_.end() ||
+                       file_manager.file_registry_.find(new_folder->handle_) != file_manager.file_registry_.end())) {
+          return fail("Duplicate project handle in folder metadata: " + std::to_string(new_folder->handle_.GetValue()));
+        }
         children_[new_folder->handle_] = new_folder;
 
         file_manager.folder_registry_[new_folder->handle_] = new_folder;
@@ -624,8 +579,22 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     }
   }
   for (const auto& child_folder_path : child_folder_list) {
-    auto child_folder = GetOrCreateChild(child_folder_path.filename().string()).lock();
-    child_folder->Refresh(assets_pending_loading);
+    std::shared_ptr<Folder> child_folder;
+    for (const auto& [_, candidate] : children_) {
+      if (candidate->name_ == child_folder_path.filename().string()) {
+        child_folder = candidate;
+        break;
+      }
+    }
+    if (!child_folder) {
+      if (strict) {
+        return fail("Missing folder metadata: " + FolderMetadataPath(child_folder_path).string());
+      }
+      child_folder = GetOrCreateChild(child_folder_path.filename().string()).lock();
+    }
+    if (!child_folder->Refresh(assets_pending_loading, strict, error)) {
+      return false;
+    }
   }
   for (const auto& asset_metadata_path : asset_metadata_list) {
     auto asset_name = asset_metadata_path.filename();
@@ -639,23 +608,46 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     }
 
     if (!exist) {
+      if (strict) {
+        LoadStrictMetadata(asset_metadata_path,
+                           {"asset_extension_", "asset_file_name_", "asset_type_name_", "asset_handle_"});
+      }
       auto new_asset_record = std::make_shared<File>();
       new_asset_record->folder_ = self_;
       new_asset_record->self_ = new_asset_record;
       new_asset_record->Load(asset_metadata_path);
       if (!std::filesystem::exists(new_asset_record->GetAbsolutePath())) {
+        if (strict) {
+          return fail("Orphan asset metadata: " + asset_metadata_path.string());
+        }
         std::filesystem::remove(asset_metadata_path);
       } else {
+        if (strict && (new_asset_record->asset_handle_.GetValue() == 0 ||
+                       new_asset_record->asset_file_name_ != asset_name.string() ||
+                       new_asset_record->asset_extension_ != asset_extension.string() ||
+                       new_asset_record->asset_type_name_.empty())) {
+          return fail("Invalid asset metadata: " + asset_metadata_path.string());
+        }
+        if (strict &&
+            (file_manager.file_registry_.find(new_asset_record->asset_handle_) != file_manager.file_registry_.end() ||
+             file_manager.folder_registry_.find(new_asset_record->asset_handle_) !=
+                 file_manager.folder_registry_.end())) {
+          return fail("Duplicate project handle in asset metadata: " +
+                      std::to_string(new_asset_record->asset_handle_.GetValue()));
+        }
         files[new_asset_record->asset_handle_] = new_asset_record;
         file_manager.file_registry_[new_asset_record->asset_handle_] = new_asset_record;
       }
     }
   }
   for (const auto& file_path : file_list) {
-    auto filename = file_path.filename().replace_extension("").replace_extension("").string();
+    auto filename = file_path.stem().string();
     auto extension = file_path.extension().string();
     auto type_name = Serialization::GetAssetTypeName(extension);
     if (!FileRecorded(filename, extension)) {
+      if (strict) {
+        return fail("Missing asset metadata: " + FileMetadataPath(file_path).string());
+      }
       auto new_asset_record = std::make_shared<File>();
       new_asset_record->folder_ = self_;
       new_asset_record->asset_type_name_ = type_name;
@@ -678,6 +670,9 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     }
   }
   for (const auto& i : asset_to_remove) {
+    if (strict) {
+      return fail("Asset metadata references a missing file handle: " + std::to_string(i.GetValue()));
+    }
     RemoveFile(i);
   }
   for (const auto& i : files) {
@@ -692,11 +687,18 @@ void Folder::Refresh(std::vector<Handle>& assets_pending_loading) {
     }
   }
   for (const auto& i : folder_to_remove) {
+    if (strict) {
+      return fail("Folder metadata references a missing directory handle: " + std::to_string(i.GetValue()));
+    }
     DeleteChild(i);
   }
+  return true;
 }
 std::weak_ptr<File> Folder::RegisterAsset(const Handle& asset_handle, const std::string& type_name,
                                           const std::string& file_name, const std::string& extension) {
+  if (StrictRuntime()) {
+    throw std::runtime_error("Cannot register project assets in strict runtime mode.");
+  }
   if (files.find(asset_handle) != files.end()) {
     throw std::invalid_argument("File already exist!");
   }

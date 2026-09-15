@@ -14,8 +14,3 @@ void eco_sys_lab_package::DeserializeAdvancedShootDescriptor(const YAML::Node& i
   (void)in;
   (void)target;
 }
-
-bool AdvancedShootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  return changed;
-}

@@ -183,7 +183,6 @@ class SorghumState : public IAsset {
    * @brief Generates a thumbnail texture representation.
    * @return Smart pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Modifies waviness of all leaves in the state.

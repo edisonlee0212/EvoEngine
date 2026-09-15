@@ -2,12 +2,18 @@
 
 #include <gtest/gtest.h>
 
+#include "../../EvoEngine_SDK/src/Bc7TextureCodec.hpp"
 #include "Application.hpp"
+#include "ApplicationContext.hpp"
+#include "ApplicationInitializationSettings.hpp"
+#include "AssetManager.hpp"
+#include "Serialization.hpp"
 #include "Texture2D.hpp"
 
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -16,6 +22,16 @@
 using namespace evo_engine;
 
 namespace {
+ApplicationInitializationSettings EmptyProjectSettings() {
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  return settings;
+}
+
 class TempDirectory {
  public:
   TempDirectory() {
@@ -90,6 +106,17 @@ void WriteBc7Dds(const std::filesystem::path& path, const uint32_t width, const 
 
   std::ofstream stream(path, std::ios::binary);
   stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+}
+
+std::vector<std::byte> ReadBytes(const std::filesystem::path& path) {
+  std::ifstream stream(path, std::ios::binary | std::ios::ate);
+  const auto size = stream.tellg();
+  if (size < 0)
+    throw std::runtime_error("Failed to read DDS fixture.");
+  std::vector<std::byte> bytes(static_cast<size_t>(size));
+  stream.seekg(0);
+  stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(size));
+  return bytes;
 }
 }  // namespace
 
@@ -170,4 +197,73 @@ TEST(Texture2D, RejectsUnsupportedDdsDxgiFormat) {
 
   Texture2DTestAccess texture;
   EXPECT_FALSE(texture.LoadInternal(path));
+}
+
+TEST(Texture2D, SerializedBc7PayloadRoundTripsBytesFormatMipsAndColors) {
+  Application application;
+  ApplicationContextScope scope(application);
+  application.Initialize(EmptyProjectSettings());
+  TempDirectory directory;
+  const auto path = directory.Path() / "fixture.dds";
+  std::vector<bc7_texture_codec::MipLevel> levels;
+  auto resolution = glm::uvec2(8, 4);
+  while (true) {
+    bc7_texture_codec::MipLevel level;
+    level.resolution = resolution;
+    level.pixels.resize(static_cast<size_t>(resolution.x) * resolution.y, glm::vec4(0.2f, 0.4f, 0.7f, 1.0f));
+    levels.emplace_back(std::move(level));
+    if (resolution == glm::uvec2(1))
+      break;
+    resolution = glm::max(resolution / 2u, glm::uvec2(1));
+  }
+  std::string error;
+  ASSERT_TRUE(bc7_texture_codec::WriteDds(path, levels, true, true, &error)) << error;
+
+  const auto source = AssetManager::CreateTemporaryAsset<Texture2D>();
+  ASSERT_TRUE(Serialization::LoadAsset(*source, path));
+  YAML::Emitter emitter;
+  emitter << YAML::BeginMap;
+  Serialization::SerializeObject(emitter, static_cast<IAsset&>(*source));
+  emitter << YAML::EndMap;
+  const auto node = YAML::Load(emitter.c_str());
+  ASSERT_TRUE(node["compressed_pixels"]);
+  EXPECT_EQ(node["compressed_format"].as<int32_t>(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_EQ(node["compressed_mip_levels"].as<uint32_t>(), levels.size());
+
+  const auto restored = AssetManager::CreateTemporaryAsset<Texture2D>();
+  Serialization::DeserializeObject(node, static_cast<IAsset&>(*restored));
+  EXPECT_EQ(restored->PeekCompressedData(), source->PeekCompressedData());
+  EXPECT_EQ(restored->GetCompressedFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_EQ(restored->GetCompressedMipLevels(), levels.size());
+  EXPECT_EQ(restored->GetResolution(), levels.front().resolution);
+
+  auto restored_dds = ReadBytes(path);
+  ASSERT_EQ(restored_dds.size(), 148 + restored->PeekCompressedData().size());
+  std::memcpy(restored_dds.data() + 148, restored->PeekCompressedData().data(), restored->PeekCompressedData().size());
+  bc7_texture_codec::MipChain decoded;
+  ASSERT_TRUE(bc7_texture_codec::DecodeDds(restored_dds, decoded, &error)) << error;
+  ASSERT_EQ(decoded.levels.size(), levels.size());
+  for (size_t mip = 0; mip < levels.size(); ++mip) {
+    ASSERT_EQ(decoded.levels[mip].pixels.size(), levels[mip].pixels.size());
+    for (size_t pixel = 0; pixel < levels[mip].pixels.size(); ++pixel)
+      EXPECT_LT(glm::length(decoded.levels[mip].pixels[pixel] - levels[mip].pixels[pixel]), 0.12f);
+  }
+}
+
+TEST(Texture2D, RejectsNonemptySerializedTextureWithoutPixelPayload) {
+  Application application;
+  ApplicationContextScope scope(application);
+  application.Initialize(EmptyProjectSettings());
+  const auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  const auto node = YAML::Load(R"(resolution: [4096, 4096]
+red_channel: true
+green_channel: true
+blue_channel: true
+alpha_channel: true
+hdr: false
+)");
+
+  EXPECT_THROW(Serialization::DeserializeObject(node, static_cast<IAsset&>(*texture)), std::runtime_error);
+  EXPECT_EQ(texture->GetResolution(), glm::uvec2(0));
+  EXPECT_TRUE(texture->PeekLocalData().empty());
 }

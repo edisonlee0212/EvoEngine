@@ -176,12 +176,6 @@ class EVOENGINE_API Prefab : public IAsset {
  public:
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Prefab");
 
-  /**
-   * @brief Generates a thumbnail texture for the prefab.
-   * @return The generated thumbnail texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
   [[nodiscard]] bool IsPrefabEnabled() const;
 
   void SetPrefabEnabled(bool value);

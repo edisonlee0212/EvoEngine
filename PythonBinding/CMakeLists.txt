@@ -1,7 +1,7 @@
 message("====Checking Python Binding====")
 
 add_custom_target(PyResourceCopy)
-add_dependencies(PyResourceCopy EvoEngine_SDK)
+add_dependencies(PyResourceCopy EvoEngine_EditorSDK)
 
 set(EVOENGINE_PYTHON_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
 if(CMAKE_CONFIGURATION_TYPES)
@@ -41,7 +41,7 @@ function(configure_python_binding_target target_name)
 		)
 	target_link_libraries(${target_name}
 		PRIVATE
-		EvoEngine_SDK
+		EvoEngine_EditorSDK
 		${EvoEngine_Services}
 		EvoEngine_DemoScene
 		)

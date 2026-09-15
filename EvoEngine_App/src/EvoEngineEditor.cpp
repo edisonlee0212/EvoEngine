@@ -3,15 +3,19 @@
 #include "AssetManager.hpp"
 #include "AssetThumbnailProvider.hpp"
 #include "Camera.hpp"
+#include "DemoAuthoringCommandLine.hpp"
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
+#include "IAsset.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
+#include "NativeBuildIdentity.hpp"
+#include "PackageManager.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
@@ -44,6 +48,7 @@
 #include <vector>
 
 #include <glm/gtc/packing.hpp>
+#include <nlohmann/json.hpp>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -115,6 +120,9 @@ struct EditorCommandLine {
   std::string preview_ddgi_phase = "ad-hoc";
   size_t preview_ddgi_run_index = 0;
   bool bistro_smoke = false;
+  bool author_runtime_scene = false;
+  std::optional<std::filesystem::path> resource_root;
+  size_t author_warmup_frames = 0;
 };
 
 std::string NormalizePreviewChoice(std::string value) {
@@ -528,6 +536,14 @@ glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const s
 
 EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   EditorCommandLine command_line;
+  std::vector<std::string> arguments;
+  arguments.reserve(static_cast<size_t>(std::max(0, argc - 1)));
+  for (int index = 1; index < argc; ++index)
+    arguments.emplace_back(argv[index] ? argv[index] : "");
+  const auto authoring = ParseDemoAuthoringArguments(arguments);
+  command_line.author_runtime_scene = authoring.enabled;
+  command_line.resource_root = authoring.resource_root;
+  command_line.author_warmup_frames = authoring.warmup_frames;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
     const std::string argument = argv[arg_index] ? argv[arg_index] : "";
     if (argument == "--sdfgi-review") {
@@ -549,6 +565,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("Unknown EvoEngineEditor demo profile: " + profile_id);
       }
       command_line.demo_profile_id = profile->id;
+    } else if (argument == "--resource-root") {
+      ++arg_index;
+    } else if (argument == "--author-runtime-scene") {
+    } else if (argument == "--author-warmup-frames") {
+      ++arg_index;
     } else if (argument == "--capture-demo-preview") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--capture-demo-preview requires an output PNG or HDR path.");
@@ -812,6 +833,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.demo_profile_id && command_line.project_path) {
     throw std::invalid_argument("EvoEngineEditor --demo cannot be combined with --project.");
   }
+  ValidateDemoAuthoringArguments(authoring, command_line.demo_profile_id.has_value(),
+                                 command_line.demo_preview_capture_path ||
+                                     command_line.material_thumbnail_output_path || command_line.bistro_smoke);
   if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
     throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
   }
@@ -1010,6 +1034,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   }
   if (command_line.demo_profile_id) {
     const auto& profile = GetDemoProfile(*command_line.demo_profile_id);
+    if (command_line.author_runtime_scene) {
+      command_line.application_mode = ApplicationMode::Editor;
+      command_line.application_mode_explicit = true;
+    }
     if (!command_line.application_mode_explicit) {
       command_line.application_mode = profile.default_application_mode;
     }
@@ -1137,8 +1165,10 @@ void ApplyBistroDemoEditorCameraDefaults() {
 }
 
 void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode application_mode,
-                          ApplicationInitializationSettings& application_info) {
-  const auto missing_resources = MissingDemoProfileResourceRequirements(profile_id);
+                          ApplicationInitializationSettings& application_info,
+                          const std::filesystem::path& preferred_resource_root = {},
+                          const bool clear_generated_project_files = true) {
+  const auto missing_resources = MissingDemoProfileResourceRequirements(profile_id, preferred_resource_root);
   if (!missing_resources.empty()) {
     std::string message = "Demo profile '" + std::string(GetDemoProfileIdName(profile_id)) + "' is missing ";
     for (size_t i = 0; i < missing_resources.size(); ++i) {
@@ -1152,8 +1182,7 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
 
   application_info.application_mode = application_mode;
   application_info.use_custom_title_bar = true;
-  const auto resource_root = FindDemoProfileResourcesRoot();
-  constexpr bool clear_generated_project_files = true;
+  const auto resource_root = FindDemoProfileResourcesRoot(preferred_resource_root);
   switch (profile_id) {
     case DemoProfileId::Rendering:
       SetupDemoScene(DemoSetup::Rendering, application_info, resource_root, clear_generated_project_files);
@@ -2417,6 +2446,138 @@ void RunBistroSmoke(const int width, const int height) {
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
 }
 
+bool IsWithinPath(const std::filesystem::path& path, const std::filesystem::path& root) {
+  std::error_code error;
+  const auto relative = std::filesystem::relative(path, root, error);
+  return !error && !relative.empty() && *relative.begin() != "..";
+}
+
+bool IsRawImportedAsset(const AssetManager::LoadedAssetState& state) {
+  auto extension = state.path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  if (extension.rfind(".eve", 0) == 0)
+    return false;
+  return state.type_name == "Prefab" || state.type_name == "Texture2D" || state.type_name == "GaussianSplat" ||
+         state.type_name == "Shader" || state.type_name == "Strands";
+}
+
+void SaveLoadedProjectAssetsExcept(const Handle excluded_handle) {
+  const auto assets_root = ProjectManager::GetAssetsFolderPath();
+  for (const auto& state : AssetManager::GetLoadedAssetStates()) {
+    if (state.temporary || state.handle == excluded_handle || !IsWithinPath(state.path, assets_root))
+      continue;
+    if (IsRawImportedAsset(state)) {
+      if (!state.saved)
+        throw std::runtime_error("Save modified imported content as a native project asset before authoring: " +
+                                 state.path.string());
+      continue;
+    }
+    const auto asset = AssetManager::GetAsset(state.handle);
+    if (!asset || !asset->Save())
+      throw std::runtime_error("Failed to save authored project asset: " + state.path.string());
+  }
+}
+
+const char* WindowModeName(const WindowDisplayMode mode) {
+  switch (mode) {
+    case WindowDisplayMode::Windowed:
+      return "windowed";
+    case WindowDisplayMode::BorderlessWindowed:
+      return "borderless_windowed";
+    case WindowDisplayMode::BorderlessFullscreen:
+      return "borderless_fullscreen";
+    case WindowDisplayMode::ExclusiveFullscreen:
+      return "exclusive_fullscreen";
+  }
+  return "windowed";
+}
+
+void AuthorRuntimeDemoScene(const DemoProfileId profile_id, const size_t warmup_frames) {
+  for (size_t frame = 0; frame < warmup_frames; ++frame) {
+    if (!ApplicationContext::Get().Loop())
+      throw std::runtime_error("Application ended during demo authoring warmup.");
+  }
+  if (!ProjectManager::IsProjectIdle())
+    WaitForDemoProfileProjectIdle();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene)
+    throw std::runtime_error("Demo authoring has no active scene.");
+  const auto camera = scene->main_camera.Get<Camera>();
+  if (!camera || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
+      !scene->IsEntityEnabled(camera->GetOwner()))
+    throw std::runtime_error("Demo authoring requires an enabled main camera on an enabled entity.");
+  if (camera->GetSize().x <= 1 || camera->GetSize().y <= 1)
+    camera->Resize(glm::uvec2(ApplicationContext::Get().GetApplicationInfo().default_window_size));
+  if (const auto errors = scene->ValidateRuntimeStartupContent(); !errors.empty())
+    throw std::runtime_error("Demo runtime readiness: " + errors.front());
+  SaveLoadedProjectAssetsExcept(scene->GetHandle());
+  scene->SetUnsaved();
+  if (!scene->Save() || !std::filesystem::is_regular_file(scene->GetAbsolutePath()))
+    throw std::runtime_error("Failed to save authored demo scene.");
+  ProjectManager::SetStartScene(scene);
+  ProjectManager::SaveProject();
+  const auto project = ProjectManager::GetProjectPath();
+  if (!std::filesystem::is_regular_file(project) || !ProjectManager::ProjectMetadataSaved())
+    throw std::runtime_error("Failed to save authored demo project.");
+  const auto& identity = GetNativeBuildIdentity();
+  const auto& application_info = ApplicationContext::Get().GetApplicationInfo();
+  const auto& graphics = application_info.graphics_settings;
+  const auto window_mode = application_info.window_mode.value_or(
+      application_info.full_screen ? WindowDisplayMode::BorderlessFullscreen : WindowDisplayMode::Windowed);
+  nlohmann::json packages = nlohmann::json::array();
+  for (const auto& package : PackageManager::GetLoadedPackages())
+    packages.push_back({{"name", package.name}, {"source_id", package.package_source_id}});
+  std::vector<Entity> entities;
+  scene->GetAllEntities(entities);
+  nlohmann::json report{
+      {"schema_version", 1},
+      {"demo", GetDemoProfileIdName(profile_id)},
+      {"application_name", std::string("EvoEngine ") + GetDemoProfileIdName(profile_id)},
+      {"project", project.u8string()},
+      {"scene", scene->GetAbsolutePath().u8string()},
+      {"startup_scene_handle", scene->GetHandle().GetValue()},
+      {"entity_count", entities.size()},
+      {"camera_resolution", {camera->GetSize().x, camera->GetSize().y}},
+      {"editor_identity",
+       {{"sdk_source_id", identity.sdk_source_id},
+        {"compiler_id", identity.compiler_id},
+        {"compiler_version", identity.compiler_version},
+        {"configuration", identity.configuration},
+        {"platform", identity.platform},
+        {"architecture", identity.architecture},
+        {"with_editor", identity.with_editor}}},
+      {"loaded_packages", packages},
+      {"runtime_config",
+       {{"window",
+         {{"mode", WindowModeName(window_mode)},
+          {"width", application_info.default_window_size.x},
+          {"height", application_info.default_window_size.y},
+          {"allow_resize", application_info.window_resizable},
+          {"allow_resolution_change", application_info.allow_resolution_change}}},
+        {"graphics",
+         {{"use_mesh_shader", graphics.use_mesh_shader},
+          {"use_ray_tracing", graphics.use_ray_tracing},
+          {"directional_light_shadow_map_resolution", graphics.directional_light_shadow_map_resolution},
+          {"point_light_shadow_map_resolution", graphics.point_light_shadow_map_resolution},
+          {"spot_light_shadow_map_resolution", graphics.spot_light_shadow_map_resolution},
+          {"max_texture_2d_resource_size", graphics.max_texture_2d_resource_size},
+          {"max_cubemap_resource_size", graphics.max_cubemap_resource_size},
+          {"max_directional_light_size", graphics.max_directional_light_size},
+          {"max_point_light_size", graphics.max_point_light_size},
+          {"max_spot_light_size", graphics.max_spot_light_size}}}}}};
+  const auto report_path = project.parent_path() / "Cache" / "RuntimeAuthoring" / "report.json";
+  std::filesystem::create_directories(report_path.parent_path());
+  std::ofstream report_stream(report_path);
+  report_stream << report.dump(2) << '\n';
+  report_stream.close();
+  if (!report_stream)
+    throw std::runtime_error("Failed to write runtime authoring report.");
+  std::cout << "EVOENGINE_RUNTIME_SCENE_AUTHORED demo=" << GetDemoProfileIdName(profile_id) << " project=\""
+            << project.string() << "\" scene=\"" << scene->GetAbsolutePath().string() << "\"" << std::endl;
+}
+
 void CaptureMaterialThumbnail(const std::filesystem::path& asset_path, const std::filesystem::path& output_path,
                               const glm::uvec2 resolution) {
   const auto asset = ProjectManager::GetOrCreateAsset(asset_path);
@@ -2456,7 +2617,8 @@ int main(const int argc, char** argv) {
   try {
     const auto command_line = ParseCommandLine(argc, argv);
     automated_capture = command_line.demo_preview_capture_path.has_value() ||
-                        command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke;
+                        command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke ||
+                        command_line.author_runtime_scene;
     if (command_line.sdfgi_review_resources) {
       const auto& resources = *command_line.sdfgi_review_resources;
       const auto rendering = resources / "EvoEngine-DemoProjects/Rendering";
@@ -2512,7 +2674,9 @@ int main(const int argc, char** argv) {
         PushStandardApplicationLayers(command_line.application_mode);
 
         ApplicationInitializationSettings application_info{};
-        ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
+        ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info,
+                             command_line.resource_root.value_or(std::filesystem::path{}),
+                             !command_line.author_runtime_scene);
         ApplyApplicationModeDefaults(application_info);
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
         application_info.enable_gpu_timestamp_capture = command_line.preview_gpu_timestamp_capture.value_or(
@@ -2524,10 +2688,21 @@ int main(const int argc, char** argv) {
         if (command_line.application_mode == ApplicationMode::Editor) {
           ApplyDemoEditorDefaults(*command_line.demo_profile_id);
         }
+        if (command_line.author_runtime_scene) {
+          ApplicationContext::Get().RegisterPreUpdateFunction([] {
+            ApplicationContext::Get().GetLayer<EditorLayer>()->main_camera_allow_auto_resize = false;
+          });
+        }
 
         ApplicationContext::Get().Start(false);
         WaitForDemoProfileProjectIdle();
         ApplyDemoProfilePostLoadSetup(*command_line.demo_profile_id, command_line.application_mode);
+        if (command_line.author_runtime_scene) {
+          AuthorRuntimeDemoScene(*command_line.demo_profile_id, command_line.author_warmup_frames);
+          ApplicationContext::Get().Terminate();
+          std::cout << "EVOENGINE_RUNTIME_SCENE_AUTHORING_COMPLETE" << std::endl;
+          return 0;
+        }
         try {
           if (RunRenderingSponzaProbeAuthoringFromEnvironment()) {
             ApplicationContext::Get().Terminate();

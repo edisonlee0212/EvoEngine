@@ -1,7 +1,5 @@
 #include "ParticleGrid2D.hpp"
 
-#include "TreeVisualizer.hpp"
-
 using namespace eco_sys_lab_package;
 
 void ParticleCell::RegisterParticle(ParticleHandle handle) {

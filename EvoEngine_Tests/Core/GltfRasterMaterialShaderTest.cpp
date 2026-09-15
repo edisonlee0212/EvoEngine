@@ -1,3 +1,4 @@
+#include "AssetPreviewRegistry.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include <gtest/gtest.h>
@@ -21,6 +22,11 @@ std::string ReadTextFile(const std::filesystem::path& path) {
 std::filesystem::path ShaderPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" /
          "Shaders" / relative_path;
+}
+
+std::filesystem::path EditorShaderPath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Editor" / "Internals" /
+         "DefaultResources" / "Shaders" / relative_path;
 }
 
 std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
@@ -779,8 +785,8 @@ TEST(GltfRasterMaterial, RasterLightingUsesBindlessGlobalIblAndPassLocalAmbientO
 }
 
 TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
-  const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
-  const auto offscreen_preview = ReadTextFile(SdkPath("src/OffscreenPreviewRenderer.cpp"));
+  const auto thumbnail_provider = ReadTextFile(SdkPath("Editor/src/AssetThumbnailProvider.cpp"));
+  const auto offscreen_preview = ReadTextFile(SdkPath("Editor/src/OffscreenPreviewRenderer.cpp"));
   const auto post_processing = ReadTextFile(SdkPath("src/PostProcessingStack.cpp"));
   const auto bloom_copy = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomCopy.slang"));
   const auto bloom_module = ReadTextFile(ShaderPath("Modules/EvoEngine/PostProcessing.slang"));
@@ -805,7 +811,8 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
   EXPECT_NE(thumbnail_provider.find("OffscreenPreviewRenderer::RenderMaterial(material, settings)"), std::string::npos);
   EXPECT_NE(thumbnail_provider.find("RegisterAssetPreviewHandler<Mesh>"), std::string::npos);
   EXPECT_NE(thumbnail_provider.find("OffscreenPreviewRenderer::RenderMesh(mesh, {}, settings)"), std::string::npos);
-  EXPECT_NE(thumbnail_provider.find("Serialization::GenerateAssetThumbnail(asset, settings)"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("AssetPreviewRegistry::GenerateAssetThumbnail(asset, settings)"),
+            std::string::npos);
 
   EXPECT_NE(offscreen_preview.find("RenderMeshWithMaterial(mesh, material"), std::string::npos);
   EXPECT_EQ(offscreen_preview.find("scene->environment."), std::string::npos);
@@ -815,7 +822,8 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
             std::string::npos);
   EXPECT_NE(offscreen_preview.find("render_layer->RenderSceneToCameraImmediately(scene, camera_transform, camera)"),
             std::string::npos);
-  EXPECT_NE(offscreen_preview.find("std::unique_ptr<PreviewContext> preview_context"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("std::unordered_map<Application*, std::unique_ptr<PreviewContext>>"),
+            std::string::npos);
   EXPECT_NE(offscreen_preview.find("Textures/MaterialPreview/neutral_studio.hdr"), std::string::npos);
   EXPECT_NE(offscreen_preview.find("Camera::BackgroundSource::InheritEnvironmentalLighting"), std::string::npos);
   EXPECT_NE(offscreen_preview.find("context->studio_environment ? 0.45f"), std::string::npos);
@@ -904,9 +912,9 @@ TEST(GltfRasterMaterial, PersistentSampledViewRegistrationIsAssetOwnedAndAbsentF
 }
 
 TEST(GltfRasterMaterial, ProjectThumbnailCacheTracksMaterialDependenciesAndStaysOutsideAssets) {
-  const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
-  const auto file_manager = ReadTextFile(SdkPath("src/FileManager.cpp"));
-  const auto asset_manager = ReadTextFile(SdkPath("src/AssetManager.cpp"));
+  const auto thumbnail_provider = ReadTextFile(SdkPath("Editor/src/AssetThumbnailProvider.cpp"));
+  const auto file_manager = ReadTextFile(SdkPath("Editor/src/FileThumbnail.cpp"));
+  const auto asset_manager = ReadTextFile(SdkPath("Editor/src/AssetInspector.cpp"));
   ASSERT_FALSE(thumbnail_provider.empty());
   ASSERT_FALSE(file_manager.empty());
   ASSERT_FALSE(asset_manager.empty());
@@ -1149,8 +1157,8 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   const auto platform = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
   const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
   const auto camera = ReadTextFile(SdkPath("src/Camera.cpp"));
-  const auto editor = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
-  const auto inspection = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
+  const auto inspection = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   ASSERT_FALSE(platform.empty());
   ASSERT_FALSE(camera_header.empty());
@@ -1197,7 +1205,8 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
 
   const auto motion_vectors = ReadTextFile(ShaderPath("Compute/MotionVectors.slang"));
   const auto deferred_lighting = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
-  const auto selection = ReadTextFile(ShaderPath("Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"));
+  const auto selection =
+      ReadTextFile(EditorShaderPath("Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"));
   for (const auto* source : {&motion_vectors, &selection}) {
     EXPECT_NE(source->find("Texture2D<uint4> inUtility"), std::string::npos);
     EXPECT_EQ(source->find("Sampler2D inUtility"), std::string::npos);
@@ -1390,7 +1399,7 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   const auto raster_material = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
-  const auto inspection_adapters = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspection_adapters = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto scots_pine = ReadTextFile(RepoPath("EvoEngine_Packages/LSystem/src/ScotsPine.cpp"));
   const auto soil = ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/Soil.cpp"));
 
@@ -1543,16 +1552,18 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
   }
   EXPECT_NE(render_layer.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors"),
             std::string::npos);
+  const auto gizmo_rendering = ReadTextFile(SdkPath("Editor/src/GizmoRendering.cpp"));
   for (const auto* pipeline : {"gizmos", "gizmos_instanced_colored"}) {
-    EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) + "->vertex_input_attribute_set = "
-                                                                                 "VertexInputAttributeSet::Position"))
+    EXPECT_TRUE(ContainsIgnoringWhitespace(gizmo_rendering, std::string(pipeline) +
+                                                                "->vertex_input_attribute_set = "
+                                                                "VertexInputAttributeSet::Position"))
         << pipeline;
   }
-  EXPECT_NE(render_layer.find("gizmos_normal_colored->vertex_input_attribute_set = "
-                              "VertexInputAttributeSet::PositionNormal"),
+  EXPECT_NE(gizmo_rendering.find("gizmos_normal_colored->vertex_input_attribute_set = "
+                                 "VertexInputAttributeSet::PositionNormal"),
             std::string::npos);
-  EXPECT_NE(render_layer.find("gizmos_vertex_colored->vertex_input_attribute_set = "
-                              "VertexInputAttributeSet::PositionColor"),
+  EXPECT_NE(gizmo_rendering.find("gizmos_vertex_colored->vertex_input_attribute_set = "
+                                 "VertexInputAttributeSet::PositionColor"),
             std::string::npos);
   EXPECT_NE(render_layer.find("ddgi_probe_visualization_pipeline_->vertex_input_attribute_set = "
                               "VertexInputAttributeSet::PositionNormal"),
@@ -1600,14 +1611,14 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
   ExpectSlangInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/TexturePassThrough.slang")),
                             ShaderPath("Graphics/Vertex/TexturePassThrough.slang"), "TexturePassThroughVertexInput",
                             {0, 3});
-  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/Gizmos.slang")),
-                             ShaderPath("Graphics/Vertex/Gizmos/Gizmos.slang"), {0});
-  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.slang")),
-                             ShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.slang"), {0});
-  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.slang")),
-                             ShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.slang"), {0, 1});
-  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.slang")),
-                             ShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.slang"), {0, 4});
+  ExpectShaderInputLocations(ReadTextFile(EditorShaderPath("Graphics/Vertex/Gizmos/Gizmos.slang")),
+                             EditorShaderPath("Graphics/Vertex/Gizmos/Gizmos.slang"), {0});
+  ExpectShaderInputLocations(ReadTextFile(EditorShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.slang")),
+                             EditorShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.slang"), {0});
+  ExpectShaderInputLocations(ReadTextFile(EditorShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.slang")),
+                             EditorShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.slang"), {0, 1});
+  ExpectShaderInputLocations(ReadTextFile(EditorShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.slang")),
+                             EditorShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.slang"), {0, 4});
   ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/DDGI/DDGIProbeVisualization.slang")),
                              ShaderPath("Graphics/Vertex/DDGI/DDGIProbeVisualization.slang"), {0, 1});
 

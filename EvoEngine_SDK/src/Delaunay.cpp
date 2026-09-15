@@ -38,8 +38,6 @@ GEO::Delaunay_var GeogramProcessDelaunay3D(const bool keeps_infinite, const std:
   delaunay->set_vertices(static_cast<GEO::index_t>(points.size()), converted_points.data());
   return delaunay;
 }
-#else
-
 #endif
 
 std::shared_ptr<Mesh> GenerateMesh(std::vector<glm::uvec3>& triangles, const std::vector<glm::vec3>& points) {

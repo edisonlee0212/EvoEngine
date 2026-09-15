@@ -7,6 +7,7 @@
 #include "Animator.hpp"
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "AssetPreviewRegistry.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
@@ -25,6 +26,7 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "PackageManager.hpp"
 #include "Particles.hpp"
 #include "PlayerController.hpp"
 #include "PointCloud.hpp"
@@ -68,6 +70,13 @@ class TestLayer final : public ILayer {
   int inspect_count = 0;
 };
 
+class InspectorOnlyEditorLayer final : public EditorLayer {
+  void OnCreate() override {
+  }
+  void OnDestroy() override {
+  }
+};
+
 class OffsetBase {
  public:
   virtual ~OffsetBase() = default;
@@ -81,6 +90,56 @@ class OffsetAsset final : public OffsetBase, public IAsset {
   int handler_value = 0;
 };
 }  // namespace
+
+TEST(InspectorRegistry, PackageUnloadRemovesEditorHandlersBeforeClosingLibrary) {
+#ifdef EVOENGINE_TEST_APP_DIR
+  Application app;
+  ApplicationContextScope scope(app);
+  ApplicationInitializationSettings settings;
+  settings.application_mode = ApplicationMode::Headless;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  app.Initialize(settings);
+  PackageManager::Initialize({std::filesystem::path(EVOENGINE_TEST_APP_DIR) / "Packages"});
+  ASSERT_TRUE(PackageManager::Load("BillboardClouds"));
+  auto lifetime = std::make_shared<int>(1);
+  std::weak_ptr<int> retained = lifetime;
+  auto& registry = InspectorRegistry::GetInstance();
+  registry.RegisterInspector<TestAsset>(
+      [lifetime](InspectorContext&, TestAsset&) {
+        return false;
+      },
+      "BillboardClouds");
+  registry.RegisterInspector<TestLayer>(
+      [](InspectorContext&, TestLayer&) {
+        return false;
+      },
+      "kept-owner");
+  AssetPreviewRegistry::RegisterAssetPreviewHandler<TestAsset>(
+      [lifetime](const std::shared_ptr<TestAsset>&, const OffscreenPreviewSettings&) {
+        return std::shared_ptr<Texture2D>{};
+      },
+      "BillboardClouds");
+  lifetime.reset();
+  EXPECT_FALSE(retained.expired());
+  bool removed_callback_called = false;
+  const auto callback = PackageManager::RegisterTypeCleanupCallback([&](const std::string&) {
+    removed_callback_called = true;
+  });
+  PackageManager::UnregisterTypeCleanupCallback(callback);
+  ASSERT_TRUE(PackageManager::Unload("BillboardClouds"));
+  EXPECT_FALSE(registry.HasInspector<TestAsset>());
+  EXPECT_FALSE(AssetPreviewRegistry::HasAssetPreviewHandler<TestAsset>());
+  EXPECT_TRUE(registry.HasInspector<TestLayer>());
+  EXPECT_TRUE(retained.expired());
+  EXPECT_FALSE(removed_callback_called);
+  app.Terminate();
+#else
+  GTEST_SKIP() << "The editor application and its runtime packages are not configured.";
+#endif
+}
 
 TEST(InspectorRegistry, MissingInspectorsDoNotCallConcreteInspectors) {
   Application app;
@@ -138,16 +197,16 @@ TEST(InspectorRegistry, BatchInspectorsRequireExplicitRegistrationAndReceiveEver
   EXPECT_FALSE(registry.HasBatchInspector<TestPrivateComponent>());
 }
 
-TEST(InspectorRegistry, DefaultInspectorsDoNotInstallImplicitHandlers) {
+TEST(InspectorRegistry, RuntimeTypeRegistrationDoesNotInstallImplicitInspectors) {
   Application app;
   ApplicationContextScope scope(app);
   auto& registry = InspectorRegistry::GetInstance();
   registry.Clear();
 
-  EXPECT_FALSE(registry.RegisterDefaultInspector<TestAsset>({}, "TestAsset"));
-  EXPECT_FALSE(registry.RegisterDefaultInspector<TestPrivateComponent>({}, "TestPrivateComponent"));
-  EXPECT_FALSE(registry.RegisterDefaultInspector<TestSystem>({}, "TestSystem"));
-  EXPECT_FALSE(registry.RegisterDefaultInspector<TestLayer>({}, "TestLayer"));
+  app.RegisterAsset<TestAsset>("TestAsset", {".testasset"});
+  app.RegisterPrivateComponent<TestPrivateComponent>("TestPrivateComponent");
+  app.RegisterSystem<TestSystem>("TestSystem");
+  ASSERT_TRUE(app.PushLayer<TestLayer>("TestLayer"));
   EXPECT_FALSE(registry.HasInspector<TestAsset>());
   EXPECT_FALSE(registry.HasInspector<TestPrivateComponent>());
   EXPECT_FALSE(registry.HasInspector<TestSystem>());
@@ -167,9 +226,10 @@ TEST(InspectorRegistry, PushedBuiltInLayersDoNotRegisterImplicitInspectors) {
   EXPECT_EQ(registry.FindInspector(typeid(EditorLayer)), nullptr);
 }
 
-TEST(InspectorRegistry, ApplicationRegistersSdkInspectorsExternally) {
+TEST(InspectorRegistry, EditorLayerRegistersSdkInspectorsDuringStartup) {
   Application app;
   ApplicationContextScope scope(app);
+  app.PushLayer<InspectorOnlyEditorLayer>("Inspector registration");
   ApplicationInitializationSettings settings;
   settings.allow_empty_project = true;
   settings.load_default_resources = false;
@@ -182,7 +242,7 @@ TEST(InspectorRegistry, ApplicationRegistersSdkInspectorsExternally) {
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(DirectionalLight)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(EnvironmentalMap)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(EditorLayer)), nullptr);
-  EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Json)), nullptr);
+  EXPECT_EQ(InspectorRegistry::GetInstance().FindInspector(typeid(Json)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(LightProbe)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(LodGroup)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Material)), nullptr);
@@ -312,4 +372,92 @@ TEST(InspectorRegistry, UnregistersPackageOwnedInspectors) {
   TestSystem system;
   EXPECT_TRUE(registry.Inspect(context, system));
   EXPECT_EQ(system.inspect_count, 0);
+}
+
+TEST(InspectorRegistry, ApplicationCleanupIsOrderedAndCanBeUnregistered) {
+  std::vector<int> order;
+  {
+    Application application;
+    static_cast<void>(application.RegisterCleanupFunction([&] {
+      order.push_back(1);
+    }));
+    const auto removed = application.RegisterCleanupFunction([&] {
+      order.push_back(2);
+    });
+    static_cast<void>(application.RegisterCleanupFunction([&] {
+      order.push_back(3);
+    }));
+    application.UnregisterCleanupFunction(removed);
+  }
+  EXPECT_EQ(order, (std::vector<int>{3, 1}));
+}
+
+TEST(InspectorRegistry, ApplicationsIsolateAndReleaseInspectorCallbacks) {
+  Application first;
+  ApplicationContextScope first_scope(first);
+  auto lifetime = std::make_shared<int>(1);
+  std::weak_ptr<int> released;
+  ASSERT_TRUE(InspectorRegistry::GetInstance().RegisterInspector<TestAsset>([lifetime](InspectorContext&, TestAsset&) {
+    return *lifetime == 1;
+  }));
+  {
+    Application second;
+    ApplicationContextScope second_scope(second);
+    EXPECT_FALSE(InspectorRegistry::GetInstance().HasInspector<TestAsset>());
+    auto second_lifetime = std::make_shared<int>(2);
+    released = second_lifetime;
+    ASSERT_TRUE(
+        InspectorRegistry::GetInstance().RegisterInspector<TestAsset>([second_lifetime](InspectorContext&, TestAsset&) {
+          return *second_lifetime == 2;
+        }));
+  }
+  ApplicationContextScope restored_scope(first);
+  EXPECT_TRUE(released.expired());
+  EXPECT_TRUE(InspectorRegistry::GetInstance().HasInspector<TestAsset>());
+}
+
+TEST(InspectorRegistry, InspectsPlainRuntimeValuesWithoutGuiMembers) {
+  InspectorRegistry registry;
+  struct Settings {
+    int value = 0;
+  } settings;
+  InspectorContext context;
+  EXPECT_FALSE(registry.InspectValue(context, settings));
+  ASSERT_TRUE(registry.RegisterInspector<Settings>([](InspectorContext&, Settings& target) {
+    target.value = 17;
+    return true;
+  }));
+  EXPECT_TRUE(registry.InspectValue(context, settings));
+  EXPECT_EQ(settings.value, 17);
+}
+
+TEST(InspectorRegistry, ValueDispatchUsesMostDerivedAddressAndRetainsExecutingHandler) {
+  struct Left {
+    virtual ~Left() = default;
+    int padding = 1;
+  };
+  struct Right {
+    virtual ~Right() = default;
+    int padding = 2;
+  };
+  struct Value : Left, Right {
+    int value = 0;
+  } value;
+  InspectorRegistry registry;
+  InspectorContext context;
+  auto lifetime = std::make_shared<int>(19);
+  std::weak_ptr<int> weak = lifetime;
+  ASSERT_TRUE(registry.RegisterInspector<Value>(
+      [lifetime, &registry, &weak](InspectorContext&, Value& target) {
+        registry.UnregisterOwner("value-editor");
+        EXPECT_FALSE(weak.expired());
+        target.value = *lifetime;
+        return true;
+      },
+      "value-editor"));
+  lifetime.reset();
+  EXPECT_TRUE(registry.InspectValue(context, static_cast<Right&>(value)));
+  EXPECT_EQ(value.value, 19);
+  EXPECT_TRUE(weak.expired());
+  EXPECT_FALSE(registry.InspectValue(context, static_cast<Left&>(value)));
 }

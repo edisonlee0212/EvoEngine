@@ -11,14 +11,12 @@
 #include "AssetRef.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
-#include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "GlobalReflectionProbe.hpp"
 #include "Input.hpp"
-#include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
 #include "LightProbe.hpp"
@@ -41,7 +39,6 @@
 #include "ReflectionProbePack.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
-#include "SDKInspectionAdapters.hpp"
 #include "Scene.hpp"
 #include "Shader.hpp"
 #include "SkinnedMesh.hpp"
@@ -83,7 +80,7 @@ void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const 
 }
 
 void MergeProjectLaunchMetadata(ApplicationInitializationSettings& settings) {
-  if (settings.project_path.empty()) {
+  if (settings.strict_runtime || settings.project_path.empty()) {
     return;
   }
 
@@ -1085,12 +1082,6 @@ void DeserializeGaussianSplat(const YAML::Node& in, GaussianSplat& gaussian_spla
 }
 
 void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {
-  std::vector<glm::vec4> pixels;
-  if (texture.PeekLocalData().empty())
-    texture.GetRgbaChannelData(pixels);
-  else
-    pixels = texture.PeekLocalData();
-
   out << YAML::Key << "hdr" << YAML::Value << texture.hdr;
   out << YAML::Key << "red_channel" << YAML::Value << texture.red_channel;
   out << YAML::Key << "green_channel" << YAML::Value << texture.green_channel;
@@ -1112,8 +1103,25 @@ void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {
   if (resolution.x == 0 || resolution.y == 0) {
     return;
   }
-  if (pixels.empty()) {
+  if (const auto source = texture.GetSerializableSource()) {
+    out << YAML::Key << "source_texture" << YAML::Value << YAML::BeginMap;
+    AssetRef(std::const_pointer_cast<Texture2D>(source)).Serialize(out);
+    out << YAML::EndMap;
     return;
+  }
+  if (!texture.PeekCompressedData().empty()) {
+    out << YAML::Key << "compressed_format" << YAML::Value << static_cast<int32_t>(texture.GetCompressedFormat());
+    out << YAML::Key << "compressed_mip_levels" << YAML::Value << texture.GetCompressedMipLevels();
+    Serialization::SerializeVector("compressed_pixels", texture.PeekCompressedData(), out);
+    return;
+  }
+  std::vector<glm::vec4> pixels;
+  if (texture.PeekSerializableLocalData().empty())
+    texture.GetRgbaChannelData(pixels);
+  else
+    pixels = texture.PeekSerializableLocalData();
+  if (pixels.empty()) {
+    throw std::runtime_error("Texture2D has a nonzero resolution but no serializable pixel payload.");
   }
   if (texture.hdr) {
     Serialization::SerializeVector("pixels", pixels, out);
@@ -1179,8 +1187,34 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
   if (resolution.x == 0 || resolution.y == 0) {
     return;
   }
+  if (in["source_texture"]) {
+    AssetRef source_ref;
+    source_ref.Deserialize(in["source_texture"]);
+    const auto source = source_ref.Get<Texture2D>();
+    if (!source || !texture.ShareGpuImage(*source, texture.srgb, texture.GetSamplerSettings())) {
+      throw std::runtime_error("Serialized Texture2D source asset is unavailable or incompatible.");
+    }
+    return;
+  }
+  if (in["compressed_pixels"]) {
+    std::vector<std::byte> compressed_pixels;
+    Serialization::DeserializeVector("compressed_pixels", compressed_pixels, in);
+    if (!in["compressed_format"] || !in["compressed_mip_levels"] ||
+        !texture.SetCompressedData(std::move(compressed_pixels), resolution,
+                                   static_cast<VkFormat>(in["compressed_format"].as<int32_t>()),
+                                   in["compressed_mip_levels"].as<uint32_t>())) {
+      throw std::runtime_error("Serialized Texture2D has an invalid BC7 payload.");
+    }
+    return;
+  }
+  if (!in["pixels"]) {
+    throw std::runtime_error("Serialized Texture2D has a nonzero resolution but no pixel payload.");
+  }
   if (texture.hdr) {
     Serialization::DeserializeVector("pixels", pixels, in);
+    if (pixels.size() != static_cast<size_t>(resolution.x) * resolution.y) {
+      throw std::runtime_error("Serialized HDR Texture2D pixel count does not match its resolution.");
+    }
     texture.SetRgbaChannelData(pixels, resolution);
     return;
   }
@@ -1197,7 +1231,10 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
 
   std::vector<unsigned char> transferred_pixels;
   Serialization::DeserializeVector("pixels", transferred_pixels, in);
-  transferred_pixels.resize(resolution.x * resolution.y * target_channel_size);
+  if (target_channel_size == 0 ||
+      transferred_pixels.size() != static_cast<size_t>(resolution.x) * resolution.y * target_channel_size) {
+    throw std::runtime_error("Serialized Texture2D pixel count does not match its resolution and channels.");
+  }
   pixels.resize(resolution.x * resolution.y);
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     for (int channel = 0; channel < target_channel_size; channel++) {
@@ -2047,10 +2084,29 @@ Application::Application()
 Application::~Application() {
   if (execution_status_ != ExecutionStatus::Uninitialized) {
     Terminate();
+  } else {
+    ApplicationContextScope scope(*this);
+    RunCleanupFunctions();
   }
   if (ApplicationContext::TryGet() == this) {
     ApplicationContext::Set(nullptr);
   }
+}
+
+uint64_t Application::RegisterCleanupFunction(std::function<void()> function) {
+  const auto id = ++next_cleanup_id_;
+  cleanup_functions_.emplace(id, std::move(function));
+  return id;
+}
+
+void Application::UnregisterCleanupFunction(const uint64_t id) {
+  cleanup_functions_.erase(id);
+}
+
+void Application::RunCleanupFunctions() {
+  auto functions = std::exchange(cleanup_functions_, {});
+  for (auto it = functions.rbegin(); it != functions.rend(); ++it)
+    it->second();
 }
 
 Serialization& Application::GetSerialization() {
@@ -2271,7 +2327,7 @@ void Application::UpdateInternal() {
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     const ProfilerScope render_scope("Application::PrepareRendering", "Render");
     render_layer->PrepareForRendering();
-    render_layer->ClearAllEditorCameras();
+    render_layer->ClearAuxiliaryCameras();
     render_layer->ClearAllCameras();
   }
 }
@@ -2304,7 +2360,7 @@ void Application::LateUpdateInternal() {
   }
 
   const auto render_layer = GetLayer<RenderLayer>();
-  const auto editor_layer = GetLayer<EditorLayer>();
+
   const auto window_layer = GetLayer<WindowLayer>();
 
   if (this->active_scene_) {
@@ -2318,7 +2374,8 @@ void Application::LateUpdateInternal() {
     if (render_layer) {
       const ProfilerScope render_scope("Application::RenderSubmission", "Render");
       render_layer->RenderAll();
-      render_layer->RenderGizmos();
+      for (const auto& layer : layers_)
+        layer->OnPostRender();
     }
   }
 
@@ -2384,7 +2441,6 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<SpotLight>("SpotLight");
   RegisterPrivateComponent<DirectionalLight>("DirectionalLight");
   RegisterPrivateComponent<WayPoints>("WayPoints");
-  RegisterWayPointsHandlers();
   RegisterPrivateComponent<LodGroup>("LodGroup");
   RegisterPrivateComponent<PointCloudScanner>("PointCloudScanner");
   RegisterPrivateComponent<UnknownPrivateComponent>("UnknownPrivateComponent");
@@ -2418,7 +2474,6 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<PointCloud>("PointCloud", {".evepointcloud"});
   RegisterAsset<GaussianSplat>("GaussianSplat", {".evegaussiansplat", ".ply", ".splat", ".ksplat"});
   RegisterAsset<Json>("Json", {".json"});
-  RegisterSdkInspectionAdapters();
   RegisterBuiltInAssetIoHandlers();
   RegisterJsonHandlers();
 #pragma endregion
@@ -2485,10 +2540,12 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   }
   if (window_layer) {
     const auto stage_begin = std::chrono::steady_clock::now();
-    window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
-                               this->initialization_settings.default_window_size.y);
-    if (!this->initialization_settings.full_screen) {
-      window_layer->CenterWindow();
+    if (!this->initialization_settings.window_mode) {
+      window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
+                                 this->initialization_settings.default_window_size.y);
+      if (!this->initialization_settings.full_screen) {
+        window_layer->CenterWindow();
+      }
     }
     // Texture loading flips STB globally; GLFW window icons need image-space orientation.
     stbi_set_flip_vertically_on_load(false);
@@ -2526,6 +2583,20 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   }
   this->execution_status_ = ExecutionStatus::NotPlaying;
 
+  if (this->initialization_settings.strict_runtime) {
+    const auto loaded = PackageManager::GetLoadedPackages();
+    for (const auto& name : this->initialization_settings.startup_runtime_packages) {
+      if (std::none_of(loaded.begin(), loaded.end(), [&](const auto& package) {
+            return package.name == name;
+          })) {
+        throw std::runtime_error("Required runtime package failed to load: " + name);
+      }
+    }
+    if (loaded.size() != this->initialization_settings.startup_runtime_packages.size()) {
+      throw std::runtime_error("Loaded runtime packages differ from the distribution configuration.");
+    }
+  }
+
   const auto shader_stats_delta = DeltaShaderCompileCacheStats(shader_stats_begin, Shader::GetCompileCacheStats());
   std::ostringstream startup_log;
   startup_log << "EVOENGINE_STARTUP_TIMING application=\"" << this->initialization_settings.application_name
@@ -2551,7 +2622,9 @@ void Application::Start(const bool autoplay) {
   times.steps_ = times.frames_ = 0;
   const bool runtime_autoplay_mode = initialization_settings.application_mode == ApplicationMode::Player ||
                                      initialization_settings.application_mode == ApplicationMode::Headless;
-  pending_player_autoplay_ = autoplay && runtime_autoplay_mode && !GetLayer<EditorLayer>();
+  pending_player_autoplay_ = autoplay && runtime_autoplay_mode;
+  for (const auto& layer : layers_)
+    pending_player_autoplay_ = pending_player_autoplay_ && layer->AllowsAutoplay();
   TryStartPendingPlayerAutoplay();
 }
 
@@ -2565,9 +2638,20 @@ bool Application::Loop() {
   if (this->execution_status_ != ExecutionStatus::OnDestroy) {
     const ProfilerFrameScope profiler_frame_scope(Platform::GetFrameCount() + 1);
     const ProfilerScope profiler_scope("Application::Loop", "Frame");
-    PreUpdateInternal();
-    UpdateInternal();
-    LateUpdateInternal();
+    {
+      struct Dispatch {
+        bool& active;
+        explicit Dispatch(bool& active) : active(active) {
+          active = true;
+        }
+        ~Dispatch() {
+          active = false;
+        }
+      } dispatch(dispatching_layers_);
+      PreUpdateInternal();
+      UpdateInternal();
+      LateUpdateInternal();
+    }
     {
       const ProfilerScope end_of_loop_scope("Application::EndOfLoop", "Frame");
       ExecuteEndOfLoopActions();
@@ -2614,6 +2698,8 @@ void Application::Terminate() {
   if (has_render_layer) {
     Platform::DrainGpuResourceWork();
   }
+  PackageManager::ShutdownLifecycleCallbacks();
+  RunCleanupFunctions();
   for (auto i = this->layers_.rbegin(); i != this->layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }
@@ -2639,6 +2725,56 @@ void Application::Terminate() {
 
 const std::vector<std::shared_ptr<ILayer>>& Application::GetLayers() const {
   return this->layers_;
+}
+
+std::shared_ptr<ILayer> Application::PushLayerInternal(std::shared_ptr<ILayer> existing, ILayer* (*create)(),
+                                                       const std::string& layer_name, const std::string& package_owner,
+                                                       std::shared_ptr<void> lifetime) {
+  if (execution_status_ == ExecutionStatus::OnDestroy) {
+    EVOENGINE_ERROR("Unable to push layer! Application is being destroyed!");
+    return nullptr;
+  }
+  if (execution_status_ != ExecutionStatus::Uninitialized && package_owner.empty()) {
+    EVOENGINE_ERROR("Unable to push layer! Application already started!");
+    return nullptr;
+  }
+  auto test = std::move(existing);
+  if (!test) {
+    test = std::shared_ptr<ILayer>(create(), [lifetime = std::move(lifetime)](ILayer* layer) mutable {
+      delete layer;
+      lifetime.reset();
+    });
+    if (!layers_.empty())
+      layers_.back()->subsequent_layer_ = test;
+    layers_.push_back(test);
+    layers_.back()->self_ = test;
+    layers_.back()->application_ = this;
+    layers_.back()->package_owner_ = package_owner;
+    if (this->active_scene_) {
+      layers_.back()->scene_ = this->active_scene_;
+    }
+    if (execution_status_ != ExecutionStatus::Uninitialized) {
+      if (package_owner.empty()) {
+        layers_.back()->RegisterTypes(*this);
+      }
+      layers_.back()->OnCreate();
+    }
+  } else if (!package_owner.empty()) {
+    const auto existing_layer = test;
+    if (existing_layer->package_owner_ != package_owner) {
+      EVOENGINE_ERROR("Unable to push runtime package layer! Layer type is already owned by another module.")
+      return nullptr;
+    }
+  }
+  if (!layer_name.empty())
+    test->layer_name_ = layer_name;
+  return test;
+}
+
+bool Application::CanRemoveLayersOwnedByPackage(const std::string& package_name) const {
+  return std::none_of(layers_.begin(), layers_.end(), [&](const auto& layer) {
+    return layer->package_owner_ == package_name && layer.use_count() > 1;
+  });
 }
 
 bool Application::RemoveLayersOwnedByPackage(const std::string& package_name) {
@@ -2710,13 +2846,15 @@ void Application::TryStartPendingPlayerAutoplay() {
 
 void Application::Play() {
   ApplicationContextScope application_scope(*this);
+  if (RuntimeOperationBusy())
+    return;
   if (!this->active_scene_ || this->execution_status_ == ExecutionStatus::OnDestroy)
     return;
   if (this->execution_status_ != ExecutionStatus::Pause && this->execution_status_ != ExecutionStatus::NotPlaying)
     return;
   if (this->execution_status_ == ExecutionStatus::NotPlaying) {
-    if (const auto editor_layer = GetLayer<EditorLayer>())
-      editor_layer->ClearConsoleOnRuntimeStart();
+    for (const auto& layer : layers_)
+      layer->OnRuntimeStart();
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
@@ -2743,11 +2881,13 @@ void Application::Pause() {
 
 void Application::Step() {
   ApplicationContextScope application_scope(*this);
+  if (RuntimeOperationBusy())
+    return;
   if (this->execution_status_ != ExecutionStatus::Pause && this->execution_status_ != ExecutionStatus::NotPlaying)
     return;
   if (this->execution_status_ == ExecutionStatus::NotPlaying) {
-    if (const auto editor_layer = GetLayer<EditorLayer>())
-      editor_layer->ClearConsoleOnRuntimeStart();
+    for (const auto& layer : layers_)
+      layer->OnRuntimeStart();
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
@@ -2794,4 +2934,11 @@ void Application::RegisterPostAttachSceneFunction(
 
 bool Application::IsPlaying() const {
   return this->execution_status_ == ExecutionStatus::Playing;
+}
+
+void Application::SetRuntimeOperationBusyPredicate(std::function<bool()> predicate) {
+  runtime_operation_busy_ = std::move(predicate);
+}
+bool Application::RuntimeOperationBusy() const {
+  return runtime_operation_busy_ && runtime_operation_busy_();
 }

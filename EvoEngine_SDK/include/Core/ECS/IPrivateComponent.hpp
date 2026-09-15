@@ -4,7 +4,7 @@
 #include "Entity.hpp"
 
 namespace evo_engine {
-class EVOENGINE_API EditorLayer;
+class EditorLayer;
 
 /**
  * @class IPrivateComponent

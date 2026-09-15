@@ -124,31 +124,3 @@ void eco_sys_lab_package::DeserializeBasicPruningDescriptor(const YAML::Node& in
   if (in["branch_breaking_multiplier"])
     target.branch_breaking_multiplier = in["branch_breaking_multiplier"].as<float>();
 }
-
-bool BasicPruningDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::TreeNodeEx("Pruning", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::DragFloat("Low Branch Pruning", &low_branch_pruning, 0.01f, 0.0f, 1.f))
-      changed = true;
-    changed = ImGui::Checkbox("Trunk Protection", &trunk_protection) || changed;
-    changed = ImGui::DragInt("Max chain length", &max_flow_length, 1) || changed;
-    changed = ImGui::DragFloat("Light pruning threshold", &light_pruning_factor, 0.01f) || changed;
-
-    changed = ImGui::DragFloat("Branch strength", &branch_strength, 0.01f, 0.0f) || changed;
-    changed =
-        ImGui::DragFloat("Branch strength thickness factor", &branch_strength_thickness_factor, 0.01f, 0.0f) || changed;
-    changed = ImGui::DragFloat("Branch strength lighting threshold", &branch_strength_lighting_threshold, 0.01f, 0.0f,
-                               1.0f) ||
-              changed;
-    changed =
-        ImGui::DragFloat("Branch strength lighting loss", &branch_strength_lighting_loss, 0.01f, 0.0f, 1.0f) || changed;
-    changed =
-        ImGui::DragFloat("Branch breaking multiplier", &branch_breaking_multiplier, 0.01f, 0.01f, 10.0f) || changed;
-
-    changed = ImGui::DragFloat("Branch breaking factor", &branch_breaking_factor, 0.01f, 0.01f, 10.0f) || changed;
-
-    ImGui::TreePop();
-  }
-
-  return changed;
-}

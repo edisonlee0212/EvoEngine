@@ -1,12 +1,18 @@
 #include "Input.hpp"
 #include "Application.hpp"
-#include "EditorLayer.hpp"
 #include "Scene.hpp"
 #include "WindowLayer.hpp"
 using namespace evo_engine;
 
 void Input::KeyCallBack(GLFWwindow* window, int key, int scan_code, int action, int mods) {
   auto& input = GetInstance();
+  if (action == GLFW_PRESS && key == GLFW_KEY_ENTER && (mods & GLFW_MOD_ALT)) {
+    if (const auto layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+        layer && ApplicationContext::Get().GetApplicationInfo().window_mode) {
+      layer->ToggleFullscreen();
+      return;
+    }
+  }
   if (action == GLFW_PRESS) {
     input.pressed_keys_[key] = KeyActionType::Press;
     Dispatch({key, KeyActionType::Press});
@@ -34,23 +40,22 @@ void Input::MouseButtonCallBack(GLFWwindow* window, const int button, const int 
 }
 
 void Input::Dispatch(const InputEvent& event) {
-  if (const auto& layers = ApplicationContext::Get().GetLayers(); !layers.empty()) {
-    layers[0]->OnInputEvent(event);
+  if (const auto& layers = ApplicationContext::Get().GetLayers();
+      !layers.empty() && layers.front()->OnInputEvent(event)) {
+    return;
   }
-  if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    const auto active_scene = ApplicationContext::Get().GetActiveScene();
-    if (!active_scene) {
-      return;
-    }
+  const auto active_scene = ApplicationContext::Get().GetActiveScene();
+  if (!active_scene) {
+    return;
+  }
 
-    auto& scene_pressed_keys = active_scene->pressed_keys_;
-    if (event.key_action == KeyActionType::Press) {
-      scene_pressed_keys[event.key] = KeyActionType::Press;
-    } else if (event.key_action == KeyActionType::Release) {
-      if (scene_pressed_keys.find(event.key) != scene_pressed_keys.end()) {
-        // Dispatch hold if the key is already pressed.
-        scene_pressed_keys.erase(event.key);
-      }
+  auto& scene_pressed_keys = active_scene->pressed_keys_;
+  if (event.key_action == KeyActionType::Press) {
+    scene_pressed_keys[event.key] = KeyActionType::Press;
+  } else if (event.key_action == KeyActionType::Release) {
+    if (scene_pressed_keys.find(event.key) != scene_pressed_keys.end()) {
+      // Dispatch hold if the key is already pressed.
+      scene_pressed_keys.erase(event.key);
     }
   }
 }

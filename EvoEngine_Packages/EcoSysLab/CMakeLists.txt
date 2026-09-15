@@ -67,3 +67,7 @@ if(CGAL_FOUND)
 else()
 	message(WARNING "EcoSysLab Package: CGAL not found. Some features may be disabled.")
 endif()
+
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

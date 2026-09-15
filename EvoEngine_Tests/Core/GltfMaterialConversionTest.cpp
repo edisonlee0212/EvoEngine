@@ -16,6 +16,7 @@
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
 #include "SkinnedMesh.hpp"
 
 #include <array>
@@ -60,6 +61,7 @@ constexpr uint64_t kProjectGltfHandle = 0xE703'0000'0000'0001ull;
 constexpr uint64_t kProjectDdsHandle = 0xE703'0000'0000'0002ull;
 constexpr uint64_t kProjectBrokenGltfHandle = 0xE703'0000'0000'0003ull;
 constexpr uint64_t kProjectBrokenDdsHandle = 0xE703'0000'0000'0004ull;
+constexpr uint64_t kProjectSpecularGlossinessGltfHandle = 0xE703'0000'0000'0005ull;
 
 class TempGltfProject {
  public:
@@ -760,6 +762,15 @@ TEST(GltfMaterialConversion, ProjectGltfTextureReuseAndManagedFailureFallback) {
   WriteGltfDdsVariant(model_root / "BoxTextured.gltf", broken_gltf_path, "Broken.dds");
   WriteAssetMetadata(broken_gltf_path, "Prefab", kProjectBrokenGltfHandle);
   WriteAssetMetadata(project.ModelsPath() / "Broken.dds", "Texture2D", kProjectBrokenDdsHandle);
+  const auto specular_glossiness_source = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" /
+                                          "assimp" / "assimp" / "test" / "models" / "glTF2" /
+                                          "BoxTextured-glTF-pbrSpecularGlossiness";
+  const auto specular_glossiness_root = project.ModelsPath() / "SpecularGlossiness";
+  std::filesystem::create_directories(specular_glossiness_root);
+  for (const auto& filename : {"BoxTextured.gltf", "BoxTextured0.bin", "CesiumLogoFlat.png"}) {
+    std::filesystem::copy_file(specular_glossiness_source / filename, specular_glossiness_root / filename);
+  }
+  WriteAssetMetadata(specular_glossiness_root / "BoxTextured.gltf", "Prefab", kProjectSpecularGlossinessGltfHandle);
 
   Application app;
   ApplicationContextScope scope(app);
@@ -808,6 +819,62 @@ TEST(GltfMaterialConversion, ProjectGltfTextureReuseAndManagedFailureFallback) {
   EXPECT_EQ(source_texture->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
   EXPECT_EQ(texture->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
   EXPECT_TRUE(texture->SamplesLinearSrgb());
+
+  YAML::Emitter emitter;
+  emitter << YAML::BeginMap;
+  Serialization::SerializeObject(emitter, static_cast<IAsset&>(*texture));
+  emitter << YAML::EndMap;
+  const auto serialized = YAML::Load(emitter.c_str());
+  ASSERT_TRUE(serialized["source_texture"]);
+  EXPECT_FALSE(serialized["compressed_pixels"]);
+  EXPECT_EQ(serialized["source_texture"]["asset_handle_"].as<uint64_t>(), kProjectDdsHandle);
+  EXPECT_LT(emitter.size(), 1024u);
+
+  std::vector<AssetRef> references;
+  Serialization::CollectAssetRefs(static_cast<IAsset&>(*texture), references);
+  ASSERT_EQ(references.size(), 1u);
+  EXPECT_EQ(references.front().GetAssetHandle(), source_texture->GetHandle());
+
+  const auto restored = AssetManager::CreateTemporaryAsset<Texture2D>();
+  Serialization::DeserializeObject(serialized, static_cast<IAsset&>(*restored));
+  EXPECT_EQ(restored->GetVkImage(), source_texture->GetVkImage());
+  EXPECT_EQ(restored->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_EQ(restored->GetSamplerSettings(), texture->GetSamplerSettings());
+  EXPECT_TRUE(restored->SamplesLinearSrgb());
+
+  const auto converted_prefab =
+      std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/SpecularGlossiness/BoxTextured.gltf"));
+  ASSERT_TRUE(converted_prefab);
+  const auto converted_material = FindFirstMaterial(converted_prefab);
+  ASSERT_TRUE(converted_material);
+  const auto& converted_shading = converted_material->material_data.shade_material;
+  const auto converted_base = converted_material->GetTexture(converted_shading.pbr_base_color_texture);
+  const auto converted_metallic_roughness =
+      converted_material->GetTexture(converted_shading.pbr_metallic_roughness_texture);
+  ASSERT_TRUE(converted_base);
+  ASSERT_TRUE(converted_metallic_roughness);
+  for (const auto& converted : {converted_base, converted_metallic_roughness}) {
+    const auto persistent_source = converted->GetSerializableSource();
+    ASSERT_TRUE(persistent_source);
+    EXPECT_FALSE(persistent_source->IsTemporary());
+    EXPECT_EQ(persistent_source->GetAssetsFolderRelativePath().parent_path(),
+              std::filesystem::path(".generated/GltfMaterialConversion/v1"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(persistent_source->GetAbsolutePath()));
+    EXPECT_TRUE(std::filesystem::is_regular_file(persistent_source->GetAbsolutePath().string() + ".evefilemeta"));
+
+    YAML::Emitter converted_emitter;
+    converted_emitter << YAML::BeginMap;
+    Serialization::SerializeObject(converted_emitter, static_cast<IAsset&>(*converted));
+    converted_emitter << YAML::EndMap;
+    const auto converted_node = YAML::Load(converted_emitter.c_str());
+    EXPECT_TRUE(converted_node["source_texture"]);
+    EXPECT_FALSE(converted_node["compressed_pixels"]);
+    EXPECT_LT(converted_emitter.size(), 1024u);
+    const auto converted_restored = AssetManager::CreateTemporaryAsset<Texture2D>();
+    Serialization::DeserializeObject(converted_node, static_cast<IAsset&>(*converted_restored));
+    EXPECT_EQ(converted_restored->GetVkImage(), persistent_source->GetVkImage());
+    EXPECT_EQ(converted_restored->RefTexture2DStorage().GetFormat(), converted->RefTexture2DStorage().GetFormat());
+  }
 }
 
 TEST(GltfMaterialConversion, SpecularGlossinessFactorsConvertToMetallicRoughness) {

@@ -16,6 +16,7 @@ struct Physics2DDemoData {
  * @brief A class that demonstrates the usage of the Physics2D simulation.
  */
 class Physics2DDemo : public IPrivateComponent {
+  friend struct Physics2DDemoInspector;
   /// The 2D physics engine handling the simulation.
   Physics2D<Physics2DDemoData> physics_2d_;
 
@@ -34,13 +35,6 @@ class Physics2DDemo : public IPrivateComponent {
 
   /// The friction coefficient applied in the simulation.
   float friction = 1.0f;
-
-  /**
-   * @brief Inspects the component properties in the editor.
-   * @param editor_layer The editor layer handling the inspection.
-   * @return True if the asset's content is unmodified during inspection; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the physics simulation at a fixed time step.

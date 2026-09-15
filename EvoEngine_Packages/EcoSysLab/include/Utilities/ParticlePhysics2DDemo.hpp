@@ -16,6 +16,7 @@ struct ParticlePhysicsDemoData {
  * @brief Class representing a 2D particle physics simulation demo.
  */
 class ParticlePhysics2DDemo : public IPrivateComponent {
+  friend struct ParticlePhysics2DDemoInspector;
   /// Profile for managing particles in the physics demo.
   StrandModelProfile<ParticlePhysicsDemoData> particle_physics_2d_;
 
@@ -30,13 +31,6 @@ class ParticlePhysics2DDemo : public IPrivateComponent {
   float world_radius = 100.0f;               ///< Radius defining the boundary of the world.
   float gravity_strength = 10.0f;            ///< Strength of the gravitational force.
   int particle_add_count = 10;               ///< Number of particles to add in one step.
-
-  /**
-   * @brief Inspects and modifies the object's properties if needed.
-   * @param editor_layer The editor layer handling the inspection.
-   * @return True if the asset's content remains unchanged, otherwise false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the particle physics in fixed time steps.

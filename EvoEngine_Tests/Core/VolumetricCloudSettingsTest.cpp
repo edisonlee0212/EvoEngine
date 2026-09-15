@@ -141,7 +141,7 @@ TEST(VolumetricCloudSettings, CloudSettingsRemainImplementedButSceneUnowned) {
   const auto cloud_pass_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
                                               "src" / "RenderPasses" / "VolumetricCloudsPass.cpp");
   const auto inspector_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
-                                             "src" / "Editor" / "SDKInspectionAdapters.cpp");
+                                             "Editor" / "src" / "SDKInspectionAdapters.cpp");
   const auto ddgi_settings_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
                                                  "include" / "Rendering" / "PBR" / "DdgiSettings.hpp");
   const auto ddgi_volume_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /

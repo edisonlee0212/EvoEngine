@@ -170,7 +170,6 @@ class SorghumGrowthStages : public IAsset {
    *
    * @return A shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Creates an entity representing the sorghum at a specific time.

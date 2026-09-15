@@ -41,11 +41,6 @@ DsFungus::DsFungus() {
   }
 }
 
-bool DsFungus::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  return changed;
-}
-
 namespace {
 void PackMat3Columns(glm::vec4 (&target)[3], const glm::mat3& source) {
   target[0] = glm::vec4(source[0], 0.0f);
@@ -252,18 +247,6 @@ DsPrediction::DsPrediction() {
 
     leaf_prediction_pipeline->Initialize();
   }
-}
-
-bool DsPrediction::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  /*
-  if (ImGui::DragFloat("Snow factor", &snow_factor, 1.f, 1.f, 100.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Snow deduction", &snow_deduction, .01f, .0f, 1.f)) {
-    changed = true;
-  }*/
-  return changed;
 }
 
 void DsPrediction::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -553,13 +536,6 @@ DsDynamicHashedGrid::DsDynamicHashedGrid() {
 
     offset_pipeline->Initialize();
   }
-}
-
-bool DsDynamicHashedGrid::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Collision Range", &grid_cell_size, 0.001f, 0.001f, 1.0f))
-    changed = true;
-  return changed;
 }
 
 void DsDynamicHashedGrid::BuildGrid(const DynamicStrands::PhysicsParameters& physics_parameters,

@@ -31,12 +31,10 @@ class EVOENGINE_API RenderTexture {
   std::shared_ptr<Image> depth_image_ = {};                        /**< Pointer to the depth image resource. */
   std::vector<std::shared_ptr<ImageView>> depth_image_views_ = {}; /**< Views of the depth image. */
 
-  VkExtent3D extent_;                               /**< Extent of the texture (width, height, depth). */
-  VkImageViewType image_view_type_;                 /**< Type of the image view. */
-  std::shared_ptr<Sampler> color_sampler_ = {};     /**< Sampler for the color texture. */
-  std::shared_ptr<Sampler> depth_sampler_ = {};     /**< Sampler for the depth texture. */
-  std::vector<ImTextureID> color_im_texture_ids_{}; /**< Color texture IDs for ImGui. */
-  std::vector<ImTextureID> depth_im_texture_ids_{}; /**< Depth texture IDs for ImGui. */
+  VkExtent3D extent_;                           /**< Extent of the texture (width, height, depth). */
+  VkImageViewType image_view_type_;             /**< Type of the image view. */
+  std::shared_ptr<Sampler> color_sampler_ = {}; /**< Sampler for the color texture. */
+  std::shared_ptr<Sampler> depth_sampler_ = {}; /**< Sampler for the depth texture. */
 
   bool color_ = true;                           /**< Indicates if the texture has a color attachment. */
   bool depth_ = true;                           /**< Indicates if the texture has a depth attachment. */
@@ -164,20 +162,6 @@ class EVOENGINE_API RenderTexture {
    */
   void Render(VkCommandBuffer vk_command_buffer, VkAttachmentLoadOp load_op, VkAttachmentStoreOp store_op,
               const std::function<void()>& func, uint32_t mip_level = 0) const;
-
-  /**
-   * @brief Gets the ImGui texture ID for the color attachment at a specific mip level.
-   * @param mip_index Index of the mip level.
-   * @return ImGui texture ID for the color attachment.
-   */
-  [[nodiscard]] ImTextureID GetColorImTextureId(uint32_t mip_index = 0) const;
-
-  /**
-   * @brief Gets the ImGui texture ID for the depth attachment at a specific mip level.
-   * @param mip_index Index of the mip level.
-   * @return ImGui texture ID for the depth attachment.
-   */
-  [[nodiscard]] ImTextureID GetDepthImTextureId(uint32_t mip_index = 0) const;
 
   /**
    * @brief Applies the graphics pipeline states to the render texture.

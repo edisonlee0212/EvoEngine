@@ -1,4 +1,6 @@
 #pragma once
+#include "AssetRef.hpp"
+#include "IAsset.hpp"
 #include "TreeControllers.hpp"
 
 namespace eco_sys_lab_package {
@@ -15,11 +17,6 @@ class IShootDescriptor : public IAsset {
    * \param shoot_growth_controller The controller to configure.
    */
   virtual void PrepareController(ShootGrowthController& shoot_growth_controller) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -33,11 +30,6 @@ class IRootDescriptor : public IAsset {
    * \param root_growth_controller The controller to configure.
    */
   virtual void PrepareController(RootGrowthController& root_growth_controller) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the root descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -51,11 +43,6 @@ class IFineRootDescriptor : public IAsset {
    * \param fine_root_controller The controller to configure.
    */
   virtual void PrepareController(FineRootController& fine_root_controller) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the root descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -71,11 +58,6 @@ class IPruningDescriptor : public IAsset {
    */
   virtual void PrepareController(const SimulationSettings& simulation_settings,
                                  ShootPruningController& shoot_pruning_controller) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -97,11 +79,6 @@ class IFoliageDescriptor : public IAsset {
    */
   virtual void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
                                        float tree_size) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -123,11 +100,6 @@ class IReproductionModuleDescriptor : public IAsset {
    */
   virtual void GenerateFruitMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
                                      float tree_size) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -143,11 +115,6 @@ class IBarkDescriptor : public IAsset {
    * @return The computed bark pattern value.
    */
   virtual float GetValue(float x_factor, float distance_to_root) const = 0;
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -156,11 +123,6 @@ class IBarkDescriptor : public IAsset {
  */
 class IFlowerDescriptor : public IAsset {
  public:
-  /**
-   * \brief Generates a thumbnail texture representing the shoot descriptor.
-   * \return A shared pointer to the generated Texture2D.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -209,16 +171,6 @@ class TreeDescriptor : public IAsset {
   void OnCreate() override;
 
   /**
-   * @brief Inspects the asset in the editor.
-   *
-   * This function will be called by the editor layer to inspect the asset's properties.
-   *
-   * @param editor_layer The shared pointer to the editor layer.
-   * @return Returns true if the asset's content is not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Collects all asset references contained within this asset.
    *
    * This function populates the provided list with asset references used in this descriptor.
@@ -233,12 +185,5 @@ class TreeDescriptor : public IAsset {
    * @return The instantiated tree entity.
    */
   Entity Instantiate() const;
-
-  /**
-   * @brief Generates a thumbnail texture for the asset.
-   *
-   * @return A shared pointer to a Texture2D representing the thumbnail.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 }  // namespace eco_sys_lab_package

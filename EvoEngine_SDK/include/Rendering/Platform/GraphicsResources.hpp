@@ -1113,8 +1113,8 @@ class EVOENGINE_API CommandQueue final : public IGraphicsResource {
    * @param wait_semaphores List of semaphores to wait for before presenting.
    * @param targets List of pairs of swapchain objects and image indices to present.
    */
-  void Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
-               const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const;
+  VkResult Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
+                   const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const;
 
   /**
    * @brief Waits until all pending operations in the queue are completed.
@@ -1367,6 +1367,12 @@ class EVOENGINE_API DescriptorSet final : public IGraphicsResource {
    */
   void UpdateBufferDescriptorBinding(uint32_t binding_index, const std::shared_ptr<Buffer>& buffer,
                                      uint32_t array_element = 0) const;
+};
+
+struct SampledImageResources {
+  std::shared_ptr<Image> image;
+  std::shared_ptr<ImageView> image_view;
+  std::shared_ptr<Sampler> sampler;
 };
 
 }  // namespace evo_engine

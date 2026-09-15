@@ -1,7 +1,6 @@
 #include "RenderInstanceStorage.hpp"
 
 #include "Application.hpp"
-#include "EditorLayer.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GlobalReflectionProbe.hpp"
@@ -3610,18 +3609,10 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
   render_info_block.indirect_lighting_intensity = 1.0f;
 }
 
-void RenderInstanceStorage::CollectEditorCameras(
-    const std::shared_ptr<Scene>& target_scene,
-    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    for (const auto& [cameraHandle, editorCamera] : editor_layer->editor_cameras_) {
-      if (editorCamera.camera || editorCamera.camera->IsEnabled()) {
-        GlobalTransform scene_camera_gt;
-        scene_camera_gt.SetValue(editorCamera.position, editorCamera.rotation, glm::vec3(1.0f));
-        cameras.emplace_back(scene_camera_gt, editorCamera.camera);
-      }
-    }
-  }
+void RenderInstanceStorage::CollectAuxiliaryCameras(
+    const std::shared_ptr<Scene>&, std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras) {
+  if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>())
+    render->CollectAuxiliaryCameras(cameras);
 }
 
 void RenderInstanceStorage::CollectCameras(const std::shared_ptr<Scene>& target_scene,
@@ -4365,7 +4356,7 @@ void RenderInstanceStorage::BuildFromScene(
   {
     const ProfilerScope stage_scope("RenderInstanceStorage::CollectCameras", "Render");
     if (include_editor_cameras) {
-      CollectEditorCameras(scene, cameras);
+      CollectAuxiliaryCameras(scene, cameras);
     }
     CollectCameras(scene, cameras);
     if (injected_cameras) {
@@ -4923,11 +4914,16 @@ int RenderInstanceStorage::GetRenderInstanceIndex(const Handle& renderer_handle)
 }
 
 int RenderInstanceStorage::GetCameraIndex(const Handle& camera_handle) {
-  const auto search = camera_indices_.find(camera_handle);
-  if (search == camera_indices_.end()) {
+  const auto index = TryGetCameraIndex(camera_handle);
+  if (index < 0) {
     throw std::runtime_error("Unable to find camera!");
   }
-  return search->second;
+  return index;
+}
+
+int RenderInstanceStorage::TryGetCameraIndex(const Handle& camera_handle) const {
+  const auto search = camera_indices_.find(camera_handle);
+  return search == camera_indices_.end() ? -1 : search->second;
 }
 
 Handle RenderInstanceStorage::GetInstanceEntityHandle(const int render_instance_index) {

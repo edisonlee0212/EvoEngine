@@ -5,29 +5,6 @@
 
 using namespace eco_sys_lab_package;
 
-void DsBoxCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
-                                const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) {
-  const auto scene = GetScene();
-  const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
-  glm::vec3 size = scale * global_transform.GetScale() * 2.0f;
-  if (size.x < 0.001f)
-    size.x = 0.001f;
-  if (size.z < 0.001f)
-    size.z = 0.001f;
-  if (size.y < 0.001f)
-    size.y = 0.001f;
-  GizmoSettings gizmo_settings;
-  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  gizmo_settings.draw_settings.blending = true;
-  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
-  gizmo_settings.draw_settings.line_width = 1.0f;
-  gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cube, editor_camera, color,
-                              glm::translate(global_transform.GetPosition()) *
-                                  glm::mat4_cast(global_transform.GetRotation()) * glm::scale(size),
-                              1, gizmo_settings);
-}
-
 DsBoxCollider::DsBoxCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -102,47 +79,6 @@ DsBoxCollider::DsBoxCollider() {
 
     leaf_velocity_pipeline->Initialize();
   }
-}
-
-bool DsBoxCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  static PrivateComponentRef mesh_renderer_ref;
-  if (editor_layer->DragAndDropButton<MeshRenderer>(mesh_renderer_ref, "Apply bound from Mesh Renderer")) {
-    if (const auto mesh_renderer = mesh_renderer_ref.Get<MeshRenderer>()) {
-      if (const auto mesh = mesh_renderer->mesh.Get<Mesh>()) {
-        const auto& bound = mesh->GetBound();
-        scale = bound.Size();
-      }
-    }
-    mesh_renderer_ref.Clear();
-  }
-
-  if (ImGui::DragFloat3("Scale", &scale.x, 0.01f, 0.0f, 10.0f)) {
-    changed = true;
-  }
-
-  if (ImGui::DragFloat("Softness", &softness, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Rotational friction", &rotational_friction, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Velocity friction", &velocity_friction, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Angular velocity friction", &angular_velocity_friction, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
-  static bool display_bound = true;
-  ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
-  if (display_bound) {
-    RenderBound(editor_layer, editor_layer->GetSceneCamera(), bound_color);
-  }
-  return changed;
 }
 
 void DsBoxCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -266,29 +202,6 @@ void eco_sys_lab_package::DeserializeDsBoxCollider(const YAML::Node& in, DsBoxCo
     target.softness = in["softness"].as<float>();
 }
 
-void DsCylinderCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
-                                     const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) {
-  const auto scene = GetScene();
-  const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
-  const auto scale = global_transform.GetScale();
-  auto size = glm::vec2(radius * glm::max(scale.x, scale.z), height * scale.y) * 2.f;
-  if (size.x < 0.001f)
-    size.x = 0.001f;
-  if (size.y < 0.001f)
-    size.y = 0.001f;
-  GizmoSettings gizmo_settings;
-  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  gizmo_settings.draw_settings.blending = true;
-  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
-  gizmo_settings.draw_settings.line_width = 1.0f;
-  gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(Resources::GetInstance().GetPrimitives().cylinder, editor_camera, color,
-                              glm::translate(global_transform.GetPosition()) *
-                                  glm::mat4_cast(global_transform.GetRotation()) *
-                                  glm::scale(glm::vec3(size.x, size.y, size.x)),
-                              1, gizmo_settings);
-}
-
 DsCylinderCollider::DsCylinderCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -327,27 +240,6 @@ DsCylinderCollider::DsCylinderCollider() {
 
     leaf_position_pipeline->Initialize();
   }
-}
-
-bool DsCylinderCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 10.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Height", &height, 0.01f, 0.0f, 10.0f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Softness", &softness, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-  ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
-  static bool display_bound = true;
-  ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
-  if (display_bound) {
-    RenderBound(editor_layer, editor_layer->GetSceneCamera(), bound_color);
-  }
-  return changed;
 }
 
 void DsCylinderCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
@@ -420,24 +312,6 @@ void eco_sys_lab_package::DeserializeDsCylinderCollider(const YAML::Node& in, Ds
     target.softness = in["softness"].as<float>();
 }
 
-void DsSphereCollider::RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
-                                   const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) {
-  const auto scene = GetScene();
-  const auto global_transform = scene->GetDataComponent<GlobalTransform>(GetOwner());
-  const auto scale = global_transform.GetScale();
-  GizmoSettings gizmo_settings;
-  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
-  gizmo_settings.draw_settings.blending = true;
-  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_FILL;
-  gizmo_settings.draw_settings.line_width = 1.0f;
-  gizmo_settings.depth_test = true;
-  editor_layer->DrawGizmoMesh(
-      Resources::GetInstance().GetPrimitives().sphere, editor_camera, color,
-      glm::translate(global_transform.GetPosition()) *
-          glm::scale(glm::vec3(glm::max(0.001f, radius * 2.f)) * glm::max(glm::max(scale.x, scale.y), scale.z)),
-      1, gizmo_settings);
-}
-
 DsSphereCollider::DsSphereCollider() {
   if (!segment_position_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -476,26 +350,6 @@ DsSphereCollider::DsSphereCollider() {
 
     leaf_position_pipeline->Initialize();
   }
-}
-
-bool DsSphereCollider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 10.0f)) {
-    changed = true;
-  }
-
-  if (ImGui::DragFloat("Softness", &softness, 0.01f, 0.0f, 1.0f)) {
-    changed = true;
-  }
-
-  ImGui::ColorEdit4("Bound Color:##DsBoxCollider", (float*)(void*)&bound_color);
-  static bool display_bound = true;
-  ImGui::Checkbox("Display bounds##DsBoxCollider", &display_bound);
-  if (display_bound) {
-    RenderBound(editor_layer, editor_layer->GetSceneCamera(), bound_color);
-  }
-
-  return changed;
 }
 
 void DsSphereCollider::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,

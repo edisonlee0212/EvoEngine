@@ -7,19 +7,7 @@
 using namespace evo_engine;
 
 #include "BtfMaterial.hpp"
-#include "EditorLayer.hpp"
 #include "Mesh.hpp"
-
-bool BtfMeshRenderer::DrawGui(const std::shared_ptr<EditorLayer> &editor_layer) {
-  bool changed = false;
-
-  if (editor_layer->DragAndDropButton<Mesh>(mesh, "Mesh"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<BtfMaterial>(btf, "BtfMaterial"))
-    changed = true;
-
-  return changed;
-}
 
 void evo_engine::SerializeBtfMeshRenderer(YAML::Emitter &out, const BtfMeshRenderer &target) {
   target.mesh.Save("mesh", out);

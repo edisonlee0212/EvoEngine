@@ -1,5 +1,6 @@
 #pragma once
 
+#include "GeometryStorage.hpp"
 #include "Vertex.hpp"
 
 namespace eco_sys_lab_package {

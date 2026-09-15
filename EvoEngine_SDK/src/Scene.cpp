@@ -1,19 +1,21 @@
 #include "Scene.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "Camera.hpp"
 #include "ClassRegistry.hpp"
-#include "EditorLayer.hpp"
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "Jobs.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
+#include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "UnknownPrivateComponent.hpp"
 
 #include <system_error>
+#include <unordered_set>
 
 using namespace evo_engine;
 
@@ -317,6 +319,7 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
   out << YAML::EndMap;
 }
 void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
+  const bool strict = runtime_paths::IsStrict();
   auto& global_reflection_probe_fallback = scene.global_reflection_probe_fallback;
   auto& environmental_lighting = scene.environmental_lighting;
   auto& main_camera = scene.main_camera;
@@ -384,6 +387,8 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
         if (asset) {
           local_assets.emplace_back(index, asset);
         }
+      } else if (strict) {
+        throw std::runtime_error("Unknown required local asset type: " + type_name);
       } else if (auto asset = AssetManager::CreateTemporaryAsset("UnknownAsset", handle)) {
         if (auto unknown_asset = std::dynamic_pointer_cast<UnknownAsset>(asset)) {
           unknown_asset->SetOriginalTypeName(type_name);
@@ -402,7 +407,9 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
     global_reflection_probe_fallback.Load("global_reflection_probe_fallback", in);
   }
   environmental_lighting.Load("environmental_lighting", in);
-  EnsureTemporaryEnvironmentalLighting(scene);
+  if (!strict) {
+    EnsureTemporaryEnvironmentalLighting(scene);
+  }
   int entity_index = 1;
   for (const auto& in_entity_info : in_entity_metadata_list) {
     auto& entity_metadata = scene_data_storage_.entity_metadata_list.at(entity_index);
@@ -418,6 +425,9 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
           scene_data_storage_.entity_private_component_storage.SetPrivateComponent(entity, hash_code);
           entity_metadata.private_component_elements.emplace_back(hash_code, ptr, entity, self);
         } else {
+          if (strict) {
+            throw std::runtime_error("Unknown required private component type: " + name);
+          }
           auto ptr = std::static_pointer_cast<IPrivateComponent>(
               Serialization::ProduceSerializable("UnknownPrivateComponent", hash_code));
           hash_code = std::hash<std::string>{}(name);
@@ -456,6 +466,9 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
           ptr->OnCreate();
         }
       } else {
+        if (strict) {
+          throw std::runtime_error("Unknown required system type: " + type_name);
+        }
         size_t hash_code;
         if (const auto ptr = std::static_pointer_cast<ISystem>(Serialization::ProduceSerializable(
                 "UnknownSystem", hash_code, Handle(in_system["handle_"].as<uint64_t>())))) {
@@ -499,7 +512,64 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
       Serialization::DeserializeObject(in_systems[i.first], *i.second);
     }
   }
+  if (strict) {
+    const auto errors = scene.ValidateRuntimeStartupContent();
+    if (!errors.empty())
+      throw std::runtime_error(errors.front());
+  }
 }
+std::vector<std::string> Scene::ValidateRuntimeStartupContent() const {
+  std::vector<std::string> errors;
+  auto camera_ref = main_camera;
+  const auto camera = camera_ref.Get<Camera>();
+  if (!camera)
+    errors.emplace_back("Startup scene has no valid main camera.");
+  else {
+    const auto owner = camera->GetOwner();
+    if (!camera->IsEnabled())
+      errors.emplace_back("Startup scene main camera is disabled.");
+    if (!IsEntityValid(owner) || !IsEntityEnabled(owner))
+      errors.emplace_back("Startup scene main camera owner is disabled.");
+  }
+  std::vector<AssetRef> required_refs{global_reflection_probe_fallback, environmental_lighting};
+  for (const auto& metadata : scene_data_storage_.entity_metadata_list) {
+    for (const auto& component : metadata.private_component_elements) {
+      if (const auto unknown = std::dynamic_pointer_cast<UnknownPrivateComponent>(component.private_component_data))
+        errors.emplace_back("Unknown required private component type: " + unknown->GetOriginalTypeName());
+      else
+        Serialization::CollectAssetRefs(*component.private_component_data, required_refs);
+    }
+  }
+  for (const auto& [_, system] : systems_) {
+    if (const auto unknown = std::dynamic_pointer_cast<UnknownSystem>(system))
+      errors.emplace_back("Unknown required system type: " + unknown->GetOriginalTypeName());
+    else
+      Serialization::CollectAssetRefs(*system, required_refs);
+  }
+  std::unordered_set<Handle> visited;
+  for (size_t index = 0; index < required_refs.size(); ++index) {
+    auto& reference = required_refs[index];
+    const auto handle = reference.GetAssetHandle();
+    if (handle.GetValue() == 0 || !visited.emplace(handle).second)
+      continue;
+    try {
+      const auto asset = reference.Get<IAsset>();
+      if (!asset) {
+        errors.emplace_back("Missing required runtime asset: " + std::to_string(handle.GetValue()));
+        continue;
+      }
+      const auto expected = reference.GetAssetTypeName();
+      if (asset->GetTypeName() == "UnknownAsset" || (!expected.empty() && expected != asset->GetTypeName()))
+        errors.emplace_back("Unknown or mismatched required runtime asset: " + std::to_string(handle.GetValue()));
+      else
+        Serialization::CollectAssetRefs(*asset, required_refs);
+    } catch (const std::exception& error) {
+      errors.emplace_back("Failed required runtime asset " + std::to_string(handle.GetValue()) + ": " + error.what());
+    }
+  }
+  return errors;
+}
+
 void evo_engine::WriteSceneDataComponentStorage(const Scene& scene, const DataComponentStorage& storage,
                                                 YAML::Emitter& out) {
   const auto& scene_data_storage_ = scene.scene_data_storage_;
@@ -581,6 +651,9 @@ void evo_engine::ReadSceneDataComponentStorage(Scene& scene, const size_t storag
     if (Serialization::HasComponentDataType(data_component_type.type_name)) {
       data_component_type.type_index = Serialization::GetDataComponentTypeId(data_component_type.type_name);
     } else {
+      if (runtime_paths::IsStrict()) {
+        throw std::runtime_error("Unknown required data component type: " + data_component_type.type_name);
+      }
       data_component_type.type_index = std::hash<std::string>{}(data_component_type.type_name);
     }
     data_component_storage.data_component_types.push_back(data_component_type);
@@ -777,9 +850,18 @@ bool Scene::LoadInternal(const std::filesystem::path& path) {
   std::stringstream string_stream;
   string_stream << stream.rdbuf();
   YAML::Node in = YAML::Load(string_stream.str());
-  DeserializeScene(in, *this);
-  ApplicationContext::Get().Attach(previous_scene);
-  return true;
+  try {
+    DeserializeScene(in, *this);
+    ApplicationContext::Get().Attach(previous_scene);
+    return true;
+  } catch (const std::exception& error) {
+    ApplicationContext::Get().Attach(previous_scene);
+    if (!runtime_paths::IsStrict()) {
+      throw;
+    }
+    EVOENGINE_ERROR("Failed to load scene: " + std::string(error.what()))
+    return false;
+  }
 }
 
 bool Scene::SupportsStagedLoading(const std::filesystem::path& path) const {
@@ -816,10 +898,6 @@ bool Scene::RegisterAssetIoHandlers(const std::string& owner_name, const std::st
         return asset.ApplyStagedPayloadInternal(path, payload);
       },
       owner_name, type_name);
-}
-
-std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Scene");
 }
 
 void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Scene>& new_scene) {

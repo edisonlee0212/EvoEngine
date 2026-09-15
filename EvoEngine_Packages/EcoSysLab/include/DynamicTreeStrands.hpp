@@ -98,13 +98,6 @@ class DynamicTreeStrands : public IPrivateComponent {
   void CreateStaticRoot();
 
   /**
-   * @brief Inspects and modifies the object in the editor.
-   * @param editor_layer Shared pointer to editor layer.
-   * @return True if the content is not modified, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Called upon creation of the component.
    */
   void OnCreate() override;
@@ -142,13 +135,6 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool fungus_test = false;
     glm::vec3 initial_velocity = glm::vec3(0.f);          ///< Initial velocity of the structure.
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
-
-    /**
-     * @brief Inspects board experiment settings in the editor.
-     * @param editor_layer Shared pointer to editor layer.
-     * @return True if the content is not modified, false otherwise.
-     */
-    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -175,13 +161,6 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool internal_pattern = false;
     bool competition_setting = false;
     float t_cut_width = 0.7f;  ///< Width of the T-cut.
-
-    /**
-     * @brief Inspects log experiment settings in the editor.
-     * @param editor_layer Shared pointer to editor layer.
-     * @return True if the content is not modified, false otherwise.
-     */
-    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**

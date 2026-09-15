@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 #include <queue>
 #include "CubicHermiteSpline.hpp"
 #include "HalfEdgeDelaunayGraph.hpp"
@@ -167,7 +168,7 @@ class KineticDelaunay {
 
     // print roots:
     for (const auto& root : zeros) {
-      if (isnan(root)) {
+      if (std::isnan(root)) {
         continue;  // Skip NaN roots
       }
 

@@ -12,11 +12,11 @@
 #include "Serialization.hpp"
 
 namespace evo_engine {
-class EVOENGINE_API EditorLayer;
+class EditorLayer;
 class EVOENGINE_API File;
 class EVOENGINE_API Folder;
 class EVOENGINE_API IAsset;
-class EVOENGINE_API ProjectContentBrowserPanel;
+class ProjectContentBrowserPanel;
 
 /**
  * @class AssetManager
@@ -52,10 +52,18 @@ class EVOENGINE_API AssetManager {
     [[nodiscard]] bool Active() const;
   };
 
-  static AssetManager& GetInstance();
+  struct EVOENGINE_API LoadedAssetState {
+    Handle handle;
+    std::filesystem::path path;
+    std::string type_name;
+    bool temporary = false;
+    bool saved = false;
+  };
 
- private:
- public:
+  static AssetManager& GetInstance();
+  [[nodiscard]] static std::vector<LoadedAssetState> GetLoadedAssetStates();
+
+  static void WaitForPendingLoads();
   /**
    * @brief Retrieves an asset of type T corresponding to the given handle.
    * @tparam T The asset type to retrieve.
@@ -166,13 +174,6 @@ class EVOENGINE_API AssetManager {
    * @brief Initializes the AssetManager.
    */
   static void Initialize();
-  /**
-   * @brief Draws inspector controls for a supplied asset.
-   * @param editor_layer The editor layer instance used for displaying assets.
-   * @param asset The asset to inspect.
-   */
-  static void DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>& editor_layer,
-                                        const std::shared_ptr<IAsset>& asset);
   /**
    * @brief Cleans up resources when destroying the AssetManager.
    */

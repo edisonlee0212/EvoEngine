@@ -2,7 +2,6 @@
 
 #include "Application.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 
@@ -20,8 +19,6 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
   depth_image_views_.clear();
   depth_image_.reset();
   depth_sampler_.reset();
-  color_im_texture_ids_.clear();
-  depth_im_texture_ids_.clear();
   int layer_count = render_texture_create_info.image_view_type == VK_IMAGE_VIEW_TYPE_CUBE ? 6 : 1;
   depth_ = render_texture_create_info.depth;
   color_ = render_texture_create_info.color;
@@ -107,11 +104,6 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
     color_sampler_ = std::make_shared<Sampler>(sampler_info);
-    color_im_texture_ids_.resize(mip_levels);
-    for (unsigned int mip = 0; mip < mip_levels; ++mip) {
-      EditorLayer::UpdateTextureId(color_im_texture_ids_[mip], color_sampler_->GetVkSampler(),
-                                   color_image_views_[mip]->GetVkImageView(), color_image_->GetLayout());
-    }
   }
 
   if (depth_) {
@@ -164,11 +156,6 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     depth_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
     depth_sampler_ = std::make_shared<Sampler>(depth_sampler_info);
-    depth_im_texture_ids_.resize(mip_levels);
-    for (unsigned int mip = 0; mip < mip_levels; ++mip) {
-      EditorLayer::UpdateTextureId(depth_im_texture_ids_[mip], depth_sampler_->GetVkSampler(),
-                                   depth_image_views_[mip]->GetVkImageView(), depth_image_->GetLayout());
-    }
   }
   extent_ = render_texture_create_info.extent;
   image_view_type_ = render_texture_create_info.image_view_type;
@@ -370,14 +357,6 @@ void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAtta
   Platform::BeginRendering(vk_command_buffer, render_info);
   func();
   Platform::EndRendering(vk_command_buffer);
-}
-
-ImTextureID RenderTexture::GetColorImTextureId(const uint32_t mip_index) const {
-  return color_im_texture_ids_[glm::clamp(mip_index, 0u, static_cast<uint32_t>(color_im_texture_ids_.size()) - 1)];
-}
-
-ImTextureID RenderTexture::GetDepthImTextureId(uint32_t mip_index) const {
-  return depth_im_texture_ids_[glm::clamp(mip_index, 0u, static_cast<uint32_t>(depth_im_texture_ids_.size()) - 1)];
 }
 
 void RenderTexture::ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_pipeline_state) const {

@@ -551,3 +551,10 @@ void Strands::RecalculateNormal() {
     strand_points_[indices[3]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[2]].normal), tangent);
   }
 }
+
+const std::shared_ptr<RangeDescriptor>& Strands::GetStrandMeshletRange() const {
+  return strand_meshlet_range_;
+}
+const std::shared_ptr<RangeDescriptor>& Strands::GetSegmentRange() const {
+  return segment_range_;
+}

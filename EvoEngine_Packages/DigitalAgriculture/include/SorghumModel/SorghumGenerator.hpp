@@ -68,7 +68,6 @@ class SorghumGenerator : public IAsset {
    *
    * @return A shared pointer to the generated thumbnail texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Creates a new sorghum entity using the generator's parameters.

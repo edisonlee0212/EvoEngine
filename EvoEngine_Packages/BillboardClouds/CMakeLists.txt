@@ -30,3 +30,6 @@ target_link_libraries(BillboardCloudsPackage
 	)
 
 evoengine_configure_runtime_package(BillboardCloudsPackage)
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

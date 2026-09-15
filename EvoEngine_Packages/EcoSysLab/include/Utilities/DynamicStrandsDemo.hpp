@@ -11,6 +11,7 @@ namespace eco_sys_lab_package {
  * @brief A demonstration class for simulating dynamic strands in a tree model.
  */
 class DynamicStrandsDemo : public IPrivateComponent {
+  friend struct DynamicStrandsDemoInspector;
   /// @brief Target simulation time in seconds.
   float target_simulation_time = 100.f;
 
@@ -37,15 +38,6 @@ class DynamicStrandsDemo : public IPrivateComponent {
 
   /// @brief Initial pose of the tree.
   GlobalTransform tree_initial_pose{};
-
-  /// @brief Camera pose in the scene.
-  GlobalTransform camera_pose;
-
-  /**
-   * @brief Resets the environment including entities and their transformations.
-   * @param editor_layer Shared pointer to the editor layer handling the environment.
-   */
-  void ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer);
 
  public:
   /**
@@ -99,13 +91,6 @@ class DynamicStrandsDemo : public IPrivateComponent {
 
   /// @brief Current status of the demo simulation.
   DemoStatus demo_status = DemoStatus::Idle;
-
-  /**
-   * @brief Inspects and modifies properties of the demo in the editor interface.
-   * @param editor_layer Shared pointer to the editor layer for UI rendering.
-   * @return True if asset content is unmodified, otherwise false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Updates the physics simulation and demo state.

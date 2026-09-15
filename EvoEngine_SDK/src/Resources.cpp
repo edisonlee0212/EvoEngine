@@ -1,7 +1,6 @@
 #include "Resources.hpp"
 
 #include "Cubemap.hpp"
-#include "EditorLayer.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GeometryStorage.hpp"
 #include "GlobalReflectionProbe.hpp"
@@ -9,6 +8,7 @@
 #include "PathUtils.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
@@ -18,6 +18,13 @@
 using namespace evo_engine;
 
 std::filesystem::path Resources::GetDefaultResourcesPath() {
+  if (runtime_paths::IsStrict()) {
+    const auto path = runtime_paths::Resolve("DefaultResources");
+    if (!std::filesystem::is_directory(path)) {
+      throw std::runtime_error("Required DefaultResources directory is missing.");
+    }
+    return path;
+  }
   std::vector<std::filesystem::path> candidates;
   if (const auto executable_path = path_utils::CurrentExecutablePath(); !executable_path.empty()) {
     candidates.emplace_back(executable_path.parent_path() / "DefaultResources");
@@ -195,47 +202,6 @@ void Resources::Initialize() {
 
 Handle Resources::GenerateNewHandle() {
   return current_max_handle_.value_++;
-}
-
-void Resources::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
-  auto& resources = GetInstance();
-  if (resources.show_resources_) {
-    if (ImGui::Begin("Resources")) {
-      if (ImGui::CollapsingHeader("Textures")) {
-        ImGui::Button("Missing");
-        editor_layer->DraggableAsset<Texture2D>(resources.missing_texture_);
-      }
-      if (ImGui::CollapsingHeader("Cubemap")) {
-        ImGui::Button("Default Skybox");
-        editor_layer->DraggableAsset<Cubemap>(resources.default_skybox_);
-      }
-      if (ImGui::CollapsingHeader("Environmental Map")) {
-        ImGui::Button("Default Env map");
-        editor_layer->DraggableAsset<EnvironmentalMap>(resources.default_environmental_map_);
-        ImGui::Button("Default Global Reflection Probe");
-        editor_layer->DraggableAsset<GlobalReflectionProbe>(resources.default_global_reflection_probe_);
-      }
-      if (ImGui::CollapsingHeader("Primitives")) {
-        ImGui::Button("Quad");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.quad);
-        ImGui::Button("Sphere");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.sphere);
-        ImGui::Button("Cube");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.cube);
-        ImGui::Button("Cone");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.cone);
-        ImGui::Button("Cylinder");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.cylinder);
-        ImGui::Button("Torus");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.torus);
-        ImGui::Button("Monkey");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.monkey);
-        ImGui::Button("Capsule");
-        editor_layer->DraggableAsset<Mesh>(resources.primitives_.capsule);
-      }
-    }
-    ImGui::End();
-  }
 }
 
 bool Resources::IsResource(const Handle& handle) {

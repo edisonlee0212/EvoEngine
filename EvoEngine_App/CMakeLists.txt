@@ -1,7 +1,25 @@
 message("=========Checking Apps=========")
 
+if(NOT EVOENGINE_WITH_EDITOR)
+	if(WIN32)
+		add_executable(EvoEngineRuntime WIN32 src/EvoEngineRuntime.cpp resources/EvoEngineRuntime.rc
+			resources/EvoEngineRuntime.manifest)
+		target_include_directories(EvoEngineRuntime PRIVATE ${EVOENGINE_INCLUDES} "${CMAKE_CURRENT_SOURCE_DIR}/resources")
+		target_compile_definitions(EvoEngineRuntime PRIVATE ${EVOENGINE_DEFS})
+		target_precompile_headers(EvoEngineRuntime PRIVATE ${EVOENGINE_PCHS})
+		target_link_libraries(EvoEngineRuntime PRIVATE EvoEngine_SDK ${EvoEngine_Services})
+		target_link_options(EvoEngineRuntime PRIVATE /ENTRY:mainCRTStartup)
+		evoengine_copy_resources(EvoEngineRuntime "$<TARGET_FILE_DIR:EvoEngineRuntime>")
+		install(TARGETS EvoEngineRuntime RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+		evoengine_install_target_pdb(EvoEngineRuntime "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+		evoengine_install_runtime_payload("${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	endif()
+	return()
+endif()
+
 add_custom_target(AppResourceCopy)
-add_dependencies(AppResourceCopy EvoEngine_SDK)
+get_property(editor_packages GLOBAL PROPERTY EVOENGINE_EDITOR_PACKAGE_TARGETS)
+add_dependencies(AppResourceCopy EvoEngine_EditorSDK ${editor_packages})
 
 set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
 if(CMAKE_CONFIGURATION_TYPES)
@@ -10,6 +28,22 @@ endif()
 set(EVOENGINE_APP_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(EVOENGINE_APP_RESOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/resources)
 set(EVOENGINE_APP_DEMO_PREVIEW_DIR ${CMAKE_SOURCE_DIR}/Resources/Launcher/DemoPreviews)
+
+if(WIN32)
+	add_executable(EvoEngineRuntimeExporter
+		${EVOENGINE_APP_SOURCE_DIR}/EvoEngineRuntimeExporter.cpp
+		${EVOENGINE_APP_RESOURCE_DIR}/EvoEngineRuntime.rc
+		${EVOENGINE_APP_RESOURCE_DIR}/EvoEngineRuntime.manifest
+		)
+	target_include_directories(EvoEngineRuntimeExporter PRIVATE "${EVOENGINE_APP_RESOURCE_DIR}")
+	target_compile_features(EvoEngineRuntimeExporter PRIVATE cxx_std_17)
+	target_compile_definitions(EvoEngineRuntimeExporter PRIVATE NOMINMAX UNICODE _UNICODE)
+	target_compile_options(EvoEngineRuntimeExporter PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8;/W4>)
+	target_link_libraries(EvoEngineRuntimeExporter PRIVATE nlohmann_json bcrypt)
+	install(TARGETS EvoEngineRuntimeExporter RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	evoengine_install_target_pdb(EvoEngineRuntimeExporter "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
+	set_property(TARGET EvoEngineRuntimeExporter PROPERTY FOLDER Executables)
+endif()
 
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
@@ -52,7 +86,7 @@ target_precompile_headers(EvoEngine_DemoScene
 	)
 target_link_libraries(EvoEngine_DemoScene
 	PUBLIC
-	EvoEngine_SDK
+	EvoEngine_EditorSDK
 	${EvoEngine_Services}
 	)
 if (EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
@@ -98,6 +132,13 @@ function(register_evoengine_app app_name default_enable)
 					${EVOENGINE_APP_SOURCE_DIR}/DemoProfiles.cpp
 					)
 			endif()
+			if (${app_name} STREQUAL "EvoEngineEditor")
+				target_sources(${app_name}
+					PRIVATE
+					${CMAKE_CURRENT_SOURCE_DIR}/include/DemoAuthoringCommandLine.hpp
+					${EVOENGINE_APP_SOURCE_DIR}/DemoAuthoringCommandLine.cpp
+					)
+			endif()
 			target_compile_definitions(${app_name}
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
@@ -116,7 +157,7 @@ function(register_evoengine_app app_name default_enable)
 				)
 			target_link_libraries(${app_name}
 				PRIVATE
-				EvoEngine_SDK
+				EvoEngine_EditorSDK
 				${EvoEngine_Services}
 				)
 			if (${app_name} STREQUAL "EvoEngineEditor" OR ${app_name} STREQUAL "DemoApp" OR ${app_name} STREQUAL "DDGIApp")
@@ -134,6 +175,7 @@ function(register_evoengine_app app_name default_enable)
 			elseif (MSVC)
 				target_compile_options(${app_name} PRIVATE /EHsc /W2 /c)
 				if (WIN32)
+					target_sources(${app_name} PRIVATE ${EVOENGINE_APP_RESOURCE_DIR}/EvoEngineRuntime.manifest)
 					target_link_options(${app_name} PRIVATE /ENTRY:mainCRTStartup)
 				endif()
 			elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
@@ -153,6 +195,9 @@ endfunction()
 
 register_evoengine_app(EvoEngineEditor ON)
 register_evoengine_app(EvoEngineLauncher ON)
+if(TARGET EvoEngineLauncher AND TARGET EvoEngineRuntimeExporter)
+	add_dependencies(EvoEngineLauncher EvoEngineRuntimeExporter)
+endif()
 
 register_evoengine_app(DemoApp OFF)
 register_evoengine_app(DDGIApp OFF)

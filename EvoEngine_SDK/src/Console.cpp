@@ -1,6 +1,5 @@
 #include "Console.hpp"
 #include "Application.hpp"
-#include "EditorLayer.hpp"
 #include "Times.hpp"
 
 #include <ctime>
@@ -12,20 +11,13 @@ using namespace evo_engine;
 namespace {
 constexpr size_t kMaxConsoleMessages = 10000;
 
-struct PendingConsoleMessage {
-  ConsoleMessageType type = ConsoleMessageType::Log;
-  std::string value;
-  double time = 0.0;
-  std::time_t timestamp = 0;
-};
-
 std::mutex& PendingConsoleMessageMutex() {
   static std::mutex mutex;
   return mutex;
 }
 
-std::vector<PendingConsoleMessage>& PendingConsoleMessages() {
-  static std::vector<PendingConsoleMessage> messages;
+std::vector<ConsoleMessage>& PendingConsoleMessages() {
+  static std::vector<ConsoleMessage> messages;
   return messages;
 }
 
@@ -139,42 +131,22 @@ void Console::RestoreStandardStreamRedirectors() {
   stream_redirect_state_.reset();
 }
 
-void Console::AppendMessageToEditor(const std::shared_ptr<EditorLayer>& editor_layer, const ConsoleMessageType type,
-                                    const std::string& msg, const double time, const std::time_t timestamp) {
-  std::lock_guard lock(editor_layer->console_message_mutex_);
-  if (editor_layer->console_messages_.size() >= kMaxConsoleMessages) {
-    editor_layer->console_messages_.erase(editor_layer->console_messages_.begin());
-  }
-  ConsoleMessage cm;
-  cm.m_value = msg;
-  cm.m_type = type;
-  cm.m_time = time;
-  cm.m_timestamp = timestamp;
-  editor_layer->console_messages_.push_back(cm);
-  ++editor_layer->console_message_revision_;
-}
-
 void Console::PushMessage(const ConsoleMessageType type, const std::string& msg) {
-  if (ShouldSkipRedirectedLine(msg)) {
+  if (ShouldSkipRedirectedLine(msg))
     return;
-  }
-
   const auto application = ApplicationContext::TryGet();
   const double time = application ? application->GetTimes().Now() : 0.0;
   const std::time_t timestamp = std::time(nullptr);
-  const auto editor_layer = application ? application->GetLayer<EditorLayer>() : nullptr;
-  std::lock_guard pending_lock(PendingConsoleMessageMutex());
-  if (!editor_layer) {
-    PendingConsoleMessages().push_back({type, msg, time, timestamp});
-    return;
-  }
+  std::lock_guard lock(PendingConsoleMessageMutex());
+  auto& messages = PendingConsoleMessages();
+  if (messages.size() >= kMaxConsoleMessages)
+    messages.erase(messages.begin());
+  messages.push_back({type, msg, time, timestamp});
+}
 
-  for (const auto& pending_message : PendingConsoleMessages()) {
-    AppendMessageToEditor(editor_layer, pending_message.type, pending_message.value, pending_message.time,
-                          pending_message.timestamp);
-  }
-  PendingConsoleMessages().clear();
-  AppendMessageToEditor(editor_layer, type, msg, time, timestamp);
+std::vector<ConsoleMessage> Console::DrainPendingMessages() {
+  std::lock_guard lock(PendingConsoleMessageMutex());
+  return std::exchange(PendingConsoleMessages(), {});
 }
 
 void Console::Log(const std::string& msg) {

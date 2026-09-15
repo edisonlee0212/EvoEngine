@@ -110,13 +110,8 @@ void ProceduralNoise2D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[0]).data.name = "x";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[1]).data.name = "y";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 250));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_node_handle, glm::vec2(400, 250));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 250));
 }
 ProceduralNoise2D::ProceduralNoise2D() {
   Reset();
@@ -136,13 +131,8 @@ void ProceduralNoise3D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[1]).data.name = "y";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "z";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 250));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_node_handle, glm::vec2(400, 250));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 250));
 }
 ProceduralNoise3D::ProceduralNoise3D() {
   Reset();
@@ -163,13 +153,8 @@ void ProceduralNoise4D::Reset() {
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[2]).data.name = "z";
   node_graph.RefOutputPin(input_node.GetOutputPinHandles()[3]).data.name = "w";
 
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    auto* prev_editor_context = ImNodes::GetCurrentContext()->EditorCtx;
-    ImNodes::EditorContextSet(&node_graph.RefImNodesEditorContext());
-    ImNodes::SetNodeScreenSpacePos(output_node_handle, ImVec2(400, 250));
-    ImNodes::SetNodeScreenSpacePos(input_node_handle, ImVec2(100, 250));
-    ImNodes::EditorContextSet(prev_editor_context);
-  }
+  node_graph.SetNodePosition(output_node_handle, glm::vec2(400, 250));
+  node_graph.SetNodePosition(input_node_handle, glm::vec2(100, 250));
 }
 ProceduralNoise4D::ProceduralNoise4D() {
   Reset();

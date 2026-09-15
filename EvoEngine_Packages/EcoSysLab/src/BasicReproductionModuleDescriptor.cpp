@@ -152,12 +152,6 @@ void eco_sys_lab_package::DeserializeBasicReproductionModuleDescriptor(const YAM
   (void)target;
 }
 
-bool BasicReproductionModuleDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  return changed;
-}
-
 void BasicReproductionModuleDescriptor::GenerateFruitMatrices(std::vector<glm::mat4>& matrices,
                                                               const SkeletonNodeInfo& internode_info,
                                                               float tree_size) const {

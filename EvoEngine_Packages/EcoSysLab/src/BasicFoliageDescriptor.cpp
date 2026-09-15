@@ -38,38 +38,6 @@ void eco_sys_lab_package::DeserializeBasicFoliageDescriptor(const YAML::Node& in
   target.leaf_material_ref.Load("leaf_material_ref", in);
 }
 
-bool BasicFoliageDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  changed = activation_temperature.Draw("Activation temperature") | changed;
-  changed = activation_light_intensity.Draw("Activation light intensity") | changed;
-  changed = growth_rate.Draw("Growth rate") | changed;
-  changed = damage_temperature.Draw("Damage temperature") | changed;
-  changed = damage_rate.Draw("Damage rate") | changed;
-  changed = hang_time.Draw("Hang time") | changed;
-
-  if (ImGui::DragFloat2("Leaf size", &leaf_size.x, 0.001f, 0.0f, 1.0f))
-    changed = true;
-  if (ImGui::DragInt("Leaf per node", &leaf_count, 1, 0, 50))
-    changed = true;
-  changed = stem_length.Draw("Stem length") | changed;
-  if (ImGui::DragFloat("Rotation variance", &rotation_variance, 0.01f, 0.0f, 1.0f))
-    changed = true;
-  changed = branching_angle.Draw("Branching angle") | changed;
-  if (ImGui::DragFloat("Max node thickness", &max_node_thickness, 0.001f, 0.0f, 5.0f))
-    changed = true;
-  if (ImGui::DragFloat("Min root distance", &min_root_distance, 0.01f, 0.0f, 10.0f))
-    changed = true;
-  if (ImGui::DragFloat("Max end distance", &max_end_distance, 0.01f, 0.0f, 10.0f))
-    changed = true;
-
-  changed = ImGui::DragFloat("Horizontal Tropism", &horizontal_tropism, 0.001f, 0.0f, 1.0f) || changed;
-  changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.001f, 0.0f, 1.0f) || changed;
-  if (editor_layer->DragAndDropButton<Material>(leaf_material_ref, "Leaf Material"))
-    changed = true;
-  return changed;
-}
-
 void BasicFoliageDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
   if (leaf_material_ref.Get<Material>())
     list.push_back(leaf_material_ref);

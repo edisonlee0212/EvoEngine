@@ -86,12 +86,6 @@ class EVOENGINE_API Scene final : public IAsset {
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**
-   * @brief Generates a thumbnail texture for the scene.
-   * @return A shared pointer to the generated 2D texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Retrieves a list of entities with a specific private component.
    * @tparam T The type of the private component.
    * @return A vector of entities that own the private component of type T.
@@ -255,6 +249,8 @@ class EVOENGINE_API Scene final : public IAsset {
    */
   [[nodiscard]] std::shared_ptr<GlobalReflectionProbe> GetGlobalReflectionProbeFallback(
       bool require_runtime_ready = true);
+
+  [[nodiscard]] std::vector<std::string> ValidateRuntimeStartupContent() const;
 
   /// Reference to the main camera used in the scene.
   PrivateComponentRef main_camera;

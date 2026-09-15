@@ -227,6 +227,7 @@ std::filesystem::path FirstCacheFile(const std::filesystem::path& root) {
 
 void RegisterDefaultShaderIncludePath() {
   Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules"));
+  Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Editor/Internals/DefaultResources/Shaders/Modules"));
 }
 
 void RegisterEcoSysLabShaderIncludePath() {
@@ -1235,6 +1236,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
+  const auto editor_shader_root = RepoPath("EvoEngine_SDK/Editor/Internals/DefaultResources/Shaders");
   struct Case {
     ShaderType shader_type;
     std::filesystem::path path;
@@ -1310,12 +1312,12 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/SkinnedMotionVectors.slang",
        "\n#define EE_ALPHA_MASKED_MOTION 1\n"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/TransparentMotionVectors.slang"},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/Gizmos.slang"},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Gizmos/Gizmos.slang"},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/GizmosNormalColored.slang"},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/GizmosVertexColored.slang"},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/GizmosInstancedColored.slang"},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Gizmos/GizmosColored.slang"},
+      {ShaderType::Vertex, editor_shader_root / "Graphics/Vertex/Gizmos/Gizmos.slang"},
+      {ShaderType::Fragment, editor_shader_root / "Graphics/Fragment/Gizmos/Gizmos.slang"},
+      {ShaderType::Vertex, editor_shader_root / "Graphics/Vertex/Gizmos/GizmosNormalColored.slang"},
+      {ShaderType::Vertex, editor_shader_root / "Graphics/Vertex/Gizmos/GizmosVertexColored.slang"},
+      {ShaderType::Vertex, editor_shader_root / "Graphics/Vertex/Gizmos/GizmosInstancedColored.slang"},
+      {ShaderType::Fragment, editor_shader_root / "Graphics/Fragment/Gizmos/GizmosColored.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/DDGI/DDGIProbeVisualization.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/DDGI/DDGIProbeVisualization.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/DDGI/DDGIProbeRayVisualization.slang"},
@@ -1332,7 +1334,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/SpotLightShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/DirectionalLightShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/StrandsShadowMap.slang"},
-      {ShaderType::Task, shader_root / "Graphics/Task/Gizmos/GizmosStrands.slang"},
+      {ShaderType::Task, editor_shader_root / "Graphics/Task/Gizmos/GizmosStrands.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/Standard.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardMeshletColored.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardStrands.slang"},
@@ -1354,7 +1356,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
        "\n#define EE_ALPHA_MASKED_SHADOW 1\n"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang",
        "\n#define EE_ALPHA_MASKED_SHADOW 1\n"},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Gizmos/GizmosStrands.slang"},
+      {ShaderType::Mesh, editor_shader_root / "Graphics/Mesh/Gizmos/GizmosStrands.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/GaussianSplat/GaussianSplat.slang"},
       {ShaderType::RayGen, shader_root / "RayTracing/RayGen/Camera.slang"},
       {ShaderType::Miss, shader_root / "RayTracing/Miss/Camera.slang"},

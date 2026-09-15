@@ -8,28 +8,6 @@
 
 using namespace eco_sys_lab_package;
 
-bool DsAlphaShapeVisualizationParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Checkbox("Uniform Particle", &render_uniform_particles))
-    changed = true;
-  if (render_uniform_particles) {
-    if (ImGui::Combo("Uniform particle mode", {"Default", "Segment color", "Single Particles"},
-                     uniform_particle_render_mode))
-      changed = true;
-    switch (uniform_particle_render_mode) {
-      case 0: {
-        if (ImGui::ColorEdit4("Uniform particle color", &uniform_particle_main.x))
-          changed = true;
-        break;
-      }
-    }
-    if (ImGui::DragFloat("Uniform Particle multiplier", &uniform_particle_radius_multiplier, 0.1f, 0.1f, 1000.f))
-      changed = true;
-  }
-
-  return changed;
-}
-
 DsAlphaShapeMeshing::DsAlphaShapeMeshing() : DsMeshing() {
   mesh_wireframe_rendering_instance_handle = Handle();
   small_segments_rendering_instance_handle = Handle();
@@ -550,45 +528,6 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateBindings() const {
       8, device_uniform_particles_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       9, device_delaunay_tetrahedrons_buffer, 0);
-}
-
-bool eco_sys_lab_package::DsAlphaShapeMeshing::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  return false;
-}
-void DsAlphaShapeMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text((std::string("Uniform particles count: ") + std::to_string(uniform_particles.size())).c_str());
-  ImGui::Text((std::string("Meshlet count: ") + std::to_string(delaunay_tetrahedrons.size())).c_str());
-}
-
-void DsAlphaShapeMeshing::DrawRenderSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Render branches", &render_settings.branches_render_parameters.enabled);
-  if (render_settings.branches_render_parameters.enabled) {
-    if (ImGui::TreeNodeEx("Branch render settings")) {
-      if (ImGui::Button("Rebuild branches pipelines")) {
-        BuildBranchesRenderingPipelines();
-      }
-      render_settings.branches_render_parameters.DrawGui(editor_layer);
-      ImGui::TreePop();
-    }
-  }
-  ImGui::Checkbox("Render Visualization", &render_settings.visualization_rendering);
-  if (render_settings.visualization_rendering) {
-    ImGui::Checkbox("Render strands", &render_settings.small_segments_visualization_render_parameters.enabled);
-    if (render_settings.small_segments_visualization_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Strands render settings")) {
-        render_settings.small_segments_visualization_render_parameters.DrawGui(editor_layer);
-        ImGui::TreePop();
-      }
-    }
-  } else {
-    ImGui::Checkbox("Render splinters", &render_settings.small_segments_render_parameters.enabled);
-    if (render_settings.small_segments_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Splinter render settings")) {
-        render_settings.small_segments_render_parameters.DrawGui(editor_layer);
-        ImGui::TreePop();
-      }
-    }
-  }
 }
 
 void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera,
@@ -1393,3 +1332,7 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handl
   }
 }
 #pragma endregion
+
+DsAlphaShapeMeshing::RenderSettings& DsAlphaShapeMeshing::RefRenderSettings() {
+  return render_settings;
+}

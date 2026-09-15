@@ -5,55 +5,6 @@
 
 using namespace eco_sys_lab_package;
 
-bool DynamicSkeleton::InitializeParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  if (ImGui::TreeNode("Material Properties")) {
-    if (wood_density.Draw("Wood Density"))
-      changed = true;
-    if (max_youngs_modulus.Draw("Wood Young's modulus"))
-      changed = true;
-    if (max_shear_modulus.Draw("Wood Shear modulus"))
-      changed = true;
-    if (max_bending_modulus.Draw("Wood Bending modulus"))
-      changed = true;
-    if (max_twisting_modulus.Draw("Wood Torsion modulus"))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  return changed;
-}
-
-bool DynamicSkeleton::PhysicsParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-
-  if (ImGui::DragFloat("Time step", &time_step, 0.001f, 0.001f, 1.0f))
-    changed = true;
-  if (ImGui::DragInt("Sub step", &sub_step, 1, 1, 100)) {
-    changed = true;
-  }
-  if (ImGui::Checkbox("Breaking", &enable_breaking)) {
-    changed = true;
-  }
-  if (ImGui::Checkbox("Disconnection", &enable_disconnection)) {
-    changed = true;
-  }
-  if (ImGui::DragInt("Constraint Iteration", &constraint_iteration, 1, 1, 500))
-    changed = true;
-  if (ImGui::DragFloat("Velocity damping", &velocity_damping, 0.01f, 0.01f, 1.0f))
-    changed = true;
-  if (ImGui::DragFloat("Angular velocity damping", &angular_velocity_damping, 0.00001f, 0.0f, 1.0f, "%.5f"))
-    changed = true;
-
-  return changed;
-}
-
-bool DynamicSkeleton::VisualizationParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  return changed;
-}
-
 void DynamicSkeleton::Initialize(const InitializeParameters& initialize_parameters) {
   dts_skeleton.SortLists();
   dts_skeleton.CalculateRegulatedGlobalRotation();

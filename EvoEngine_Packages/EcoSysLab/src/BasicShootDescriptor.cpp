@@ -1,7 +1,6 @@
 #include "BasicShootDescriptor.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 
-#include "SDKInspectionAdapters.hpp"
 #include "ShootModel.hpp"
 
 using namespace eco_sys_lab_package;
@@ -259,71 +258,4 @@ void eco_sys_lab_package::DeserializeBasicShootDescriptor(const YAML::Node& in, 
     target.apical_dominance = in["apical_dominance"].as<float>();
   if (in["apical_dominance_loss"])
     target.apical_dominance_loss = in["apical_dominance_loss"].as<float>();
-}
-
-bool BasicShootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  changed = ImGui::DragFloat("Growth rate", &growth_rate, 0.01f, 0.0f, 10.0f) || changed;
-  changed = ImGui::DragFloat("Straight Trunk", &straight_trunk, 0.1f, 0.0f, 100.f) || changed;
-  if (ImGui::TreeNodeEx("Internode", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragInt("Base node count", &base_internode_count, 1, 0, 3) || changed;
-    changed = ImGui::DragInt("Lateral bud count", &lateral_bud_count, 1, 0, 3) || changed;
-    changed = ImGui::DragInt("Max Order", &max_order, 1, -1, 100) || changed;
-
-    static bool show_branching_angle_graph = false;
-    static bool show_roll_angle_graph = false;
-    static bool show_apical_angle_graph = false;
-    ImGui::Checkbox("Show branching angle graph", &show_branching_angle_graph);
-    ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
-    ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
-    if (show_branching_angle_graph) {
-      changed =
-          evo_engine::DrawProceduralNoiseGraph(branching_angle_graph, "Branching Angle Graph", editor_layer) || changed;
-    }
-    if (show_roll_angle_graph) {
-      changed = evo_engine::DrawProceduralNoiseGraph(roll_angle_graph, "Roll Angle Graph", editor_layer) || changed;
-    }
-    if (show_apical_angle_graph) {
-      changed = evo_engine::DrawProceduralNoiseGraph(apical_angle_graph, "Apical Angle Graph", editor_layer) || changed;
-    }
-
-    changed = ImGui::DragFloat("Internode length", &internode_length, 0.001f) || changed;
-    changed = ImGui::DragFloat("Internode length thickness factor", &internode_length_thickness_factor, 0.0001f, 0.0f,
-                               1.0f) ||
-              changed;
-    changed =
-        ImGui::DragFloat3("Thickness min/factor/age", &end_node_thickness, 0.0001f, 0.0f, 1.0f, "%.6f") || changed;
-
-    changed = ImGui::DragFloat("Bending strength", &gravity_bending_strength, 0.01f, 0.0f, 1.0f, "%.3f") || changed;
-    changed =
-        ImGui::DragFloat("Bending thickness factor", &gravity_bending_thickness_factor, 0.1f, 0.0f, 10.f, "%.3f") ||
-        changed;
-    changed = ImGui::DragFloat("Bending angle factor", &gravity_bending_max, 0.01f, 0.0f, 1.0f, "%.3f") || changed;
-
-    changed = ImGui::DragFloat("Internode shadow factor", &internode_shadow_factor, 0.001f, 0.0f, 1.0f) || changed;
-
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("Bud fate", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragFloat("Gravitropism", &gravitropism, 0.01f) || changed;
-    changed = ImGui::DragFloat("Phototropism", &phototropism, 0.01f) || changed;
-    changed = ImGui::DragFloat("Horizontal Tropism", &horizontal_tropism, 0.01f) || changed;
-
-    changed = ImGui::DragFloat("Apical bud extinction rate", &apical_bud_extinction_rate, 0.01f, 0.0f, 1.0f, "%.5f") ||
-              changed;
-    changed =
-        ImGui::DragFloat("Lateral bud flushing rate", &lateral_bud_flushing_rate, 0.01f, 0.0f, 1.0f, "%.5f") || changed;
-
-    changed = ImGui::DragFloat2("Inhibitor val/loss", &apical_dominance, 0.01f) || changed;
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("Tree Shape Control", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragFloat("Apical control", &apical_control, 0.01f) || changed;
-    changed = ImGui::DragFloat("Root distance control", &root_distance_control, 0.01f) || changed;
-    changed = ImGui::DragFloat("Height control", &height_control, 0.01f) || changed;
-
-    ImGui::TreePop();
-  }
-
-  return changed;
 }

@@ -19,6 +19,7 @@ enum class MotionAxis { X = 0, Y = 1, Z = 2, TwistX = 3, SwingY = 4, SwingZ = 5 
 enum class MotionType { Locked = 0, Limited = 1, Free = 2 };
 enum class DriveType { X = 0, Y = 1, Z = 2, Swing = 3, Twist = 4, Slerp = 5 };
 class Joint : public IPrivateComponent {
+  friend class PhysXEditorLayer;
   friend void SerializeJoint(YAML::Emitter &out, const Joint &target);
   friend void DeserializeJoint(const YAML::Node &in, Joint &target);
   JointType joint_type_ = JointType::Fixed;
@@ -30,36 +31,11 @@ class Joint : public IPrivateComponent {
   glm::quat local_rotation2_;
   bool linked_ = false;
 #pragma region Fixed
-  void FixedGui();
 #pragma endregion
-  /*
-#pragma region Distance
-  float m_maxDistance = FLT_MIN;
-  float m_minDistance = FLT_MAX;
-  bool m_maxDistanceEnabled = false;
-  bool m_minDistanceEnabled = false;
-  float m_stiffness = 0;
-  float m_damping = 0;
-  void SetMax(float value, const bool &enabled);
-  void SetMin(float value, const bool &enabled);
-  void SetStiffness(float value);
-  void SetDamping(float value);
-  void DistanceGui();
-#pragma endregion
-#pragma region Spherical
-  void SphericalGui();
-#pragma endregion
-#pragma region Revolute
-  void RevoluteGui();
-#pragma endregion
-#pragma region Prismatic
-  void PrismaticGui();
-#pragma endregion
-   */
+
 #pragma region D6
   PxD6Motion::Enum motion_types_[6] = {PxD6Motion::Enum::eLOCKED};
   PxD6JointDrive drives_[6] = {PxD6JointDrive()};
-  void D6Gui();
 #pragma endregion
   bool TypeCheck(const JointType &type);
 
@@ -89,7 +65,6 @@ class Joint : public IPrivateComponent {
   void OnCreate() override;
 
   void Link(const Entity &entity, bool reverse = false);
-  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
   void OnDestroy() override;
 
   void Relink(const std::unordered_map<Handle, Handle> &map, const std::shared_ptr<Scene> &scene) override;

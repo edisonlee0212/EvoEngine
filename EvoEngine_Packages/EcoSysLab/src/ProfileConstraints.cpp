@@ -1,6 +1,5 @@
 #include "ProfileConstraints.hpp"
 
-#include "TreeVisualizer.hpp"
 using namespace eco_sys_lab_package;
 
 bool OnSegment(const glm::vec2& p, const glm::vec2& q, const glm::vec2& r) {
@@ -32,33 +31,6 @@ void ProfileBoundary::CalculateCenter() {
     center += (p1 + p2) * 0.5f * line_length;
   }
   center /= sum;
-}
-
-void ProfileBoundary::RenderBoundary(const ImVec2 origin, const float zoom_factor, ImDrawList* draw_list, ImU32 color,
-                                     float thickness) const {
-  for (int point_index = 0; point_index < points.size() - 1; point_index++) {
-    const auto& p1 = points[point_index];
-    const auto& p2 = points[point_index + 1];
-    draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
-  }
-
-  const auto& p1 = points.back();
-  const auto& p2 = points[0];
-  draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                     ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
-}
-
-void ProfileAttractor::RenderAttractor(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color,
-                                       float thickness) const {
-  if (attractor_points.empty())
-    return;
-  for (const auto& attractor_point : attractor_points) {
-    const auto& p1 = attractor_point.first;
-    const auto& p2 = attractor_point.second;
-    draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
-  }
 }
 
 glm::vec2 ProfileAttractor::FindClosestPoint(const glm::vec2& position) const {

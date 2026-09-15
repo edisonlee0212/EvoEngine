@@ -3,7 +3,6 @@
 //
 #include "PointCloud.hpp"
 #include "AssetManager.hpp"
-#include "EditorLayer.hpp"
 #include "Entity.hpp"
 #include "Material.hpp"
 #include "Particles.hpp"

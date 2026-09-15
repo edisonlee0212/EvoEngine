@@ -61,6 +61,7 @@ struct Texture2DStagedLoadPayload final : StagedAssetLoadPayload {
   VkFormat compressed_format = VK_FORMAT_UNDEFINED;
   uint32_t compressed_mip_levels = 1;
   std::vector<std::byte> compressed_pixels;
+  std::optional<YAML::Node> source_texture;
 };
 
 void CopyTextureImageToBuffer(const std::shared_ptr<Image>& image, Buffer& buffer) {
@@ -89,6 +90,19 @@ bool IsDdsPath(const std::filesystem::path& path) {
 
 bool IsFloatTextureStorage(const Texture2DStorage& texture_storage) {
   return texture_storage.GetFormat() == Platform::Constants::texture_2d;
+}
+
+size_t Bc7MipChainSize(glm::uvec2 resolution, const uint32_t mip_levels) {
+  size_t size = 0;
+  for (uint32_t mip = 0; mip < mip_levels; ++mip) {
+    size += static_cast<size_t>((resolution.x + 3) / 4) * ((resolution.y + 3) / 4) * 16;
+    resolution = glm::max(resolution / 2u, glm::uvec2(1));
+  }
+  return size;
+}
+
+bool IsBc7Format(const VkFormat format) {
+  return format == VK_FORMAT_BC7_UNORM_BLOCK || format == VK_FORMAT_BC7_SRGB_BLOCK;
 }
 
 bool LoadDdsTexturePayload(const std::filesystem::path& path, Texture2DStagedLoadPayload& payload) {
@@ -227,8 +241,34 @@ void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload&
     return;
   }
 
+  if (in["source_texture"]) {
+    payload.source_texture = in["source_texture"];
+    return;
+  }
+
+  if (in["compressed_pixels"]) {
+    if (!in["compressed_format"] || !in["compressed_mip_levels"]) {
+      throw std::runtime_error("Serialized Texture2D compressed payload is missing its format or mip count.");
+    }
+    payload.compressed_format = static_cast<VkFormat>(in["compressed_format"].as<int32_t>());
+    payload.compressed_mip_levels = in["compressed_mip_levels"].as<uint32_t>();
+    Serialization::DeserializeVector("compressed_pixels", payload.compressed_pixels, in);
+    if (!IsBc7Format(payload.compressed_format) || payload.compressed_mip_levels == 0 ||
+        payload.compressed_pixels.size() != Bc7MipChainSize(payload.resolution, payload.compressed_mip_levels)) {
+      throw std::runtime_error("Serialized Texture2D has an invalid BC7 payload.");
+    }
+    return;
+  }
+
+  if (!in["pixels"]) {
+    throw std::runtime_error("Serialized Texture2D has a nonzero resolution but no pixel payload.");
+  }
+
   if (payload.hdr) {
     Serialization::DeserializeVector("pixels", payload.pixels, in);
+    if (payload.pixels.size() != static_cast<size_t>(payload.resolution.x) * payload.resolution.y) {
+      throw std::runtime_error("Serialized HDR Texture2D pixel count does not match its resolution.");
+    }
     return;
   }
 
@@ -244,7 +284,10 @@ void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload&
 
   std::vector<unsigned char> transferred_pixels;
   Serialization::DeserializeVector("pixels", transferred_pixels, in);
-  transferred_pixels.resize(payload.resolution.x * payload.resolution.y * target_channel_size);
+  if (target_channel_size == 0 || transferred_pixels.size() != static_cast<size_t>(payload.resolution.x) *
+                                                                   payload.resolution.y * target_channel_size) {
+    throw std::runtime_error("Serialized Texture2D pixel count does not match its resolution and channels.");
+  }
   payload.pixels.resize(payload.resolution.x * payload.resolution.y);
 
   Jobs::RunParallelFor(payload.pixels.size(), [&](size_t i) {
@@ -265,6 +308,8 @@ void DecodeSerializedTexture2D(const YAML::Node& in, Texture2DStagedLoadPayload&
 }  // namespace
 
 void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, const bool local_copy) {
+  compressed_data_.reset();
+  shared_source_.reset();
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
   const auto format = srgb && !hdr ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_UNDEFINED;
   srgb_fallback_linear_ = false;
@@ -281,6 +326,8 @@ void Texture2D::SetData(const std::vector<glm::vec4>& data, const glm::uvec2& re
   }
   if (local_copy) {
     local_data_ = data;
+  } else {
+    local_data_.clear();
   }
 }
 
@@ -355,19 +402,11 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
     green_channel = payload.green_channel;
     blue_channel = payload.blue_channel;
     alpha_channel = payload.alpha_channel;
-    local_data_.clear();
-    auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-    if (Platform::Initialized()) {
-      const auto upload = texture_storage.SetCompressedDataAsync(
-          payload.compressed_pixels, payload.resolution, payload.compressed_format, payload.compressed_mip_levels);
-      if (!upload.Valid()) {
-        return false;
-      }
-      Platform::GetGpuService().Wait(upload);
-    } else {
-      texture_storage.SetCompressedData(payload.compressed_pixels, payload.resolution, payload.compressed_format,
-                                        payload.compressed_mip_levels);
+    if (!SetCompressedData(std::move(payload.compressed_pixels), payload.resolution, payload.compressed_format,
+                           payload.compressed_mip_levels)) {
+      return false;
     }
+    WaitForPendingGpuWork();
     return true;
   }
   hdr = false;
@@ -406,6 +445,8 @@ bool Texture2D::LoadInternal(const std::filesystem::path& path) {
   }
 
   if (data) {
+    compressed_data_.reset();
+    shared_source_.reset();
     local_data_.resize(width * height);
     memcpy(local_data_.data(), data, sizeof(glm::vec4) * width * height);
     auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
@@ -514,26 +555,16 @@ bool Texture2D::ApplyStagedPayloadInternal(const std::filesystem::path&,
   green_channel = texture_payload->green_channel;
   blue_channel = texture_payload->blue_channel;
   alpha_channel = texture_payload->alpha_channel;
+  if (texture_payload->source_texture) {
+    AssetRef source_ref;
+    source_ref.Deserialize(*texture_payload->source_texture);
+    const auto source = source_ref.Get<Texture2D>();
+    return source && ShareGpuImage(*source, texture_payload->srgb, texture_payload->sampler_settings);
+  }
   if (texture_payload->compressed_format != VK_FORMAT_UNDEFINED) {
     srgb_fallback_linear_ = false;
-    local_data_.clear();
-    if (!texture_payload->compressed_pixels.empty() && texture_payload->resolution.x != 0 &&
-        texture_payload->resolution.y != 0) {
-      auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
-      if (Platform::Initialized()) {
-        const auto upload = texture_storage.SetCompressedDataAsync(
-            texture_payload->compressed_pixels, texture_payload->resolution, texture_payload->compressed_format,
-            texture_payload->compressed_mip_levels);
-        if (!upload.Valid()) {
-          return false;
-        }
-        TrackPendingGpuWork(upload);
-      } else {
-        texture_storage.SetCompressedData(texture_payload->compressed_pixels, texture_payload->resolution,
-                                          texture_payload->compressed_format, texture_payload->compressed_mip_levels);
-      }
-    }
-    return true;
+    return SetCompressedData(std::move(texture_payload->compressed_pixels), texture_payload->resolution,
+                             texture_payload->compressed_format, texture_payload->compressed_mip_levels);
   }
 
   local_data_ = texture_payload->pixels;
@@ -590,6 +621,8 @@ void Texture2D::SetResolution(const glm::uvec2& resolution, bool preserve_data) 
     Resize(copy, GetResolution(), local_data_, resolution);
     SetData(local_data_, resolution, true);
   } else {
+    compressed_data_.reset();
+    shared_source_.reset();
     local_data_.clear();
     if (resolution.x != 0 && resolution.y != 0) {
       SetData(std::vector<glm::vec4>(static_cast<size_t>(resolution.x) * resolution.y), resolution, false);
@@ -899,11 +932,6 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const int resize_x
   StoreToHdr(path, dst, resolution.x, resolution.y, 4, target_channel_size, resize_x, resize_y);
 }
 
-ImTextureID Texture2D::GetImTextureId() const {
-  const auto& texture_storage = PeekTexture2DStorage();
-  return texture_storage.im_texture_id;
-}
-
 VkImageLayout Texture2D::GetLayout() const {
   const auto& texture_storage = PeekTexture2DStorage();
   return texture_storage.image->GetLayout();
@@ -969,6 +997,11 @@ bool Texture2D::ShareGpuImage(const Texture2D& source, const bool requested_srgb
   blue_channel = source.blue_channel;
   alpha_channel = source.alpha_channel;
   local_data_.clear();
+  compressed_data_ = source.compressed_data_;
+  shared_source_ = std::dynamic_pointer_cast<const Texture2D>(source.GetSelf());
+  if (!shared_source_) {
+    local_data_ = source.PeekSerializableLocalData();
+  }
   return true;
 }
 
@@ -991,19 +1024,61 @@ const std::vector<glm::vec4>& Texture2D::PeekLocalData() const {
   return local_data_;
 }
 
-std::shared_ptr<Texture2D> Texture2D::GenerateThumbnailTexture() {
-  std::shared_ptr<Texture2D> ret_val = AssetManager::CreateTemporaryAsset<Texture2D>();
-  const glm::vec2 resolution = GetResolution();
-  const float max_dim = glm::max(resolution.x, resolution.y);
-  const glm::vec2 new_resolution = resolution * glm::min(1.f, 512.f / max_dim);
-  const auto& local_data = GetLocalData();
-  if (local_data.empty()) {
-    return {};
+const std::vector<glm::vec4>& Texture2D::PeekSerializableLocalData() const {
+  return local_data_.empty() && shared_source_ ? shared_source_->PeekSerializableLocalData() : local_data_;
+}
+
+const std::vector<std::byte>& Texture2D::PeekCompressedData() const {
+  static const std::vector<std::byte> empty;
+  if (compressed_data_) {
+    return *compressed_data_;
   }
-  auto copy_data = local_data;
-  Resize(local_data, resolution, copy_data, new_resolution);
-  ret_val->SetRgbaChannelData(copy_data, new_resolution, false);
-  return ret_val;
+  return shared_source_ ? shared_source_->PeekCompressedData() : empty;
+}
+
+std::shared_ptr<const Texture2D> Texture2D::GetSerializableSource() const {
+  auto source = shared_source_;
+  while (source && source->IsTemporary()) {
+    source = source->shared_source_;
+  }
+  return source;
+}
+
+VkFormat Texture2D::GetCompressedFormat() const {
+  return PeekCompressedData().empty() ? VK_FORMAT_UNDEFINED : PeekTexture2DStorage().GetFormat();
+}
+
+uint32_t Texture2D::GetCompressedMipLevels() const {
+  return PeekCompressedData().empty() ? 1 : PeekTexture2DStorage().GetMipLevels();
+}
+
+bool Texture2D::SetCompressedData(std::vector<std::byte> data, const glm::uvec2& resolution, const VkFormat format,
+                                  const uint32_t mip_levels) {
+  if (!IsBc7Format(format) || resolution.x == 0 || resolution.y == 0 || mip_levels == 0 ||
+      data.size() != Bc7MipChainSize(resolution, mip_levels)) {
+    return false;
+  }
+  local_data_.clear();
+  shared_source_.reset();
+  compressed_data_ = std::make_shared<const std::vector<std::byte>>(std::move(data));
+  auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
+  if (Platform::Initialized()) {
+    const auto upload = texture_storage.SetCompressedDataAsync(*compressed_data_, resolution, format, mip_levels);
+    if (!upload.Valid()) {
+      compressed_data_.reset();
+      return false;
+    }
+    TrackPendingGpuWork(upload);
+  } else {
+    texture_storage.SetCompressedData(*compressed_data_, resolution, format, mip_levels);
+  }
+  return true;
+}
+
+void Texture2D::CollectAssetRef(std::vector<AssetRef>& list) {
+  if (const auto source = GetSerializableSource()) {
+    list.emplace_back(std::const_pointer_cast<Texture2D>(source));
+  }
 }
 
 void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize_x, const int resize_y) const {

@@ -4,6 +4,10 @@
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "ShootGrowthData.hpp"
 
+namespace evo_engine {
+class Camera;
+}
+
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 class DynamicStrands;
@@ -34,10 +38,6 @@ class DsMeshing {
   virtual void Clear() = 0;
 
   virtual void UpdateBindings() const = 0;
-
-  virtual bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) = 0;
-
-  virtual void Stats(const std::shared_ptr<EditorLayer>& editor_layer);
 
   virtual void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
                                        Entity& owner) = 0;

@@ -54,18 +54,6 @@ void DynamicStrands::BuildSegmentPairsRenderingPipeline() {
   segment_pairs_visualization_render_pipeline->Initialize();
 }
 
-bool SegmentPairsRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::DragFloat3("Position scale", &position_scale.x, 0.1f, 0.1f, 100.f)) {
-    changed = true;
-  }
-  if (ImGui::DragFloat("Thickness multiplier", &thickness_multiplier, 0.1f, 0.1f, 10.f)) {
-    changed = true;
-  }
-
-  return changed;
-}
-
 uint32_t DynamicStrands::RenderSegmentPairsToCameraForward(
     int material_index, const DynamicStrandsInitializeParameters& initialize_parameters,
     const SegmentPairsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,

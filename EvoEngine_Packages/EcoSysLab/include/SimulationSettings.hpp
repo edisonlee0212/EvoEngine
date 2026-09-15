@@ -17,13 +17,6 @@ class SimulationStats {
   int shoot_stem_size = 0;      ///< The number of shoot stems in the simulation.
   int root_node_size = 0;       ///< The number of root nodes in the tree structure.
   int root_stem_size = 0;       ///< The number of root stems in the tree structure.
-
-  /**
-   * @brief Inspects the simulation statistics in the editor.
-   * @param editor_layer A reference to the editor layer handling the inspection.
-   * @return True if the statistics are not updated during inspection, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**
@@ -73,12 +66,5 @@ class SimulationSettings {
    * @param in The YAML node containing serialized data.
    */
   void Deserialize(const YAML::Node& in);
-
-  /**
-   * @brief Inspects the simulation settings in the editor.
-   * @param editor_layer A reference to the editor layer handling the inspection.
-   * @return True if the settings are not modified during inspection, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

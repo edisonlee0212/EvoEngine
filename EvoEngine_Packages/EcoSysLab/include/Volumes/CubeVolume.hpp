@@ -26,15 +26,6 @@ class CubeVolume : public IVolume {
   Bound min_max_bound;
 
   /**
-   * @brief Inspects the volume in the editor layer.
-   *
-   * This function allows interaction within the editor, such as modifying parameters.
-   * @param editorLayer A shared pointer to the editor layer.
-   * @return True if the asset's content is not modified during inspection.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer) override;
-
-  /**
    * @brief Checks if a given position is inside the volume.
    * @param globalTransform The global transformation applied to the volume.
    * @param position A 3D position to check.

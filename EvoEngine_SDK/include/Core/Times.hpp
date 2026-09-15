@@ -24,11 +24,6 @@ class EVOENGINE_API Times {
 
  public:
   /**
-   * @brief Draws the editor interface for the time settings.
-   */
-  void Draw();
-
-  /**
    * @brief Sets the custom time step value.
    * @param value The new time step value.
    */

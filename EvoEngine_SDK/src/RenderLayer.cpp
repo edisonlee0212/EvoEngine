@@ -5,7 +5,6 @@
 #include "ComputePipeline.hpp"
 #include "DdgiProbeRayData.hpp"
 #include "DdgiSampling.hpp"
-#include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
@@ -43,7 +42,6 @@
 #include "RenderPasses/DeferredGeometryPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
-#include "RenderPasses/EntitySelectionHighlightPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/MotionCoveragePass.hpp"
 #include "RenderPasses/MotionVectorPass.hpp"
@@ -1850,18 +1848,29 @@ void RenderLayer::RegisterFrameRenderPass(
 void RenderLayer::RegisterCameraRenderPass(
     RenderPassDescriptor descriptor,
     std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
-                           const ForwardRenderingView& forward_rendering_view)>&& func) {
+                           const ForwardRenderingView& forward_rendering_view)>&& func,
+    CameraRenderPassOptions options) {
   descriptor.scope = RenderPassScope::Camera;
-  camera_render_pass_external_functions.push_back({std::move(descriptor), std::move(func), {}});
+  camera_render_pass_external_functions.push_back({std::move(descriptor), std::move(func), {}, std::move(options)});
 }
 
 void RenderLayer::RegisterCameraRenderPass(
     RenderPassDescriptor descriptor,
     std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                            const ForwardRenderingView& forward_rendering_view,
-                           const RenderGraphExecutionContext& context)>&& func) {
+                           const RenderGraphExecutionContext& context)>&& func,
+    CameraRenderPassOptions options) {
   descriptor.scope = RenderPassScope::Camera;
-  camera_render_pass_external_functions.push_back({std::move(descriptor), {}, std::move(func)});
+  camera_render_pass_external_functions.push_back({std::move(descriptor), {}, std::move(func), std::move(options)});
+}
+
+void RenderLayer::RemoveCameraRenderPasses(const std::string& owner) {
+  camera_render_pass_external_functions.erase(
+      std::remove_if(camera_render_pass_external_functions.begin(), camera_render_pass_external_functions.end(),
+                     [&](const auto& pass) {
+                       return pass.options.owner == owner;
+                     }),
+      camera_render_pass_external_functions.end());
 }
 
 void RenderLayer::OnCreate() {
@@ -2333,26 +2342,6 @@ void RenderLayer::OnCreate() {
   if (!strands_deferred_masked_geometry_pipeline && strands_deferred_geometry_pipeline) {
     strands_deferred_masked_geometry_pipeline = CreateMaskedDeferredVariant(strands_deferred_geometry_pipeline);
   }
-  if (!entity_selection_highlight_pipeline_) {
-    entity_selection_highlight_pipeline_ = std::make_shared<GraphicsPipeline>();
-    entity_selection_highlight_pipeline_->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
-    entity_selection_highlight_pipeline_->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                  "Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang");
-    entity_selection_highlight_pipeline_->geometry_type = GeometryType::Mesh;
-    entity_selection_highlight_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
-    entity_selection_highlight_pipeline_->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    entity_selection_highlight_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
-    entity_selection_highlight_pipeline_->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    entity_selection_highlight_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    entity_selection_highlight_pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color};
-    auto& push_constant_range = entity_selection_highlight_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(EntitySelectionHighlightPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    entity_selection_highlight_pipeline_->Initialize();
-  }
   if (!transparent_geometry_pipeline_normal) {
     transparent_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
     transparent_geometry_pipeline_normal->vertex_shader = Shader::CreateTemporary(
@@ -2374,90 +2363,6 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     transparent_geometry_pipeline_normal->Initialize();
   }
-  if (!gizmos) {
-    gizmos = std::make_shared<GraphicsPipeline>();
-    gizmos->vertex_shader =
-        Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/Gizmos.slang");
-    gizmos->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.slang");
-    gizmos->geometry_type = GeometryType::Mesh;
-    gizmos->vertex_input_attribute_set = VertexInputAttributeSet::Position;
-    gizmos->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    auto& push_constant_range = gizmos->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    gizmos->Initialize();
-  }
-  if (!gizmos_normal_colored) {
-    gizmos_normal_colored = std::make_shared<GraphicsPipeline>();
-    gizmos_normal_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.slang");
-    gizmos_normal_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
-    gizmos_normal_colored->geometry_type = GeometryType::Mesh;
-    gizmos_normal_colored->vertex_input_attribute_set = VertexInputAttributeSet::PositionNormal;
-    gizmos_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_normal_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_normal_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    gizmos_normal_colored->tessellation_patch_control_points = 4;
-    auto& push_constant_range = gizmos_normal_colored->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    gizmos_normal_colored->Initialize();
-  }
-  if (!gizmos_vertex_colored) {
-    gizmos_vertex_colored = std::make_shared<GraphicsPipeline>();
-    gizmos_vertex_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.slang");
-    gizmos_vertex_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
-    gizmos_vertex_colored->geometry_type = GeometryType::Mesh;
-    gizmos_vertex_colored->vertex_input_attribute_set = VertexInputAttributeSet::PositionColor;
-    gizmos_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_vertex_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_vertex_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    auto& push_constant_range = gizmos_vertex_colored->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    gizmos_vertex_colored->Initialize();
-  }
-  if (!gizmos_instanced_colored) {
-    gizmos_instanced_colored = std::make_shared<GraphicsPipeline>();
-    gizmos_instanced_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.slang");
-    gizmos_instanced_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
-    gizmos_instanced_colored->geometry_type = GeometryType::Mesh;
-    gizmos_instanced_colored->vertex_input_attribute_set = VertexInputAttributeSet::Position;
-    gizmos_instanced_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_instanced_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_instanced_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    gizmos_instanced_colored->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
-    auto& push_constant_range = gizmos_instanced_colored->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    gizmos_instanced_colored->Initialize();
-  }
   if (!gaussian_splat_pipeline_) {
     gaussian_splat_pipeline_ = CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_,
                                                            Platform::Constants::render_texture_depth);
@@ -2474,43 +2379,6 @@ void RenderLayer::OnCreate() {
     if (!gaussian_splat_mesh_overlay_pipeline_) {
       gaussian_splat_mesh_overlay_pipeline_ =
           CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED, true);
-    }
-  }
-  if (Platform::MeshShaderEnabled()) {
-    const auto create_gizmo_strands_pipeline = [&](const std::filesystem::path& fragment_shader_path) {
-      auto pipeline = std::make_shared<GraphicsPipeline>();
-      pipeline->task_shader = Shader::CreateTemporary(
-          ShaderType::Task, Platform::GetShaderGlobalDefines(),
-          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Gizmos/GizmosStrands.slang");
-      pipeline->mesh_shader = Shader::CreateTemporary(
-          ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Gizmos/GizmosStrands.slang");
-      pipeline->fragment_shader =
-          Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
-      pipeline->vertex_input_enabled = false;
-      pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-      pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-      pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-      pipeline->descriptor_set_layouts = {per_frame_layout_, strand_meshlet_layout_};
-      auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-      push_constant_range.size = sizeof(GizmosPushConstant);
-      push_constant_range.offset = 0;
-      push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-      pipeline->Initialize();
-      return pipeline;
-    };
-    const auto gizmos_fragment_path =
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.slang";
-    const auto colored_fragment_path =
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang";
-    if (!gizmos_strands) {
-      gizmos_strands = create_gizmo_strands_pipeline(gizmos_fragment_path);
-    }
-    if (!gizmos_strands_normal_colored) {
-      gizmos_strands_normal_colored = create_gizmo_strands_pipeline(colored_fragment_path);
-    }
-    if (!gizmos_strands_vertex_colored) {
-      gizmos_strands_vertex_colored = create_gizmo_strands_pipeline(colored_fragment_path);
     }
   }
 #pragma endregion
@@ -2896,12 +2764,12 @@ void RenderLayer::EnsureRasterLightingFallbackTexture() const {
   }
 }
 
-void RenderLayer::ClearAllEditorCameras() const {
+void RenderLayer::ClearAuxiliaryCameras() const {
   const auto scene = GetScene();
   if (!scene)
     return;
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
-  RenderInstanceStorage::CollectEditorCameras(scene, cameras);
+  RenderInstanceStorage::CollectAuxiliaryCameras(scene, cameras);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (const auto& i : cameras) {
@@ -3371,20 +3239,19 @@ const GiProbeFrame& RenderLayer::PrepareGiProbeFrame(const std::shared_ptr<Scene
   }
   const auto main_anchor = scene_camera_anchor(scene->main_camera.Get<Camera>());
   SdfgiAnchor editor_anchor;
-  const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor) {
-    if (const auto camera = editor->GetSceneCamera(); camera && camera->IsEnabled()) {
-      const auto position = editor->GetSceneCameraPosition();
-      if (std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z))
-        editor_anchor = {camera->GetHandle().GetValue(), position};
-    }
+  const bool has_editor = static_cast<bool>(auxiliary_camera_provider_.primary);
+  const auto [transform, camera] = GetPrimaryAuxiliaryCamera();
+  if (camera && camera->IsEnabled()) {
+    const auto position = transform.GetPosition();
+    if (std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z))
+      editor_anchor = {camera->GetHandle().GetValue(), position};
   }
   const auto play_status = ApplicationContext::Get().GetApplicationStatus();
   const bool playable_view = play_status == Application::ExecutionStatus::Playing ||
                              play_status == Application::ExecutionStatus::Pause ||
                              play_status == Application::ExecutionStatus::Step;
   const auto anchor = SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor, settings.anchor_camera_entity != 0,
-                                        playable_view, editor != nullptr);
+                                        playable_view, has_editor);
   snapshot->Update(frame, settings, anchor);
   return *snapshot;
 }
@@ -4621,10 +4488,13 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
     FailReflectionProbeBakeBatch(batch, error, true);
     prepared_reflection_probe_bake_.reset();
   };
+  // Ray-only scenes have no raster directional-shadow map; -1 selects unshadowed capture lighting.
   int directional_shadow_camera_index = -1;
-  if (render_instances->render_info_block.directional_light_size > 0) {
-    directional_shadow_camera_index = render_instances->GetCameraIndex(reflection_probe_shadow_camera_handle_);
+  if (render_instances->render_info_block.directional_light_size > 0 &&
+      reflection_probe_shadow_camera_handle_.GetValue() != 0) {
+    directional_shadow_camera_index = render_instances->TryGetCameraIndex(reflection_probe_shadow_camera_handle_);
     if (directional_shadow_camera_index < 0) {
+      reflection_probe_shadow_camera_handle_ = Handle(0);
       retry("Waiting for the main camera or editor Scene camera directional shadow map.");
       return;
     }
@@ -4652,7 +4522,7 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
   std::vector<int> face_camera_indices;
   face_camera_indices.reserve(prepared.injected_cameras.size());
   for (const auto& [transform, face_camera] : prepared.injected_cameras) {
-    const auto camera_index = render_instances->GetCameraIndex(face_camera->GetHandle());
+    const auto camera_index = render_instances->TryGetCameraIndex(face_camera->GetHandle());
     if (camera_index < 0) {
       retry("Waiting for the reflection probe capture cameras in the active render snapshot.");
       return;
@@ -5217,17 +5087,20 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     return;
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  // Ray-only scenes have no raster directional-shadow map; -1 selects unshadowed capture lighting.
   int directional_shadow_camera_index = -1;
-  if (render_instances->render_info_block.directional_light_size > 0) {
-    directional_shadow_camera_index = render_instances->GetCameraIndex(reflection_probe_shadow_camera_handle_);
+  if (render_instances->render_info_block.directional_light_size > 0 &&
+      reflection_probe_shadow_camera_handle_.GetValue() != 0) {
+    directional_shadow_camera_index = render_instances->TryGetCameraIndex(reflection_probe_shadow_camera_handle_);
     if (directional_shadow_camera_index < 0) {
+      reflection_probe_shadow_camera_handle_ = Handle(0);
       return;
     }
   }
   std::vector<int> face_camera_indices;
   face_camera_indices.reserve(prepared.injected_cameras.size());
   for (const auto& [transform, face_camera] : prepared.injected_cameras) {
-    const auto camera_index = render_instances->GetCameraIndex(face_camera->GetHandle());
+    const auto camera_index = render_instances->TryGetCameraIndex(face_camera->GetHandle());
     if (camera_index < 0) {
       return;
     }
@@ -6486,12 +6359,9 @@ void RenderLayer::RenderAll() {
     }
   }
   if (!preferred_shadow_camera) {
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      const auto scene_camera = editor_layer->GetSceneCamera();
-      if (can_render_directional_shadows(scene_camera)) {
-        preferred_shadow_camera = scene_camera;
-      }
-    }
+    const auto scene_camera = GetPrimaryAuxiliaryCamera().second;
+    if (can_render_directional_shadows(scene_camera))
+      preferred_shadow_camera = scene_camera;
   }
   const auto render_raster_camera = [&](const GlobalTransform& camera_global_transform,
                                         const std::shared_ptr<Camera>& camera) {
@@ -6529,10 +6399,7 @@ void RenderLayer::RenderAll() {
     }
   }
 
-  std::shared_ptr<Camera> presentation_camera;
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    presentation_camera = editor_layer->GetSceneCamera();
-  }
+  auto presentation_camera = GetPrimaryAuxiliaryCamera().second;
   if (!presentation_camera && scene) {
     presentation_camera = scene->main_camera.Get<Camera>();
   }
@@ -6542,13 +6409,11 @@ void RenderLayer::RenderAll() {
   }
 
   auto& profiler = Profiler::GetInstance();
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-      if (const auto render_texture = scene_camera->GetRenderTexture()) {
-        const auto extent = render_texture->GetExtent();
-        profiler.RecordCounter("Scene Camera Width", extent.width, "Raster", "pixels");
-        profiler.RecordCounter("Scene Camera Height", extent.height, "Raster", "pixels");
-      }
+  if (const auto scene_camera = GetPrimaryAuxiliaryCamera().second) {
+    if (const auto render_texture = scene_camera->GetRenderTexture()) {
+      const auto extent = render_texture->GetExtent();
+      profiler.RecordCounter("Scene Camera Width", extent.width, "Raster", "pixels");
+      profiler.RecordCounter("Scene Camera Height", extent.height, "Raster", "pixels");
     }
   }
   profiler.RecordCounter("Active Probes", ddgi_last_performance_stats_.active_probe_count, "DDGI", "probes");
@@ -6566,148 +6431,6 @@ void RenderLayer::RenderAll() {
   alpha_masked_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
   camera_render_pass_external_functions.clear();
-}
-
-void RenderLayer::RenderGizmos() const {
-  if (const auto scene = GetScene(); !scene)
-    return;
-  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    const auto current_frame_index = Platform::GetCurrentFrameIndex();
-    const auto current_render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
-    for (const auto& i : editor_layer->gizmo_mesh_tasks_) {
-      if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
-          editor_layer->editor_cameras_.end()) {
-        EVOENGINE_ERROR("Target camera not registered in editor!");
-        return;
-      }
-      if (i.editor_camera_component && i.editor_camera_component->IsEnabled()) {
-        Platform::RecordCommandsMainQueue(
-            [this, i, current_frame_index, current_render_instances](VkCommandBuffer vk_command_buffer) {
-              std::shared_ptr<GraphicsPipeline> gizmos_pipeline;
-              switch (i.gizmo_settings.color_mode) {
-                case GizmoSettings::ColorMode::Default: {
-                  gizmos_pipeline = gizmos;
-                } break;
-                case GizmoSettings::ColorMode::VertexColor: {
-                  gizmos_pipeline = gizmos_vertex_colored;
-                } break;
-                case GizmoSettings::ColorMode::NormalColor: {
-                  gizmos_pipeline = gizmos_normal_colored;
-                } break;
-              }
-              i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_pipeline->states);
-              i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
-
-              gizmos_pipeline->Bind(vk_command_buffer);
-              gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                 per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-              i.editor_camera_component->GetRenderTexture()->Render(
-                  vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&]() {
-                    GizmosPushConstant push_constant;
-                    push_constant.model = i.model;
-                    push_constant.color = i.color;
-                    push_constant.size = i.size;
-                    push_constant.camera_index =
-                        current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
-                    push_constant.strand_meshlet_offset = 0;
-                    push_constant.strand_color_mode = 0;
-                    gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                    GeometryStorage::BindVertices(vk_command_buffer);
-                    i.mesh->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
-                  });
-            });
-      }
-    }
-    if (Platform::MeshShaderEnabled()) {
-      for (const auto& i : editor_layer->gizmo_strands_tasks_) {
-        if (!i.strands || !i.editor_camera_component || !i.editor_camera_component->IsEnabled() ||
-            !i.strands->strand_meshlet_range_ || !i.strands->segment_range_ ||
-            i.strands->strand_meshlet_range_->prev_frame_range == 0) {
-          continue;
-        }
-        if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
-            editor_layer->editor_cameras_.end()) {
-          EVOENGINE_ERROR("Target camera not registered in editor!");
-          return;
-        }
-        Platform::RecordCommandsMainQueue([this, i, current_frame_index,
-                                           current_render_instances](VkCommandBuffer vk_command_buffer) {
-          std::shared_ptr<GraphicsPipeline> gizmos_pipeline;
-          switch (i.gizmo_settings.color_mode) {
-            case GizmoSettings::ColorMode::Default:
-              gizmos_pipeline = gizmos_strands;
-              break;
-            case GizmoSettings::ColorMode::VertexColor:
-              gizmos_pipeline = gizmos_strands_vertex_colored;
-              break;
-            case GizmoSettings::ColorMode::NormalColor:
-              gizmos_pipeline = gizmos_strands_normal_colored;
-              break;
-          }
-          i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_pipeline->states);
-          i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
-          gizmos_pipeline->Bind(vk_command_buffer);
-          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          gizmos_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, strand_meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-          i.editor_camera_component->GetRenderTexture()->Render(
-              vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&]() {
-                GizmosPushConstant push_constant;
-                push_constant.model = i.model;
-                push_constant.color = i.color;
-                push_constant.size = i.size;
-                push_constant.camera_index =
-                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
-                push_constant.strand_meshlet_offset = i.strands->strand_meshlet_range_->prev_frame_offset;
-                push_constant.strand_color_mode = static_cast<uint32_t>(i.gizmo_settings.color_mode);
-                gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                gizmos_pipeline->DrawMeshTasks(vk_command_buffer, i.strands->strand_meshlet_range_->prev_frame_range);
-                Platform::CountRenderPassDraw(RenderPassDrawBucket::EditorGizmos, RenderDrawCallKind::Direct,
-                                              current_frame_index, i.strands->segment_range_->prev_frame_index_count);
-              });
-        });
-      }
-    }
-    for (const auto& i : editor_layer->gizmo_instanced_mesh_tasks_) {
-      if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
-          editor_layer->editor_cameras_.end()) {
-        EVOENGINE_ERROR("Target camera not registered in editor!")
-        return;
-      }
-      if (i.editor_camera_component && i.editor_camera_component->IsEnabled()) {
-        Platform::RecordCommandsMainQueue([this, i, current_frame_index,
-                                           current_render_instances](VkCommandBuffer vk_command_buffer) {
-          i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_instanced_colored->states);
-          i.gizmo_settings.ApplySettings(gizmos_instanced_colored->states);
-
-          gizmos_instanced_colored->Bind(vk_command_buffer);
-          gizmos_instanced_colored->BindDescriptorSet(
-              vk_command_buffer, 0, per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-          gizmos_instanced_colored->BindDescriptorSet(vk_command_buffer, 1,
-                                                      i.particle_info_list->GetDescriptorSet()->GetVkDescriptorSet());
-
-          i.editor_camera_component->GetRenderTexture()->Render(
-              vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-                GizmosPushConstant push_constant;
-                push_constant.model = i.model;
-                push_constant.color = glm::vec4(0.0f);
-                push_constant.size = i.size;
-                push_constant.camera_index =
-                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
-                push_constant.strand_meshlet_offset = 0;
-                push_constant.strand_color_mode = 0;
-                gizmos_instanced_colored->PushConstant(vk_command_buffer, 0, push_constant);
-                GeometryStorage::BindVertices(vk_command_buffer);
-                i.mesh->DrawIndexed(vk_command_buffer, gizmos_instanced_colored->states,
-                                    i.particle_info_list->PeekParticleInfoList().size());
-              });
-        });
-      }
-    }
-  }
 }
 
 void RenderLayer::ForEachCollectedCamera(
@@ -7259,64 +6982,24 @@ bool RenderLayer::UpdateRenderInstanceStorage(
         injected_cameras->front().second ? injected_cameras->front().second->camera_settings.far_distance : FLT_MAX;
     lod_set = true;
   } else if (!lod_set) {
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-        lod_center = editor_layer->GetSceneCameraPosition();
-        lod_max_distance = scene_camera->camera_settings.far_distance;
-      }
+    const auto [transform, scene_camera] = GetPrimaryAuxiliaryCamera();
+    if (scene_camera) {
+      lod_center = transform.GetPosition();
+      lod_max_distance = scene_camera->camera_settings.far_distance;
     }
   }
   RenderInstanceStorage::CalculateLodFactor(scene, lod_center, lod_max_distance);
   auto world_bound = scene->GetBound();
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  std::shared_ptr<const EntitySelectionHighlightCoverage> selection_highlight_coverage;
-  uint32_t selection_root_count = 0;
-  uint64_t selection_revision = 0;
-  uint64_t hierarchy_revision = scene->GetHierarchyRevision();
-  bool selection_coverage_rebuilt = false;
-  const auto selection_coverage_started = std::chrono::steady_clock::now();
-  if (update_editor_selection) {
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      const auto selection = editor_layer->GetEntitySelectionSnapshot();
-      selection_root_count = static_cast<uint32_t>(selection.entities.size());
-      selection_revision = selection.revision;
-      if (selection_highlight_coverage_scene_.lock() != scene ||
-          selection_highlight_coverage_selection_revision_ != selection.revision ||
-          selection_highlight_coverage_hierarchy_revision_ != hierarchy_revision) {
-        const ProfilerScope selection_scope("RenderLayer::BuildSelectionHighlightCoverage", "Render");
-        auto rebuilt_coverage = std::make_shared<EntitySelectionHighlightCoverage>();
-        for (const auto& selected : selection.entities) {
-          if (!scene->IsEntityValid(selected))
-            continue;
-          rebuilt_coverage->emplace(selected);
-          for (const auto& descendant : scene->GetDescendants(selected)) {
-            rebuilt_coverage->emplace(descendant);
-          }
-        }
-        selection_highlight_coverage_scene_ = scene;
-        selection_highlight_coverage_selection_revision_ = selection.revision;
-        selection_highlight_coverage_hierarchy_revision_ = hierarchy_revision;
-        selection_highlight_coverage_ = std::move(rebuilt_coverage);
-        selection_coverage_rebuilt = true;
-      }
-      selection_highlight_coverage = selection_highlight_coverage_;
-    }
-  }
-  if (Platform::Initialized() && selection_coverage_rebuilt) {
-    Platform::RecordCpuTimingSample(
-        "Editor Selection / Expand Coverage",
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - selection_coverage_started)
-            .count());
-  }
+  const auto highlight = update_editor_selection && render_instance_callbacks_.highlight
+                             ? render_instance_callbacks_.highlight(scene)
+                             : RenderInstanceHighlightInput{};
   current_render_instances->BuildFromScene(
       render_settings, scene, world_bound, include_editor_cameras, injected_cameras, include_reflection_probes,
       dynamic_reflection_probe_contributing_ ? &dynamic_reflection_probe_texture_overrides_ : nullptr,
-      selection_highlight_coverage, selection_revision, hierarchy_revision);
-  if (update_editor_selection) {
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      editor_layer->ProcessPendingViewportSelection();
-    }
-  }
+      highlight.coverage, highlight.revision, scene->GetHierarchyRevision());
+  if (update_editor_selection && render_instance_callbacks_.prepared)
+    render_instance_callbacks_.prepared();
   const auto previous_render_instances =
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
@@ -7594,13 +7277,12 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   }
   const auto raster_lighting_texture_descriptor_set =
       GetRasterLightingTextureDescriptorSet(current_frame_index, camera_index, current_render_instances);
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
+  const auto editor_camera = GetPrimaryAuxiliaryCamera().second;
+  const bool is_scene_camera = editor_camera && camera == editor_camera;
   VolumetricCloudSettings volumetric_cloud_settings{};
   const auto sdfgi_runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
-  const bool sdfgi_eligible =
-      IsSdfgiCameraEligible(scene, camera, editor_layer ? editor_layer->GetSceneCamera() : nullptr, immediate,
-                            reflection_probe_capture, command_recorder != nullptr);
+  const bool sdfgi_eligible = IsSdfgiCameraEligible(scene, camera, editor_camera, immediate, reflection_probe_capture,
+                                                    command_recorder != nullptr);
   const auto sdfgi_resources =
       reflection_probe_capture && camera->IsEnabled() &&
               camera->camera_render_mode == Camera::CameraRenderMode::Rasterization
@@ -7984,8 +7666,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
           });
     }
-    if (!reflection_probe_capture && !sdfgi_isolation) {
+    const auto add_external_camera_passes = [&](const CameraRenderPassStage stage) {
+      if (reflection_probe_capture || sdfgi_isolation)
+        return;
       for (const auto& external_pass : camera_render_pass_external_functions) {
+        if (external_pass.options.stage != stage ||
+            (external_pass.options.camera && external_pass.options.camera != camera))
+          continue;
         ImportMissingPassResources(camera_render_graph, external_pass.descriptor);
         camera_render_graph.AddPass(
             external_pass.descriptor, [&, external_pass](const RenderGraphExecutionContext& context) {
@@ -8011,7 +7698,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               });
             });
       }
-    }
+    };
+    add_external_camera_passes(CameraRenderPassStage::BeforePostProcessing);
     const bool gaussian_splat_rendering_enabled = !reflection_probe_capture && !sdfgi_isolation &&
                                                   current_render_instances &&
                                                   current_render_instances->total_gaussian_splats != 0u &&
@@ -8125,17 +7813,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                                                           immediate, false, sdfgi_isolation});
                                   });
     }
-    if (is_scene_camera && !reflection_probe_capture) {
-      auto presentation = editor_layer->GetEntitySelectionHighlightSnapshot();
-      presentation.active =
-          presentation.active && !sdfgi_isolation && current_render_instances->HasSelectionHighlightRenderInstances();
-      camera_render_graph.AddPass(EntitySelectionHighlightPass::CreateDescriptor(),
-                                  [&, presentation](const RenderGraphExecutionContext& context) {
-                                    EntitySelectionHighlightPass::Execute(
-                                        context,
-                                        {camera, entity_selection_highlight_pipeline_, presentation, record_commands});
-                                  });
-    }
+    add_external_camera_passes(CameraRenderPassStage::AfterPostProcessing);
+    const std::string presentation_dependency = camera_render_graph.GetPasses().back().name;
     auto camera_render_graph_resources =
         CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (sdfgi_publication)
@@ -8144,10 +7823,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       hddagi_camera->ImportCamera(camera_render_graph, camera_render_graph_resources, *hddagi_runtime->resources);
     if (sdfgi_debug_camera) {
       try {
-        AddSdfgiCameraDebug(
-            camera_render_graph, camera_render_graph_resources, sdfgi_runtime, camera,
-            current_render_instances->camera_info_blocks_.at(camera_index),
-            is_scene_camera ? RenderPassNames::entity_selection_highlight : RenderPassNames::post_processing);
+        AddSdfgiCameraDebug(camera_render_graph, camera_render_graph_resources, sdfgi_runtime, camera,
+                            current_render_instances->camera_info_blocks_.at(camera_index),
+                            presentation_dependency.c_str());
         sdfgi_runtime->debug->failure.clear();
       } catch (const std::exception& error) {
         sdfgi_runtime->debug->failure = error.what();
@@ -8211,8 +7889,8 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
+  const auto editor_camera = GetPrimaryAuxiliaryCamera().second;
+  const bool is_scene_camera = editor_camera && camera == editor_camera;
 
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
   if (resolved_render_mode == Camera::CameraRenderMode::RayTracing ||
@@ -8383,7 +8061,7 @@ void RenderLayer::OnDestroy() {
     PublishSubmittedDynamicReflectionProbeUpdate(frame_index);
   }
   reflection_probe_capture_cameras_.clear();
-  reflection_probe_shadow_camera_handle_ = {};
+  reflection_probe_shadow_camera_handle_ = Handle(0);
   reflection_probe_capture_raw_cubemap_.reset();
   dynamic_reflection_probe_raw_slots_ = {};
   dynamic_reflection_probe_filter_queue_.clear();
@@ -8532,4 +8210,29 @@ const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() {
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetLightingDescriptorSet() {
   return ApplicationContext::Get().GetLayer<RenderLayer>()->lighting_->lighting_descriptor_sets_.at(
       Platform::GetCurrentFrameIndex());
+}
+
+const std::shared_ptr<DescriptorSet>& RenderLayer::GetStrandMeshletDescriptorSet() const {
+  return strand_meshlet_descriptor_sets_[Platform::GetCurrentFrameIndex()];
+}
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetStrandMeshletDescriptorSetLayout() const {
+  return strand_meshlet_layout_;
+}
+
+void RenderLayer::SetAuxiliaryCameraProvider(AuxiliaryCameraProvider provider) {
+  auxiliary_camera_provider_ = std::move(provider);
+}
+void RenderLayer::CollectAuxiliaryCameras(std::vector<CameraView>& cameras) const {
+  if (auxiliary_camera_provider_.collect)
+    auxiliary_camera_provider_.collect(cameras);
+}
+RenderLayer::CameraView RenderLayer::GetPrimaryAuxiliaryCamera() const {
+  return auxiliary_camera_provider_.primary ? auxiliary_camera_provider_.primary() : CameraView{};
+}
+
+void RenderLayer::SetRenderInstanceCallbacks(RenderInstanceCallbacks callbacks) {
+  render_instance_callbacks_ = std::move(callbacks);
+}
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetEmptyDescriptorSetLayout() const {
+  return empty_descriptor_set_layout_;
 }

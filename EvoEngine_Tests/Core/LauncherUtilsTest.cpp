@@ -76,7 +76,11 @@ TEST(LauncherUtils, EcoSysLabDemoAnimatesEightYearAcaciaGrowth) {
 
   EXPECT_NE(source.find("project_path.parent_path().filename() != \"EcoSysLabProject\""), std::string::npos);
   EXPECT_NE(source.find("TreeDescriptors/Basic/Acacia.tree"), std::string::npos);
-  EXPECT_NE(growth_source.find("IsPlantVisualSplitLayoutReady()"), std::string::npos);
+  EXPECT_NE(growth_source.find("if (!demo_growth_enabled_)"), std::string::npos);
+  const auto editor_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                          "EvoEngine_Packages/EcoSysLab/Editor/src/TreeEditorState.cpp");
+  EXPECT_NE(editor_source.find("runtime->demo_growth_enabled_ = editor->IsPlantVisualSplitLayoutReady()"),
+            std::string::npos);
   EXPECT_NE(growth_source.find("8.0f * 365.0f"), std::string::npos);
   const auto simulate_call = growth_source.find("Simulate(growth_settings, simulation_stats)");
   ASSERT_NE(simulate_call, std::string::npos);
@@ -91,9 +95,9 @@ TEST(LauncherUtils, EcoSysLabDemoSplitsSceneAndPlantVisual) {
   const auto app_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App/src/DemoProfiles.cpp");
   const auto editor_header =
-      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/include/Layers/EditorLayer.hpp");
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Editor/include/EditorLayer.hpp");
   const auto editor_source =
-      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/src/EditorLayer.cpp");
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Editor/src/EditorLayer.cpp");
 
   EXPECT_NE(editor_header.find("std::optional<float> plant_visual_fraction"), std::string::npos);
   EXPECT_NE(editor_header.find("bool IsPlantVisualSplitLayoutReady() const"), std::string::npos);

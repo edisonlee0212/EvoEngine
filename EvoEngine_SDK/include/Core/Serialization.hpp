@@ -694,7 +694,6 @@ struct HasRelink<
 }  // namespace evo_engine::serialization_detail
 
 namespace evo_engine {
-struct OffscreenPreviewSettings;
 class EVOENGINE_API ProjectContentBrowserPanel;
 
 /**
@@ -717,8 +716,6 @@ class EVOENGINE_API Serialization final {
       std::function<std::shared_ptr<StagedAssetLoadPayload>(const void*, const std::filesystem::path&)>;
   using AssetApplyStagedPayloadHandler =
       std::function<bool(void*, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>&)>;
-  using AssetPreviewHandler =
-      std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<IAsset>&, const OffscreenPreviewSettings&)>;
 
   struct SerializationHandlerInfo {
     size_t type_id = 0;
@@ -735,13 +732,6 @@ class EVOENGINE_API Serialization final {
   };
 
   struct AssetIoHandlerInfo {
-    size_t type_id = 0;
-    std::string type_name;
-    std::string owner_name;
-    uint32_t version = 0;
-  };
-
-  struct AssetPreviewHandlerInfo {
     size_t type_id = 0;
     std::string type_name;
     std::string owner_name;
@@ -882,16 +872,6 @@ class EVOENGINE_API Serialization final {
   [[nodiscard]] static const AssetIoHandlerRecord* FindAssetIoRecord(const Serialization& serialization,
                                                                      const size_t& type_id);
 
-  struct AssetPreviewHandlerRecord {
-    AssetPreviewHandler generate_thumbnail_handler;
-    AssetPreviewHandlerInfo info;
-  };
-
-  std::unordered_map<size_t, AssetPreviewHandlerRecord> asset_preview_handlers_{};
-
-  [[nodiscard]] static const AssetPreviewHandlerRecord* FindAssetPreviewRecord(const Serialization& serialization,
-                                                                               const size_t& type_id);
-
   /**
    * @brief Map to store extensions for asset types.
    */
@@ -959,10 +939,6 @@ class EVOENGINE_API Serialization final {
   template <typename T = IAsset>
   static bool RegisterDefaultAssetIoHandler(const std::string& owner_name = {}, const std::string& type_name = {},
                                             uint32_t version = 0);
-
-  template <typename T = IAsset>
-  static bool RegisterDefaultAssetPreviewHandler(const std::string& owner_name = {}, const std::string& type_name = {},
-                                                 uint32_t version = 0);
 
   /**
    * @brief Register a type of data component with custom attributes.
@@ -1138,33 +1114,6 @@ class EVOENGINE_API Serialization final {
       const IAsset& asset, const std::filesystem::path& path);
   static bool ApplyStagedAssetPayload(IAsset& asset, const std::filesystem::path& path,
                                       const std::shared_ptr<StagedAssetLoadPayload>& payload);
-
-  template <typename T>
-  static bool RegisterAssetPreviewHandler(
-      std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<T>&, const OffscreenPreviewSettings&)>
-          generate_thumbnail_handler,
-      const std::string& owner_name = {}, const std::string& type_name = {}, uint32_t version = 0);
-
-  template <typename T>
-  static bool UnregisterAssetPreviewHandler();
-
-  template <typename T>
-  [[nodiscard]] static bool HasAssetPreviewHandler();
-
-  static bool RegisterAssetPreviewHandler(const size_t& type_id, AssetPreviewHandler generate_thumbnail_handler,
-                                          const std::string& owner_name = {}, const std::string& type_name = {},
-                                          uint32_t version = 0);
-  static bool UnregisterAssetPreviewHandler(const size_t& type_id);
-  static size_t UnregisterAssetPreviewHandlersByOwner(const std::string& owner_name);
-
-  [[nodiscard]] static bool HasAssetPreviewHandler(const size_t& type_id);
-  [[nodiscard]] static bool HasAssetPreviewHandler(const std::string& type_name);
-  [[nodiscard]] static const AssetPreviewHandlerInfo* FindAssetPreviewHandler(const size_t& type_id);
-
-  [[nodiscard]] static std::shared_ptr<Texture2D> GenerateAssetThumbnail(const std::shared_ptr<IAsset>& asset,
-                                                                         const OffscreenPreviewSettings& settings);
-  [[nodiscard]] static std::shared_ptr<Texture2D> GenerateDefaultAssetThumbnail(
-      const OffscreenPreviewSettings& settings);
 
   /**
    * @brief Creates an instance of a data component by type name.
@@ -1545,35 +1494,6 @@ bool Serialization::HasAssetIoHandler() {
 }
 
 template <typename T>
-bool Serialization::RegisterAssetPreviewHandler(
-    std::function<std::shared_ptr<Texture2D>(const std::shared_ptr<T>&, const OffscreenPreviewSettings&)>
-        generate_thumbnail_handler,
-    const std::string& owner_name, const std::string& type_name, const uint32_t version) {
-  AssetPreviewHandler erased_generate_thumbnail_handler;
-  if (generate_thumbnail_handler) {
-    erased_generate_thumbnail_handler = [handler = std::move(generate_thumbnail_handler)](
-                                            const std::shared_ptr<IAsset>& asset,
-                                            const OffscreenPreviewSettings& settings) {
-      const auto typed_asset = std::dynamic_pointer_cast<T>(asset);
-      return typed_asset ? handler(typed_asset, settings) : nullptr;
-    };
-  }
-
-  return RegisterAssetPreviewHandler(typeid(T).hash_code(), std::move(erased_generate_thumbnail_handler), owner_name,
-                                     type_name.empty() ? typeid(T).name() : type_name, version);
-}
-
-template <typename T>
-bool Serialization::UnregisterAssetPreviewHandler() {
-  return UnregisterAssetPreviewHandler(typeid(T).hash_code());
-}
-
-template <typename T>
-bool Serialization::HasAssetPreviewHandler() {
-  return HasAssetPreviewHandler(typeid(T).hash_code());
-}
-
-template <typename T>
 std::string Serialization::GetDataComponentTypeName() {
   return GetDataComponentTypeName(typeid(T).hash_code());
 }
@@ -1669,16 +1589,6 @@ bool Serialization::RegisterDefaultAssetIoHandler(const std::string& owner_name,
       },
       [](T& asset, const std::filesystem::path&, const std::shared_ptr<StagedAssetLoadPayload>& payload) {
         return ApplyAssetYamlPayload(asset, payload);
-      },
-      owner_name, type_name, version);
-}
-
-template <typename T>
-bool Serialization::RegisterDefaultAssetPreviewHandler(const std::string& owner_name, const std::string& type_name,
-                                                       const uint32_t version) {
-  return RegisterAssetPreviewHandler<T>(
-      [](const std::shared_ptr<T>&, const OffscreenPreviewSettings& settings) {
-        return GenerateDefaultAssetThumbnail(settings);
       },
       owner_name, type_name, version);
 }

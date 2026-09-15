@@ -125,15 +125,3 @@ void LSystemString::ParseLString(const std::string& string) {
     m_commands.clear();
   }
 }
-
-bool LSystemString::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  ImGui::Text(("Command Size: " + std::to_string(m_commands.size())).c_str());
-  if (ImGui::DragFloat("Internode Length", &m_internodeLength))
-    changed = true;
-  if (ImGui::DragFloat("Thickness Factor", &m_thicknessFactor))
-    changed = true;
-  if (ImGui::DragFloat("End node thickness", &m_endNodeThickness))
-    changed = true;
-  return changed;
-}

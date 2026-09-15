@@ -2,7 +2,6 @@
 
 #include "Application.hpp"
 #include "AssetManager.hpp"
-#include "EditorLayer.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"

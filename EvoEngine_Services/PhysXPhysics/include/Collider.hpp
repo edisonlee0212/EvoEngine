@@ -6,6 +6,7 @@
 namespace evo_engine {
 enum class ShapeType { Sphere, Box, Capsule };
 class Collider : public IAsset {
+  friend class PhysXEditorLayer;
   friend class PhysicsLayer;
   friend class RigidBody;
   friend void SerializeCollider(YAML::Emitter& out, const Collider& target);
@@ -18,7 +19,6 @@ class Collider : public IAsset {
   size_t attach_count_ = 0;
 
  public:
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void OnCreate() override;
   ~Collider() override;
   void SetShapeType(const ShapeType& type);

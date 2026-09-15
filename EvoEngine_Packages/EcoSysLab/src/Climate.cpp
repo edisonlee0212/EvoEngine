@@ -3,48 +3,14 @@
 
 #include "AssetManager.hpp"
 #include "EcoSysLabLayer.hpp"
-#include "EditorLayer.hpp"
 #include "Tree.hpp"
 
 using namespace eco_sys_lab_package;
-
-bool ClimateDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (ImGui::Button("Instantiate")) {
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto climate_entity = scene->CreateEntity(GetTitle());
-    const auto climate = scene->GetOrSetPrivateComponent<Climate>(climate_entity).lock();
-    climate->climate_descriptor_ref = GetSelf();
-  }
-  return changed;
-}
-
-std::shared_ptr<Texture2D> ClimateDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ClimateDescriptor.png"));
-  }
-  return thumbnail;
-}
 
 void eco_sys_lab_package::SerializeClimateDescriptor(YAML::Emitter& out, const ClimateDescriptor& target) {
 }
 
 void eco_sys_lab_package::DeserializeClimateDescriptor(const YAML::Node& in, ClimateDescriptor& target) {
-}
-
-bool Climate::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  if (editor_layer->DragAndDropButton<ClimateDescriptor>(climate_descriptor_ref, "ClimateDescriptor", true)) {
-    InitializeClimateModel();
-    changed = true;
-  }
-
-  if (climate_descriptor_ref.Get<ClimateDescriptor>()) {
-  }
-  return changed;
 }
 
 void eco_sys_lab_package::SerializeClimate(YAML::Emitter& out, const Climate& target) {

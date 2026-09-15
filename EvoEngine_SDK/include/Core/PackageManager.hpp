@@ -1,17 +1,19 @@
 #pragma once
 #include "Application.hpp"
-#include "InspectorRegistry.hpp"
+#include "NativeBuildIdentity.hpp"
 #include "Profiler.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
-constexpr uint32_t EVOENGINE_PACKAGE_API_VERSION = 1;
+constexpr uint32_t EVOENGINE_PACKAGE_API_VERSION = 3;
 
 struct PackageDescriptor {
   uint32_t api_version = EVOENGINE_PACKAGE_API_VERSION;
   const char* name = nullptr;
   const char* version = nullptr;
   const char* description = nullptr;
+  NativeBuildIdentity build_identity{};
+  const char* package_source_id = nullptr;
 };
 
 class EVOENGINE_API PackageManager;
@@ -30,6 +32,8 @@ class EVOENGINE_API PackageRegistrar {
                    std::vector<std::string>& registered_asset_names,
                    std::vector<std::string>& registered_data_component_names,
                    std::vector<std::string>& registered_system_names, std::vector<std::string>& registered_layer_names);
+
+  static std::shared_ptr<ISerializable> AdoptObject(ISerializable* object, const std::string& package_name);
 
  public:
   template <typename T>
@@ -62,18 +66,30 @@ using EvoEnginePackageUnloadFn = void (*)(PackageRegistrar*);
 #endif
 
 struct LoadedPackageInfo {
+  const void* module_identity = nullptr;
   std::string name;
   std::string version;
   std::string description;
+  std::string package_source_id;
   std::vector<std::string> dependencies;
   std::filesystem::path original_path;
   std::filesystem::path loaded_path;
+  std::filesystem::path manifest_path;
   std::vector<std::string> private_component_types;
   std::vector<std::string> asset_types;
   std::vector<std::string> data_component_types;
   std::vector<std::string> system_types;
   std::vector<std::string> layer_types;
   size_t live_object_count = 0;
+  bool ready = true;
+};
+
+struct PackageLifecycleCallbacks {
+  std::function<bool(const LoadedPackageInfo&)> validate;
+  std::function<bool(const LoadedPackageInfo&)> activate;
+  std::function<bool(const LoadedPackageInfo&)> prepare_unload;
+  std::function<bool(const LoadedPackageInfo&)> deactivate;
+  std::function<void()> shutdown;
 };
 
 struct AvailablePackageInfo {
@@ -93,10 +109,11 @@ class EVOENGINE_API PackageManager final {
 
  private:
   friend class PackageRegistrar;
+  class Mutation;
 
   struct LoadedPackage {
     LoadedPackageInfo info;
-    void* library_handle = nullptr;
+    std::shared_ptr<void> library;
     EvoEnginePackageUnloadFn unload = nullptr;
   };
 
@@ -105,6 +122,15 @@ class EVOENGINE_API PackageManager final {
     std::string library;
     std::string version;
     std::string description;
+    std::string sdk_source_id;
+    std::string package_source_id;
+    std::string compiler_id;
+    std::string compiler_version;
+    std::string configuration;
+    std::string platform;
+    std::string architecture;
+    std::string library_sha256;
+    bool with_editor = false;
     std::vector<std::string> dependencies;
     std::filesystem::path manifest_path;
     std::filesystem::path library_path;
@@ -115,15 +141,18 @@ class EVOENGINE_API PackageManager final {
   std::unordered_map<std::string, PackageManifest> package_manifests_;
   std::unordered_map<std::string, LoadedPackage> loaded_packages_;
   std::unordered_map<std::string, size_t> live_object_counts_;
-  uint64_t shadow_copy_index_ = 0;
+  uint64_t next_type_cleanup_id_ = 0;
+  std::map<uint64_t, std::function<void(const std::string&)>> type_cleanup_callbacks_;
+  PackageLifecycleCallbacks lifecycle_callbacks_;
+  std::unordered_set<std::string> active_mutations_;
+  bool shutting_down_lifecycle_ = false;
+  static void NotifyTypeCleanup(const std::string& package_name);
 
   static bool IsRuntimeBusy();
-  static bool OpenLibrary(const std::filesystem::path& path, void*& handle);
-  static void CloseLibrary(void* handle);
-  static void* GetSymbol(void* handle, const char* name);
-  static std::filesystem::path CreateShadowCopy(const std::filesystem::path& source);
   static std::vector<std::filesystem::path> BuildDefaultSearchPaths();
   static bool ReadManifest(const std::filesystem::path& manifest_path, PackageManifest& manifest);
+  static bool ValidateManifestCompatibility(const PackageManifest& manifest);
+  static bool ValidateDescriptorCompatibility(const PackageDescriptor& descriptor, const PackageManifest* manifest);
   static void RefreshManifests();
   static bool LoadManifestWithDependencies(const std::string& package_name, std::vector<std::string>& loading_stack);
   static bool HasLoadedDependents(const std::string& package_name, std::string* dependent_name = nullptr);
@@ -142,6 +171,10 @@ class EVOENGINE_API PackageManager final {
   static bool Reload(const std::string& package_name);
   static void UnloadAll();
   static bool CanModifyPackages();
+  static bool SetLifecycleCallbacks(PackageLifecycleCallbacks callbacks);
+  static void ShutdownLifecycleCallbacks();
+  static uint64_t RegisterTypeCleanupCallback(std::function<void(const std::string&)> callback);
+  static void UnregisterTypeCleanupCallback(uint64_t id);
   static void ScanAvailablePackages();
   static std::vector<std::filesystem::path> GetSearchPaths();
   static std::vector<AvailablePackageInfo> GetAvailablePackages();
@@ -167,12 +200,7 @@ bool PackageRegistrar::RegisterPrivateComponent(const std::string& name) {
   const auto serializable_registered =
       Serialization::RegisterSerializableType(name, typeid(T).hash_code(), [package_name](size_t& hash_code) {
         hash_code = typeid(T).hash_code();
-        PackageManager::IncrementLiveObject(package_name);
-        std::shared_ptr<T> ptr(new T(), [package_name](T* value) {
-          delete value;
-          PackageManager::DecrementLiveObject(package_name);
-        });
-        return std::static_pointer_cast<ISerializable>(ptr);
+        return AdoptObject(new T(), package_name);
       });
   if (!serializable_registered) {
     return false;
@@ -197,7 +225,6 @@ bool PackageRegistrar::RegisterPrivateComponent(const std::string& name) {
   Serialization::SetPrivateComponentTypeOwner(name, package_name);
   Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_private_component_names_->push_back(name);
   return true;
 }
@@ -217,12 +244,7 @@ bool PackageRegistrar::RegisterAsset(const std::string& name, const std::vector<
   const auto asset_registered =
       Serialization::RegisterAssetType(name, typeid(T).hash_code(), extensions, [package_name](size_t& hash_code) {
         hash_code = typeid(T).hash_code();
-        PackageManager::IncrementLiveObject(package_name);
-        std::shared_ptr<T> ptr(new T(), [package_name](T* value) {
-          delete value;
-          PackageManager::DecrementLiveObject(package_name);
-        });
-        return std::static_pointer_cast<ISerializable>(ptr);
+        return AdoptObject(new T(), package_name);
       });
   if (!asset_registered) {
     return false;
@@ -232,8 +254,6 @@ bool PackageRegistrar::RegisterAsset(const std::string& name, const std::vector<
   Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
   Serialization::RegisterDefaultAssetIoHandler<T>(package_name, name);
-  Serialization::RegisterDefaultAssetPreviewHandler<T>(package_name, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_asset_names_->push_back(name);
   return true;
 }
@@ -272,12 +292,7 @@ bool PackageRegistrar::RegisterSystem(const std::string& name) {
   const auto serializable_registered =
       Serialization::RegisterSerializableType(name, typeid(T).hash_code(), [package_name](size_t& hash_code) {
         hash_code = typeid(T).hash_code();
-        PackageManager::IncrementLiveObject(package_name);
-        std::shared_ptr<T> ptr(new T(), [package_name](T* value) {
-          delete value;
-          PackageManager::DecrementLiveObject(package_name);
-        });
-        return std::static_pointer_cast<ISerializable>(ptr);
+        return AdoptObject(new T(), package_name);
       });
   if (!serializable_registered) {
     return false;
@@ -301,7 +316,6 @@ bool PackageRegistrar::RegisterSystem(const std::string& name) {
   Serialization::SetSystemTypeOwner(name, package_name);
   Serialization::RegisterDefaultSerializationHandler<T>(package_name, name);
   Serialization::RegisterDefaultSerializationSupportHandler<T>(package_name, name);
-  InspectorRegistry::GetInstance().RegisterDefaultInspector<T>(package_name, name);
   registered_system_names_->push_back(name);
   return true;
 }

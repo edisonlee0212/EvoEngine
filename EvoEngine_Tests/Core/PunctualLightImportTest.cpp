@@ -69,7 +69,7 @@ TEST(PunctualLightImport, NativePointAndSpotRangeReachGpuLightBlocks) {
   const auto lights_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Lights.cpp"));
   const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto application = ReadTextFile(SourcePath("EvoEngine_SDK/src/Application.cpp"));
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
 
   ASSERT_FALSE(lights_header.empty());
   ASSERT_FALSE(lights_source.empty());

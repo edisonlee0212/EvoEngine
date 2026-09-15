@@ -26,17 +26,7 @@ void evo_engine::PhysicsMaterial::SetRestitution(const float &value) {
   value_->setRestitution(restitution_);
   SetUnsaved();
 }
-void evo_engine::PhysicsMaterial::OnGui() {
-  if (ImGui::DragFloat("Dynamic Friction", &dynamic_friction_)) {
-    SetDynamicFriction(dynamic_friction_);
-  }
-  if (ImGui::DragFloat("Static Friction", &static_friction_)) {
-    SetStaticFriction(static_friction_);
-  }
-  if (ImGui::DragFloat("Restitution", &restitution_)) {
-    SetRestitution(restitution_);
-  }
-}
+
 void evo_engine::SerializePhysicsMaterial(YAML::Emitter &out, const PhysicsMaterial &target) {
   out << YAML::Key << "static_friction_" << YAML::Value << target.static_friction_;
   out << YAML::Key << "dynamic_friction_" << YAML::Value << target.dynamic_friction_;

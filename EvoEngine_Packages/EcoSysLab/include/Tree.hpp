@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include "BasicPruningDescriptor.hpp"
 #include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PACKAGE
@@ -9,6 +10,7 @@
 #include "RadialBoundingVolume.hpp"
 #include "SkeletalGraphSettings.hpp"
 #include "Soil.hpp"
+#include "StrandModel.hpp"
 #include "StrandModelMeshGenerator.hpp"
 #include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
@@ -16,7 +18,6 @@
 #include "TreeMeshGenerator.hpp"
 #include "TreePart.hpp"
 #include "TreeStatistics.hpp"
-#include "TreeVisualizer.hpp"
 
 namespace eco_sys_lab_package {
 #ifdef BILLBOARD_CLOUDS_PACKAGE
@@ -29,8 +30,28 @@ using namespace evo_engine;
  * @brief Represents a procedural tree with various simulation and rendering capabilities.
  */
 class Tree : public IPrivateComponent {
+  friend struct TreeEditorState;
+  friend void DeserializeTree(const YAML::Node& in, Tree& target);
+
+ public:
+  struct ModelRevision {
+    uint64_t content = 0;
+    uint64_t topology = 0;
+  };
+  const ModelRevision& GetShootModelRevision() const {
+    return shoot_model_revision_;
+  }
+  const ModelRevision& GetRootModelRevision() const {
+    return root_model_revision_;
+  }
+
+ private:
+  ModelRevision shoot_model_revision_;
+  ModelRevision root_model_revision_;
+
   void CalculateProfiles();
   friend class EcoSysLabLayer;
+  friend class EcoSysLabEditorLayer;
 
   /**
    * @brief Prepares the growth controller with specified simulation settings.
@@ -58,8 +79,7 @@ class Tree : public IPrivateComponent {
 
  public:
   StrandModelParameters strand_model_parameters{};  ///< Parameters defining strand-based growth modeling.
-  ShootVisualizer shoot_visualizer{};               ///< Visualizer used for debugging and display of the tree model.
-  RootVisualizer root_visualizer{};
+
   bool split_root_test = true;         ///< Flag to enable or disable root split testing.
   bool record_biomass_history = true;  ///< Flag to enable or disable biomass history recording.
   float left_side_biomass;             ///< Recorded biomass for the left section of the tree.
@@ -237,13 +257,6 @@ class Tree : public IPrivateComponent {
   ShootModel shoot_model{};  ///< The procedural tree model instance.
   RootModel root_model{};
   StrandModel shoot_strand_model{};  ///< The strand-based model representation.
-
-  /**
-   * @brief Handles the inspection of tree properties in the editor.
-   * @param editor_layer The editor layer managing the inspection.
-   * @return True if the asset's content is not modified during inspection, false otherwise.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Handles destruction logic when the tree instance is removed.

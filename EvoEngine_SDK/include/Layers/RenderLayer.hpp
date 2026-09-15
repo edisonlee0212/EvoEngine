@@ -25,6 +25,21 @@
 #include <vector>
 
 namespace evo_engine {
+enum class CameraRenderPassStage { BeforePostProcessing, AfterPostProcessing };
+struct CameraRenderPassOptions {
+  CameraRenderPassStage stage = CameraRenderPassStage::BeforePostProcessing;
+  std::shared_ptr<Camera> camera;
+  std::string owner;
+};
+struct RenderInstanceHighlightInput {
+  std::shared_ptr<const EntitySelectionHighlightCoverage> coverage;
+  uint64_t revision = 0;
+};
+struct RenderInstanceCallbacks {
+  std::function<RenderInstanceHighlightInput(const std::shared_ptr<Scene>&)> highlight;
+  std::function<void()> prepared;
+};
+
 struct ApplicationInitializationSettings;
 class EVOENGINE_API ComputePipeline;
 class EVOENGINE_API GlobalReflectionProbe;
@@ -50,6 +65,23 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::optional<GiSettings> gi_accepted_settings_;
   std::string gi_settings_error_;
   void ValidateSceneGiSettings(const std::shared_ptr<Scene>& scene);
+
+ public:
+  using CameraView = std::pair<GlobalTransform, std::shared_ptr<Camera>>;
+  struct AuxiliaryCameraProvider {
+    std::function<void(std::vector<CameraView>&)> collect;
+    std::function<CameraView()> primary;
+  };
+  void SetAuxiliaryCameraProvider(AuxiliaryCameraProvider provider);
+  void SetRenderInstanceCallbacks(RenderInstanceCallbacks callbacks);
+  void RemoveCameraRenderPasses(const std::string& owner);
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetEmptyDescriptorSetLayout() const;
+  void CollectAuxiliaryCameras(std::vector<CameraView>& cameras) const;
+  [[nodiscard]] CameraView GetPrimaryAuxiliaryCamera() const;
+
+ private:
+  AuxiliaryCameraProvider auxiliary_camera_provider_;
+  RenderInstanceCallbacks render_instance_callbacks_;
 
  public:
   /**
@@ -194,6 +226,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
    * \return A shared pointer to the per-frame descriptor set.
    */
   [[nodiscard]] static const std::shared_ptr<DescriptorSet>& GetPerFrameDescriptorSet();
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetStrandMeshletDescriptorSet() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetStrandMeshletDescriptorSetLayout() const;
 
   /**
    * \brief Retrieves the lighting descriptor set.
@@ -326,7 +360,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void RegisterCameraRenderPass(
       RenderPassDescriptor descriptor,
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
-                             const ForwardRenderingView& forward_rendering_view)>&& func);
+                             const ForwardRenderingView& forward_rendering_view)>&& func,
+      CameraRenderPassOptions options = {});
 
   /**
    * \brief Register a per-frame camera render pass with access to render graph execution metadata.
@@ -337,7 +372,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
       RenderPassDescriptor descriptor,
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                              const ForwardRenderingView& forward_rendering_view,
-                             const RenderGraphExecutionContext& context)>&& func);
+                             const RenderGraphExecutionContext& context)>&& func,
+      CameraRenderPassOptions options = {});
 
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetPerFrameDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetMeshletDescriptorSetLayout() const;
@@ -645,6 +681,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
                            const ForwardRenderingView& forward_rendering_view,
                            const RenderGraphExecutionContext& context)>
         context_func;
+    CameraRenderPassOptions options;
   };
   std::vector<RenderResourceDescriptor> external_render_resource_descriptors;
   std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
@@ -728,10 +765,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
   std::vector<Entity> pending_static_entity_changes_;
-  std::weak_ptr<Scene> selection_highlight_coverage_scene_;
-  uint64_t selection_highlight_coverage_selection_revision_ = 0;
-  uint64_t selection_highlight_coverage_hierarchy_revision_ = 0;
-  std::shared_ptr<const EntitySelectionHighlightCoverage> selection_highlight_coverage_;
   bool ddgi_has_previous_scene_inputs_ = false;
   bool ddgi_referenced_scene_inputs_pending_ = false;
   std::vector<uint64_t> ddgi_previous_material_keys_;
@@ -748,7 +781,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::unique_ptr<Lighting> lighting_;
   std::shared_ptr<Texture2D> environmental_brdf_lut_ = {};
   std::vector<std::shared_ptr<Camera>> reflection_probe_capture_cameras_ = {};
-  Handle reflection_probe_shadow_camera_handle_{};
+  Handle reflection_probe_shadow_camera_handle_{0};
   std::shared_ptr<Cubemap> reflection_probe_capture_raw_cubemap_ = {};
   std::array<DynamicReflectionProbeRawSlot, 2> dynamic_reflection_probe_raw_slots_{};
   std::deque<uint32_t> dynamic_reflection_probe_filter_queue_{};
@@ -833,7 +866,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   /**
    * \brief Clears all editor cameras associated with this render layer.
    */
-  void ClearAllEditorCameras() const;
+  void ClearAuxiliaryCameras() const;
 
   /**
    * \brief Clears all cameras associated with this render layer.
@@ -892,11 +925,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
    */
   void RenderAll();
   void ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene);
-
-  /**
-   * \brief Renders all gizmos associated with this render layer.
-   */
-  void RenderGizmos() const;
 
   /**
    * \brief Updates the render instance storage based on the provided scene.
@@ -1016,26 +1044,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> strands_deferred_geometry_pipeline;
   std::shared_ptr<GraphicsPipeline> strands_deferred_masked_geometry_pipeline;
 
-  std::shared_ptr<GraphicsPipeline> entity_selection_highlight_pipeline_;
-
   /// Graphics pipeline for rendering transparent normal meshes after deferred lighting.
   std::shared_ptr<GraphicsPipeline> transparent_geometry_pipeline_normal;
 
   std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_opaque_pipeline_;
   std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_masked_pipeline_;
   std::shared_ptr<GraphicsPipeline> transparent_motion_vectors_pipeline_;
-
-  /// Graphics pipeline for rendering gizmos.
-  std::shared_ptr<GraphicsPipeline> gizmos;
-
-  /// Graphics pipeline for rendering gizmos with normal-colored shaders.
-  std::shared_ptr<GraphicsPipeline> gizmos_normal_colored;
-
-  /// Graphics pipeline for rendering gizmos with vertex-colored shaders.
-  std::shared_ptr<GraphicsPipeline> gizmos_vertex_colored;
-
-  /// Graphics pipeline for rendering instanced gizmos.
-  std::shared_ptr<GraphicsPipeline> gizmos_instanced_colored;
 
   std::shared_ptr<GraphicsPipeline> ddgi_probe_visualization_pipeline_;
   std::shared_ptr<GraphicsPipeline> ddgi_probe_ray_visualization_pipeline_;
@@ -1044,14 +1058,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> gaussian_splat_mesh_pipeline_;
   std::shared_ptr<GraphicsPipeline> gaussian_splat_mesh_overlay_pipeline_;
 
-  /// Graphics pipeline for rendering gizmos on hair strands.
-  std::shared_ptr<GraphicsPipeline> gizmos_strands;
-
-  /// Graphics pipeline for rendering gizmos with normal-colored shaders on hair strands.
-  std::shared_ptr<GraphicsPipeline> gizmos_strands_normal_colored;
-
-  /// Graphics pipeline for rendering gizmos with vertex-colored shaders on hair strands.
-  std::shared_ptr<GraphicsPipeline> gizmos_strands_vertex_colored;
 #pragma endregion
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;

@@ -36,7 +36,6 @@ class BtfMaterial : public IAsset {
   std::vector<float> vector_color;
 
   BtfBase btf_base;
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   bool ImportFromFolder(const std::filesystem::path& path);
 };
 }  // namespace evo_engine

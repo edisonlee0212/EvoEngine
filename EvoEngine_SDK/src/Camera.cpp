@@ -2,8 +2,8 @@
 #include <algorithm>
 #include <cctype>
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "Cubemap.hpp"
-#include "EditorLayer.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GlobalReflectionProbe.hpp"
@@ -488,15 +488,6 @@ void Camera::UpdateGBuffer() {
     TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
-  EditorLayer::UpdateTextureId(g_buffer_base_color_ao_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
-                               g_buffer_base_color_ao_view_->GetVkImageView(), g_buffer_base_color_ao_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_normal_roughness_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
-                               g_buffer_normal_roughness_view_->GetVkImageView(),
-                               g_buffer_normal_roughness_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_pbr_flags_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
-                               g_buffer_pbr_flags_view_->GetVkImageView(), g_buffer_pbr_flags_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_emissive_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
-                               g_buffer_emissive_view_->GetVkImageView(), g_buffer_emissive_->GetLayout());
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -947,20 +938,20 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
   return stats;
 }
 
-ImTextureID Camera::GetGBufferBaseColorAoImTextureId() const {
-  return g_buffer_base_color_ao_im_texture_id_;
+SampledImageResources Camera::GetGBufferBaseColorAoResources() const {
+  return {g_buffer_base_color_ao_, g_buffer_base_color_ao_view_, g_buffer_sampler_};
 }
 
-ImTextureID Camera::GetGBufferNormalRoughnessImTextureId() const {
-  return g_buffer_normal_roughness_im_texture_id_;
+SampledImageResources Camera::GetGBufferNormalRoughnessResources() const {
+  return {g_buffer_normal_roughness_, g_buffer_normal_roughness_view_, g_buffer_sampler_};
 }
 
-ImTextureID Camera::GetGBufferPbrFlagsImTextureId() const {
-  return g_buffer_pbr_flags_im_texture_id_;
+SampledImageResources Camera::GetGBufferPbrFlagsResources() const {
+  return {g_buffer_pbr_flags_, g_buffer_pbr_flags_view_, g_buffer_sampler_};
 }
 
-ImTextureID Camera::GetGBufferEmissiveImTextureId() const {
-  return g_buffer_emissive_im_texture_id_;
+SampledImageResources Camera::GetGBufferEmissiveResources() const {
+  return {g_buffer_emissive_, g_buffer_emissive_view_, g_buffer_sampler_};
 }
 
 void Camera::SetRendered() {

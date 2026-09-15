@@ -27,4 +27,8 @@ target_link_libraries(MeshRepairPackage
 	PRIVATE
 	EvoEngine_SDK
 	)
+target_include_directories(MeshRepairPackage PUBLIC ${MESH_REPAIR_INCLUDES})
 evoengine_configure_runtime_package(MeshRepairPackage)
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

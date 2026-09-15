@@ -3,7 +3,6 @@
 //
 
 #include "TreeMeshGenerator.hpp"
-#include "EditorLayer.hpp"
 #include "Tree.hpp"
 
 using namespace eco_sys_lab_package;
@@ -167,65 +166,5 @@ void TreeMeshGeneratorSettings::Load(const std::string& name, const YAML::Node& 
 
     if (ms["branch_mesh_type"])
       branch_mesh_type = ms["branch_mesh_type"].as<unsigned>();
-  }
-}
-
-void TreeMeshGeneratorSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  if (ImGui::TreeNodeEx("Mesh Generator settings")) {
-    ImGui::Checkbox("Shoot Branch", &enable_shoot_branch);
-    ImGui::Checkbox("Root Branch", &enable_root_branch);
-    ImGui::Checkbox("Fruit", &enable_fruit);
-    ImGui::Checkbox("Foliage", &enable_foliage);
-    ImGui::Checkbox("Fine root", &enable_fine_root);
-    ImGui::Checkbox("Foliage instancing", &foliage_instancing);
-    ImGui::Combo("Branch mesh mode", {"Cylindrical", "Marching cubes"}, branch_mesh_type);
-
-    ImGui::Combo("Branch color mode", {"Internode Color", "Junction"}, vertex_color_mode);
-
-    if (ImGui::TreeNode("Cylindrical mesh settings")) {
-      ImGui::Checkbox("Stitch all children", &stitch_all_children);
-      ImGui::DragFloat("Trunk Thickness Threshold", &trunk_thickness, 1.0f, 0.0f, 16.0f);
-      ImGui::DragFloat("X Step", &x_subdivision, 0.00001f, 0.00001f, 1.0f, "%.5f");
-      ImGui::DragFloat("Trunk Y Step", &trunk_y_subdivision, 0.00001f, 0.00001f, 1.0f, "%.5f");
-      ImGui::DragFloat("Branch Y Step", &branch_y_subdivision, 0.00001f, 0.00001f, 1.0f, "%.5f");
-
-      ImGui::Checkbox("Smoothness", &smoothness);
-      if (smoothness) {
-        ImGui::DragFloat("Base control point ratio", &base_control_point_ratio, 0.001f, 0.0f, 1.0f);
-        ImGui::DragFloat("Branch control point ratio", &branch_control_point_ratio, 0.001f, 0.0f, 1.0f);
-      }
-      ImGui::Checkbox("Override radius", &override_radius);
-      if (override_radius)
-        ImGui::DragFloat("Radius", &radius);
-      ImGui::DragFloat("Radius multiplier", &radius_multiplier, 0.01f, 0.01f, 100.f);
-      ImGui::DragFloat("Tree Part Base Distance", &tree_part_base_distance, 1, 0, 10);
-      ImGui::DragFloat("Tree Part End Distance", &tree_part_end_distance, 1, 0, 10);
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Marching cubes settings")) {
-      ImGui::Checkbox("Auto set level", &auto_level);
-      if (!auto_level)
-        ImGui::DragInt("Voxel subdivision level", &voxel_subdivision_level, 1, 5, 16);
-      else
-        ImGui::DragFloat("Min Cube size", &marching_cube_radius, 0.0001, 0.001f, 1.0f);
-      ImGui::DragInt("Smooth iteration", &voxel_smooth_iteration, 0, 0, 10);
-      if (voxel_smooth_iteration == 0)
-        ImGui::Checkbox("Remove duplicate", &remove_duplicate);
-      ImGui::TreePop();
-    }
-    if (enable_shoot_branch && ImGui::TreeNode("Branch settings")) {
-      ImGui::TreePop();
-    }
-    if (enable_foliage && ImGui::TreeNode("Foliage settings")) {
-      ImGui::TreePop();
-    }
-
-    ImGui::Checkbox("Mesh Override", &presentation_override);
-    if (presentation_override && ImGui::TreeNodeEx("Override settings")) {
-      ImGui::DragFloat("Max thickness", &presentation_override_settings.max_thickness, 0.01f, 0.0f, 1.0f);
-
-      ImGui::TreePop();
-    }
-    ImGui::TreePop();
   }
 }

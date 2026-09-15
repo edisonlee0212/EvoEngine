@@ -7,8 +7,6 @@ using namespace evo_engine;
 class IDsCollider : public IPrivateComponent {
  public:
   glm::vec4 bound_color = glm::vec4(1, 0, 1, 0.1f);
-  virtual void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer,
-                           const std::shared_ptr<Camera>& editor_camera, const glm::vec4& color) = 0;
 
   virtual void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
@@ -75,15 +73,14 @@ class DsBoxCollider : public IDsCollider {
 
   float velocity_friction = 0.0f;
   float angular_velocity_friction = 0.0f;
-  void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
-                   const glm::vec4& color) override;
+
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> segment_velocity_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_velocity_pipeline;
 
   DsBoxCollider();
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
+
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 
@@ -118,12 +115,10 @@ class DsCylinderCollider : public IDsCollider {
 
   float softness = 1.f;
 
-  void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
-                   const glm::vec4& color) override;
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsCylinderCollider();
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
+
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 };
@@ -149,12 +144,10 @@ class DsSphereCollider : public IDsCollider {
   float radius = .51f;
   float softness = 1.f;
 
-  void RenderBound(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Camera>& editor_camera,
-                   const glm::vec4& color) override;
   inline static std::shared_ptr<ComputePipeline> segment_position_pipeline;
   inline static std::shared_ptr<ComputePipeline> leaf_position_pipeline;
   DsSphereCollider();
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
+
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 };

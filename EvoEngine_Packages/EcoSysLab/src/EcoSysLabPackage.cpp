@@ -22,7 +22,6 @@
 #include "ForestDescriptor.hpp"
 #include "FungusTest.hpp"
 #include "HeightField.hpp"
-#include "InspectorRegistry.hpp"
 #include "ObjectRotator.hpp"
 #include "ParticlePhysics2DDemo.hpp"
 #include "Physics2DDemo.hpp"
@@ -81,33 +80,9 @@ void DeserializeFungusTest(const YAML::Node&, FungusTest&) {
 }  // namespace eco_sys_lab_package
 
 namespace {
-PackageDescriptor descriptor{EVOENGINE_PACKAGE_API_VERSION, "EcoSysLab", "0.1.0", "EcoSysLab runtime package."};
-
-template <typename T>
-void RegisterAssetPreviewHandler(const std::string& owner_name, const std::string& type_name) {
-  Serialization::RegisterAssetPreviewHandler<T>(
-      [](const std::shared_ptr<T>& asset, const OffscreenPreviewSettings&) {
-        return asset ? asset->GenerateThumbnailTexture() : nullptr;
-      },
-      owner_name, type_name);
-}
-
-void RegisterEcoSysLabAssetPreviewHandlers(const std::string& owner_name) {
-  RegisterAssetPreviewHandler<ClimateDescriptor>(owner_name, "ClimateDescriptor");
-  RegisterAssetPreviewHandler<ForestPatch>(owner_name, "ForestPatch");
-  RegisterAssetPreviewHandler<BasicBarkDescriptor>(owner_name, "BasicBarkDescriptor");
-  RegisterAssetPreviewHandler<ForestDescriptor>(owner_name, "ForestDescriptor");
-  RegisterAssetPreviewHandler<TreeDescriptor>(owner_name, "TreeDescriptor");
-  RegisterAssetPreviewHandler<BasicPruningDescriptor>(owner_name, "BasicPruningDescriptor");
-  RegisterAssetPreviewHandler<BasicShootDescriptor>(owner_name, "BasicShootDescriptor");
-  RegisterAssetPreviewHandler<BasicRootDescriptor>(owner_name, "BasicRootDescriptor");
-  RegisterAssetPreviewHandler<BasicFineRootDescriptor>(owner_name, "BasicFineRootDescriptor");
-  RegisterAssetPreviewHandler<BasicReproductionModuleDescriptor>(owner_name, "BasicReproductionModuleDescriptor");
-  RegisterAssetPreviewHandler<BasicFoliageDescriptor>(owner_name, "BasicFoliageDescriptor");
-  RegisterAssetPreviewHandler<AdvancedShootDescriptor>(owner_name, "AdvancedShootDescriptor");
-  RegisterAssetPreviewHandler<HeightField>(owner_name, "HeightField");
-  RegisterAssetPreviewHandler<SoilDescriptor>(owner_name, "SoilDescriptor");
-}
+PackageDescriptor descriptor{
+    EVOENGINE_PACKAGE_API_VERSION, "EcoSysLab", "0.1.0", "EcoSysLab runtime package.", EVOENGINE_PACKAGE_BUILD_IDENTITY,
+    EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<TreeStructor>(SerializeTreeStructor, DeserializeTreeStructor, owner_name,
@@ -181,58 +156,6 @@ void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
                                                               owner_name, "SoilDescriptor");
 }
 
-template <typename T>
-void RegisterPackageInspector(const std::string& owner_name, const std::string& type_name) {
-  InspectorRegistry::GetInstance().RegisterInspector<T>(
-      [](InspectorContext& context, T& target) {
-        if constexpr (std::is_void_v<decltype(target.DrawGui(context.editor_layer))>) {
-          target.DrawGui(context.editor_layer);
-          return false;
-        } else {
-          return target.DrawGui(context.editor_layer);
-        }
-      },
-      owner_name, type_name);
-}
-
-void RegisterEcoSysLabInspectors(const std::string& owner_name) {
-  RegisterPackageInspector<TreeStructor>(owner_name, "TreeStructor");
-  RegisterPackageInspector<Climate>(owner_name, "Climate");
-  RegisterPackageInspector<SpatialPlantDistributionSimulator>(owner_name, "SpatialPlantDistributionSimulator");
-  RegisterPackageInspector<DynamicTreeSkeleton>(owner_name, "DynamicTreeSkeleton");
-  RegisterPackageInspector<DynamicStrandsDemo>(owner_name, "DynamicStrandsDemo");
-  RegisterPackageInspector<Tree>(owner_name, "Tree");
-  RegisterPackageInspector<Soil>(owner_name, "Soil");
-  RegisterPackageInspector<DsBoxCollider>(owner_name, "DsBoxCollider");
-  RegisterPackageInspector<DsSphereCollider>(owner_name, "DsSphereCollider");
-  RegisterPackageInspector<DsCylinderCollider>(owner_name, "DsCylinderCollider");
-  RegisterPackageInspector<DynamicTreeStrands>(owner_name, "DynamicTreeStrands");
-  RegisterPackageInspector<ObjectRotator>(owner_name, "ObjectRotator");
-  RegisterPackageInspector<Physics2DDemo>(owner_name, "Physics2DDemo");
-  RegisterPackageInspector<ParticlePhysics2DDemo>(owner_name, "ParticlePhysics2DDemo");
-  RegisterPackageInspector<FungusTest>(owner_name, "FungusTest");
-  RegisterPackageInspector<ClimateDescriptor>(owner_name, "ClimateDescriptor");
-  RegisterPackageInspector<RadialBoundingVolume>(owner_name, "RadialBoundingVolume");
-  RegisterPackageInspector<CubeVolume>(owner_name, "CubeVolume");
-  RegisterPackageInspector<ForestPatch>(owner_name, "ForestPatch");
-  RegisterPackageInspector<BasicBarkDescriptor>(owner_name, "BasicBarkDescriptor");
-  RegisterPackageInspector<ForestDescriptor>(owner_name, "ForestDescriptor");
-  RegisterPackageInspector<TreeDescriptor>(owner_name, "TreeDescriptor");
-  RegisterPackageInspector<BasicPruningDescriptor>(owner_name, "BasicPruningDescriptor");
-  RegisterPackageInspector<BasicShootDescriptor>(owner_name, "BasicShootDescriptor");
-  RegisterPackageInspector<BasicRootDescriptor>(owner_name, "BasicRootDescriptor");
-  RegisterPackageInspector<BasicFineRootDescriptor>(owner_name, "BasicFineRootDescriptor");
-  RegisterPackageInspector<BasicReproductionModuleDescriptor>(owner_name, "BasicReproductionModuleDescriptor");
-  RegisterPackageInspector<BasicFoliageDescriptor>(owner_name, "BasicFoliageDescriptor");
-  RegisterPackageInspector<AdvancedShootDescriptor>(owner_name, "AdvancedShootDescriptor");
-  RegisterPackageInspector<ModulusGraph>(owner_name, "ModulusGraph");
-  RegisterPackageInspector<StrengthGraph>(owner_name, "StrengthGraph");
-  RegisterPackageInspector<BiologicalPropertiesGraph>(owner_name, "TrunkGraph");
-  RegisterPackageInspector<HeightField>(owner_name, "HeightField");
-  RegisterPackageInspector<SoilLayerDescriptor>(owner_name, "SoilLayerDescriptor");
-  RegisterPackageInspector<SoilDescriptor>(owner_name, "SoilDescriptor");
-  RegisterPackageInspector<EcoSysLabLayer>(owner_name, "EcoSysLab Layer");
-}
 }  // namespace
 
 EVOENGINE_PACKAGE_EXPORT const PackageDescriptor* EvoEnginePackageGetDescriptor() {
@@ -282,8 +205,6 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterLayer<EcoSysLabLayer>("EcoSysLab Layer");
   if (registered) {
     RegisterEcoSysLabSerializationHandlers(descriptor.name);
-    RegisterEcoSysLabAssetPreviewHandlers(descriptor.name);
-    RegisterEcoSysLabInspectors(descriptor.name);
   }
   return registered;
 }

@@ -18,8 +18,6 @@ struct TreePointCloudPointSettings {
 
   float bounding_box_limit = 1.f;
 
-  void DrawGui();
-
   void Save(const std::string& name, YAML::Emitter& out) const;
 
   void Load(const std::string& name, const YAML::Node& in);
@@ -40,8 +38,6 @@ class TreePointCloudCircularCaptureSettings : public PointCloudCaptureSettings {
   int scan_resolution = 128;
   float max_capture_depth = 10;
 
-  bool DrawGui() override;
-
   void Save(const std::string& name, YAML::Emitter& out) const override;
 
   void Load(const std::string& name, const YAML::Node& in) override;
@@ -61,7 +57,6 @@ class TreePointCloudGridCaptureSettings : public PointCloudCaptureSettings {
   float ground_sample_height = 1.0f;
   int drone_sample_size = 128;
   float drone_sample_height = 5.0f;
-  bool DrawGui() override;
   void GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) override;
   bool SampleFilter(const PointCloudSample& sample) override;
 };

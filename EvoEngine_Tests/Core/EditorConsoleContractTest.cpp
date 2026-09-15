@@ -16,19 +16,20 @@ std::string ReadSource(const std::filesystem::path& relative_path) {
 }  // namespace
 
 TEST(EditorConsole, CapturesCompatibleElapsedAndWallClockTimesWithBoundedHistory) {
-  const auto header = ReadSource("EvoEngine_SDK/include/Layers/EditorLayer.hpp");
+  const auto header = ReadSource("EvoEngine_SDK/include/Core/Console.hpp");
   const auto console = ReadSource("EvoEngine_SDK/src/Console.cpp");
 
   EXPECT_NE(header.find("double m_time = 0"), std::string::npos);
   EXPECT_NE(header.find("std::time_t m_timestamp = 0"), std::string::npos);
   EXPECT_NE(console.find("std::time(nullptr)"), std::string::npos);
   EXPECT_NE(console.find("kMaxConsoleMessages = 10000"), std::string::npos);
-  EXPECT_NE(console.find("console_messages_.erase(editor_layer->console_messages_.begin())"), std::string::npos);
-  EXPECT_NE(console.find("++editor_layer->console_message_revision_"), std::string::npos);
+  const auto editor_console = ReadSource("EvoEngine_SDK/Editor/src/EditorConsole.cpp");
+  EXPECT_NE(editor_console.find("Console::DrainPendingMessages()"), std::string::npos);
+  EXPECT_NE(editor_console.find("++console_message_revision_"), std::string::npos);
 }
 
 TEST(EditorConsole, ProvidesHazelStyleToolbarTableFiltersAndDetails) {
-  const auto editor = ReadSource("EvoEngine_SDK/src/EditorLayer.cpp");
+  const auto editor = ReadSource("EvoEngine_SDK/Editor/src/EditorLayer.cpp");
 
   EXPECT_NE(editor.find("ConsoleToolbar"), std::string::npos);
   EXPECT_NE(editor.find("Clear on Play"), std::string::npos);
@@ -46,7 +47,7 @@ TEST(EditorConsole, ProvidesHazelStyleToolbarTableFiltersAndDetails) {
 }
 
 TEST(EditorConsole, PersistsClearOnPlayAndTracksBottomFollowing) {
-  const auto editor = ReadSource("EvoEngine_SDK/src/EditorLayer.cpp");
+  const auto editor = ReadSource("EvoEngine_SDK/Editor/src/EditorLayer.cpp");
 
   EXPECT_NE(editor.find("console_clear_on_play"), std::string::npos);
   EXPECT_NE(editor.find("scroll_y < console_previous_scroll_y_"), std::string::npos);
@@ -56,8 +57,8 @@ TEST(EditorConsole, PersistsClearOnPlayAndTracksBottomFollowing) {
 }
 
 TEST(EditorConsole, DefaultsToInfoOnlyAndUsesTwoProjectReadyMessages) {
-  const auto header = ReadSource("EvoEngine_SDK/include/Layers/EditorLayer.hpp");
-  const auto editor = ReadSource("EvoEngine_SDK/src/EditorLayer.cpp");
+  const auto header = ReadSource("EvoEngine_SDK/Editor/include/EditorLayer.hpp");
+  const auto editor = ReadSource("EvoEngine_SDK/Editor/src/EditorLayer.cpp");
   const auto project = ReadSource("EvoEngine_SDK/src/ProjectManager.cpp");
 
   EXPECT_NE(header.find("bool enable_console_logs_ = true"), std::string::npos);
@@ -73,11 +74,15 @@ TEST(EditorConsole, ClearsAtNewRuntimeAndProjectBoundaries) {
   const auto application = ReadSource("EvoEngine_SDK/src/Application.cpp");
   const auto project = ReadSource("EvoEngine_SDK/src/ProjectManager.cpp");
 
-  const auto first_runtime_clear = application.find("ClearConsoleOnRuntimeStart()");
+  const auto first_runtime_clear = application.find("layer->OnRuntimeStart()");
   ASSERT_NE(first_runtime_clear, std::string::npos);
-  EXPECT_NE(application.find("ClearConsoleOnRuntimeStart()", first_runtime_clear + 1), std::string::npos);
+  EXPECT_NE(application.find("layer->OnRuntimeStart()", first_runtime_clear + 1), std::string::npos);
 
-  const auto project_clear = project.find("ClearConsoleMessages()");
+  const auto integration = ReadSource("EvoEngine_SDK/Editor/src/EditorProjectIntegration.cpp");
+  EXPECT_NE(integration.find("ClearConsoleMessages()"), std::string::npos);
+  EXPECT_NE(ReadSource("EvoEngine_SDK/Editor/src/EditorLayer.cpp").find("ClearConsoleOnRuntimeStart()"),
+            std::string::npos);
+  const auto project_clear = project.find("host_callbacks_.before_project_change()");
   const auto project_metadata = project.find("LoadProjectLaunchMetadata(project_absolute_path)");
   ASSERT_NE(project_clear, std::string::npos);
   ASSERT_NE(project_metadata, std::string::npos);
@@ -85,7 +90,7 @@ TEST(EditorConsole, ClearsAtNewRuntimeAndProjectBoundaries) {
 }
 
 TEST(EditorConsole, UsesGearIconForProjectBrowserSettings) {
-  const auto browser = ReadSource("EvoEngine_SDK/src/ProjectContentBrowserPanel.cpp");
+  const auto browser = ReadSource("EvoEngine_SDK/Editor/src/ProjectContentBrowserPanel.cpp");
 
   EXPECT_NE(browser.find("draw_icon_button(\"ProjectBrowserSettings\", EditorLayer::FindIcon(\"SceneSettings\")"),
             std::string::npos);
@@ -93,7 +98,7 @@ TEST(EditorConsole, UsesGearIconForProjectBrowserSettings) {
 }
 
 TEST(EditorConsole, GivesEachPostProcessingEffectItsOwnDefaultButton) {
-  const auto inspector = ReadSource("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp");
+  const auto inspector = ReadSource("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp");
 
   EXPECT_NE(inspector.find("Apply default settings##AmbientOcclusion"), std::string::npos);
   EXPECT_NE(inspector.find("Apply default settings##ScreenSpaceReflection"), std::string::npos);
@@ -104,7 +109,7 @@ TEST(EditorConsole, GivesEachPostProcessingEffectItsOwnDefaultButton) {
 }
 
 TEST(EditorConsole, SharesAssetContextMenuBetweenThumbnailAndHierarchyViews) {
-  const auto browser = ReadSource("EvoEngine_SDK/src/ProjectContentBrowserPanel.cpp");
+  const auto browser = ReadSource("EvoEngine_SDK/Editor/src/ProjectContentBrowserPanel.cpp");
 
   EXPECT_NE(browser.find("DrawAssetContextMenu(i.second, icon_tag)"), std::string::npos);
   EXPECT_NE(browser.find("DrawAssetContextMenu(i.second, tag)"), std::string::npos);

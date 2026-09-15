@@ -31,6 +31,18 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       }
+    },
+    {
+      "name": "vs2026-x64-runtime",
+      "inherits": "vs2026-x64",
+      "displayName": "Visual Studio 2026 x64 runtime",
+      "binaryDir": "${sourceDir}/out/build/vs2026-x64-runtime",
+      "installDir": "${sourceDir}/out/install/vs2026-x64-runtime",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64-runtime",
+        "EVOENGINE_WITH_EDITOR": "OFF",
+        "BUILD_TESTING": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -48,6 +60,15 @@
       "displayName": "x64-RelWithDebInfo",
       "configurePreset": "vs2026-x64",
       "configuration": "RelWithDebInfo",
+      "targets": [
+        "INSTALL"
+      ]
+    },
+    {
+      "name": "install-vs2026-x64-Release",
+      "displayName": "x64-Release",
+      "configurePreset": "vs2026-x64",
+      "configuration": "Release",
       "targets": [
         "INSTALL"
       ]

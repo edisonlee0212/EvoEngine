@@ -84,12 +84,12 @@ class EVOENGINE_API File {
    */
   void Load(const std::filesystem::path& path);
 
-  /**
-   * @brief Retrieves the thumbnail representation of the file.
-   * @param allow_asset_load Whether this call may enqueue/load/generate the asset-backed thumbnail.
-   * @return A shared pointer to the thumbnail texture.
-   */
-  std::shared_ptr<Texture2D> GetThumbnail(bool allow_asset_load = true);
+  [[nodiscard]] uint64_t GetContentVersion() const {
+    return content_version_;
+  }
+  void NotifyContentChanged() {
+    ++content_version_;
+  }
 
  private:
   friend class Folder;
@@ -98,10 +98,6 @@ class EVOENGINE_API File {
   friend class IAsset;
   friend class AssetManager;
 
-  void InvalidateThumbnail();
-  void SyncThumbnailSourceWriteTime();
-  [[nodiscard]] std::shared_ptr<Texture2D> GetFallbackThumbnail() const;
-
   std::string asset_file_name_ = {};       /**< The name of the asset file. */
   std::string asset_extension_ = {};       /**< The extension of the asset file. */
   std::string asset_type_name_ = "Binary"; /**< The type name of the asset. */
@@ -109,12 +105,8 @@ class EVOENGINE_API File {
   std::weak_ptr<Folder> folder_;           /**< Weak pointer to the parent folder. */
   std::weak_ptr<File> self_;               /**< Weak pointer to this file instance. */
 
-  std::shared_ptr<IAsset> asset_;                                /**< Pointer to the associated asset. */
-  std::shared_ptr<Texture2D> thumbnail_;                         /**< Pointer to the generated file thumbnail. */
-  std::shared_future<std::shared_ptr<IAsset>> thumbnail_future_; /**< In-flight asset load for thumbnail generation. */
-  std::filesystem::file_time_type thumbnail_source_write_time_;  /**< Last source write time used for thumbnail. */
-  bool thumbnail_source_write_time_initialized_ = false;         /**< Whether source write time has been captured. */
-  bool thumbnail_asset_reload_required_ = false; /**< Whether the loaded asset must reload before thumbnail. */
+  std::shared_ptr<IAsset> asset_; /**< Pointer to the associated asset. */
+  uint64_t content_version_ = 0;
 };
 
 /**
@@ -138,7 +130,7 @@ class EVOENGINE_API Folder {
    * @brief Refreshes the folder contents and updates assets pending loading.
    * @param assets_pending_loading A vector of asset handles pending loading.
    */
-  void Refresh(std::vector<Handle>& assets_pending_loading);
+  bool Refresh(std::vector<Handle>& assets_pending_loading, bool strict, std::string* error = nullptr);
 
   /**
    * @brief Registers a new asset within the folder.

@@ -1,6 +1,5 @@
 #include "Json.hpp"
 #include "Console.hpp"
-#include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 
 using namespace evo_engine;
@@ -49,9 +48,6 @@ bool ApplyJsonStagedPayload(Json& json, const std::filesystem::path&,
   return true;
 }
 
-bool InspectJson(InspectorContext&, Json&) {
-  return false;
-}
 }  // namespace
 
 bool Json::SaveInternal(const std::filesystem::path& path) const {
@@ -78,5 +74,4 @@ bool Json::ApplyStagedPayloadInternal(const std::filesystem::path&,
 void evo_engine::RegisterJsonHandlers() {
   Serialization::RegisterAssetIoHandler<Json>(SaveJson, LoadJson, SupportsJsonStagedLoading, LoadJsonStagedPayload,
                                               ApplyJsonStagedPayload, {}, "Json");
-  InspectorRegistry::GetInstance().RegisterInspector<Json>(InspectJson, {}, "Json");
 }

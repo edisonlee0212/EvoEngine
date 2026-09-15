@@ -2,7 +2,6 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "Bc7TextureCodec.hpp"
-#include "EditorLayer.hpp"
 #include "GltfMaterialCache.hpp"
 #include "GltfSpecularGlossinessConversion.hpp"
 #include "Lights.hpp"
@@ -10,6 +9,7 @@
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
+#include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "TransformGraph.hpp"
@@ -838,11 +838,18 @@ std::string GltfConversionCacheId(const std::string& key) {
 }
 
 std::filesystem::path GltfMaterialConversionCacheDirectory() {
+  if (runtime_paths::IsStrict()) {
+    return runtime_paths::Resolve("Cache/GltfMaterialConversion/v1");
+  }
   const auto project_folder = ProjectManager::GetProjectFolderPath();
   if (!project_folder.empty()) {
     return project_folder / "Cache/GltfMaterialConversion/v1";
   }
   return std::filesystem::temp_directory_path() / "EvoEngine/Cache/GltfMaterialConversion/v1";
+}
+
+std::filesystem::path GltfMaterialConversionAssetPath(const std::filesystem::path& cache_path) {
+  return std::filesystem::path(".generated/GltfMaterialConversion/v1") / cache_path.filename();
 }
 
 bool PublishConvertedGltfTextures(const std::filesystem::path& base_path, const std::filesystem::path& mr_path,
@@ -911,8 +918,51 @@ bool PublishConvertedGltfTextures(const std::filesystem::path& base_path, const 
   return true;
 }
 
+std::shared_ptr<Texture2D> LoadGeneratedGltfTexture(const std::filesystem::path& cache_path, const bool srgb,
+                                                    const Texture2DSamplerSettings& sampler,
+                                                    const glm::uvec2& resolution) {
+  if (ProjectManager::GetProjectFolderPath().empty()) {
+    return {};
+  }
+  const auto relative_path = GltfMaterialConversionAssetPath(cache_path);
+  const auto generated_path = ProjectManager::GetAssetsFolderPath() / relative_path;
+  if (!std::filesystem::is_regular_file(generated_path) ||
+      !bc7_texture_codec::ValidateDds(generated_path, resolution, srgb)) {
+    return {};
+  }
+  const auto source = std::dynamic_pointer_cast<Texture2D>(ProjectManager::GetAsset(relative_path));
+  if (!source) {
+    return {};
+  }
+  auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  return texture->ShareGpuImage(*source, srgb, sampler) ? texture : nullptr;
+}
+
 std::shared_ptr<Texture2D> LoadConvertedGltfTexture(const std::filesystem::path& path, const bool srgb,
-                                                    const Texture2DSamplerSettings& sampler) {
+                                                    const Texture2DSamplerSettings& sampler,
+                                                    const glm::uvec2& resolution) {
+  if (!ProjectManager::GetProjectFolderPath().empty()) {
+    const auto relative_path = GltfMaterialConversionAssetPath(path);
+    if (!runtime_paths::IsStrict()) {
+      const auto folder = ProjectManager::GetOrCreateFolder(relative_path.parent_path()).lock();
+      const auto generated_path = ProjectManager::GetAssetsFolderPath() / relative_path;
+      if (folder && (!std::filesystem::is_regular_file(generated_path) ||
+                     !bc7_texture_codec::ValidateDds(generated_path, resolution, srgb))) {
+        std::error_code error;
+        std::filesystem::copy_file(path, generated_path, std::filesystem::copy_options::overwrite_existing, error);
+        if (error) {
+          EVOENGINE_WARNING("Unable to publish generated glTF texture " + generated_path.filename().string() + ": " +
+                            error.message())
+        }
+      }
+      if (std::filesystem::is_regular_file(generated_path)) {
+        (void)ProjectManager::GetOrCreateAsset(relative_path);
+      }
+    }
+    if (auto texture = LoadGeneratedGltfTexture(path, srgb, sampler, resolution)) {
+      return texture;
+    }
+  }
   auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   texture->SetSrgbImportOverride(srgb);
   texture->SetSamplerSettings(sampler);
@@ -1164,12 +1214,14 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
         const auto base_path = cache_directory / (cache_id + "-base.dds");
         const auto mr_path = cache_directory / (cache_id + "-mr.dds");
         const auto manifest_path = cache_directory / (cache_id + ".manifest");
+        base_color_texture = LoadGeneratedGltfTexture(base_path, true, domain_sampler, resolution);
+        metallic_roughness_texture = LoadGeneratedGltfTexture(mr_path, false, domain_sampler, resolution);
         const bool cache_available = std::filesystem::is_regular_file(manifest_path) &&
                                      bc7_texture_codec::ValidateDds(base_path, resolution, true) &&
                                      bc7_texture_codec::ValidateDds(mr_path, resolution, false);
-        if (cache_available) {
-          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler);
-          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler);
+        if ((!base_color_texture || !metallic_roughness_texture) && cache_available) {
+          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler, resolution);
+          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler, resolution);
           if (base_color_texture && metallic_roughness_texture) {
             ++conversion_cache_hits;
           }
@@ -1224,8 +1276,8 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
             ++factor_only_conversion_fallbacks;
             continue;
           }
-          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler);
-          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler);
+          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler, resolution);
+          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler, resolution);
           if (!base_color_texture || !metallic_roughness_texture) {
             report_warning("glTF material " + std::to_string(material_index) +
                            " could not load its converted BC7 textures; using factor-only conversion.");
@@ -2748,10 +2800,6 @@ bool Prefab::SaveModelInternal(const std::filesystem::path& path) const {
   exporter.Export(&exporter_scene, format_id.c_str(), path.string());
 
   return true;
-}
-
-std::shared_ptr<Texture2D> Prefab::GenerateThumbnailTexture() {
-  return EditorLayer::FindIcon("Prefab");
 }
 
 #pragma endregion

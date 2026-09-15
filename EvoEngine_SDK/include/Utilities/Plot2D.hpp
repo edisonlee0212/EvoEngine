@@ -4,18 +4,6 @@
 namespace evo_engine {
 
 /**
- * @brief Flags for customizing the behavior of a CurveEditor.
- */
-enum class CurveEditorFlags {
-  ShowGrid = 1 << 1,         /**< Display a grid within the editor. */
-  Reset = 1 << 2,            /**< Reset the editor settings. */
-  AllowResize = 1 << 3,      /**< Allow resizing of the editor. */
-  AllowRemoveSides = 1 << 4, /**< Allow removal of sides. */
-  DisableStartEndY = 1 << 5, /**< Prevent modification of start/end Y values. */
-  ShowDebug = 1 << 6         /**< Show debugging information. */
-};
-
-/**
  * @brief Represents a 2D curve that supports tangent manipulation and value constraints.
  */
 class EVOENGINE_API Curve2D {
@@ -84,18 +72,12 @@ class EVOENGINE_API Curve2D {
    * @return `true` if tangents are enabled, otherwise `false`.
    */
   [[nodiscard]] bool IsTangent() const;
-
-  /**
-   * @brief Draws curve editing controls.
-   *
-   * @param label Label for the curve in the UI.
-   * @param editor_size Size of the editor panel.
-   * @param flags Customization flags for the editor.
-   * @return `true` if any changes were made.
-   */
-  bool Draw(const std::string& label, const ImVec2& editor_size = ImVec2(-1, -1),
-            unsigned flags = static_cast<unsigned>(CurveEditorFlags::AllowResize) |
-                             static_cast<unsigned>(CurveEditorFlags::ShowGrid));
+  [[nodiscard]] glm::vec2 GetMin() const {
+    return min_;
+  }
+  [[nodiscard]] glm::vec2 GetMax() const {
+    return max_;
+  }
 
   /**
    * @brief Evaluates the value of the curve at a given X-coordinate.
@@ -124,24 +106,14 @@ class EVOENGINE_API Curve2D {
 };
 
 /**
- * @brief Settings for curve descriptors.
- */
-struct CurveDescriptorSettings {
-  float speed = 0.01f;          /**< Adjustment speed for curve descriptor controls. */
-  float min_max_control = true; /**< Enables min/max control for the curve descriptor. */
-  float end_adjustment = true;  /**< Enables end adjustment for the curve. */
-  std::string m_tip;            /**< Tooltip for the curve descriptor in the UI. */
-};
-
-/**
  * @brief Represents a 2D plot composed of a curve and defined value range.
  *
  * @tparam T Type of the plot's minimum and maximum values.
  */
 template <class T>
 struct Plot2D {
-  T min_value = 0;                                     /**< Minimum value for the plot. */
-  T max_value = 1;                                     /**< Maximum value for the plot. */
+  T min_value{0};                                      /**< Minimum value for the plot. */
+  T max_value{1};                                      /**< Maximum value for the plot. */
   Curve2D curve = Curve2D(0.5f, 0.5f, {0, 0}, {1, 1}); /**< The curve comprising the plot. */
 
   /**
@@ -157,15 +129,6 @@ struct Plot2D {
    * @param curve The curve defining the plot.
    */
   Plot2D(T min, T max, const Curve2D& curve = Curve2D(0.5f, 0.5f, {0, 0}, {1, 1}));
-
-  /**
-   * @brief Draws plot editing controls.
-   *
-   * @param name The name of the plot to be displayed in the UI.
-   * @param settings Settings for editing the plot descriptor.
-   * @return `true` if any changes were made.
-   */
-  bool Draw(const std::string& name, const CurveDescriptorSettings& settings = {});
 
   /**
    * @brief Serializes the plot data to a YAML emitter.
@@ -203,16 +166,6 @@ struct SingleDistribution {
   float deviation = 0.0f; /**< The deviation of the distribution. */
 
   /**
-   * @brief Draws single distribution editing controls.
-   *
-   * @param name The name of the distribution to be displayed in the UI.
-   * @param speed Adjustment speed for the distribution controls.
-   * @param tip Tooltip string for the UI.
-   * @return `true` if any changes were made.
-   */
-  bool Draw(const std::string& name, float speed = 0.01f, const std::string& tip = "");
-
-  /**
    * @brief Serializes the single distribution data to a YAML emitter.
    *
    * @param name The name of the distribution to be serialized.
@@ -237,16 +190,6 @@ struct SingleDistribution {
 };
 
 /**
- * @brief Settings for configuring a plotted distribution.
- */
-struct PlottedDistributionSettings {
-  float speed = 0.01f;                   /**< Adjustment speed for distribution controls. */
-  CurveDescriptorSettings mean_settings; /**< Settings for the mean curve. */
-  CurveDescriptorSettings dev_settings;  /**< Settings for the deviation curve. */
-  std::string tip;                       /**< Tooltip for the distribution in the UI. */
-};
-
-/**
  * @brief Represents a plotted distribution with mean and deviation curves.
  *
  * @tparam T Type of the mean values.
@@ -255,15 +198,6 @@ template <class T>
 struct PlottedDistribution {
   Plot2D<T> mean;          /**< Plot for the mean values. */
   Plot2D<float> deviation; /**< Plot for the deviation values. */
-
-  /**
-   * @brief Draws plotted distribution editing controls.
-   *
-   * @param name The name of the distribution to be displayed in the UI.
-   * @param settings Settings for configuring the plotted distribution.
-   * @return `true` if any changes were made.
-   */
-  bool Draw(const std::string& name, const PlottedDistributionSettings& settings = {});
 
   /**
    * @brief Serializes the plotted distribution data to a YAML emitter.
@@ -330,38 +264,6 @@ void SingleDistribution<T>::Load(const std::string& name, const YAML::Node& in) 
 }
 
 /**
- * @brief Draws single distribution editing controls.
- *
- * @tparam T Type of the mean value.
- * @param name The name of the distribution to be displayed in the UI.
- * @param speed Adjustment speed for the distribution controls.
- * @param tip Tooltip string for the UI.
- * @return `true` if any changes were made.
- */
-template <class T>
-bool SingleDistribution<T>::Draw(const std::string& name, const float speed, const std::string& tip) {
-  bool changed = false;
-  if (ImGui::TreeNode(name.c_str())) {
-    if (!tip.empty() && ImGui::IsItemHovered()) {
-      ImGui::BeginTooltip();
-      ImGui::TextUnformatted(tip.c_str());
-      ImGui::EndTooltip();
-    }
-    if (typeid(T).hash_code() == typeid(float).hash_code()) {
-      changed = ImGui::DragFloat("Mean", reinterpret_cast<float*>(&mean), speed);
-    } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-      changed = ImGui::DragFloat2("Mean", reinterpret_cast<float*>(&mean), speed);
-    } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-      changed = ImGui::DragFloat3("Mean", reinterpret_cast<float*>(&mean), speed);
-    }
-    if (ImGui::DragFloat("Deviation", &deviation, speed))
-      changed = true;
-    ImGui::TreePop();
-  }
-  return changed;
-}
-
-/**
  * @brief Calculates a random value sampled from the single distribution.
  *
  * @tparam T Type of the mean value.
@@ -370,33 +272,6 @@ bool SingleDistribution<T>::Draw(const std::string& name, const float speed, con
 template <class T>
 T SingleDistribution<T>::GetValue() const {
   return glm::gaussRand(mean, T(deviation));
-}
-
-/**
- * @brief Draws plotted distribution editing controls.
- *
- * @tparam T Type of the mean values.
- * @param name The name of the distribution to be displayed in the UI.
- * @param settings Settings for configuring the plotted distribution.
- * @return `true` if any changes were made.
- */
-template <class T>
-bool PlottedDistribution<T>::Draw(const std::string& name, const PlottedDistributionSettings& settings) {
-  bool changed = false;
-  if (ImGui::TreeNode(name.c_str())) {
-    if (!settings.tip.empty() && ImGui::IsItemHovered()) {
-      ImGui::BeginTooltip();
-      ImGui::TextUnformatted(settings.tip.c_str());
-      ImGui::EndTooltip();
-    }
-    auto mean_title = name + " (mean)";
-    const auto dev_title = name + " (deviation)";
-    changed = mean.Draw(mean_title, settings.mean_settings);
-    if (deviation.Draw(dev_title, settings.dev_settings))
-      changed = true;
-    ImGui::TreePop();
-  }
-  return changed;
 }
 
 /**
@@ -445,52 +320,6 @@ void PlottedDistribution<T>::Load(const std::string& name, const YAML::Node& in)
 template <class T>
 T PlottedDistribution<T>::GetValue(float t) const {
   return glm::gaussRand(mean.GetValue(t), T(deviation.GetValue(t)));
-}
-
-/**
- * @brief Draws plot editing controls.
- *
- * @tparam T Type of the plot's minimum and maximum values.
- * @param name The name of the plot to be displayed in the UI.
- * @param settings Settings for editing the plot descriptor.
- * @return `true` if any changes were made.
- */
-template <class T>
-bool Plot2D<T>::Draw(const std::string& name, const CurveDescriptorSettings& settings) {
-  bool changed = false;
-  if (ImGui::TreeNode(name.c_str())) {
-    if (!settings.m_tip.empty() && ImGui::IsItemHovered()) {
-      ImGui::BeginTooltip();
-      ImGui::TextUnformatted(settings.m_tip.c_str());
-      ImGui::EndTooltip();
-    }
-    if (settings.min_max_control) {
-      if (typeid(T).hash_code() == typeid(float).hash_code()) {
-        changed = ImGui::DragFloat(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
-          changed = true;
-      } else if (typeid(T).hash_code() == typeid(glm::vec2).hash_code()) {
-        changed = ImGui::DragFloat2(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat2(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
-          changed = true;
-      } else if (typeid(T).hash_code() == typeid(glm::vec3).hash_code()) {
-        changed = ImGui::DragFloat3(("Min##" + name).c_str(), static_cast<float*>(&min_value), settings.speed);
-        if (ImGui::DragFloat3(("Max##" + name).c_str(), static_cast<float*>(&max_value), settings.speed))
-          changed = true;
-      }
-    }
-    const auto flag =
-        settings.end_adjustment
-            ? static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid)
-            : static_cast<unsigned>(CurveEditorFlags::AllowResize) | static_cast<unsigned>(CurveEditorFlags::ShowGrid) |
-                  static_cast<unsigned>(CurveEditorFlags::DisableStartEndY);
-    if (curve.Draw(("Curve2D##" + name).c_str(), ImVec2(-1, -1), flag)) {
-      changed = true;
-    }
-
-    ImGui::TreePop();
-  }
-  return changed;
 }
 
 /**

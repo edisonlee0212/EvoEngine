@@ -94,12 +94,5 @@ class BasicRootDescriptor : public IRootDescriptor {
    * \param root_growth_controller The controller to configure.
    */
   void PrepareController(RootGrowthController& root_growth_controller) const override;
-
-  /**
-   * \brief Inspects and modifies shoot descriptor parameters in the editor.
-   * \param editor_layer The editor layer providing UI interaction.
-   * \return True if the asset's content remains unmodified.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

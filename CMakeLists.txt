@@ -22,6 +22,8 @@ set(EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR python CACHE STRING
 	"Install directory for EvoEngine Python binding runtimes.")
 option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine runtimes." ON)
 option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build EvoEngine runtime package support and package targets." ON)
+option(EVOENGINE_WITH_EDITOR "Build editor tooling and inspection interfaces." ON)
+add_compile_definitions(EVOENGINE_WITH_EDITOR=$<BOOL:${EVOENGINE_WITH_EDITOR}>)
 option(EVOENGINE_ENABLE_GRAPHICS_VALIDATION "Enable Vulkan validation in Debug and RelWithDebInfo builds." OFF)
 
 # ------------------------------------------------------------------
@@ -67,6 +69,7 @@ add_subdirectory(${3RDPARTY_DIR})
 # ------------------------------------------------------------------
 
 set(EVOENGINE_SDK_DIR ${CMAKE_CURRENT_SOURCE_DIR}/EvoEngine_SDK)
+include(cmake/EvoEngineNativeBuild.cmake)
 add_subdirectory(${EVOENGINE_SDK_DIR})
 
 # ------------------------------------------------------------------
@@ -78,7 +81,11 @@ add_subdirectory(${SERVICES_DIR})
 set(EVOENGINE_DEFS ${EVOENGINE_SDK_DEFS} ${EVOENGINE_SERVICES_DEFS})
 set(EVOENGINE_INCLUDES ${EVOENGINE_SDK_INCLUDES} ${EVOENGINE_SERVICES_INCLUDES})
 set(EVOENGINE_PCHS ${EVOENGINE_SDK_PCH} ${EVOENGINE_SERVICES_PCHS})
+if(EVOENGINE_WITH_EDITOR)
+	list(APPEND EVOENGINE_PCHS ${EVOENGINE_EDITOR_PCH})
+endif()
 set(EVOENGINE_RUNTIME_LIBRARIES ${EVOENGINE_SDK_RUNTIME_LIBRARIES} ${3RDPARTY_RUNTIME_LIBRARIES} ${EVOENGINE_SERVICES_RUNTIME_LIBRARIES})
+list(APPEND EVOENGINE_RUNTIME_LIBRARIES "${EVOENGINE_BUILD_IDENTITY_DIR}/evoengine-build.json")
 set(EVOENGINE_PDBS ${EVOENGINE_SDK_PDBS} ${3RDPARTY_PDBS} ${EVOENGINE_SERVICES_PDBS})
 
 set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_SERVICES_RESOURCES})
@@ -143,12 +150,13 @@ endfunction()
 function(evoengine_install_runtime_resources dst_dir)
 	install(FILES "${CMAKE_SOURCE_DIR}/docs/licenses/Godot-MIT.txt"
 		DESTINATION "${dst_dir}/licenses")
-	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/"
-		DESTINATION "${dst_dir}")
+	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/" DESTINATION "${dst_dir}")
+	if(EVOENGINE_WITH_EDITOR)
+		install(DIRECTORY "${EVOENGINE_SDK_DIR}/Editor/Internals/" DESTINATION "${dst_dir}")
+	endif()
 	foreach(folder_i IN LISTS EVOENGINE_RESOURCES)
-		if (EXISTS "${folder_i}")
-			install(DIRECTORY "${folder_i}/"
-				DESTINATION "${dst_dir}")
+		if(EXISTS "${folder_i}")
+			install(DIRECTORY "${folder_i}/" DESTINATION "${dst_dir}")
 		endif()
 	endforeach()
 endfunction()
@@ -215,7 +223,9 @@ add_subdirectory(${EVOENGINE_APP_DIR})
 # EvoEngine - Python Bindings
 # ------------------------------------------------------------------
 set(EVOENGINE_PYBIND_DIR ${CMAKE_CURRENT_SOURCE_DIR}/PythonBinding)
-add_subdirectory(${EVOENGINE_PYBIND_DIR})
+if(EVOENGINE_WITH_EDITOR)
+	add_subdirectory(${EVOENGINE_PYBIND_DIR})
+endif()
 
 # ------------------------------------------------------------------
 # EvoEngine - Tests
@@ -236,6 +246,26 @@ if (NOT ${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 
 	set(EvoEngine_Services ${EvoEngine_Services} PARENT_SCOPE)
 endif ()
+
+evoengine_finalize_native_build()
+
+include(cmake/EvoEngineRuntimeBoundary.cmake)
+set(runtime_boundary_targets EvoEngine_SDK ${EvoEngine_RuntimePackages} ${EvoEngine_Services})
+if(TARGET EvoEngineRuntime)
+  list(APPEND runtime_boundary_targets EvoEngineRuntime)
+endif()
+file(GLOB_RECURSE editor_cmake_files CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/EvoEngine_SDK/Editor/CMakeLists.txt"
+  "${CMAKE_SOURCE_DIR}/EvoEngine_Packages/*/Editor/CMakeLists.txt"
+  "${CMAKE_SOURCE_DIR}/EvoEngine_Services/*/Editor/CMakeLists.txt")
+set(editor_roots ${IMGUI_INCLUDES})
+foreach(editor_cmake IN LISTS editor_cmake_files)
+  get_filename_component(editor_root "${editor_cmake}" DIRECTORY)
+  list(APPEND editor_roots "${editor_root}")
+endforeach()
+evoengine_enforce_runtime_boundary(ROOT "${CMAKE_SOURCE_DIR}"
+  CHECKER "${CMAKE_SOURCE_DIR}/Scripts/check_runtime_boundary.py"
+  TARGETS ${runtime_boundary_targets} EDITOR_ROOTS ${editor_roots})
 
 message("===============================")
 message("|  CMake Configuration Done!  |")

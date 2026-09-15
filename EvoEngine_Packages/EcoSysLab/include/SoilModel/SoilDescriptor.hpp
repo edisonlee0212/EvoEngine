@@ -31,13 +31,6 @@ class SoilLayerDescriptor : public IAsset {
   procedural_noise::ProceduralNoise2D thickness_graph{};          ///< 2D noise representing thickness.
 
   /**
-   * \brief Handles inspection logic for the soil layer descriptor.
-   * \param editor_layer A shared pointer to the editor layer.
-   * \return True if content is not modified; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * \brief Collects asset references from the descriptor.
    * \param list A vector to store the collected asset references.
    */
@@ -54,19 +47,6 @@ class SoilDescriptor : public IAsset {
   glm::ivec2 texture_resolution = {512, 512};    ///< Resolution of the texture.
   std::vector<AssetRef> soil_layer_descriptors;  ///< References to soil layer descriptors.
   AssetRef height_field;                         ///< Reference to the height field asset.
-
-  /**
-   * \brief Generates a thumbnail texture for visualization.
-   * \return A shared pointer to the generated Texture2D object.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
-   * \brief Handles inspection logic for the soil descriptor.
-   * \param editor_layer A shared pointer to the editor layer.
-   * \return True if content is not modified; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * \brief Applies a random offset to the soil descriptor.

@@ -1,7 +1,5 @@
 #include "UniverseSerializationAdapters.hpp"
 
-#include "EditorLayer.hpp"
-#include "UniverseInspectionAdapters.hpp"
 #include "yaml-cpp/yaml.h"
 
 using namespace universe_package;
@@ -86,9 +84,6 @@ void PlanetTerrain::Init() {
   initialized_ = true;
 }
 
-bool universe_package::InspectPlanetTerrain(InspectorContext &context, PlanetTerrain &planet_terrain) {
-  return context.editor_layer->DragAndDropButton<Material>(planet_terrain.surface_material, "Material");
-}
 void PlanetTerrain::PostCloneAction(const std::shared_ptr<IPrivateComponent> &target) {
   info_ = std::static_pointer_cast<PlanetTerrain>(target)->info_;
   initialized_ = false;

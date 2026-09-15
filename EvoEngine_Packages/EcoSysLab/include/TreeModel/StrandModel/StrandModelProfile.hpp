@@ -94,26 +94,6 @@ class StrandModelProfile {
    */
   [[nodiscard]] const std::vector<std::pair<int, int>>& PeekEdges() const;
   /**
-   * @brief Renders the edges of the strand model.
-   *
-   * @param origin The origin of the rendering area.
-   * @param zoom_factor The zoom factor of the rendering canvas.
-   * @param draw_list Draw list to render on.
-   * @param color The color of the edges.
-   * @param thickness The thickness of the rendered edges.
-   */
-  void RenderEdges(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness);
-  /**
-   * @brief Renders the boundary edges of the strand model.
-   *
-   * @param origin The origin of the rendering area.
-   * @param zoom_factor The zoom factor of the rendering canvas.
-   * @param draw_list Draw list to render on.
-   * @param color The color of the boundary edges.
-   * @param thickness The thickness of the rendered boundary edges.
-   */
-  void RenderBoundary(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness);
-  /**
    * @brief Calculates the boundaries of the strand model using triangulation.
    *
    * @param calculate_boundary_distance If true, calculates distance to the boundary for each particle.
@@ -255,17 +235,6 @@ class StrandModelProfile {
    * @return The duration of the last simulation in seconds.
    */
   [[nodiscard]] double GetLastSimulationTime() const;
-
-  /**
-   * @brief Inspects the model's particles visually in the editor.
-   *
-   * @param func Callback function that takes a glm::vec2 position for interaction.
-   * @param draw_func Callback function to handle custom drawing.
-   * @param show_grid If true, displays the simulation grid during inspection.
-   */
-  void DrawGui(const std::function<void(glm::vec2 position)>& func,
-               const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
-               bool show_grid = false);
 };
 
 template <typename T>
@@ -405,36 +374,6 @@ const std::vector<glm::ivec3>& StrandModelProfile<ParticleData>::PeekTriangles()
 template <typename ParticleData>
 const std::vector<std::pair<int, int>>& StrandModelProfile<ParticleData>::PeekEdges() const {
   return edges_;
-}
-
-template <typename ParticleData>
-void StrandModelProfile<ParticleData>::RenderEdges(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color,
-                                                   float thickness) {
-  if (edges_.empty())
-    return;
-
-  for (const auto& edge : edges_) {
-    const auto& p1 = particles_2d_[edge.first].position_;
-    const auto& p2 = particles_2d_[edge.second].position_;
-
-    draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
-  }
-}
-
-template <typename ParticleData>
-void StrandModelProfile<ParticleData>::RenderBoundary(ImVec2 origin, float zoom_factor, ImDrawList* draw_list,
-                                                      ImU32 color, float thickness) {
-  if (boundary_edges_.empty())
-    return;
-
-  for (const auto& edge : boundary_edges_) {
-    const auto& p1 = particles_2d_[edge.first].position_;
-    const auto& p2 = particles_2d_[edge.second].position_;
-
-    draw_list->AddLine(ImVec2(origin.x + p1.x * zoom_factor, origin.y + p1.y * zoom_factor),
-                       ImVec2(origin.x + p2.x * zoom_factor, origin.y + p2.y * zoom_factor), color, thickness);
-  }
 }
 
 template <typename ParticleData>
@@ -748,106 +687,4 @@ double StrandModelProfile<ParticleData>::GetLastSimulationTime() const {
   return simulation_time_;
 }
 
-template <typename T>
-void StrandModelProfile<T>::DrawGui(const std::function<void(glm::vec2 position)>& func,
-                                    const std::function<void(ImVec2 origin, float zoom_factor, ImDrawList*)>& draw_func,
-                                    bool show_grid) {
-  static auto scrolling = glm::vec2(0.0f);
-  static float zoom_factor = 5.f;
-  ImGui::Text(("Particle count: " + std::to_string(particles_2d_.size()) +
-               " | Simulation time: " + std::to_string(simulation_time_))
-                  .c_str());
-
-  if (ImGui::Button("Recenter")) {
-    scrolling = glm::vec2(0.0f);
-  }
-
-  ImGui::SameLine();
-  ImGui::DragFloat("Zoom", &zoom_factor, zoom_factor / 100.0f, 0.1f, 1000.0f);
-  zoom_factor = glm::clamp(zoom_factor, 0.01f, 1000.0f);
-  const ImGuiIO& io = ImGui::GetIO();
-  ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-  const ImVec2 canvas_p0 = ImGui::GetCursorScreenPos();
-  ImVec2 canvas_sz = ImGui::GetContentRegionAvail();
-
-  if (canvas_sz.x < 300.0f)
-    canvas_sz.x = 300.0f;
-  if (canvas_sz.y < 300.0f)
-    canvas_sz.y = 300.0f;
-
-  const ImVec2 canvas_p1 = ImVec2(canvas_p0.x + canvas_sz.x, canvas_p0.y + canvas_sz.y);
-  const ImVec2 origin(canvas_p0.x + canvas_sz.x / 2.0f + scrolling.x, canvas_p0.y + canvas_sz.y / 2.0f + scrolling.y);
-
-  const ImVec2 mouse_pos_in_canvas((io.MousePos.x - origin.x) / zoom_factor, (io.MousePos.y - origin.y) / zoom_factor);
-
-  draw_list->AddRectFilled(canvas_p0, canvas_p1, IM_COL32(50, 50, 50, 255));
-  draw_list->AddRect(canvas_p0, canvas_p1, IM_COL32(255, 255, 255, 255));
-
-  ImGui::InvisibleButton("canvas", canvas_sz, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-  const bool is_mouse_hovered = ImGui::IsItemHovered();
-  const bool is_mouse_active = ImGui::IsItemActive();
-
-  if (is_mouse_active && ImGui::IsMouseDragging(ImGuiMouseButton_Right, -1.0f)) {
-    scrolling.x += io.MouseDelta.x;
-    scrolling.y += io.MouseDelta.y;
-  }
-
-  if (const ImVec2 drag_delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Right);
-      drag_delta.x == 0.0f && drag_delta.y == 0.0f)
-    ImGui::OpenPopupOnItemClick("context", ImGuiPopupFlags_MouseButtonRight);
-
-  if (ImGui::BeginPopup("context")) {
-    ImGui::EndPopup();
-  }
-
-  draw_list->PushClipRect(canvas_p0, canvas_p1, true);
-
-  if (is_mouse_hovered && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-    func(glm::vec2(mouse_pos_in_canvas.x, mouse_pos_in_canvas.y));
-  }
-
-  const size_t mod = particles_2d_.size() / 15000;
-  int index = 0;
-
-  for (const auto& particle : particles_2d_) {
-    index++;
-    if (mod > 1 && index % mod != 0)
-      continue;
-
-    const auto& point_position = particle.position_;
-    const auto& point_color = particle.color_;
-    const auto canvas_position =
-        ImVec2(origin.x + point_position.x * zoom_factor, origin.y + point_position.y * zoom_factor);
-
-    draw_list->AddCircleFilled(canvas_position, glm::clamp(zoom_factor, 1.0f, 100.0f),
-                               IM_COL32(255.0f * point_color.x, 255.0f * point_color.y, 255.0f * point_color.z,
-                                        particle.IsBoundary() ? 255.0f : 128.0f));
-  }
-
-  draw_list->AddCircle(origin, glm::clamp(zoom_factor, 1.0f, 100.0f), IM_COL32(255, 0, 0, 255));
-
-  if (show_grid) {
-    for (int i = 0; i < particle_grid_2d.resolution_.x; i++) {
-      for (int j = 0; j < particle_grid_2d.resolution_.y; j++) {
-        const auto& cell = particle_grid_2d.RefCell(glm::ivec2(i, j));
-        const auto cell_center = particle_grid_2d.GetPosition(glm::ivec2(i, j));
-        const auto min = ImVec2(cell_center.x - particle_grid_2d.cell_size_ * 0.5f,
-                                cell_center.y - particle_grid_2d.cell_size_ * 0.5f);
-
-        draw_list->AddQuad(
-            min * zoom_factor + origin, ImVec2(min.x + particle_grid_2d.cell_size_, min.y) * zoom_factor + origin,
-            ImVec2(min.x + particle_grid_2d.cell_size_, min.y + particle_grid_2d.cell_size_) * zoom_factor + origin,
-            ImVec2(min.x, min.y + particle_grid_2d.cell_size_) * zoom_factor + origin, IM_COL32(0, 0, 255, 128));
-
-        const auto cell_target = cell_center + cell.target;
-        draw_list->AddLine(ImVec2(cell_center.x, cell_center.y) * zoom_factor + origin,
-                           ImVec2(cell_target.x, cell_target.y) * zoom_factor + origin, IM_COL32(255, 0, 0, 128));
-      }
-    }
-  }
-
-  draw_func(origin, zoom_factor, draw_list);
-  draw_list->PopClipRect();
-}
 }  // namespace eco_sys_lab_package

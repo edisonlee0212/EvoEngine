@@ -62,12 +62,6 @@ class EVOENGINE_API Material final : public IAsset {
   }
 
   /**
-   * @brief Generates a thumbnail texture representing this material.
-   * @return A shared pointer to the generated thumbnail texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Destructor for the Material class.
    */
   ~Material() override;

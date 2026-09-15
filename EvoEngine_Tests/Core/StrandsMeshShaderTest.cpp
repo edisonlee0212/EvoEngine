@@ -26,6 +26,10 @@ std::string ReadRepoFile(const std::filesystem::path& path) {
 std::filesystem::path ShaderPath(const std::filesystem::path& path) {
   return std::filesystem::path("EvoEngine_SDK/Internals/DefaultResources/Shaders") / path;
 }
+
+std::filesystem::path EditorShaderPath(const std::filesystem::path& path) {
+  return std::filesystem::path("EvoEngine_SDK/Editor/Internals/DefaultResources/Shaders") / path;
+}
 }  // namespace
 
 TEST(StrandsMeshShader, StorageAbiAndDispatchContract) {
@@ -240,10 +244,10 @@ TEST(StrandsMeshShader, LegacyBackendIsRemoved) {
 }
 
 TEST(StrandsMeshShader, GizmosUseMeshShadersAndThreeModeCaptureFixture) {
-  const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Gizmos/GizmosStrands.slang"));
-  const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Gizmos/GizmosStrands.slang"));
+  const auto task = ReadRepoFile(EditorShaderPath("Graphics/Task/Gizmos/GizmosStrands.slang"));
+  const auto mesh = ReadRepoFile(EditorShaderPath("Graphics/Mesh/Gizmos/GizmosStrands.slang"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
-  const auto inspection = ReadRepoFile("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp");
+  const auto inspection = ReadRepoFile("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp");
   const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
   const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
 

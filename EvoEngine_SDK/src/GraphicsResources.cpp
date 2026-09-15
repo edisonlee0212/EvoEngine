@@ -582,7 +582,10 @@ Swapchain::Swapchain(const VkSwapchainCreateInfoKHR& swap_chain_create_info) {
   if (!Platform::Initialized())
     return;
   const auto& device = Platform::GetVkDevice();
-  Platform::CheckVk(vkCreateSwapchainKHR(Platform::GetVkDevice(), &swap_chain_create_info, nullptr, &vk_swapchain_));
+  if (Platform::CheckVk(vkCreateSwapchainKHR(Platform::GetVkDevice(), &swap_chain_create_info, nullptr,
+                                             &vk_swapchain_)) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create presentation swapchain.");
+  }
   uint32_t image_count = 0;
   Platform::CheckVk(vkGetSwapchainImagesKHR(device, vk_swapchain_, &image_count, nullptr));
   vk_images_.resize(image_count);
@@ -2242,8 +2245,8 @@ void CommandQueue::ImmediateSubmit(
   WaitIdle();
 }
 
-void CommandQueue::Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
-                           const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const {
+VkResult CommandQueue::Present(const std::vector<std::shared_ptr<Semaphore>>& wait_semaphores,
+                               const std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>>& targets) const {
   VkPresentInfoKHR present_info{};
   present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
   std::vector<VkSemaphore> wait_vk_semaphores(wait_semaphores.size());
@@ -2265,7 +2268,7 @@ void CommandQueue::Present(const std::vector<std::shared_ptr<Semaphore>>& wait_s
   present_info.pImageIndices = image_indices.data();
 
   const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
-  vkQueuePresentKHR(vk_queue_, &present_info);
+  return vkQueuePresentKHR(vk_queue_, &present_info);
 }
 
 void CommandQueue::WaitIdle() const {

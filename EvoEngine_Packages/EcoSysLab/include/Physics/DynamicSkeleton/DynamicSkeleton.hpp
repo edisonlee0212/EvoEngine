@@ -83,13 +83,6 @@ class DynamicSkeleton {
     SingleDistribution<float> max_twisting_modulus = {1.f, .1f};  ///< Maximum twisting modulus.
 
     GlobalTransform root_transform{};  ///< Initial root transformation.
-
-    /**
-     * @brief Inspects the initialization parameters in the editor.
-     * @param editor_layer The editor layer reference.
-     * @return True if the asset's content is not modified.
-     */
-    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
@@ -105,26 +98,12 @@ class DynamicSkeleton {
     bool enable_breaking = false;              ///< If true, parts can break.
     float velocity_damping = 0.001f;           ///< Linear velocity damping.
     float angular_velocity_damping = 0.0001f;  ///< Angular velocity damping.
-
-    /**
-     * @brief Inspects the physics parameters in the editor.
-     * @param editor_layer The editor layer reference.
-     * @return True if the asset's content is not modified.
-     */
-    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
 
   /**
    * @brief Parameters controlling visualization.
    */
-  struct VisualizationParameters {
-    /**
-     * @brief Inspects the visualization parameters in the editor.
-     * @param editor_layer The editor layer reference.
-     * @return True if the asset's content is not modified.
-     */
-    bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
+  struct VisualizationParameters {};
 
   /**
    * @brief Initializes the dynamic skeleton using another skeleton as input.

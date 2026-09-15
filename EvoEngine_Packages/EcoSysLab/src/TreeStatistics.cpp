@@ -2,9 +2,6 @@
 
 using namespace eco_sys_lab_package;
 
-void TreeStatistics::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-}
-
 void TreeStatistics::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
   Serialize(out);

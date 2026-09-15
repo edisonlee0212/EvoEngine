@@ -1,7 +1,5 @@
 #include "DatasetGenerationSerializationAdapters.hpp"
 
-#include "DatasetGenerationInspectionAdapters.hpp"
-
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "PointCloud.hpp"
@@ -10,25 +8,11 @@
 #include "TreePointCloudScanner.hpp"
 using namespace digital_agriculture_package;
 using namespace dataset_generation_package;
-bool SorghumPointCloudPointSettings::DrawGui() {
-  return false;
-}
 
 void SorghumPointCloudPointSettings::Save(const std::string& name, YAML::Emitter& out) const {
 }
 
 void SorghumPointCloudPointSettings::Load(const std::string& name, const YAML::Node& in) {
-}
-
-bool SorghumPointCloudGridCaptureSettings::DrawGui() {
-  bool changed = false;
-  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
-    changed = true;
-  if (ImGui::DragFloat("Grid distance", &grid_distance, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Step", &step, 0.01f, 0.0f, 0.5f))
-    changed = true;
-  return changed;
 }
 
 void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
@@ -72,18 +56,6 @@ void SorghumPointCloudGridCaptureSettings::GenerateSamples(std::vector<PointClou
 bool SorghumPointCloudGridCaptureSettings::SampleFilter(const PointCloudSample& sample) {
   return glm::abs(sample.hit_info.position.x) < bounding_box_size &&
          glm::abs(sample.hit_info.position.z) < bounding_box_size;
-}
-
-bool SorghumGantryCaptureSettings::DrawGui() {
-  bool changed = false;
-  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
-    changed = true;
-  if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Step", &step, 0.00001f, 0.0f, 0.5f))
-    changed = true;
-
-  return changed;
 }
 
 void SorghumGantryCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
@@ -419,30 +391,6 @@ void SorghumPointCloudScanner::Capture(const std::filesystem::path& save_path,
   if (capture_settings->output_spline_info) {
     WriteSplineInfo(save_path, capture_settings);
   }
-}
-
-bool dataset_generation_package::InspectSorghumPointCloudScanner(InspectorContext& context,
-                                                                 SorghumPointCloudScanner& scanner) {
-  (void)context;
-  bool changed = false;
-  if (ImGui::TreeNodeEx("Grid Capture")) {
-    static std::shared_ptr<TreePointCloudGridCaptureSettings> capture_settings =
-        std::make_shared<TreePointCloudGridCaptureSettings>();
-    capture_settings->DrawGui();
-    FileUtils::SaveFile(
-        "Capture", "Point Cloud", {".ply"},
-        [&](const std::filesystem::path& path) {
-          scanner.Capture(path, capture_settings);
-        },
-        false);
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("Point settings")) {
-    if (scanner.sorghum_point_cloud_point_settings.DrawGui())
-      changed = true;
-    ImGui::TreePop();
-  }
-  return changed;
 }
 
 void SorghumPointCloudScanner::OnDestroy() {

@@ -105,14 +105,6 @@ class EVOENGINE_API Resources {
   friend class Prefab;
   friend void SerializeScene(YAML::Emitter& out, const Scene& scene);
   /** @endcond */
-  bool show_resources_ = false;
-
-  /**
-   * @brief Draws the resource assets in the editor interface.
-   * @param editor_layer The editor layer instance used for displaying assets.
-   */
-  static void Draw(const std::shared_ptr<EditorLayer>& editor_layer);
-
   /**
    * @brief Checks if a resource exists that matches the specified handle.
    * @param handle The handle to check for an associated resource.

@@ -4,7 +4,6 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "ComputePipeline.hpp"
-#include "EditorLayer.hpp"
 #include "GpuProfiler.hpp"
 #include "GraphicsPipeline.hpp"
 #include "PostProcessingStack.hpp"
@@ -514,143 +513,6 @@ void UniverseLayer::RenderOrbitStrands(const std::vector<StarClusterGpuParameter
 void UniverseLayer::RegisterTypes(Application&) {
 }
 
-bool universe_package::InspectUniverseLayer(InspectorContext&, UniverseLayer& layer) {
-  const auto window_title = layer.GetLayerName();
-  bool open = layer.enable_inspection;
-  if (!ImGui::Begin(window_title.c_str(), &open)) {
-    ImGui::End();
-    layer.enable_inspection = open;
-    return false;
-  }
-  ImGui::Text("Global simulation time: %.3f", layer.global_simulation_time_);
-  ImGui::Text("Frame: %llu", static_cast<unsigned long long>(layer.frame_number_));
-  ImGui::Text("FP64 compute: %s", layer.fp64_supported_ ? "supported" : "unavailable");
-  ImGui::Text("Compute pipeline: %s", layer.compute_ready_ ? "ready" : "unavailable");
-  ImGui::Text("Forward pipeline: %s", layer.render_ready_ ? "ready" : "unavailable");
-  ImGui::Text("Registered clusters: %u, stars: %u", layer.registered_render_cluster_count_,
-              layer.registered_render_star_count_);
-  ImGui::Checkbox("Write star depth", &layer.depth_write);
-  ImGui::Checkbox("Show orbit strands", &layer.show_orbit_strands);
-  if (layer.show_orbit_strands) {
-    int mode = static_cast<int>(layer.orbit_display);
-    if (ImGui::Combo("Orbit display", &mode, "All\0Occupied\0Selected\0"))
-      layer.orbit_display = static_cast<StarOrbitDisplay>(mode);
-    ImGui::DragFloat("Orbit strand radius", &layer.orbit_strand_radius, 0.01f, 0.001f, 10000, "%.3f",
-                     ImGuiSliderFlags_AlwaysClamp);
-    ImGui::Text("Orbit strands: %zu loops, %zu segments, %u cluster submissions", layer.displayed_orbits_,
-                layer.displayed_orbits_ * 256, layer.orbit_draws_);
-    ImGui::Text("Last rebuild/upload: %.3f / %.3f ms", layer.orbit_rebuild_ms_, layer.orbit_upload_ms_);
-    ImGui::TextWrapped("%s", layer.orbit_status_.c_str());
-  }
-  ImGui::SliderFloat("Star-view fade strength", &layer.star_fade_strength, 0.0f, 4.0f, "%.2f",
-                     ImGuiSliderFlags_AlwaysClamp);
-  if (ImGui::IsItemHovered())
-    ImGui::SetTooltip(
-        "Locked-view target for stars enlarged to one pixel. Galaxy view uses 0. The value transitions with the view. "
-        "1: area compensation; higher: stronger fade. Bloom suppression remains enabled.");
-  ImGui::TextUnformatted("Star compression: 70%-99% of each camera far distance");
-  const double coordinate_scale = layer.star_follow_.following ? 1.0 : kGalaxyDisplayScale;
-  ImGui::Text("Universe coordinate scale: %.3f", coordinate_scale);
-  if (layer.batch_.parameters.size() == 1)
-    ImGui::Text("Effective displayed disk diameter: %.1f",
-                (layer.batch_.parameters[0].ellipse0.x + layer.batch_.parameters[0].ellipse0.y) * coordinate_scale);
-  ImGui::Text("Capacity: %zu stars, %zu clusters", layer.star_capacity_, layer.cluster_capacity_);
-  ImGui::Text("Population / computed / rendered revision: %llu / %llu / %llu",
-              static_cast<unsigned long long>(layer.batch_.population_revision),
-              static_cast<unsigned long long>(layer.computed_revision_),
-              static_cast<unsigned long long>(layer.rendered_revision_));
-  ImGui::Text("Render slot: %u; draws across cameras this frame: %u", layer.render_slot_, layer.draws_this_frame_);
-  if (ImGui::TreeNode("Packed cluster ranges")) {
-    for (const auto& range : layer.batch_.ranges)
-      ImGui::Text("%llu: offset %u, count %u", static_cast<unsigned long long>(range.identity), range.offset,
-                  range.count);
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Orbit buckets")) {
-    for (const auto& [component, clock] : layer.batch_.clocks) {
-      const auto cluster = clock.component.lock();
-      if (!cluster)
-        continue;
-      ImGui::PushID(component);
-      if (ImGui::TreeNode("Cluster", "Cluster %llu", static_cast<unsigned long long>(clock.identity))) {
-        const auto& layout = clock.layout;
-        ImGui::Text("Requested %u, active %u; %zu orbits, %llu slots", cluster->GetStarCount(), clock.active_count,
-                    layout.orbits.size(), static_cast<unsigned long long>(layout.capacity));
-        ImGui::Text("Nominal radial spacing %.6f; layout revision %llu", layout.radial_spacing,
-                    static_cast<unsigned long long>(layout.revision));
-        ImGui::TextWrapped("%s", layout.status.c_str());
-        if (cluster->GetStarCount() > layout.capacity)
-          ImGui::TextUnformatted("Capacity limit: excess requested stars are not simulated or rendered.");
-        if (ImGui::TreeNode("Orbit occupancy")) {
-          ImGuiListClipper clipper;
-          clipper.Begin(static_cast<int>(layout.orbits.size()));
-          while (clipper.Step())
-            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-              const auto& orbit = layout.orbits[i];
-              ImGui::Text("%d: proportion %.6f, occupied %u / %llu", i, orbit.proportion,
-                          clock.active_count ? orbit.occupied : 0, static_cast<unsigned long long>(orbit.capacity));
-            }
-          ImGui::TreePop();
-        }
-        ImGui::TreePop();
-      }
-      ImGui::PopID();
-    }
-    ImGui::TreePop();
-  }
-  ImGui::TextUnformatted("One population draw per camera, plus an optional hover ring. Picking reads back 48 bytes.");
-  if (ImGui::TreeNodeEx("Star picking", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Text("Active: %s%s", layer.pick_camera_name_.c_str(),
-                layer.star_picker_.state.current.valid ? "" : " (inactive cursor)");
-    ImGui::DragFloat("Minimum picking radius (display pixels)", &layer.pick_minimum_radius_, 0.1f, 0.0f, 20.0f, "%.1f",
-                     ImGuiSliderFlags_AlwaysClamp);
-    const auto show_hit = [&](const char* label, const StarPickSnapshot& hit) {
-      if (!hit.result.valid) {
-        ImGui::Text("%s: none", label);
-        return;
-      }
-      const auto cluster = hit.cluster.lock();
-      const auto scene = layer.GetScene();
-      const std::string name = cluster && scene && scene->IsEntityValid(cluster->GetOwner())
-                                   ? scene->GetEntityName(cluster->GetOwner())
-                                   : "Deleted cluster";
-      ImGui::Text("%s: %s / star %u (cluster %llu)", label, name.c_str(), hit.ordinal,
-                  static_cast<unsigned long long>(hit.identity));
-      ImGui::Text("Sampled render-space center: %.6f, %.6f, %.6f; ray distance: %.6f", hit.result.position_radius.x,
-                  hit.result.position_radius.y, hit.result.position_radius.z, hit.result.distance);
-      ImGui::Text("Sample age: %llu frames", static_cast<unsigned long long>(layer.frame_number_ - hit.frame));
-    };
-    show_hit("Hover", layer.star_picker_.state.hovered);
-    show_hit("Selected", layer.star_picker_.state.selected);
-    ImGui::Text("Readback: %s; click: %s", layer.star_picker_.Pending() ? "pending" : "idle",
-                layer.star_picker_.PendingClick() ? "pending" : "idle");
-    ImGui::Text("Selection: %s; following: %s (Space toggles)",
-                layer.star_follow_.available ? "available" : "unavailable",
-                layer.star_follow_.following ? "yes" : "no");
-    ImGui::TextWrapped("%s", layer.star_follow_.status.c_str());
-    ImGui::Text("View radius scale: %.3f -> %.0f; fade: %.3f -> %.2f", layer.star_view_.radius_scale,
-                layer.star_view_.target_scale, layer.star_view_.fade_strength, layer.star_view_.target_fade_strength);
-    if (layer.star_follow_.following)
-      ImGui::TextUnformatted("Star-local view: hover and selection locked; Space exits.");
-    if (layer.star_follow_.available) {
-      const auto& position = layer.star_follow_.selected_world_position;
-      ImGui::Text("CPU world position: %.6f, %.6f, %.6f", position.x, position.y, position.z);
-      const auto& frame = layer.star_follow_.selected_frame;
-      const auto rotation = glm::degrees(glm::eulerAngles(glm::quat_cast(glm::dmat3(frame))));
-      ImGui::Text("Reference origin: %.6f, %.6f, %.6f", frame[3].x, frame[3].y, frame[3].z);
-      ImGui::Text("Reference rotation (degrees): %.3f, %.3f, %.3f", rotation.x, rotation.y, rotation.z);
-    }
-    ImGui::TextWrapped("%s", layer.star_picker_.status.c_str());
-    if (layer.pick_benchmark_)
-      ImGui::TextUnformatted("Benchmark cursor override: center of active camera");
-    ImGui::TreePop();
-  }
-  ImGui::TextWrapped("GPU status: %s", layer.gpu_status_.c_str());
-  ImGui::End();
-  layer.enable_inspection = open;
-  return false;
-}
-
 void UniverseLayer::OnCreate() {
   show_orbit_strands = false;
   orbit_display = StarOrbitDisplay::All;
@@ -795,7 +657,8 @@ void UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
   const auto scene = GetScene();
   if (!scene || !IsProceduralGalaxyProjectPath()) {
     demo_main_camera_.Restore();
-    demo_scene_camera_.Restore();
+    if (const auto view = view_host_.lock())
+      view->SetDemoCamera(false);
     return;
   }
   auto owners = scene->UnsafeGetPrivateComponentOwnersList<StarCluster>();
@@ -810,10 +673,8 @@ void UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
     }
   }
   demo_main_camera_.Apply(scene->main_camera.Get<Camera>());
-  if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>())
-    demo_scene_camera_.Apply(editor->GetSceneCamera());
-  else
-    demo_scene_camera_.Restore();
+  if (const auto view = view_host_.lock())
+    view->SetDemoCamera(true);
 }
 
 void UniverseLayer::ResetSimulation() {
@@ -821,11 +682,11 @@ void UniverseLayer::ResetSimulation() {
   orbit_rebuild_ms_ = orbit_upload_ms_ = 0;
   orbit_status_ = "Not submitted";
   demo_main_camera_.Restore();
-  demo_scene_camera_.Restore();
+  if (const auto view = view_host_.lock())
+    view->SetDemoCamera(false);
   if (star_follow_.following)
-    if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>())
-      editor->RebaseSceneCamera(glm::scale(glm::dmat4(1), glm::dvec3(kGalaxyDisplayScale)) *
-                                star_follow_.reference_to_world);
+    if (const auto view = view_host_.lock())
+      view->Rebase(glm::scale(glm::dmat4(1), glm::dvec3(kGalaxyDisplayScale)) * star_follow_.reference_to_world);
   star_follow_ = {};
   star_view_ = {};
   demo_needs_framing_ = false;
@@ -1031,35 +892,49 @@ void UniverseLayer::UpdatePlanetTerrain(const std::shared_ptr<Scene>& scene) con
   }
 }
 
+void UniverseLayer::SetViewHost(const std::shared_ptr<UniverseViewHost>& host) {
+  if (const auto previous = view_host_.lock()) {
+    if (previous == host)
+      return;
+    previous->SetDemoCamera(false);
+    if (star_follow_.following)
+      previous->Rebase(glm::scale(glm::dmat4(1), glm::dvec3(kGalaxyDisplayScale)) * star_follow_.reference_to_world);
+  }
+  view_host_ = host;
+}
+
 void UniverseLayer::UpdatePickingInput(const std::shared_ptr<Scene>& scene) {
   const ProfilerScope scope(universe_profiler::GetItems().pick_input);
   StarPickRequest request;
   auto camera = scene->main_camera.Get<Camera>();
   pick_camera_name_ = "Main camera";
   bool clicked = false;
-  if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    const bool use_scene = editor->GetSceneViewportInput().focused;
-    const auto& input = use_scene ? editor->GetSceneViewportInput() : editor->GetMainCameraViewportInput();
-    pick_camera_name_ = use_scene ? "Scene camera" : "Main camera";
-    if (use_scene)
-      camera = editor->GetSceneCamera();
-    request.cursor_uv = input.cursor_uv;
-    request.display_size = input.image_size;
-    request.image_origin = input.image_origin;
-    request.valid = input.visible && input.cursor_valid && input.scene.lock() == scene && input.camera.lock() == camera;
+  if (const auto view = view_host_.lock()) {
+    auto input = view->GetViewportInput(scene);
+    camera = input.camera;
+    pick_camera_name_ = input.camera_name;
+    request = std::move(input.request);
     clicked = request.valid && input.click_sequence != 0 && input.click_sequence != last_viewport_click_;
     if (clicked)
       last_viewport_click_ = input.click_sequence;
   } else if (const auto window = ApplicationContext::Get().GetLayer<WindowLayer>(); window && camera) {
-    int width = 0, height = 0;
-    glfwGetWindowSize(window->GetGlfwWindow(), &width, &height);
+    const auto framebuffer_size = window->GetFramebufferSize();
+    const int width = framebuffer_size.x;
+    const int height = framebuffer_size.y;
     const auto mouse = Input::GetMousePosition();
     // The non-editor presenter aspect-fits the main camera to the window.
     const auto size = glm::vec2(camera->GetSize());
     const float scale = (std::min)(width / size.x, height / size.y);
     request.display_size = size * scale;
     const glm::vec2 origin = (glm::vec2(width, height) - request.display_size) * 0.5f;
-    request.valid = EditorLayer::MapViewportCursor(origin, request.display_size, mouse, request.cursor_uv);
+    const auto local = mouse - origin;
+    request.valid = std::isfinite(request.display_size.x) && std::isfinite(request.display_size.y) &&
+                    std::isfinite(local.x) && std::isfinite(local.y) && request.display_size.x > 0.0f &&
+                    request.display_size.y > 0.0f && local.x >= 0.0f && local.y >= 0.0f &&
+                    local.x < request.display_size.x && local.y < request.display_size.y;
+    request.cursor_uv = request.valid
+                            ? glm::vec2(local.x / request.display_size.x, 1.0f - local.y / request.display_size.y)
+                            : glm::vec2{};
     clicked = request.valid && scene->GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press;
   }
   if (pick_benchmark_ && camera) {
@@ -1092,7 +967,8 @@ void UniverseLayer::Update() {
   registered_render_cluster_count_ = registered_render_star_count_ = draws_this_frame_ = 0;
   if (!scene) {
     demo_main_camera_.Restore();
-    demo_scene_camera_.Restore();
+    if (const auto view = view_host_.lock())
+      view->SetDemoCamera(false);
     if (base_sample_buffer_ || !batch_.clocks.empty())
       ResetSimulation();
     return;
@@ -1164,11 +1040,9 @@ void UniverseLayer::Update() {
         scene->SetDataComponent(camera->GetOwner(), transform);
       }
     }
-    if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      const auto pose = overview_pose(editor->GetSceneCamera(), glm::dvec3(editor->GetSceneCameraPosition()),
-                                      glm::dquat(editor->GetSceneCameraRotation()));
-      if (pose.valid)
-        editor->MoveCamera(glm::quat(pose.rotation), glm::vec3(pose.position));
+    if (const auto view = view_host_.lock()) {
+      const auto current = view->GetPose();
+      view->Move(overview_pose(view->GetCamera(), current.position, current.rotation));
     }
     demo_needs_framing_ = false;
   }
@@ -1176,16 +1050,15 @@ void UniverseLayer::Update() {
   star_picker_.Consume(Platform::GetCurrentFrameIndex());
   {
     const ProfilerScope follow_scope(universe_profiler::GetItems().follow_cpu);
-    const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+    const auto view = view_host_.lock();
     bool toggle = false;
-    if (editor) {
-      const auto& input = editor->GetSceneViewportInput().focused ? editor->GetSceneViewportInput()
-                                                                  : editor->GetMainCameraViewportInput();
+    if (view) {
+      const auto input = view->GetViewportInput(scene);
       toggle = input.follow_toggle_sequence != 0 && input.follow_toggle_sequence != last_follow_toggle_;
       if (toggle)
         last_follow_toggle_ = input.follow_toggle_sequence;
     }
-    if (follow_benchmark_ && editor && star_follow_.generation == 0 && star_picker_.state.hovered.result.valid) {
+    if (follow_benchmark_ && view && star_follow_.generation == 0 && star_picker_.state.hovered.result.valid) {
       star_picker_.state.selected = star_picker_.state.hovered;
       toggle = true;
       EVOENGINE_LOG("Universe follow benchmark: selected hovered star and entered star-local frame.");
@@ -1200,16 +1073,13 @@ void UniverseLayer::Update() {
       else if (was_following && !star_follow_.following)
         change.camera_transform = world_to_galaxy * change.camera_transform;
       star_view_.SetLocked(star_follow_.following, ApplicationContext::Get().GetTimes().Now(), star_fade_strength);
-      if (editor) {
-        editor->RebaseSceneCamera(change.camera_transform);
-        const auto pose = star_follow_.following
-                              ? CalculateStarFollowCameraPose(star_follow_.selected_radius)
-                              : overview_pose(editor->GetSceneCamera(), glm::dvec3(editor->GetSceneCameraPosition()),
-                                              glm::dquat(editor->GetSceneCameraRotation()));
-        if (pose.valid)
-          editor->MoveCamera(glm::quat(pose.rotation), glm::vec3(pose.position));
+      if (view) {
+        view->Rebase(change.camera_transform);
+        const auto current = view->GetPose();
+        view->Move(star_follow_.following ? CalculateStarFollowCameraPose(star_follow_.selected_radius)
+                                          : overview_pose(view->GetCamera(), current.position, current.rotation));
         if (IsProceduralGalaxyProjectPath())
-          demo_scene_camera_.Apply(editor->GetSceneCamera());
+          view->SetDemoCamera(true);
       }
       auto request = star_picker_.state.current;
       request.reference_generation = star_follow_.generation;

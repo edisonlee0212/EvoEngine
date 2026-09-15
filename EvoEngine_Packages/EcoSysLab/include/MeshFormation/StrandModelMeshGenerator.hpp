@@ -59,12 +59,6 @@ struct StrandModelMeshGeneratorSettings {
   int max_cell_count_for_minor_branches = 10;  ///< Maximum number of cells considered for minor branches.
   bool enable_branch = true;                   ///< Enables or disables branch generation.
   bool enable_foliage = true;                  ///< Enables or disables foliage generation.
-
-  /**
-   * @brief Inspects and modifies settings within the editor.
-   * @param editor_layer The shared pointer to the editor layer interface.
-   */
-  void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**

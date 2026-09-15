@@ -139,7 +139,6 @@ class SorghumDescriptor : public IAsset {
    * @brief Generates a thumbnail texture representing the Sorghum model.
    * @return Shared pointer to the generated texture.
    */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 
   /**
    * @brief Imports a prediction file containing structural data of the Sorghum model.

@@ -1,0 +1,5 @@
+file(GLOB_RECURSE editor_sources CONFIGURE_DEPENDS "src/*.cpp" "include/*.hpp")
+add_library(BillboardCloudsEditorPackage SHARED ${editor_sources})
+evoengine_configure_editor_package(BillboardCloudsEditorPackage BillboardCloudsPackage)
+target_include_directories(BillboardCloudsEditorPackage PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+set_target_properties(BillboardCloudsEditorPackage PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)

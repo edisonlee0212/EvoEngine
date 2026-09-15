@@ -102,11 +102,6 @@ class EVOENGINE_API BezierSpline {
   [[nodiscard]] glm::vec3 EvaluatePointFromCurves(float point) const;
 
   /**
-   * @brief Draws editor controls for the spline.
-   */
-  void Draw();
-
-  /**
    * @brief Serializes the Bezier spline to an output YAML emitter.
    *
    * @param out The YAML emitter to store the serialized data.

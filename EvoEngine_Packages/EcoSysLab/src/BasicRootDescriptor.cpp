@@ -1,7 +1,6 @@
 #include "BasicRootDescriptor.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 
-#include "SDKInspectionAdapters.hpp"
 #include "ShootModel.hpp"
 
 using namespace eco_sys_lab_package;
@@ -215,51 +214,4 @@ void eco_sys_lab_package::DeserializeBasicRootDescriptor(const YAML::Node& in, B
     target.tropism_switch_probability = in["tropism_switch_probability"].as<float>();
   if (in["tropism_switch_base_distance_factor"])
     target.tropism_switch_base_distance_factor = in["tropism_switch_base_distance_factor"].as<float>();
-}
-
-bool BasicRootDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  changed = ImGui::DragFloat("Growth rate", &growth_rate, 0.01f, 0.0f, 10.0f) || changed;
-  changed = ImGui::DragFloat("Straight Tap Root", &straight_tap_root, 0.1f, 0.0f, 100.f) || changed;
-  if (ImGui::TreeNodeEx("Root node", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragInt("Base node count", &base_root_node_count, 1, 0, 3) || changed;
-    changed = ImGui::DragFloat("Lateral node flushing prob", &lateral_node_flushing_probability, 0.01f, 0.01f, 1.0f) ||
-              changed;
-    static bool show_branching_angle_graph = false;
-    static bool show_roll_angle_graph = false;
-    static bool show_apical_angle_graph = false;
-    ImGui::Checkbox("Show branching angle graph", &show_branching_angle_graph);
-    ImGui::Checkbox("Show roll angle graph", &show_roll_angle_graph);
-    ImGui::Checkbox("Show apical angle graph", &show_apical_angle_graph);
-    if (show_branching_angle_graph) {
-      changed =
-          evo_engine::DrawProceduralNoiseGraph(branching_angle_graph, "Branching Angle Graph", editor_layer) || changed;
-    }
-    if (show_roll_angle_graph) {
-      changed = evo_engine::DrawProceduralNoiseGraph(roll_angle_graph, "Roll Angle Graph", editor_layer) || changed;
-    }
-    if (show_apical_angle_graph) {
-      changed = evo_engine::DrawProceduralNoiseGraph(apical_angle_graph, "Apical Angle Graph", editor_layer) || changed;
-    }
-
-    changed = ImGui::DragFloat("Root node length", &root_node_length, 0.001f) || changed;
-    changed = ImGui::DragFloat("Root node length thickness factor", &root_node_length_thickness_factor, 0.0001f, 0.0f,
-                               1.0f) ||
-              changed;
-    changed =
-        ImGui::DragFloat3("Thickness min/factor/age", &end_node_thickness, 0.0001f, 0.0f, 1.0f, "%.6f") || changed;
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Root Shape Control", ImGuiTreeNodeFlags_DefaultOpen)) {
-    changed = ImGui::DragFloat("Apical control", &apical_control, 0.01f) || changed;
-    changed = ImGui::DragFloat2("Inhibitor val/loss", &apical_dominance, 0.01f) || changed;
-    changed = ImGui::DragFloat("Root distance control", &root_distance_control, 0.01f) || changed;
-    changed = ImGui::DragFloat2("Soil Friction/Speed", &soil_density_friction.x, 0.01f) || changed;
-    changed = ImGui::DragFloat("Tropism intensity", &tropism_intensity, 0.01f) || changed;
-    changed = ImGui::DragFloat2("Tropism switch prob/dist", &tropism_switch_probability, 0.01f) || changed;
-    ImGui::TreePop();
-  }
-
-  return changed;
 }

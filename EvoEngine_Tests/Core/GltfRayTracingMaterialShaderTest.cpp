@@ -1485,12 +1485,12 @@ TEST(GltfRayTracingMaterial, DemoPreviewRayCaptureKeepsRequestedRenderResolution
   EXPECT_NE(render_texture_source.find("extension == \".hdr\""), std::string::npos);
   EXPECT_NE(render_texture_source.find("StoreToHdr(path.string())"), std::string::npos);
 
-  const auto editor_layer_header = ReadTextFile(SdkPath("include/Layers/EditorLayer.hpp"));
+  const auto editor_layer_header = ReadTextFile(SdkPath("Editor/include/EditorLayer.hpp"));
   ASSERT_FALSE(editor_layer_header.empty());
   EXPECT_NE(editor_layer_header.find("SetSceneCameraResolutionOverride"), std::string::npos);
   EXPECT_NE(editor_layer_header.find("std::optional<glm::uvec2> scene_camera_resolution_override_"), std::string::npos);
 
-  const auto editor_layer_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto editor_layer_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
   ASSERT_FALSE(editor_layer_source.empty());
   EXPECT_NE(editor_layer_source.find("void EditorLayer::SetSceneCameraResolutionOverride"), std::string::npos);
   EXPECT_NE(editor_layer_source.find("if (scene_camera_resolution_override_)"), std::string::npos);
@@ -1717,7 +1717,7 @@ TEST(GltfRayTracingMaterial, RayCameraLinearOutputUsesPostTonemapping) {
   const auto histogram = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMappingHistogram.slang"));
   const auto auto_exposure = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMappingAutoExposure.slang"));
   const auto post_processing_header = ReadTextFile(SdkPath("include/Rendering/PostProcessing/PostProcessingStack.hpp"));
-  const auto inspector = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(tone_mapping.empty());
   ASSERT_FALSE(histogram.empty());
   ASSERT_FALSE(auto_exposure.empty());
@@ -1831,7 +1831,7 @@ TEST(GltfRayTracingMaterial, DirectSkyEnvironmentModeRemoved) {
   const auto render_storage_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto render_storage_source = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
-  const auto editor_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto raygen = ReadRayTracingCameraSource();
   const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.slang"));
   const auto ray_query = ReadRayQueryCameraSource();
@@ -1864,7 +1864,7 @@ TEST(GltfRayTracingMaterial, SkyIlluminationCubemapBuildUsesNishitaAtmosphere) {
   const auto atmosphere_to_cubemap = ReadTextFile(ShaderPath("Graphics/Fragment/Lighting/AtmosphereToCubemap.slang"));
   const auto cubemap_source = ReadTextFile(SdkPath("src/Cubemap.cpp"));
   const auto environmental_map_source = ReadTextFile(SdkPath("src/EnvironmentalMap.cpp"));
-  const auto editor_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
 
   ASSERT_FALSE(atmosphere.empty());
   ASSERT_FALSE(atmosphere_to_cubemap.empty());
@@ -2105,7 +2105,7 @@ TEST(GltfRayTracingMaterial, EnvironmentControlsUseDefinedLobeOwnership) {
   const auto camera_integrator = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayIntegrator.slang"));
   const auto python_binding =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding/src/PyEcoSysLabModule.cpp");
-  const auto inspector = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(camera_integrator.empty());
   ASSERT_FALSE(python_binding.empty());
   ASSERT_FALSE(inspector.empty());
@@ -2288,8 +2288,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesAutoSppConvergenceControl) {
   const auto ray_tracing_pass_source = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
   const auto render_layer_source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto application_source = ReadTextFile(SdkPath("src/Application.cpp"));
-  const auto editor_layer_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
-  const auto inspection_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor_layer_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
+  const auto inspection_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto python_binding =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding" / "src" / "PyEcoSysLab.cpp");
@@ -2367,8 +2367,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenAlwaysUsesConfigurableFireflyClampThres
   const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
   const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
   const auto application_source = ReadTextFile(SdkPath("src/Application.cpp"));
-  const auto editor_layer_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
-  const auto inspection_source = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor_layer_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
+  const auto inspection_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
 
   ASSERT_FALSE(raygen.empty());
@@ -2793,7 +2793,7 @@ TEST(GltfRayTracingMaterial, RigidEmissiveTrianglesAreSharedByCamerasAndDdgi) {
   const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto ray_query = ReadRayQueryCameraSource();
   const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
-  const auto inspection = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspection = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
 
   EXPECT_NE(basic.find("struct EmissiveTriangleInfo"), std::string::npos);
   EXPECT_NE(integrator.find("import EvoEngine.EmissiveTriangleSampling;"), std::string::npos);
@@ -2840,7 +2840,7 @@ TEST(GltfRayTracingMaterial, RayDebugViewsShareOneIntegrator) {
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto variant_header = ReadTextFile(SdkPath("include/Rendering/RayCameraShaderVariantCache.hpp"));
   const auto variant_source = ReadTextFile(SdkPath("src/RayCameraShaderVariantCache.cpp"));
-  const auto inspection = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspection = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
   const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto python_binding =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding/src/PyEcoSysLab.cpp");

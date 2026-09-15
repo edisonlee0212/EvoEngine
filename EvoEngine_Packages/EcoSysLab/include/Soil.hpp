@@ -27,6 +27,7 @@ enum class SoilProperty {
  * The soil will also handle visualization and menu control for the soil model.
  */
 class Soil : public IPrivateComponent {
+  friend struct SoilInspector;
   // member variables to avoid static variables (in case of multiple Soil instances?)
   bool auto_step_ = false;
   bool irrigation_ = true;
@@ -40,13 +41,6 @@ class Soil : public IPrivateComponent {
  public:
   VoxelSoilModel soil_model;     ///< The voxel-based soil model.
   AssetRef soil_descriptor_ref;  ///< Reference to the associated soil descriptor.
-
-  /**
-   * \brief Handles the inspection logic for the soil component.
-   * \param editor_layer A shared pointer to the editor layer.
-   * \return True if content is not modified; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * \brief Applies a random offset to the soil component.

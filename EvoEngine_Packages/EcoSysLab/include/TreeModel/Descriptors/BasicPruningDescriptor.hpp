@@ -68,12 +68,5 @@ class BasicPruningDescriptor : public IPruningDescriptor {
    */
   void PrepareController(const SimulationSettings& simulation_settings,
                          ShootPruningController& shoot_pruning_controller) const override;
-
-  /**
-   * \brief Inspects and modifies shoot descriptor parameters in the editor.
-   * \param editor_layer The editor layer providing UI interaction.
-   * \return True if the asset's content remains unmodified.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

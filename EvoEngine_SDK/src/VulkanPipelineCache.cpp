@@ -1,4 +1,5 @@
 #include "VulkanPipelineCache.hpp"
+#include "RuntimePaths.hpp"
 
 #include "Console.hpp"
 #include "PathUtils.hpp"
@@ -173,7 +174,9 @@ PipelineCacheIdentity VulkanPipelineCache::MakeIdentity(const VkPhysicalDevicePr
 
 std::filesystem::path VulkanPipelineCache::ResolveCachePath(const PipelineCacheIdentity& identity) {
   std::filesystem::path directory;
-  if (const char* path = std::getenv("EVOENGINE_PIPELINE_CACHE_DIR"); path && path[0] != '\0') {
+  if (runtime_paths::IsStrict()) {
+    directory = runtime_paths::Resolve("Cache/PipelineCache");
+  } else if (const char* path = std::getenv("EVOENGINE_PIPELINE_CACHE_DIR"); path && path[0] != '\0') {
     directory = path_utils::NormalizeAbsolutePath(path);
   } else if (const char* path = std::getenv("EVOENGINE_SHADER_CACHE_DIR"); path && path[0] != '\0') {
     directory = path_utils::NormalizeAbsolutePath(path).parent_path() / "PipelineCache";

@@ -2,6 +2,8 @@
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "DemoProfiles.hpp"
+#include "EditorFileDialogs.hpp"
+#include "EditorTextureRegistry.hpp"
 #include "EditorTheme.hpp"
 #include "ILayer.hpp"
 #include "ImGuiLayer.hpp"
@@ -211,7 +213,7 @@ std::shared_ptr<Texture2D> FindIcon(const std::unordered_map<std::string, std::s
 }
 
 bool DrawFittedImage(const std::shared_ptr<Texture2D>& icon, const ImVec2 min, const ImVec2 max, const ImU32 tint) {
-  if (!icon || icon->GetImTextureId() == 0) {
+  if (!icon || EditorTextureRegistry::GetTextureId(*icon) == 0) {
     return false;
   }
   const glm::uvec2 resolution = icon->GetResolution();
@@ -224,14 +226,14 @@ bool DrawFittedImage(const std::shared_ptr<Texture2D>& icon, const ImVec2 min, c
       std::min(bounds.x / static_cast<float>(resolution.x), bounds.y / static_cast<float>(resolution.y));
   const ImVec2 size(static_cast<float>(resolution.x) * scale, static_cast<float>(resolution.y) * scale);
   const ImVec2 image_min(min.x + (bounds.x - size.x) * 0.5f, min.y + (bounds.y - size.y) * 0.5f);
-  ImGui::GetWindowDrawList()->AddImage(icon->GetImTextureId(), image_min,
+  ImGui::GetWindowDrawList()->AddImage(EditorTextureRegistry::GetTextureId(*icon), image_min,
                                        ImVec2(image_min.x + size.x, image_min.y + size.y), ImVec2(0, 1), ImVec2(1, 0),
                                        tint);
   return true;
 }
 
 bool DrawPreviewImage(const std::shared_ptr<Texture2D>& texture, const ImVec2 min, const ImVec2 max, const ImU32 tint) {
-  if (!texture || texture->GetImTextureId() == 0) {
+  if (!texture || EditorTextureRegistry::GetTextureId(*texture) == 0) {
     return false;
   }
   const glm::uvec2 resolution = texture->GetResolution();
@@ -249,8 +251,8 @@ bool DrawPreviewImage(const std::shared_ptr<Texture2D>& texture, const ImVec2 mi
   const ImVec2 image_min(min.x + (bounds.x - image_size.x) * 0.5f, min.y + (bounds.y - image_size.y) * 0.5f);
   const ImVec2 image_max(image_min.x + image_size.x, image_min.y + image_size.y);
   auto* draw_list = ImGui::GetWindowDrawList();
-  draw_list->AddImageRounded(texture->GetImTextureId(), image_min, image_max, ImVec2(0, 1), ImVec2(1, 0), tint,
-                             kLauncherItemRounding);
+  draw_list->AddImageRounded(EditorTextureRegistry::GetTextureId(*texture), image_min, image_max, ImVec2(0, 1),
+                             ImVec2(1, 0), tint, kLauncherItemRounding);
   return true;
 }
 
@@ -569,7 +571,7 @@ class LauncherLayer final : public ILayer {
       auto loaded_preview = AssetManager::CreateTemporaryAsset<Texture2D>();
       if (Serialization::LoadAsset(*loaded_preview, preview_path)) {
         loaded_preview->UnsafeUploadDataImmediately();
-        if (loaded_preview->GetImTextureId() != 0) {
+        if (EditorTextureRegistry::GetTextureId(*loaded_preview) != 0) {
           preview = std::move(loaded_preview);
           state = "loaded";
         } else {
@@ -593,7 +595,8 @@ class LauncherLayer final : public ILayer {
       const glm::uvec2 resolution = icon->GetResolution();
       AppendTestLog("titlebar-icon:" + name + ":" + (loaded ? "loaded" : "load-failed") + ":" +
                     std::to_string(resolution.x) + "x" + std::to_string(resolution.y) + ":" +
-                    (icon->GetImTextureId() != 0 ? "texture-id" : "zero-texture-id") + ":" + path.string());
+                    (EditorTextureRegistry::GetTextureId(*icon) != 0 ? "texture-id" : "zero-texture-id") + ":" +
+                    path.string());
       title_bar_icons_[name] = std::move(icon);
     };
 
@@ -847,7 +850,7 @@ class LauncherLayer final : public ILayer {
     DrawLaunchModeSelector(std::min(content_width, 320.0f));
     ImGui::Spacing();
     ImGui::PushID("RecentOpenProject");
-    FileUtils::OpenFile(
+    EditorFileDialogs::OpenFile(
         "Open Project", "Project", {".eveproj"},
         [this](const std::filesystem::path& path) {
           OpenProject(path);
@@ -865,7 +868,7 @@ class LauncherLayer final : public ILayer {
       ImGui::TextColored(ColorTextMuted(), "Open a .eveproj file to add it here.");
       ImGui::Spacing();
       ImGui::PushID("EmptyRecentOpenProject");
-      FileUtils::OpenFile(
+      EditorFileDialogs::OpenFile(
           "Open Project", "Project", {".eveproj"},
           [this](const std::filesystem::path& path) {
             OpenProject(path);
@@ -991,7 +994,7 @@ class LauncherLayer final : public ILayer {
     }
     ImGui::Spacing();
 
-    FileUtils::OpenFolder(
+    EditorFileDialogs::OpenFolder(
         "Choose Parent Folder",
         [this](const std::filesystem::path& path) {
           parent_folder_ = path;

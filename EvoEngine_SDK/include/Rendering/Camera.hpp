@@ -356,10 +356,10 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
   [[nodiscard]] const RayCameraOptionalOutputResources& GetRayCameraOptionalOutputResources() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
-  [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferEmissiveImTextureId() const;
+  [[nodiscard]] SampledImageResources GetGBufferBaseColorAoResources() const;
+  [[nodiscard]] SampledImageResources GetGBufferNormalRoughnessResources() const;
+  [[nodiscard]] SampledImageResources GetGBufferPbrFlagsResources() const;
+  [[nodiscard]] SampledImageResources GetGBufferEmissiveResources() const;
 
   void SetRendered();
   void ResetRenderState();
@@ -379,16 +379,12 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   std::shared_ptr<Sampler> g_buffer_sampler_ = {};                  ///< GBuffer sampler.
   std::shared_ptr<Image> g_buffer_base_color_ao_ = {};              ///< Expanded GBuffer base color/AO image.
   std::shared_ptr<ImageView> g_buffer_base_color_ao_view_ = {};     ///< Expanded GBuffer base color/AO view.
-  ImTextureID g_buffer_base_color_ao_im_texture_id_ = {};           ///< ImTextureID for base color/AO.
   std::shared_ptr<Image> g_buffer_normal_roughness_ = {};           ///< Expanded GBuffer normal/roughness image.
   std::shared_ptr<ImageView> g_buffer_normal_roughness_view_ = {};  ///< Expanded GBuffer normal/roughness view.
-  ImTextureID g_buffer_normal_roughness_im_texture_id_ = {};        ///< ImTextureID for normal/roughness.
   std::shared_ptr<Image> g_buffer_pbr_flags_ = {};                  ///< Expanded GBuffer PBR/flags image.
   std::shared_ptr<ImageView> g_buffer_pbr_flags_view_ = {};         ///< Expanded GBuffer PBR/flags view.
-  ImTextureID g_buffer_pbr_flags_im_texture_id_ = {};               ///< ImTextureID for PBR/flags.
   std::shared_ptr<Image> g_buffer_emissive_ = {};                   ///< Expanded GBuffer emissive image.
   std::shared_ptr<ImageView> g_buffer_emissive_view_ = {};          ///< Expanded GBuffer emissive view.
-  ImTextureID g_buffer_emissive_im_texture_id_ = {};                ///< ImTextureID for emissive.
   std::shared_ptr<Image> g_buffer_utility_ = {};                    ///< Expanded GBuffer utility image.
   std::shared_ptr<ImageView> g_buffer_utility_view_ = {};           ///< Expanded GBuffer utility view.
 

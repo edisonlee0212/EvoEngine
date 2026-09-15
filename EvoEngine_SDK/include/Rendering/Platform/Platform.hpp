@@ -290,6 +290,10 @@ class EVOENGINE_API Platform final {
 
   /// List of required Vulkan device extension names.
   std::vector<std::string> required_device_extension_names_ = {};
+  bool full_screen_exclusive_supported_ = false;
+  bool full_screen_exclusive_acquired_ = false;
+  bool full_screen_exclusive_focus_lost_ = false;
+  bool full_screen_exclusive_swapchain_ = false;
 
   /**
    * @brief Struct encapsulating Vulkan physical device data.
@@ -397,6 +401,7 @@ class EVOENGINE_API Platform final {
      * @brief Struct containing swapchain support details.
      */
     struct SwapChainSupportDetails {
+      bool full_screen_exclusive = false;
       VkSurfaceCapabilitiesKHR capabilities{};        ///< Surface capabilities.
       std::vector<VkSurfaceFormatKHR> formats{};      ///< List of supported formats.
       std::vector<VkPresentModeKHR> present_modes{};  ///< List of supported presentation modes.
@@ -538,6 +543,8 @@ class EVOENGINE_API Platform final {
   void CreateSwapChain();
   void CreateSwapChainSyncObjects();
   void RecreateSwapChain();
+  void ReleaseFullScreenExclusive();
+  bool AcquireFullScreenExclusive();
   void WaitForFrameSlotSubmission(uint32_t frame_index, const std::string& wait_name);
   void InitializeGpuTimestampResources();
   void DestroyGpuTimestampResources();
@@ -998,6 +1005,7 @@ class EVOENGINE_API Platform final {
    * @brief Notifies the system that the swapchain should be recreated.
    */
   static void NotifyRecreateSwapChain();
+  static void NotifyWindowFocus(bool focused);
 
   /**
    * @brief Gets the Vulkan instance object.
@@ -1005,6 +1013,7 @@ class EVOENGINE_API Platform final {
    * @return The Vulkan instance.
    */
   static VkInstance GetVkInstance();
+  [[nodiscard]] static PFN_vkVoidFunction GetVulkanInstanceFunction(const char* name);
 
   /**
    * @brief Gets the currently selected Vulkan physical device.

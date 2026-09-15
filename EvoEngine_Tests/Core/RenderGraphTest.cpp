@@ -106,7 +106,7 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   const auto platform_header = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
   const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
-  const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto editor_layer = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
   const auto deferred_geometry = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
   const auto directional_shadow = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
@@ -138,7 +138,7 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
 }
 
 TEST(RenderGraph, ProfilerBreakdownUsesSharedCpuAndGpuHistoryModels) {
-  const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto editor_layer = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
   EXPECT_NE(editor_layer.find("BeginTabItem(\"Breakdown\")"), std::string::npos);
   EXPECT_NE(editor_layer.find("BuildProfilerHistoryStats(profiler_panel_frames_, selected_index)"), std::string::npos);
   EXPECT_NE(editor_layer.find("BuildGpuTimestampHistoryStats("), std::string::npos);
@@ -2486,7 +2486,7 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto render_texture_source = ReadTextFile(SdkPath("src/RenderTexture.cpp"));
   const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
   const auto window_source = ReadTextFile(SdkPath("src/WindowLayer.cpp"));
-  const auto editor_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   const auto ddgi_probe_update_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeUpdatePass.cpp"));
   const auto ddgi_probe_trace_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeTracePass.cpp"));
@@ -2518,8 +2518,7 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(ddgi_probe_trace_pass.find("RetainBuffer(parameters.selected_ray_readback_buffer)"), std::string::npos);
   const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
   const auto ray_retention = post_processing_pass.find("RetainPostProcessingResources", ray_process);
-  const auto raster_process =
-      post_processing_pass.find("post_processing_stack->Process(parameters.camera", ray_retention);
+  const auto raster_process = post_processing_pass.find("post_processing_stack->Process(", ray_retention);
   const auto raster_retention = post_processing_pass.find("RetainPostProcessingResources", raster_process);
   ASSERT_NE(ray_process, std::string::npos);
   EXPECT_NE(ray_retention, std::string::npos);

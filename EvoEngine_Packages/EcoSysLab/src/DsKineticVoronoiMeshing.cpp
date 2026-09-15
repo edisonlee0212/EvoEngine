@@ -1,4 +1,5 @@
 #include "DsKineticVoronoiMeshing.hpp"
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
@@ -794,7 +795,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::InitData(
       segment_indices[strand_index].push_back(segment_handle);
 
       // scale parameters to subdivision
-      if (!isnan(segment.end_t)) {
+      if (!std::isnan(segment.end_t)) {
         subdivisions_by_strand[strand_index].push_back(initialize_parameters.uniform_subdivision *
                                                        (segment.end_t + random_segment_data.original_segment_index));
       }
@@ -1110,78 +1111,6 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateBindings() const {
       8, device_segment_meshlet_vertices_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       9, device_segment_meshlet_triangles_buffer, 0);
-}
-
-bool eco_sys_lab_package::DsKineticVoronoiMeshing::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  FileUtils::SaveFile(
-      "Download and export PLY", "PLY", {".ply"},
-      [&](const std::filesystem::path& path) {
-        dynamic_strands->Download();
-        EVOENGINE_LOG("Downloaded data from GPU");
-        PlyExporter::ExportAscii(path, segment_meshlet_vertices, segment_meshlet_triangles,
-                                 render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                 render_settings.segment_meshlet_render_parameters.uv_circum_factor);
-      },
-      false);
-  ImGui::SameLine();
-  FileUtils::SaveFile(
-      "Export PLY", "PLY", {".ply"},
-      [&](const std::filesystem::path& path) {
-        PlyExporter::ExportAscii(path, segment_meshlet_vertices, segment_meshlet_triangles,
-                                 render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                 render_settings.segment_meshlet_render_parameters.uv_circum_factor);
-      },
-      false);
-
-  FileUtils::SaveFile(
-      "Download and export OBJ", "OBJ", {".obj"},
-      [&](const std::filesystem::path& path) {
-        dynamic_strands->Download();
-        EVOENGINE_LOG("Downloaded data from GPU");
-        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
-                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                               render_settings.segment_meshlet_render_parameters.fracture_distance);
-      },
-      false);
-  ImGui::SameLine();
-  FileUtils::SaveFile(
-      "Export OBJ", "OBJ", {".obj"},
-      [&](const std::filesystem::path& path) {
-        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
-                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                               render_settings.segment_meshlet_render_parameters.fracture_distance);
-      },
-      false);
-
-  return false;
-}
-
-void DsKineticVoronoiMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Text((std::string("Segment Meshlets Vertices: ") + std::to_string(segment_meshlet_vertices.size())).c_str());
-  ImGui::Text((std::string("Segment Meshlets Triangles: ") + std::to_string(segment_meshlet_triangles.size())).c_str());
-}
-
-void DsKineticVoronoiMeshing::DrawRenderSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  ImGui::Checkbox("Render Segment Meshlets", &render_settings.segment_meshlet_render_parameters.enabled);
-  if (render_settings.segment_meshlet_render_parameters.enabled) {
-    if (ImGui::Button("Rebuild segment meshlet pipelines")) {
-      BuildSegmentMeshletsRenderingPipelines();
-    }
-
-    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair"},
-                 render_settings.segment_meshlet_render_parameters.color_mode);
-
-    // uv factors
-    ImGui::DragFloat("UV height factor", &render_settings.segment_meshlet_render_parameters.uv_height_factor, 0.001f,
-                     0.001f, 1.0f);
-    ImGui::DragFloat("UV circum factor", &render_settings.segment_meshlet_render_parameters.uv_circum_factor, 1.0f,
-                     1.0f, 50.0f, "%.0f");
-
-    ImGui::DragFloat("Fracture distance", &render_settings.segment_meshlet_render_parameters.fracture_distance, 0.0001f,
-                     0.0f, 2.0f, "%.4f");
-  }
 }
 
 void eco_sys_lab_package::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle& rendering_instance_handle,
@@ -1554,3 +1483,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
 }*/
+
+DsKineticVoronoiMeshing::RenderSettings& DsKineticVoronoiMeshing::RefRenderSettings() {
+  return render_settings;
+}

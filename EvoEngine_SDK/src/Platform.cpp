@@ -6,10 +6,8 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Console.hpp"
-#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
-#include "ImGuiLayer.hpp"
 #include "Mesh.hpp"
 #include "Profiler.hpp"
 #include "RenderLayer.hpp"
@@ -20,6 +18,11 @@
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
+#ifdef EVOENGINE_WINDOWS
+#  define GLFW_EXPOSE_NATIVE_WIN32
+#  include <windows.h>
+#  include "GLFW/glfw3native.h"
+#endif
 
 using namespace evo_engine;
 
@@ -555,6 +558,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (selected_physical_device->queue_family_indices.present_family.has_value()) {
       graphics.CreateSwapChain();
+      graphics.recreate_swap_chain_ = false;
       graphics.vk_surface_format_ = selected_physical_device->swap_chain_support_details.formats[0];
       for (const auto& available_format : selected_physical_device->swap_chain_support_details.formats) {
         if (available_format.format == VK_FORMAT_B8G8R8A8_SRGB &&
@@ -582,62 +586,8 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       graphics.render_texture_present_pipeline->color_attachment_formats = {1, graphics.swapchain_->GetImageFormat()};
       graphics.render_texture_present_pipeline->Initialize();
     }
-    if (const auto imgui_layer = ApplicationContext::Get().GetLayer<ImGuiLayer>(); imgui_layer) {
-      // Setup Dear ImGui context
-
-      IMGUI_CHECKVERSION();
-      ImGui::CreateContext();
-      ImNodes::CreateContext();
-      ImGuiIO& io = ImGui::GetIO();
-      if (const char* path = std::getenv("EVOENGINE_IMGUI_INI_PATH"); path && path[0] != '\0') {
-        static std::string imgui_ini_path;
-        imgui_ini_path = path;
-        io.IniFilename = imgui_ini_path.c_str();
-      }
-      if (ApplicationContext::Get().GetApplicationInfo().enable_docking) {
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-      }
-      if (ApplicationContext::Get().GetApplicationInfo().enable_viewport) {
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-        io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports;
-      }
-      io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts;
-      //  io.ConfigFlags |= ImGuiConfigFlags_IsSRGB;
-      ImGui::StyleColorsDark();
-
-      // When viewports are enabled we tweak WindowRounding/WindowBg so platform windows can look identical to regular
-      // ones.
-      ImGuiStyle& style = ImGui::GetStyle();
-      if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        style.WindowRounding = 0.0f;
-        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
-      }
-
-      ImGui_ImplGlfw_InitForVulkan(window_layer->GetGlfwWindow(), true);
-      ImGui_ImplVulkan_InitInfo init_info = {};
-      init_info.Instance = graphics.vk_instance_;
-      init_info.PhysicalDevice = selected_physical_device->vk_physical_device;
-      init_info.Device = graphics.vk_device_;
-      init_info.QueueFamily =
-          graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-      init_info.Queue = graphics.main_queue_->vk_queue_;
-      init_info.PipelineCache = VK_NULL_HANDLE;
-      init_info.DescriptorPool = graphics.descriptor_pool_->GetVkDescriptorPool();
-      init_info.MinImageCount = graphics.swapchain_->GetAllImageViews().size();
-      init_info.ImageCount = graphics.swapchain_->GetAllImageViews().size();
-      init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-      init_info.UseDynamicRendering = true;
-      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
-          VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats =
-          &Constants::swap_chain_image_format;
-      init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pNext = nullptr;
-
-      ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, [](const char* function_name, void*) {
-        return vkGetInstanceProcAddr(GetVkInstance(), function_name);
-      });
-      ImGui_ImplVulkan_Init(&init_info);
+    for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+      layer->OnWindowGraphicsInitialized();
     }
   }
 
@@ -1389,6 +1339,10 @@ void Platform::NotifyRecreateSwapChain() {
   graphics.recreate_swap_chain_ = true;
 }
 
+PFN_vkVoidFunction Platform::GetVulkanInstanceFunction(const char* name) {
+  return vkGetInstanceProcAddr(GetVkInstance(), name);
+}
+
 VkInstance Platform::GetVkInstance() {
   const auto& graphics = GetInstance();
   return graphics.vk_instance_;
@@ -1695,7 +1649,9 @@ void Platform::CreateInstance() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   if (window_layer) {
 #pragma region Windows
-    glfwInit();
+    if (!glfwInit()) {
+      throw std::runtime_error("Cannot initialize the native window system.");
+    }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 #ifdef EVOENGINE_WINDOWS
     window_layer->custom_title_bar_ = application_info.use_custom_title_bar;
@@ -1721,6 +1677,9 @@ void Platform::CreateInstance() {
 #endif
     window_layer->window_ = glfwCreateWindow(window_layer->window_size_.x, window_layer->window_size_.y,
                                              application_info.application_name.c_str(), nullptr, nullptr);
+    if (!window_layer->window_) {
+      throw std::runtime_error("Cannot create the application window.");
+    }
     glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 #ifdef EVOENGINE_WINDOWS
@@ -1732,6 +1691,11 @@ void Platform::CreateInstance() {
     if (application_info.full_screen)
       glfwMaximizeWindow(window_layer->window_);
     window_layer->InstallCustomTitleBar();
+    if (application_info.window_mode) {
+      window_layer->InitializeDisplayPolicy(*application_info.window_mode, application_info.default_window_size,
+                                            application_info.window_resizable,
+                                            application_info.allow_resolution_change);
+    }
 
     glfwSetFramebufferSizeCallback(window_layer->window_, window_layer->FramebufferSizeCallback);
     glfwSetWindowFocusCallback(window_layer->window_, window_layer->WindowFocusCallback);
@@ -1769,6 +1733,15 @@ void Platform::CreateInstance() {
   }
 
   std::vector<const char*> required_extensions;
+#ifdef EVOENGINE_WINDOWS
+  const bool surface_capabilities2_supported =
+      application_info.window_mode.has_value() &&
+      (vk_supported_instance_extensions_.count(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) != 0);
+  if (surface_capabilities2_supported) {
+    required_extensions.emplace_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+    required_instance_extension_names_.emplace_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+  }
+#endif
   if (window_layer) {
     uint32_t glfw_extension_count = 0;
     const char** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
@@ -1924,6 +1897,15 @@ void Platform::SelectPhysicalDevice() {
   }
 #pragma endregion
   capabilities_.support_async_compute = selected_physical_device->queue_family_indices.HasDedicatedComputeFamily();
+#ifdef EVOENGINE_WINDOWS
+  full_screen_exclusive_supported_ =
+      ApplicationContext::Get().GetApplicationInfo().window_mode.has_value() &&
+      (vk_supported_instance_extensions_.count(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) != 0) &&
+      selected_physical_device->CheckExtensionSupport(VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME);
+  if (full_screen_exclusive_supported_) {
+    required_device_extension_names_.emplace_back(VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME);
+  }
+#endif
 
   if (capabilities_.support_mesh_shader &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
@@ -2184,8 +2166,45 @@ void Platform::PhysicalDevice::QueryInformation() {
 
 void Platform::PhysicalDevice::QuerySwapChainSupport() {
   const auto& graphics = GetInstance();
-  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, graphics.vk_surface_,
-                                            &swap_chain_support_details.capabilities);
+  swap_chain_support_details.full_screen_exclusive = false;
+#ifdef EVOENGINE_WINDOWS
+  const auto window = ApplicationContext::Get().GetLayer<WindowLayer>();
+  if (graphics.full_screen_exclusive_supported_ && graphics.frame_count > 0 && window &&
+      window->GetRequestedDisplayMode() == WindowDisplayMode::ExclusiveFullscreen) {
+    VkSurfaceFullScreenExclusiveWin32InfoEXT monitor{VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT};
+    monitor.hmonitor = MonitorFromWindow(glfwGetWin32Window(window->GetGlfwWindow()), MONITOR_DEFAULTTOPRIMARY);
+    VkSurfaceFullScreenExclusiveInfoEXT exclusive{VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT};
+    exclusive.fullScreenExclusive = VK_FULL_SCREEN_EXCLUSIVE_APPLICATION_CONTROLLED_EXT;
+    exclusive.pNext = &monitor;
+    VkPhysicalDeviceSurfaceInfo2KHR surface{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR};
+    surface.surface = graphics.vk_surface_;
+    surface.pNext = &exclusive;
+    VkSurfaceCapabilitiesFullScreenExclusiveEXT support{
+        VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_FULL_SCREEN_EXCLUSIVE_EXT};
+    VkSurfaceCapabilities2KHR capabilities{VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR};
+    capabilities.pNext = &support;
+    if (vkGetPhysicalDeviceSurfaceCapabilities2KHR(vk_physical_device, &surface, &capabilities) == VK_SUCCESS) {
+      swap_chain_support_details.capabilities = capabilities.surfaceCapabilities;
+      swap_chain_support_details.full_screen_exclusive = support.fullScreenExclusiveSupported == VK_TRUE;
+    }
+    uint32_t count = 0;
+    if (swap_chain_support_details.full_screen_exclusive &&
+        vkGetPhysicalDeviceSurfacePresentModes2EXT(vk_physical_device, &surface, &count, nullptr) == VK_SUCCESS &&
+        count) {
+      swap_chain_support_details.present_modes.resize(count);
+      swap_chain_support_details.full_screen_exclusive =
+          vkGetPhysicalDeviceSurfacePresentModes2EXT(vk_physical_device, &surface, &count,
+                                                     swap_chain_support_details.present_modes.data()) == VK_SUCCESS;
+      swap_chain_support_details.present_modes.resize(count);
+    } else {
+      swap_chain_support_details.full_screen_exclusive = false;
+    }
+  }
+#endif
+  if (!swap_chain_support_details.full_screen_exclusive) {
+    CheckVk(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk_physical_device, graphics.vk_surface_,
+                                                      &swap_chain_support_details.capabilities));
+  }
 
   uint32_t format_count;
   vkGetPhysicalDeviceSurfaceFormatsKHR(vk_physical_device, graphics.vk_surface_, &format_count, nullptr);
@@ -2196,6 +2215,8 @@ void Platform::PhysicalDevice::QuerySwapChainSupport() {
                                          swap_chain_support_details.formats.data());
   }
 
+  if (swap_chain_support_details.full_screen_exclusive)
+    return;
   uint32_t present_mode_count;
   vkGetPhysicalDeviceSurfacePresentModesKHR(vk_physical_device, graphics.vk_surface_, &present_mode_count, nullptr);
 
@@ -2893,7 +2914,15 @@ void Platform::CreateSwapChain() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
 
   auto& graphics = GetInstance();
+  ReleaseFullScreenExclusive();
+  full_screen_exclusive_swapchain_ = false;
   graphics.selected_physical_device->QuerySwapChainSupport();
+  if (graphics.frame_count > 0 && window_layer &&
+      window_layer->requested_display_mode_ == WindowDisplayMode::ExclusiveFullscreen &&
+      !graphics.selected_physical_device->swap_chain_support_details.full_screen_exclusive) {
+    window_layer->FallBackFromExclusive("exclusive presentation is unsupported for this surface");
+    graphics.selected_physical_device->QuerySwapChainSupport();
+  }
 
   const auto& swap_chain_support_details = graphics.selected_physical_device->swap_chain_support_details;
   VkSurfaceFormatKHR surface_format = swap_chain_support_details.formats[0];
@@ -2979,6 +3008,23 @@ void Platform::CreateSwapChain() {
   swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
   swapchain_create_info.presentMode = present_mode;
   swapchain_create_info.clipped = VK_TRUE;
+#ifdef EVOENGINE_WINDOWS
+  VkSurfaceFullScreenExclusiveInfoEXT exclusive_info{VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT};
+  VkSurfaceFullScreenExclusiveWin32InfoEXT monitor_info{VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT};
+  // Establish the surface with one borderless presentation before taking exclusive ownership.
+  const bool request_exclusive = graphics.frame_count > 0 && window_layer &&
+                                 window_layer->requested_display_mode_ == WindowDisplayMode::ExclusiveFullscreen &&
+                                 full_screen_exclusive_supported_;
+  if (full_screen_exclusive_supported_) {
+    exclusive_info.fullScreenExclusive = request_exclusive ? VK_FULL_SCREEN_EXCLUSIVE_APPLICATION_CONTROLLED_EXT
+                                                           : VK_FULL_SCREEN_EXCLUSIVE_DISALLOWED_EXT;
+    if (request_exclusive) {
+      monitor_info.hmonitor = MonitorFromWindow(glfwGetWin32Window(window_layer->window_), MONITOR_DEFAULTTOPRIMARY);
+      exclusive_info.pNext = &monitor_info;
+    }
+    swapchain_create_info.pNext = &exclusive_info;
+  }
+#endif
 
   if (swapchain_) {
     swapchain_create_info.oldSwapchain = swapchain_->GetVkSwapchain();
@@ -2989,7 +3035,22 @@ void Platform::CreateSwapChain() {
   if (extent.width == 0) {
     EVOENGINE_ERROR("WRONG")
   }
-  swapchain_ = std::make_shared<Swapchain>(swapchain_create_info);
+  try {
+    swapchain_ = std::make_shared<Swapchain>(swapchain_create_info);
+  } catch (const std::exception& error) {
+#ifdef EVOENGINE_WINDOWS
+    if (request_exclusive) {
+      swapchain_.reset();
+      window_layer->FallBackFromExclusive(error.what());
+      CreateSwapChain();
+      return;
+    }
+#endif
+    throw;
+  }
+#ifdef EVOENGINE_WINDOWS
+  full_screen_exclusive_swapchain_ = request_exclusive;
+#endif
 
   VkSemaphoreCreateInfo semaphore_create_info{};
   semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -3053,7 +3114,40 @@ void Platform::WaitForFrameSlotSubmission(const uint32_t frame_index, const std:
 
 void Platform::RecreateSwapChain() {
   WaitForDeviceIdle();
+  ReleaseFullScreenExclusive();
   CreateSwapChain();
+}
+
+void Platform::ReleaseFullScreenExclusive() {
+#ifdef EVOENGINE_WINDOWS
+  if (full_screen_exclusive_acquired_ && swapchain_) {
+    vkReleaseFullScreenExclusiveModeEXT(vk_device_, swapchain_->GetVkSwapchain());
+    full_screen_exclusive_acquired_ = false;
+  }
+#endif
+}
+
+bool Platform::AcquireFullScreenExclusive() {
+#ifdef EVOENGINE_WINDOWS
+  if (full_screen_exclusive_acquired_) {
+    return true;
+  }
+  if (full_screen_exclusive_swapchain_ && swapchain_ &&
+      vkAcquireFullScreenExclusiveModeEXT(vk_device_, swapchain_->GetVkSwapchain()) == VK_SUCCESS) {
+    full_screen_exclusive_acquired_ = true;
+    return true;
+  }
+#endif
+  return false;
+}
+
+void Platform::NotifyWindowFocus(const bool focused) {
+  auto& platform = GetInstance();
+  const auto window = ApplicationContext::Get().GetLayer<WindowLayer>();
+  if (!window || window->requested_display_mode_ != WindowDisplayMode::ExclusiveFullscreen)
+    return;
+  if (!focused)
+    platform.full_screen_exclusive_focus_lost_ = true;
 }
 
 void Platform::OnDestroy() {
@@ -3082,6 +3176,10 @@ void Platform::OnDestroy() {
   graphics.required_device_extension_names_.clear();
 
 #pragma region Vulkan
+  graphics.ReleaseFullScreenExclusive();
+  graphics.full_screen_exclusive_swapchain_ = false;
+  graphics.full_screen_exclusive_supported_ = false;
+  graphics.full_screen_exclusive_focus_lost_ = false;
   graphics.image_available_semaphores_.clear();
   graphics.swapchain_.reset();
   graphics.swapchain_version_ = 0;
@@ -3181,7 +3279,7 @@ void Platform::PreUpdate() {
   };
 
   if (window_layer) {
-    if (window_layer->window_size_.x != 0 || window_layer->window_size_.y != 0) {
+    if (window_layer->window_size_.x != 0 && window_layer->window_size_.y != 0) {
       const auto just_now = ApplicationContext::Get().GetTimes().Now();
       vulkan_update([&]() {
         graphics.cpu_wait_time = ApplicationContext::Get().GetTimes().Now() - just_now;
@@ -3192,11 +3290,38 @@ void Platform::PreUpdate() {
               graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
               &graphics.next_image_index_);
         };
+        const auto prepare_swap_chain = [&] {
+          if (graphics.recreate_swap_chain_) {
+            graphics.recreate_swap_chain_ = false;
+            graphics.RecreateSwapChain();
+          }
+          if (graphics.full_screen_exclusive_swapchain_ &&
+              window_layer->requested_display_mode_ == WindowDisplayMode::ExclusiveFullscreen) {
+            if (graphics.full_screen_exclusive_focus_lost_ ||
+                !glfwGetWindowAttrib(window_layer->window_, GLFW_FOCUSED) || !graphics.AcquireFullScreenExclusive()) {
+              window_layer->FallBackFromExclusive("exclusive presentation could not retain window focus");
+              graphics.recreate_swap_chain_ = false;
+              graphics.RecreateSwapChain();
+            } else {
+              window_layer->ConfirmExclusiveMode();
+            }
+          }
+          graphics.full_screen_exclusive_focus_lost_ = false;
+        };
+        prepare_swap_chain();
         auto result = acquire_next_image();
-        while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
-          graphics.RecreateSwapChain();
+        while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) {
+          if (result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) {
+            graphics.full_screen_exclusive_acquired_ = false;
+            window_layer->FallBackFromExclusive("exclusive presentation was lost");
+          }
+          graphics.recreate_swap_chain_ = true;
+          prepare_swap_chain();
           result = acquire_next_image();
-          graphics.recreate_swap_chain_ = false;
+        }
+        if (result == VK_SUBOPTIMAL_KHR) {
+          graphics.recreate_swap_chain_ = true;
+          result = VK_SUCCESS;
         }
         if (CheckVk(result) != VK_SUCCESS) {
           throw std::runtime_error("Failed to acquire swap chain image!");
@@ -3210,13 +3335,15 @@ void Platform::PreUpdate() {
   graphics.ResetCommandBuffers();
   graphics.frame_count++;
   graphics.PrepareGpuTimestampFrame(graphics.current_frame_index_);
-  if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
-      if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
-        main_camera->SetRequireRendering(true);
-        if (window_layer)
-          main_camera->Resize(
-              {graphics.swapchain_->GetImageExtent().width, graphics.swapchain_->GetImageExtent().height});
+  if (window_layer && !window_layer->GetAutoRenderMainCamera()) {
+    return;
+  }
+  if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
+    if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
+      main_camera->SetRequireRendering(true);
+      if (window_layer) {
+        main_camera->Resize(
+            {graphics.swapchain_->GetImageExtent().width, graphics.swapchain_->GetImageExtent().height});
       }
     }
   }
@@ -3261,7 +3388,18 @@ void Platform::LateUpdate() {
     std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
     targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
     const ProfilerScope synchronization_scope("Swapchain Presentation", "Synchronization");
-    graphics.present_queue_->Present(signal_semaphores, targets);
+    const auto result = graphics.present_queue_->Present(signal_semaphores, targets);
+    if (result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) {
+      graphics.full_screen_exclusive_acquired_ = false;
+      window_layer->FallBackFromExclusive("exclusive presentation was lost");
+    } else if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+      NotifyRecreateSwapChain();
+    } else if (CheckVk(result) != VK_SUCCESS) {
+      throw std::runtime_error("Failed to present swapchain image.");
+    }
+    if (window_layer->requested_display_mode_ == WindowDisplayMode::ExclusiveFullscreen &&
+        !graphics.full_screen_exclusive_swapchain_)
+      NotifyRecreateSwapChain();
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
   if (window_layer) {

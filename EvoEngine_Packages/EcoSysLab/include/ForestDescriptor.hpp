@@ -57,23 +57,10 @@ class ForestPatch : public IAsset {
                           const glm::ivec2& gridSize, bool setSimulationSettings = true) const;
 
   /**
-   * @brief Generates a thumbnail texture representing the forest patch.
-   * @return Shared pointer to the generated texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Collects asset references from the forest patch.
    * @param list List to store collected asset references.
    */
   void CollectAssetRef(std::vector<AssetRef>& list);
-
-  /**
-   * @brief Inspects the asset within the editor layer.
-   * @param editorLayer Shared pointer to the editor layer.
-   * @return True if the asset content remains unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer);
 };
 
 /**
@@ -107,12 +94,6 @@ class ForestDescriptor : public IAsset {
   TreeGrowthSettings tree_growth_settings{};
 
   /**
-   * @brief Generates a thumbnail texture representing the forest.
-   * @return Shared pointer to the generated texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
-
-  /**
    * @brief Applies a single tree descriptor to the forest.
    * @param treeDescriptor Shared pointer to the tree descriptor.
    */
@@ -144,13 +125,6 @@ class ForestDescriptor : public IAsset {
    * @param ratios Vector containing ratio values for each tree descriptor.
    */
   void ApplyTreeDescriptors(const std::filesystem::path& folderPath, const std::vector<float>& ratios);
-
-  /**
-   * @brief Inspects the forest descriptor within the editor layer.
-   * @param editorLayer Shared pointer to the editor layer.
-   * @return True if the asset content remains unchanged.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editorLayer);
 
   /**
    * @brief Called when the asset is created.

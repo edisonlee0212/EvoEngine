@@ -8,6 +8,7 @@
 #include "AssetManager.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "RenderLayer.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
@@ -194,7 +195,7 @@ TEST(ReflectionProbe, BakeBackgroundUsesEnvironmentalLightingIntensity) {
 TEST(ReflectionProbe, ExplicitBakeDefersReadbackAndPersistenceUntilAssetSave) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto probe = ReadTextFile(SourcePath("EvoEngine_SDK/src/GlobalReflectionProbe.cpp"));
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(probe.empty());
   ASSERT_FALSE(inspector.empty());
@@ -322,7 +323,7 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   const auto render_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto render_instances = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto lighting_shader =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   const auto fixed_lighting_shader = ReadTextFile(
@@ -453,7 +454,7 @@ TEST(ReflectionProbe, PrefilterSupportsAContiguousFaceRange) {
 }
 
 TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto deferred_pass = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/DeferredComputeLightingPass.cpp"));
   const auto lighting =
@@ -467,7 +468,8 @@ TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
                                     "void InspectEnvironmentalLightingLocalProbePayload");
   const auto record = ExtractBetween(render_layer, "void RenderLayer::RecordPreparedReflectionProbeBake",
                                      "void RenderLayer::PublishSubmittedReflectionProbeBake");
-  const auto render_all = ExtractBetween(render_layer, "void RenderLayer::RenderAll", "void RenderLayer::RenderGizmos");
+  const auto render_all =
+      ExtractBetween(render_layer, "void RenderLayer::RenderAll", "void RenderLayer::ForEachCollectedCamera");
   ASSERT_FALSE(queue.empty());
   ASSERT_FALSE(record.empty());
   ASSERT_FALSE(render_all.empty());
@@ -488,6 +490,15 @@ TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
   EXPECT_NE(lighting.find("EE_CAMERAS[directionalShadowCameraIndex].view"), std::string::npos);
   EXPECT_NE(render_layer.find("preferred_shadow_camera = main_camera"), std::string::npos);
   EXPECT_NE(render_layer.find("preferred_shadow_camera = scene_camera"), std::string::npos);
+}
+
+TEST(ReflectionProbe, MissingOptionalCameraDoesNotThrow) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  RenderInstanceStorage storage;
+  EXPECT_EQ(storage.TryGetCameraIndex(Handle(123)), -1);
+  EXPECT_THROW((void)storage.GetCameraIndex(Handle(123)), std::runtime_error);
 }
 
 TEST(ReflectionProbe, ExplicitBakeRecordsCpuAndGpuStageTimings) {
@@ -550,8 +561,8 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
 }
 
 TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) {
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
-  const auto editor = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
+  const auto editor = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/EditorLayer.cpp"));
   ASSERT_FALSE(inspector.empty());
   ASSERT_FALSE(editor.empty());
   const auto authoring =
@@ -581,11 +592,11 @@ TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) 
 }
 
 TEST(ReflectionProbe, EnvironmentalLightingBoundsUseFilledDepthTestedVolumes) {
-  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto render_instance_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto gizmo_constants = ReadTextFile(
-      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GizmosConstants.slang"));
+      SourcePath("EvoEngine_SDK/Editor/Internals/DefaultResources/Shaders/Modules/EvoEngine/GizmosConstants.slang"));
   ASSERT_FALSE(inspector.empty());
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(render_instance_storage.empty());
@@ -593,8 +604,7 @@ TEST(ReflectionProbe, EnvironmentalLightingBoundsUseFilledDepthTestedVolumes) {
   const auto bounds = ExtractBetween(inspector, "GizmoSettings MakeBoundingVolumeGizmoSettings() {",
                                      "void RenderReflectionProbeBounds");
   const auto ddgi_bounds = ExtractBetween(inspector, "void InspectDdgiRuntime", "if (ImGui::TreeNodeEx(\"Overview\"");
-  const auto gizmos = ExtractBetween(render_layer, "void RenderLayer::RenderGizmos() const",
-                                     "void RenderLayer::ForEachCollectedCamera");
+  const auto gizmos = ReadTextFile(SourcePath("EvoEngine_SDK/Editor/src/GizmoRendering.cpp"));
   ASSERT_FALSE(bounds.empty());
   ASSERT_FALSE(ddgi_bounds.empty());
   ASSERT_FALSE(gizmos.empty());

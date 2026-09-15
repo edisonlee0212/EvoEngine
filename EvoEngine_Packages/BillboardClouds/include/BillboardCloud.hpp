@@ -70,13 +70,9 @@ class BillboardCloud {
     [[nodiscard]] glm::vec2 Transform(const glm::vec2& target) const;
     [[nodiscard]] glm::vec3 Transform(const glm::vec3& target) const;
   };
-  struct ProjectSettings {
-    bool DrawGui();
-  };
+  struct ProjectSettings {};
 
-  struct JoinSettings {
-    bool DrawGui();
-  };
+  struct JoinSettings {};
 
   struct RasterizeSettings {
     bool debug_opaque = false;
@@ -91,8 +87,6 @@ class BillboardCloud {
     glm::ivec2 base_resolution = glm::ivec2(2048);
     glm::ivec2 output_albedo_resolution = glm::ivec2(2048);
     glm::ivec2 output_material_props_resolution = glm::ivec2(512);
-
-    bool DrawGui();
   };
 
   enum class ClusterizationMode {
@@ -108,14 +102,12 @@ class BillboardCloud {
     float sample_range = 1.f;
 
     bool fill_band = true;
-    bool DrawGui();
   };
   struct OriginalClusterizationSettings {
     float epsilon_percentage = 0.01f;
     int discretization_size = 10;
     int timeout = 0;
     bool skip_remain_triangles = false;
-    bool DrawGui();
   };
 
   struct ClusterizationSettings {
@@ -123,8 +115,6 @@ class BillboardCloud {
     FoliageClusterizationSettings foliage_clusterization_settings{};
     OriginalClusterizationSettings original_clusterization_settings{};
     unsigned clusterize_mode = static_cast<unsigned>(ClusterizationMode::Foliage);
-
-    bool DrawGui();
   };
 
   struct GenerateSettings {
@@ -132,8 +122,6 @@ class BillboardCloud {
     ProjectSettings project_settings{};
     JoinSettings join_settings{};
     RasterizeSettings rasterize_settings{};
-
-    bool DrawGui(const std::string& title);
   };
 
   struct Cluster {

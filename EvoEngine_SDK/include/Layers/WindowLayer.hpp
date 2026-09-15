@@ -2,9 +2,12 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include "ILayer.hpp"
+#include "WindowModePolicy.hpp"
+#include "volk.h"
 
 namespace evo_engine {
 class EVOENGINE_API Buffer;
@@ -53,8 +56,15 @@ class EVOENGINE_API WindowLayer final : public ILayer {
    */
   glm::ivec2 window_size_ = {1, 1};
 
+  std::function<void(VkCommandBuffer)> presentation_renderer_;
+  std::function<void()> after_presentation_render_;
+  bool auto_render_main_camera_ = true;
   bool custom_title_bar_ = false;
   bool window_resizable_ = true;
+  bool explicit_display_policy_ = false;
+  WindowModePolicy mode_policy_{{0, 0, 1920, 1080}};
+  WindowDisplayMode requested_display_mode_ = WindowDisplayMode::Windowed;
+  WindowDisplayMode display_mode_ = WindowDisplayMode::Windowed;
   std::vector<glm::vec4> title_bar_drag_regions_;
   void* native_window_handle_ = nullptr;
   intptr_t default_window_proc_ = 0;
@@ -112,6 +122,11 @@ class EVOENGINE_API WindowLayer final : public ILayer {
   void InstallCustomTitleBar();
   void UninstallCustomTitleBar();
   void ShowWindow() const;
+  void InitializeDisplayPolicy(WindowDisplayMode mode, glm::ivec2 configured_size, bool allow_resize,
+                               bool allow_resolution_change);
+  void ApplyNativeDisplayMode(WindowDisplayMode mode);
+  void ConfirmExclusiveMode();
+  void FallBackFromExclusive(const std::string& reason);
   [[nodiscard]] std::optional<intptr_t> HitTestCustomTitleBar(void* native_window_handle, intptr_t l_param) const;
 
   /**
@@ -128,6 +143,13 @@ class EVOENGINE_API WindowLayer final : public ILayer {
   [[nodiscard]] GLFWwindow* GetGlfwWindow() const;
 
   [[nodiscard]] bool UsesCustomTitleBar() const;
+
+  [[nodiscard]] WindowDisplayMode GetDisplayMode() const;
+  [[nodiscard]] WindowDisplayMode GetRequestedDisplayMode() const;
+  [[nodiscard]] glm::ivec2 GetFramebufferSize() const;
+  bool SetDisplayMode(WindowDisplayMode mode);
+  void ToggleFullscreen();
+  bool SetResolution(int width, int height);
 
   [[nodiscard]] bool IsWindowMaximized() const;
 
@@ -159,6 +181,14 @@ class EVOENGINE_API WindowLayer final : public ILayer {
    * @param y New height of the window.
    */
   void ResizeWindow(int x, int y) const;
+
+  void SetPresentationCallbacks(std::function<void(VkCommandBuffer)> renderer, std::function<void()> after_render = {});
+  void SetAutoRenderMainCamera(bool enabled) {
+    auto_render_main_camera_ = enabled;
+  }
+  [[nodiscard]] bool GetAutoRenderMainCamera() const {
+    return auto_render_main_camera_;
+  }
 };
 
 }  // namespace evo_engine

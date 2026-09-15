@@ -1097,8 +1097,8 @@ class EVOENGINE_API RenderInstanceStorage {
    * @param target_scene The scene from which to collect cameras.
    * @param cameras Vector to store collected cameras and their transforms.
    */
-  static void CollectEditorCameras(const std::shared_ptr<Scene>& target_scene,
-                                   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
+  static void CollectAuxiliaryCameras(const std::shared_ptr<Scene>& target_scene,
+                                      std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>& cameras);
 
   /**
    * @brief Collects all cameras from the specified scene.
@@ -1159,6 +1159,13 @@ class EVOENGINE_API RenderInstanceStorage {
    * @return Index of the camera.
    */
   [[nodiscard]] int GetCameraIndex(const Handle& camera_handle);
+
+  /**
+   * @brief Finds the camera index if the camera belongs to this render snapshot.
+   * @param camera_handle The handle of the target camera.
+   * @return Index of the camera, or -1 when it is absent.
+   */
+  [[nodiscard]] int TryGetCameraIndex(const Handle& camera_handle) const;
 
   struct DirectionalShadowCascadeFitInput {
     RenderSettings::ShadowCascadeFitMode mode = RenderSettings::ShadowCascadeFitMode::StableSphere;

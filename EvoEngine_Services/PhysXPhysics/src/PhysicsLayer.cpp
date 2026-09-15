@@ -1,7 +1,6 @@
 #include "PhysicsLayer.hpp"
 #include "Application.hpp"
 #include "Collider.hpp"
-#include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "Joint.hpp"
 #include "PhysXSerializationAdapters.hpp"
@@ -25,21 +24,6 @@ void PhysicsLayer::RegisterTypes(Application &application) {
   Serialization::RegisterSerializationHandler<Collider>(SerializeCollider, DeserializeCollider, {}, "Collider");
   Serialization::RegisterSerializationHandler<PhysicsMaterial>(SerializePhysicsMaterial, DeserializePhysicsMaterial, {},
                                                                "PhysicsMaterial");
-  InspectorRegistry::GetInstance().RegisterInspector<Joint>(
-      [](InspectorContext &context, Joint &joint) {
-        return joint.DrawGui(context.editor_layer);
-      },
-      {}, "Joint");
-  InspectorRegistry::GetInstance().RegisterInspector<RigidBody>(
-      [](InspectorContext &context, RigidBody &rigid_body) {
-        return rigid_body.DrawGui(context.editor_layer);
-      },
-      {}, "RigidBody");
-  InspectorRegistry::GetInstance().RegisterInspector<Collider>(
-      [](InspectorContext &context, Collider &collider) {
-        return collider.DrawGui(context.editor_layer);
-      },
-      {}, "Collider");
 }
 
 YAML::Emitter &evo_engine::operator<<(YAML::Emitter &out, const PxVec2 &v) {

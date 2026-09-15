@@ -60,13 +60,6 @@ class TreeGraph : public IAsset {
    * @param in The YAML node containing the deserialized data.
    */
   void Deserialize(const YAML::Node& in);
-
-  /**
-   * @brief Handles the inspection of the asset in the editor.
-   * @param editor_layer The editor layer that requests inspection.
-   * @return True if the asset content remains unchanged; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 
 /**
@@ -107,12 +100,5 @@ class TreeGraphV2 : public IAsset {
    * @param in The YAML node containing the deserialized data.
    */
   void Deserialize(const YAML::Node& in);
-
-  /**
-   * @brief Handles the inspection of the asset in the editor.
-   * @param editor_layer The editor layer that requests inspection.
-   * @return True if the asset content remains unchanged; otherwise, false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 };
 }  // namespace eco_sys_lab_package

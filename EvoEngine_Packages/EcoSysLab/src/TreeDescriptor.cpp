@@ -8,7 +8,6 @@
 #include "Application.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
-#include "EditorLayer.hpp"
 #include "HeightField.hpp"
 #include "Material.hpp"
 #include "Octree.hpp"
@@ -28,120 +27,7 @@
 #include "DynamicTreeSkeleton.hpp"
 using namespace eco_sys_lab_package;
 
-std::shared_ptr<Texture2D> IShootDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/ShootDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IRootDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/RootDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IFineRootDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/RootDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IPruningDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/PruningDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IFoliageDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FoliageDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IReproductionModuleDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FruitDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IBarkDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/BarkDescriptor.png"));
-  }
-  return thumbnail;
-}
-
-std::shared_ptr<Texture2D> IFlowerDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/FlowerDescriptor.png"));
-  }
-  return thumbnail;
-}
-
 void TreeDescriptor::OnCreate() {
-}
-
-bool TreeDescriptor::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool changed = false;
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Climate> climate;
-  std::shared_ptr<Soil> soil;
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (soil && climate) {
-    if (ImGui::Button("Instantiate")) {
-      editor_layer->SetSelectedEntity(Instantiate());
-    }
-  } else {
-    ImGui::Text("Create soil and climate entity to instantiate!");
-  }
-  if (editor_layer->DragAndDropButton<IShootDescriptor>(shoot_descriptor, "Shoot Descriptor"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<IRootDescriptor>(root_descriptor, "Root Descriptor"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<IPruningDescriptor>(pruning_descriptor, "Pruning Descriptor"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<IFoliageDescriptor>(foliage_descriptor, "Foliage Descriptor"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<IReproductionModuleDescriptor>(reproduction_module_descriptor,
-                                                                     "Reproduction Descriptor"))
-    changed = true;
-
-  if (editor_layer->DragAndDropButton<IBarkDescriptor>(bark_descriptor, "Bark Descriptor"))
-    changed = true;
-  return changed;
 }
 
 void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -195,16 +81,6 @@ void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const Tree
   target.bark_descriptor.Save("bark_descriptor", out);
 
   target.reproduction_module_descriptor.Save("reproduction_module_descriptor", out);
-}
-
-std::shared_ptr<Texture2D> TreeDescriptor::GenerateThumbnailTexture() {
-  static std::shared_ptr<Texture2D> thumbnail;
-  if (!thumbnail) {
-    thumbnail = AssetManager::CreateTemporaryAsset<Texture2D>();
-    thumbnail->Import(
-        std::filesystem::absolute(std::filesystem::path("./EcoSysLabResources") / "Icons/TreeDescriptor.png"));
-  }
-  return thumbnail;
 }
 
 void eco_sys_lab_package::DeserializeTreeDescriptor(const YAML::Node& in, TreeDescriptor& target) {

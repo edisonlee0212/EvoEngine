@@ -1,44 +1,8 @@
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
-#include "EditorLayer.hpp"
 #include "PhysXSerializationAdapters.hpp"
 #include "PhysicsLayer.hpp"
 using namespace evo_engine;
-
-const char* rigid_body_shape[]{"Sphere", "Box", "Capsule"};
-
-bool Collider::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  bool status_changed = false;
-  if (ImGui::Combo("Shape", reinterpret_cast<int*>(&shape_type_), rigid_body_shape, IM_ARRAYSIZE(rigid_body_shape))) {
-    status_changed = true;
-  }
-  editor_layer->DragAndDropButton<PhysicsMaterial>(physics_material_, "Physics Mat");
-  if (const auto physics_material = physics_material_.Get<PhysicsMaterial>()) {
-    if (ImGui::TreeNode("Material")) {
-      physics_material->OnGui();
-      ImGui::TreePop();
-    }
-  }
-  glm::vec3 new_param = shape_param_;
-  switch (shape_type_) {
-    case ShapeType::Sphere:
-      if (ImGui::DragFloat("Radius", &new_param.x, 0.01f, 0.0001f))
-        status_changed = true;
-      break;
-    case ShapeType::Box:
-      if (ImGui::DragFloat3("XYZ Size", &new_param.x, 0.01f, 0.0f))
-        status_changed = true;
-      break;
-    case ShapeType::Capsule:
-      if (ImGui::DragFloat2("R/HalfH", &new_param.x, 0.01f, 0.0001f))
-        status_changed = true;
-      break;
-  }
-  if (status_changed) {
-    SetShapeParam(new_param);
-  }
-  return status_changed;
-}
 
 void Collider::OnCreate() {
   const auto physics_layer = ApplicationContext::Get().GetLayer<PhysicsLayer>();

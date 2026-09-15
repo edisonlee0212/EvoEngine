@@ -3,18 +3,29 @@
 #include "AssetManager.hpp"
 #include "FileManager.hpp"
 #include "IAsset.hpp"
+#include "ProjectBuildSettingsSerialization.hpp"
 
 #include <string>
 #include <vector>
 
 namespace evo_engine {
 
-enum class ProjectState { NoProject, Loading, Loaded };
+enum class ProjectState { NoProject, Loading, Loaded, Failed };
 
 struct ProjectLaunchMetadata {
   std::string application_name = "EvoEngine Editor";
   std::vector<std::string> startup_runtime_packages;
   std::string preferred_editor = "EvoEngineEditor";
+  ProjectBuildSettings build_settings;
+};
+
+struct ProjectHostCallbacks {
+  std::function<void()> before_project_change;
+  std::function<void(const std::filesystem::path&)> project_opened;
+  std::function<bool()> defer_scene_setup;
+  std::function<void(const YAML::Node&)> scene_metadata_loaded;
+  std::function<void(const std::filesystem::path&)> scene_attached;
+  std::function<void(YAML::Node&)> save_extensions;
 };
 
 /**
@@ -25,6 +36,7 @@ struct ProjectLaunchMetadata {
 class EVOENGINE_API ProjectManager {
  public:
   static ProjectManager& GetInstance();
+  static void SetHostCallbacks(ProjectHostCallbacks callbacks);
 
  private:
   friend class Application;
@@ -44,14 +56,16 @@ class EVOENGINE_API ProjectManager {
   std::optional<std::function<void(const std::shared_ptr<Scene>&)>>
       new_scene_customizer_;  ///< Callback function for customizing a new scene.
 
-  std::weak_ptr<Folder> current_focused_folder_;  ///< A weak pointer to the currently focused folder.
-
+  ProjectHostCallbacks host_callbacks_;
   ProjectLaunchMetadata project_launch_metadata_;  ///< Launcher/editor metadata persisted in the project file.
-  std::string loading_status_;                     ///< Human-readable project loading phase for editor progress UI.
+  std::string loading_status_;                     ///< Human-readable project loading phase.
+  std::string project_failure_;
+  bool build_settings_saved_ = true;
+  uint64_t current_start_scene_handle_ = 0;
+  uint64_t saved_start_scene_handle_ = 0;
 
   friend class ClassRegistry;
   std::shared_ptr<Scene> start_scene_;  ///< The starting scene of the project.
-  int max_thumbnail_size_ = 512;        ///< The maximum size in pixels for asset thumbnails.
 
   friend class AssetRegistry;
   friend class EditorLayer;
@@ -76,7 +90,6 @@ class EVOENGINE_API ProjectManager {
   bool project_asset_load_dispatched = false;  ///< True while a project asset batch is owned by AssetManager.
   size_t pending_asset_size = 0;               ///< The count of assets pending to be processed.
   std::set<Handle> pending_assets;             ///< The list of handles to pending assets.
-  bool scene_loading_popup_visible_ = false;   ///< True while the editor should show the scene-loading modal.
 
   /**
    * @brief Scans and updates the asset list based on the current assets folder.
@@ -89,7 +102,6 @@ class EVOENGINE_API ProjectManager {
    * @brief Sets up the default scene for the project.
    */
   static void SetupDefaultScene();
-  static bool ArmSceneLoadingPopupBeforeSetup();
 
   /**
    * @brief Pre-update hook for any project manager operations that need to occur before other updates.
@@ -101,11 +113,7 @@ class EVOENGINE_API ProjectManager {
    */
   static void LoadAllPendingAssets();
 
-  static void DrawProjectMenuItems();
-
  public:
-  bool show_project_window = true;  ///< Indicates whether the project window should be shown in the editor.
-
   /**
    * @brief Retrieves the starting scene of the project.
    * @return A weak pointer to the starting scene.
@@ -116,6 +124,11 @@ class EVOENGINE_API ProjectManager {
    * @brief Retrieves the current project loading state.
    */
   [[nodiscard]] static ProjectState GetProjectState();
+
+  /**
+   * @brief Returns the terminal project-loading diagnostic, or an empty string when loading has not failed.
+   */
+  [[nodiscard]] static std::string GetProjectFailure();
 
   /**
    * @brief Returns true once a project path has been selected, even if loading is still in progress.
@@ -150,6 +163,9 @@ class EVOENGINE_API ProjectManager {
    * @brief Returns metadata for the currently selected project.
    */
   [[nodiscard]] static ProjectLaunchMetadata GetProjectLaunchMetadata();
+  [[nodiscard]] static ProjectBuildSettings GetBuildSettings();
+  static void SetBuildSettings(const ProjectBuildSettings& settings);
+  [[nodiscard]] static bool ProjectMetadataSaved();
 
   /**
    * @brief Sets the starting scene for the project.
@@ -191,12 +207,6 @@ class EVOENGINE_API ProjectManager {
    */
   [[nodiscard]] static std::filesystem::path GenerateNewAbsolutePath(const std::string& absolute_stem,
                                                                      const std::string& postfix);
-
-  /**
-   * @brief Retrieves the currently focused folder.
-   * @return A weak pointer to the currently focused folder.
-   */
-  [[nodiscard]] static std::weak_ptr<Folder> GetCurrentFocusedFolder();
 
   /**
    * @brief Accesses the root assets folder.
@@ -250,6 +260,9 @@ class EVOENGINE_API ProjectManager {
    * @return A shared pointer to the asset.
    */
   [[nodiscard]] static std::shared_ptr<IAsset> GetOrCreateAsset(const std::filesystem::path& assets_relative_path);
+
+  /** Returns an existing project asset without creating files or metadata. */
+  [[nodiscard]] static std::shared_ptr<IAsset> GetAsset(const std::filesystem::path& assets_relative_path);
 
   /**
    * @brief Creates a uniquely named asset in an existing project folder.
@@ -345,6 +358,8 @@ class EVOENGINE_API ProjectManager {
    * @brief Dispatches a task to scan the assets directory for updates or changes.
    */
   static void DispatchScanAssetsTask();
+
+  static void FailProject(const std::string& message);
 
   /**
    * @brief Converts an absolute path to a relative path within the assets folder.

@@ -72,13 +72,6 @@ class DsFungus {
       fungus_diffusion_node_pipeline;  ///< Compute pipeline for fungal diffusion at nodes.
 
   /**
-   * @brief Inspects the object's properties in the editor.
-   * @param editor_layer The editor layer used to inspect the object.
-   * @return True if the asset content remains unmodified.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
    * @brief Executes the fungal diffusion simulation on the strands.
    * @param physics_parameters The physics simulation parameters.
    * @param target_dynamic_strands The target strand system.
@@ -179,13 +172,6 @@ class DsPrediction {
   inline static std::shared_ptr<ComputePipeline>
       segment_pair_prediction_pipeline;  ///< Compute pipeline for segment pair prediction.
   inline static std::shared_ptr<ComputePipeline> leaf_prediction_pipeline;  ///< Compute pipeline for leaf prediction.
-
-  /**
-   * @brief Inspects the object's properties in the editor.
-   * @param editor_layer The editor layer used to inspect the object.
-   * @return True if the asset content remains unmodified.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Executes the prediction step on the strands.
@@ -297,7 +283,6 @@ class DsDynamicHashedGrid {
   std::unique_ptr<ComputePipeline> local_disperse_pipeline;
   std::unique_ptr<ComputePipeline> global_disperse_pipeline;
   DsDynamicHashedGrid();
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void BuildGrid(const DynamicStrands::PhysicsParameters& physics_parameters,
                  const DynamicStrands& target_dynamic_strands);
 };

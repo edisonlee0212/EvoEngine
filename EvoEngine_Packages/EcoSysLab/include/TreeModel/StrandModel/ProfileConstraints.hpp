@@ -21,16 +21,6 @@ class ProfileBoundary {
   void CalculateCenter();
 
   /**
-   * @brief Renders the boundary on the UI.
-   * @param origin The origin point for rendering.
-   * @param zoom_factor The zoom factor for rendering scale.
-   * @param draw_list The ImGui drawing list used for rendering.
-   * @param color The color of the boundary.
-   * @param thickness The thickness of the rendered boundary.
-   */
-  void RenderBoundary(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness) const;
-
-  /**
    * @brief Checks if the boundary is valid.
    * @return True if the boundary is valid, otherwise false.
    */
@@ -70,16 +60,6 @@ class ProfileAttractor {
  public:
   /// A list of attractor points, represented as pairs of glm::vec2.
   std::vector<std::pair<glm::vec2, glm::vec2>> attractor_points{};
-
-  /**
-   * @brief Renders the attractor points on the UI.
-   * @param origin The origin point for rendering.
-   * @param zoom_factor The zoom factor for rendering scale.
-   * @param draw_list The ImGui drawing list used for rendering.
-   * @param color The color of the attractor.
-   * @param thickness The thickness of the rendered points.
-   */
-  void RenderAttractor(ImVec2 origin, float zoom_factor, ImDrawList* draw_list, ImU32 color, float thickness) const;
 
   /**
    * @brief Finds the closest attractor point to a given position.

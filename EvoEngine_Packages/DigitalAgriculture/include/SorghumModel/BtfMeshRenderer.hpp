@@ -9,8 +9,6 @@ class BtfMeshRenderer : public IPrivateComponent {
   AssetRef mesh;
   AssetRef btf;
 
-  bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
-
   void CollectAssetRef(std::vector<AssetRef> &list);
 };
 }  // namespace evo_engine

@@ -1,7 +1,5 @@
 #include "DatasetGenerationSerializationAdapters.hpp"
 
-#include "DatasetGenerationInspectionAdapters.hpp"
-
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "PointCloud.hpp"
@@ -10,17 +8,6 @@
 using namespace eco_sys_lab_package;
 using namespace dataset_generation_package;
 #pragma region Settings
-void TreePointCloudPointSettings::DrawGui() {
-  ImGui::DragFloat("Point variance", &variance, 0.01f);
-  ImGui::DragFloat("Point uniform random radius", &ball_rand_radius, 0.01f);
-  ImGui::DragFloat("Bounding box offset", &bounding_box_limit, 0.01f);
-  ImGui::Checkbox("Type Index", &type_index);
-  ImGui::Checkbox("Instance Index", &instance_index);
-  ImGui::Checkbox("Branch Index", &branch_index);
-  ImGui::Checkbox("Tree Part Index", &tree_part_index);
-  ImGui::Checkbox("Line Index", &line_index);
-  ImGui::Checkbox("Internode Index", &internode_index);
-}
 
 void TreePointCloudPointSettings::Save(const std::string& name, YAML::Emitter& out) const {
   out << YAML::Key << name << YAML::Value << YAML::BeginMap;
@@ -58,29 +45,6 @@ void TreePointCloudPointSettings::Load(const std::string& name, const YAML::Node
     if (cd["bounding_box_limit"])
       bounding_box_limit = cd["bounding_box_limit"].as<float>();
   }
-}
-
-bool TreePointCloudCircularCaptureSettings::DrawGui() {
-  bool changed = false;
-  if (ImGui::DragFloat("Distance to focus point", &distance_from_trees, 0.01f))
-    changed = true;
-  if (ImGui::DragFloat("Height to ground", &capture_height, 0.01f))
-    changed = true;
-  ImGui::Separator();
-  ImGui::Text("Rotation:");
-  if (ImGui::DragInt3("Pitch Angle Start/Step/End", &pitch_angle_start, 1))
-    changed = true;
-  if (ImGui::DragInt3("Turn Angle Start/Step/End", &turn_angle_start, 1))
-    changed = true;
-  ImGui::Separator();
-  ImGui::Text("Camera Settings:");
-  if (ImGui::DragFloat("FOV", &camera_fov))
-    changed = true;
-  if (ImGui::DragInt("Resolution", &scan_resolution))
-    changed = true;
-  if (ImGui::DragFloat("Max Depth", &max_capture_depth))
-    changed = true;
-  return changed;
 }
 
 void TreePointCloudCircularCaptureSettings::Save(const std::string& name, YAML::Emitter& out) const {
@@ -170,21 +134,6 @@ void TreePointCloudCircularCaptureSettings::GenerateSamples(std::vector<PointClo
       counter++;
     }
   }
-}
-
-bool TreePointCloudGridCaptureSettings::DrawGui() {
-  bool changed = false;
-  if (ImGui::DragFloat("Max size", &bounding_box_size, 0.1f, 0.f, 999.f))
-    changed = true;
-  if (ImGui::DragInt2("Grid size", &grid_size.x, 1, 0, 100))
-    changed = true;
-  if (ImGui::DragFloat2("Grid distance", &grid_distance.x, 0.1f, 0.0f, 100.0f))
-    changed = true;
-  if (ImGui::DragFloat("Step", &step, 0.01f, 0.0f, 0.5f))
-    changed = true;
-  if (ImGui::DragInt("Sample", &ground_sample_size, 1, 1, INT_MAX))
-    changed = true;
-  return changed;
 }
 
 void TreePointCloudGridCaptureSettings::GenerateSamples(std::vector<PointCloudSample>& point_cloud_samples) {
@@ -530,42 +479,6 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
       EVOENGINE_ERROR("Failed to save: " + std::string(e.what()));
     }
   }
-}
-
-bool dataset_generation_package::InspectTreePointCloudScanner(InspectorContext& context,
-                                                              TreePointCloudScanner& scanner) {
-  (void)context;
-  bool changed = false;
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  if (ImGui::TreeNodeEx("Circular Capture")) {
-    static auto capture_settings = std::make_shared<TreePointCloudCircularCaptureSettings>();
-    capture_settings->DrawGui();
-    FileUtils::SaveFile(
-        "Capture", "Point Cloud", {".ply"},
-        [&](const std::filesystem::path& path) {
-          scanner.Capture(eco_sys_lab_layer->mesh_generator_settings, path, capture_settings);
-        },
-        false);
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNodeEx("Grid Capture")) {
-    static auto capture_settings = std::make_shared<TreePointCloudGridCaptureSettings>();
-    capture_settings->DrawGui();
-    FileUtils::SaveFile(
-        "Capture", "Point Cloud", {".ply"},
-        [&](const std::filesystem::path& path) {
-          scanner.Capture(eco_sys_lab_layer->mesh_generator_settings, path, capture_settings);
-        },
-        false);
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Point settings")) {
-    scanner.point_settings.DrawGui();
-    ImGui::TreePop();
-  }
-
-  return changed;
 }
 
 void TreePointCloudScanner::OnDestroy() {

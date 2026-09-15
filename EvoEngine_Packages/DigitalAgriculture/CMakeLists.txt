@@ -40,3 +40,7 @@ evoengine_configure_runtime_package(DigitalAgriculturePackage
 	EXTRA_PCH ${DIGITAL_AGRICULTURE_PCH}
 	RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Internals
 	)
+
+if(EVOENGINE_WITH_EDITOR)
+  add_subdirectory(Editor)
+endif()

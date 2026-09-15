@@ -13,19 +13,6 @@ class ClimateDescriptor : public IAsset {
  public:
   /// The parameters defining the climate conditions.
   ClimateParameters climate_parameters;
-
-  /**
-   * @brief Inspects the climate descriptor in the editor.
-   * @param editor_layer The editor layer handling the inspection.
-   * @return True if the asset's content is not modified during inspection, otherwise false.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-
-  /**
-   * @brief Generates a thumbnail texture representing the climate descriptor.
-   * @return A shared pointer to the generated texture.
-   */
-  [[nodiscard]] std::shared_ptr<Texture2D> GenerateThumbnailTexture();
 };
 
 /**
@@ -39,16 +26,6 @@ class Climate : public IPrivateComponent {
 
   /// Reference to the associated climate descriptor asset.
   AssetRef climate_descriptor_ref;
-
-  /**
-   * @brief Inspects the climate component in the editor.
-   * @param editor_layer The editor layer handling the inspection.
-   * @return True if the asset's content is not modified during inspection, otherwise false.
-   *
-   * @note ImGui menu goes here. You can also handle visualization with Gizmos here.
-   *       The visualization will only be activated while inspecting the soil private component in the entity inspector.
-   */
-  bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
 
   /**
    * @brief Collects asset references used by this component.
