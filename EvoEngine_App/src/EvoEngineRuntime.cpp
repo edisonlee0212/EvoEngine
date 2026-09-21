@@ -1,8 +1,10 @@
 #include "Application.hpp"
 #include "Camera.hpp"
+#include "ImGuiLayer.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "RuntimeConfiguration.hpp"
+#include "RuntimeGuiLayer.hpp"
 #include "RuntimePaths.hpp"
 #include "Scene.hpp"
 #include "WindowLayer.hpp"
@@ -122,6 +124,8 @@ int main(const int argc, char** argv) {
     const ApplicationContextScope application_scope(*application);
     application->PushLayer<RenderLayer>("Runtime rendering");
     auto window = application->PushLayer<WindowLayer>("Runtime window");
+    application->PushLayer<ImGuiLayer>("Runtime GUI");
+    application->PushLayer<RuntimeGuiLayer>("Runtime GUI");
     application->Initialize(config.ApplicationSettings());
     if (application->GetApplicationStatus() == Application::ExecutionStatus::Uninitialized) {
       throw std::runtime_error("Runtime initialization failed.");

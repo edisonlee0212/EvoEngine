@@ -4,6 +4,7 @@
 #include "EditorLayer.hpp"
 #include "ImGuiLayer.hpp"
 #include "RenderLayer.hpp"
+#include "RuntimeGuiLayer.hpp"
 #include "WindowLayer.hpp"
 
 #include <algorithm>
@@ -136,8 +137,9 @@ inline void PushWindowAndUiLayers(const ApplicationMode mode) {
     return;
   }
   ApplicationContext::Get().PushLayer<WindowLayer>("Window Layer");
+  ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
+  ApplicationContext::Get().PushLayer<RuntimeGuiLayer>("Runtime GUI");
   if (mode == ApplicationMode::Editor) {
-    ApplicationContext::Get().PushLayer<ImGuiLayer>("ImGui Layer");
     ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
   }
 }

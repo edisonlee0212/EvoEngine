@@ -26,6 +26,7 @@ endif()
 
 if(NOT EVOENGINE_WITH_EDITOR)
 	add_executable(EvoEngineRuntimeBoundaryTests Core/RuntimeBoundaryTest.cpp Core/RuntimeNodeGraphTest.cpp Core/NativeBuildIdentityTest.cpp Core/RuntimePathsTest.cpp Core/WindowModePolicyTest.cpp)
+	target_sources(EvoEngineRuntimeBoundaryTests PRIVATE Core/RuntimeGuiContextTest.cpp Core/RuntimeGuiHostTest.cpp Core/ApplicationLayerTest.cpp)
 	target_include_directories(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_INCLUDES})
 	target_compile_definitions(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_DEFS})
 	target_precompile_headers(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_PCHS})
@@ -42,6 +43,7 @@ file(TO_CMAKE_PATH "${Python3_EXECUTABLE}" EVOENGINE_TEST_PYTHON_EXECUTABLE_NORM
 file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Rendering" EVOENGINE_TEST_SCRIPT_DIR_NORMALIZED)
 
 set(EVOENGINE_TEST_SOURCES
+	Core/ApplicationLayerTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoAuthoringCommandLine.cpp
 	Core/BuildManagerModelTest.cpp
 	Core/DemoAuthoringCommandLineTest.cpp
@@ -94,6 +96,9 @@ set(EVOENGINE_TEST_SOURCES
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
 	Core/NodeGraphEditorTest.cpp Core/EditorWidgetTest.cpp
+	Core/RuntimeGuiContextTest.cpp
+	Core/RuntimeGuiProofTest.cpp
+	Core/RuntimeGuiHostTest.cpp
 	Core/PackageLifecycleTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
@@ -143,7 +148,7 @@ if(TARGET DigitalAgriculturePackage)
 	target_link_libraries(DigitalAgriculture_Tests PRIVATE DigitalAgriculturePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
 	target_compile_definitions(DigitalAgriculture_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(DigitalAgriculture_Tests PRIVATE
-		${EVOENGINE_EDITOR_PCH}
+		${EVOENGINE_SDK_PCH}
 		${EVOENGINE_PACKAGE_PCH}
 		${DIGITAL_AGRICULTURE_PCH}
 		)
@@ -172,7 +177,7 @@ if(TARGET UniversePackage)
 		)
 	target_compile_definitions(UniversePackage_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(UniversePackage_Tests PRIVATE
-		${EVOENGINE_EDITOR_PCH}
+		${EVOENGINE_SDK_PCH}
 		${EVOENGINE_PACKAGE_PCH}
 		)
 	add_custom_command(TARGET UniversePackage_Tests POST_BUILD
@@ -517,3 +522,15 @@ gtest_discover_tests(EvoEngine_Tests
   TEST_FILTER "EditorWidgetTest.*:ImGuiStartup.*"
   DISCOVERY_MODE PRE_TEST
   PROPERTIES LABELS "editor,graphics")
+
+gtest_discover_tests(EvoEngine_Tests
+  WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+  TEST_FILTER RuntimeGuiContextTest.*:ApplicationLayer.*:RuntimeGuiPersistence.*
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS "core,editor,imgui")
+
+gtest_discover_tests(EvoEngine_Tests
+  WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+  TEST_FILTER RuntimeGuiProof.*:RuntimeGuiHost.*
+  DISCOVERY_MODE PRE_TEST
+  PROPERTIES LABELS "editor,graphics,imgui")

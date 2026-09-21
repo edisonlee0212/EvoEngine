@@ -15,6 +15,7 @@ struct RuntimePackageRequirement {
 
 struct EVOENGINE_API RuntimeConfiguration {
   std::string application_name;
+  std::string runtime_gui_layout_revision;
   std::filesystem::path project;
   glm::ivec2 window_size{1280, 720};
   WindowDisplayMode window_mode = WindowDisplayMode::Windowed;

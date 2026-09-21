@@ -18,6 +18,7 @@
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "HddagiResources.hpp"
+#include "IRuntimeGui.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "LightProbe.hpp"
@@ -38,6 +39,8 @@
 #include "ProceduralNoiseOperators.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "RuntimeDebugGui.hpp"
+#include "RuntimeGui.hpp"
 #include "Scene.hpp"
 #include "SdfgiDebug.hpp"
 #include "SdfgiRuntime.hpp"
@@ -344,6 +347,41 @@ bool InspectUnknownLayer(InspectorContext&, UnknownLayer& layer) {
 bool InspectEditorLayer(InspectorContext& context, EditorLayer& layer) {
   layer.DrawLayerSettingsWindow(context.editor_layer);
   return false;
+}
+
+bool InspectRuntimeDebugGui(InspectorContext& context, RuntimeDebugGui& gui) {
+  bool changed = ImGui::Checkbox("Camera preview", &gui.show_camera);
+  if (context.editor_layer)
+    changed = context.editor_layer->DragAndDropButton<Texture2D>(gui.texture, "Texture preview") || changed;
+  return changed;
+}
+
+bool InspectRuntimeGui(InspectorContext& context, RuntimeGui& gui) {
+  if (!context.editor_layer)
+    return false;
+  bool changed = context.editor_layer->DragAndDropButton<Camera>(gui.camera, "Target camera");
+  changed = ImGui::InputInt("Draw order", &gui.draw_order) || changed;
+  const auto assets = gui.GetGuiAssets();
+  for (size_t index = 0; index < assets.size(); ++index) {
+    ImGui::PushID(static_cast<int>(index));
+    ImGui::Text("Asset %llu", static_cast<unsigned long long>(assets[index].GetAssetHandle()));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove"))
+      changed = gui.RemoveGuiAsset(index) || changed;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Up") && index > 0)
+      changed = gui.MoveGuiAsset(index, index - 1) || changed;
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Down"))
+      changed = gui.MoveGuiAsset(index, index + 1) || changed;
+    ImGui::PopID();
+    if (changed)
+      break;
+  }
+  AssetRef candidate;
+  if (context.editor_layer->DragAndDropButton<IRuntimeGui>(candidate, "Add GUI asset"))
+    changed = gui.AddGuiAsset(candidate) || changed;
+  return changed;
 }
 
 bool InspectPlayerController(InspectorContext&, PlayerController& controller) {
@@ -4224,6 +4262,8 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<AnimationPlayer>(InspectAnimationPlayer, {}, "AnimationPlayer");
   InspectorRegistry::GetInstance().RegisterInspector<Animator>(InspectAnimator, {}, "Animator");
   InspectorRegistry::GetInstance().RegisterInspector<Camera>(InspectCamera, {}, "Camera");
+  InspectorRegistry::GetInstance().RegisterInspector<RuntimeGui>(InspectRuntimeGui, {}, "RuntimeGui");
+  InspectorRegistry::GetInstance().RegisterInspector<RuntimeDebugGui>(InspectRuntimeDebugGui, {}, "RuntimeDebugGui");
   InspectorRegistry::GetInstance().RegisterInspector<Cubemap>(InspectCubemap, {}, "Cubemap");
   InspectorRegistry::GetInstance().RegisterInspector<DirectionalLight>(InspectDirectionalLight, {}, "DirectionalLight");
   InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalLighting>(InspectEnvironmentalLighting, {},

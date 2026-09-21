@@ -5,6 +5,7 @@
 #include "CurveEditors.hpp"
 #include "EditorLayer.hpp"
 #include "EditorTextureRegistry.hpp"
+#include "EditorTheme.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "ImGuiLayer.hpp"
 #include "MeshRenderer.hpp"
@@ -17,6 +18,65 @@
 #include "WindowLayer.hpp"
 
 using namespace evo_engine;
+
+TEST(ImGuiStartup, LauncherThemesWorkWithoutNodeEditorContext) {
+  ImGui::CreateContext();
+  EXPECT_EQ(ImNodes::GetCurrentContext(), nullptr);
+  editor_theme::ApplyDefault();
+  EXPECT_EQ(editor_theme::GetCurrentTheme(), editor_theme::Theme::Dark);
+  const auto dark = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+  editor_theme::Apply(editor_theme::Theme::Light);
+  EXPECT_EQ(editor_theme::GetCurrentTheme(), editor_theme::Theme::Light);
+  EXPECT_GT(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x, dark.x);
+  EXPECT_EQ(ImNodes::GetCurrentContext(), nullptr);
+  editor_theme::ApplyDefault();
+  ImGui::DestroyContext();
+}
+
+TEST(ImGuiStartup, CameraInfoSurvivesClearingAndRestoringMainCamera) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.PushLayer<WindowLayer>("Window");
+  app.PushLayer<RenderLayer>("Rendering");
+  app.PushLayer<ImGuiLayer>("GUI");
+  auto editor = app.PushLayer<EditorLayer>("Editor");
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.default_window_size = {640, 480};
+  settings.load_project_assets = settings.load_project_start_scene = false;
+  settings.redirect_standard_streams_to_console = false;
+  settings.graphics_settings.use_ray_tracing = settings.graphics_settings.use_mesh_shader = false;
+  app.Initialize(settings);
+  auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  auto original = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("Original camera")).lock();
+  auto replacement = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("New camera")).lock();
+  scene->main_camera = original;
+  app.Attach(scene);
+  editor->show_scene_window = false;
+  editor->show_camera_window = editor->show_camera_info = true;
+  ImGui::LoadIniSettingsFromMemory("[Window][Camera]\nPos=10,30\nSize=600,400\nCollapsed=0\n");
+  app.Start(false);
+  for (int frame = 0; frame < 3; ++frame)
+    ASSERT_TRUE(app.Loop());
+  EXPECT_TRUE(original->Rendered());
+  scene->main_camera = replacement;
+  for (int frame = 0; frame < 3; ++frame)
+    ASSERT_TRUE(app.Loop());
+  EXPECT_TRUE(replacement->Rendered());
+  scene->main_camera.Clear();
+  for (int frame = 0; frame < 3; ++frame)
+    ASSERT_TRUE(app.Loop());
+  EXPECT_EQ(scene->main_camera.Get<Camera>(), nullptr);
+  scene->main_camera = original;
+  for (int frame = 0; frame < 3; ++frame)
+    ASSERT_TRUE(app.Loop());
+  EXPECT_TRUE(original->Rendered());
+  original.reset();
+  replacement.reset();
+  scene.reset();
+  editor.reset();
+  app.Terminate();
+}
 
 TEST(ImGuiStartup, EditorDrawsGizmosAfterSceneRendering) {
   Application app;

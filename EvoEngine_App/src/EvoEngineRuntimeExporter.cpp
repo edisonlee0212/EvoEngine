@@ -528,12 +528,14 @@ void Export(const fs::path& request_path, const fs::path& template_path, const f
     if (!runtime.is_object()) {
       throw std::runtime_error("runtime_config must be an object.");
     }
-    for (const auto* reserved : {"schema_version", "identity", "application_name", "project", "packages"}) {
+    for (const auto* reserved :
+         {"schema_version", "identity", "application_name", "project", "packages", "runtime_gui_layout_revision"}) {
       if (runtime.contains(reserved)) {
         throw std::runtime_error(std::string("runtime_config contains reserved key: ") + reserved);
       }
     }
     runtime["schema_version"] = 1;
+    runtime["runtime_gui_layout_revision"] = staging.filename().u8string();
     runtime["identity"] = metadata.at("identity");
     runtime["application_name"] = application_name;
     runtime["project"] = "Project/" + project_name;

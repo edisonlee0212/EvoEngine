@@ -223,11 +223,29 @@ class RuntimeExporterBlackBoxTest(unittest.TestCase):
         self.assertEqual(set(exported_project), {"application_name", "start_scene_handle", "startup_runtime_packages"})
         runtime = json.loads((fixture.output / "runtime.yaml").read_text(encoding="utf-8"))
         self.assertEqual(runtime["identity"], fixture.runtime_identity)
+        self.assertTrue(runtime["runtime_gui_layout_revision"])
         self.assertTrue(runtime["show_console"])
         self.assertEqual(runtime["packages"], [{"name": "Core", "source_id": "b" * 64}])
         report = json.loads((fixture.output / "build-report.json").read_text(encoding="utf-8"))
         self.assertTrue(report["files"])
         self.assertNotIn(str(fixture.project), json.dumps(report))
+
+    def test_exports_receive_distinct_gui_layout_revisions(self) -> None:
+        revisions = []
+        for name in ("first", "second"):
+            fixture = ExportFixture(self.root / name)
+            result = self.run_export(fixture)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            runtime = json.loads((fixture.output / "runtime.yaml").read_text(encoding="utf-8"))
+            revisions.append(runtime["runtime_gui_layout_revision"])
+        self.assertNotEqual(*revisions)
+
+    def test_gui_layout_revision_cannot_be_supplied_by_request(self) -> None:
+        fixture = ExportFixture(self.root)
+        fixture.write_request(runtime_config={"runtime_gui_layout_revision": "stale"})
+        result = self.run_export(fixture)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(fixture.output.exists())
 
     def test_template_hash_mismatch_fails(self) -> None:
         fixture = ExportFixture(self.root)

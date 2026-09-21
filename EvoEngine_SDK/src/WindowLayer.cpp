@@ -312,6 +312,8 @@ intptr_t WindowLayer::HandleNativeWindowMessage(void* native_window_handle, cons
 
 void WindowLayer::Render() {
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+  if (window_layer && window_layer->prepare_presentation_)
+    window_layer->prepare_presentation_();
   const auto prepare_screenshot_capture = [&](const std::shared_ptr<Swapchain>& swapchain) -> std::shared_ptr<Buffer> {
     if (!window_layer || !window_layer->screenshot_capture_ || window_layer->screenshot_capture_->copy_recorded ||
         !swapchain) {
@@ -778,7 +780,8 @@ void WindowLayer::ResizeWindow(int x, int y) const {
 }
 
 void WindowLayer::SetPresentationCallbacks(std::function<void(VkCommandBuffer)> renderer,
-                                           std::function<void()> after_render) {
+                                           std::function<void()> after_render, std::function<void()> prepare) {
   presentation_renderer_ = std::move(renderer);
   after_presentation_render_ = std::move(after_render);
+  prepare_presentation_ = std::move(prepare);
 }

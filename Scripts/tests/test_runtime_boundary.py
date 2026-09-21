@@ -82,8 +82,12 @@ target_link_libraries(Runtime INTERFACE Bridge)
 ''')
         self.run_check(build, False, 'links editor target EditorTools')
 
+    def test_core_imgui_is_allowed(self):
+        _, build = self.fixture('void Gui() { ImGui::Text("value"); }')
+        self.run_check(build, True)
+
     def test_gui_code_and_editor_guard_fail(self):
-        for source in ('void Inspector() { ImGui::Text("value"); }',
+        for source in ('void Inspector() { ImGuizmo::BeginFrame(); }',
                        '#if EVOENGINE_WITH_EDITOR\nvoid Inspector();\n#endif'):
             with self.subTest(source=source):
                 _, build = self.fixture(source)

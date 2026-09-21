@@ -57,6 +57,7 @@ class EVOENGINE_API WindowLayer final : public ILayer {
   glm::ivec2 window_size_ = {1, 1};
 
   std::function<void(VkCommandBuffer)> presentation_renderer_;
+  std::function<void()> prepare_presentation_;
   std::function<void()> after_presentation_render_;
   bool auto_render_main_camera_ = true;
   bool custom_title_bar_ = false;
@@ -182,7 +183,8 @@ class EVOENGINE_API WindowLayer final : public ILayer {
    */
   void ResizeWindow(int x, int y) const;
 
-  void SetPresentationCallbacks(std::function<void(VkCommandBuffer)> renderer, std::function<void()> after_render = {});
+  void SetPresentationCallbacks(std::function<void(VkCommandBuffer)> renderer, std::function<void()> after_render = {},
+                                std::function<void()> prepare = {});
   void SetAutoRenderMainCamera(bool enabled) {
     auto_render_main_camera_ = enabled;
   }

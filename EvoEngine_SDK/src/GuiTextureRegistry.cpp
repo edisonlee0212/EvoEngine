@@ -1,4 +1,5 @@
-#include "EditorTextureRegistry.hpp"
+#include "GuiTextureRegistry.hpp"
+#include <imgui_impl_vulkan.h>
 #include "Application.hpp"
 #include "Platform.hpp"
 #include "RenderTexture.hpp"
@@ -54,9 +55,9 @@ TextureCache& GetCache() {
 }
 }  // namespace
 
-ImTextureID EditorTextureRegistry::GetTextureId(const std::shared_ptr<Image>& image,
-                                                const std::shared_ptr<ImageView>& view,
-                                                const std::shared_ptr<Sampler>& sampler) {
+ImTextureID GuiTextureRegistry::GetTextureId(const std::shared_ptr<Image>& image,
+                                             const std::shared_ptr<ImageView>& view,
+                                             const std::shared_ptr<Sampler>& sampler) {
   if (!ImGui::GetCurrentContext() || !image || !view || !sampler)
     return 0;
   auto& cache = GetCache();
@@ -83,28 +84,28 @@ ImTextureID EditorTextureRegistry::GetTextureId(const std::shared_ptr<Image>& im
   return reinterpret_cast<ImTextureID>(texture->descriptor);
 }
 
-ImTextureID EditorTextureRegistry::GetTextureId(const SampledImageResources& resources) {
+ImTextureID GuiTextureRegistry::GetTextureId(const SampledImageResources& resources) {
   return GetTextureId(resources.image, resources.image_view, resources.sampler);
 }
 
-ImTextureID EditorTextureRegistry::GetTextureId(const Texture2D& texture) {
+ImTextureID GuiTextureRegistry::GetTextureId(const Texture2D& texture) {
   const auto& storage = texture.PeekTexture2DStorage();
   return GetTextureId(storage.image, storage.image_view, storage.sampler);
 }
 
-ImTextureID EditorTextureRegistry::GetColorTextureId(RenderTexture& texture, uint32_t mip) {
+ImTextureID GuiTextureRegistry::GetColorTextureId(RenderTexture& texture, uint32_t mip) {
   if (!texture.GetColorImage())
     return 0;
   return GetTextureId(texture.GetColorImage(), texture.GetColorImageView(mip), texture.GetColorSampler());
 }
 
-ImTextureID EditorTextureRegistry::GetDepthTextureId(RenderTexture& texture, uint32_t mip) {
+ImTextureID GuiTextureRegistry::GetDepthTextureId(RenderTexture& texture, uint32_t mip) {
   if (!texture.GetDepthImage())
     return 0;
   return GetTextureId(texture.GetDepthImage(), texture.GetDepthImageView(mip), texture.GetDepthSampler());
 }
 
-void EditorTextureRegistry::CollectGarbage() {
+void GuiTextureRegistry::CollectGarbage() {
   const auto found = Caches().find(ApplicationContext::TryGet());
   if (found == Caches().end())
     return;

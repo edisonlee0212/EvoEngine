@@ -9,6 +9,7 @@
 #include "Jobs.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
+#include "RuntimeGui.hpp"
 #include "RuntimePaths.hpp"
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -536,7 +537,7 @@ std::vector<std::string> Scene::ValidateRuntimeStartupContent() const {
     for (const auto& component : metadata.private_component_elements) {
       if (const auto unknown = std::dynamic_pointer_cast<UnknownPrivateComponent>(component.private_component_data))
         errors.emplace_back("Unknown required private component type: " + unknown->GetOriginalTypeName());
-      else
+      else if (!std::dynamic_pointer_cast<RuntimeGui>(component.private_component_data))
         Serialization::CollectAssetRefs(*component.private_component_data, required_refs);
     }
   }

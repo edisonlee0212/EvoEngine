@@ -110,6 +110,7 @@ struct ApplicationInitializationSettings {
   ApplicationMode application_mode = ApplicationMode::Editor; /**< The runtime mode for layer setup and startup. */
   bool strict_runtime = false;        /**< Load existing distribution content without authoring repairs or saves. */
   std::filesystem::path project_path; /**< The path to the application's project. */
+  std::string runtime_gui_layout_revision;
   std::string application_name = "Evo Engine";   /**< The name of the application. */
   std::vector<std::filesystem::path> icon_paths; /**< Paths to application icons. */
   glm::ivec2 default_window_size = {1920, 1080}; /**< The default size of the application window. */

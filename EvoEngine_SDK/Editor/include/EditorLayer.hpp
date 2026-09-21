@@ -934,6 +934,7 @@ class EVOENGINE_EDITOR_API EditorLayer : public ILayer {
    */
   void LoadIcons();
   void RegisterEditorPanels();
+  std::vector<Input::InputEvent> runtime_gui_input_;
 
  private:
   /**
@@ -964,6 +965,7 @@ class EVOENGINE_EDITOR_API EditorLayer : public ILayer {
   std::shared_ptr<GraphicsPipeline> gizmos_strands_vertex_colored;
 
   void RegisterTypes(Application& application) override;
+  void OnWindowGraphicsInitialized() override;
   void OnCreate() override;
 
   /**

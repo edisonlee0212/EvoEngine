@@ -2,13 +2,19 @@
 
 M1 design, audited against `d7493115` on `codex/runtime-build-manager`. M2 established editor source/resource ownership. M3 established the independent editor SDK. M4 separates all eight enabled packages into runtime libraries and editor companions. Existing runtime build behavior is documented in [runtime-builds.md](runtime-builds.md).
 
+## Current GUI ownership
+
+Core ImGui and its platform/rendering backends now belong to `EvoEngine_SDK`. `ImGuiLayer`, `RuntimeGuiContext`, and `GuiTextureRegistry` are available to runtime hosts; editor extensions (ImGuizmo, ImNodes, dialogs, inspection, and editor panels) remain in `EvoEngine_EditorSDK`. `EditorTextureRegistry` is a compatibility alias for the shared registry. Each application has one ImGui implementation and frame owner; headless bootstrap does not create GUI layers.
+
+The runtime boundary permits core ImGui while continuing to reject editor headers, targets, extensions, and per-class editor guards. Rebuild SDKs, applications, and packages together after this DLL ownership change. See [Runtime GUI](runtime-gui.md) for authoring, stopped/Play behavior, and layout persistence. The audit and milestone results below are historical; their no-ImGui findings predate this change.
+
 ## Agreed outcome
 
 Maintainability is the primary goal. A developer adds a runtime component without GUI methods, empty editor overrides, or editor preprocessor guards. Custom inspection is a separately registered editor adapter. Runtime distributions exclude editor implementation, headers, libraries, and resources because of their target dependencies.
 
 Runtime API changes and corresponding in-repository caller updates are approved. Preserve serialized type names, asset extensions, handles, field meanings, and existing saved project/asset formats. Native DLL ABI compatibility with old binaries is not promised: rebuild affected SDKs, packages, and templates together. Android deployment remains future work.
 
-## M3 implementation
+## Historical M3 implementation
 
 `EvoEngine_SDK` owns runtime code and public runtime include paths. `EvoEngine_EditorSDK` depends on it and owns editor exports, GUI libraries, headers and its precompiled header. Editor apps, Python bindings and tests link the editor target explicitly. Both targets use the same static/shared library choice. Package-enabled builds share `glfw3` so the runtime and editor use one window-system instance; its DLL and PDB are copied and installed with the other native dependencies.
 

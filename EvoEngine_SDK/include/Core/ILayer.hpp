@@ -88,6 +88,9 @@ class EVOENGINE_API ILayer {
   virtual void OnRuntimeStart() {
   }
 
+  virtual void OnBeforeSceneDetach() {
+  }
+
   // Called after scene rendering and before window presentation.
   virtual void OnPostRender() {
   }
@@ -140,9 +143,12 @@ class EVOENGINE_API ILayer {
    * @param input_event The input event to process.
    * @return True if this layer chain consumed the event; otherwise it reaches the active scene.
    */
+ protected:
   virtual bool OnInputEvent(const Input::InputEvent& input_event);
 
  public:
+  virtual ~ILayer() = default;
+
   [[nodiscard]] Application& GetApplication() const;
 
   [[nodiscard]] std::shared_ptr<ILayer> GetSelf() const;

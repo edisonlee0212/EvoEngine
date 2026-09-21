@@ -15,6 +15,7 @@
 #include "GaussianSplatRenderer.hpp"
 #include "GpuProfiler.hpp"
 #include "ILayer.hpp"
+#include "ImGuiLayer.hpp"
 #include "InspectorRegistry.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
@@ -29,6 +30,8 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "RuntimeGuiLayer.hpp"
+#include "RuntimeGuiProof.hpp"
 #include "SDKInspectionAdapters.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
@@ -2659,6 +2662,10 @@ void EditorLayer::RegisterTypes(Application&) {
     throw std::runtime_error("Failed to initialize editor package integration.");
 }
 
+void EditorLayer::OnWindowGraphicsInitialized() {
+  ImNodes::CreateContext();
+}
+
 void EditorLayer::OnCreate() {
   enable_inspection = false;
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
@@ -3009,9 +3016,11 @@ void EditorLayer::OnDestroy() {
   gizmo_instanced_mesh_tasks_.clear();
   gizmo_strands_tasks_.clear();
   entity_index_read_buffer_.reset();
+  ImNodes::DestroyContext();
 }
 
 void EditorLayer::PreUpdate() {
+  ImGuizmo::BeginFrame();
   RegisterSelectionPass();
   PollConsoleMessages();
   if (build_manager_panel_)
@@ -3046,6 +3055,15 @@ void EditorLayer::PreUpdate() {
   editor_panel_manager_.DrawOnly(EditorPanelCategory::View, editor_layer, "project");
   DrawAssetInspectorWindows();
   DrawProjectLoadingPopup();
+  if (const auto gui = ApplicationContext::Get().GetLayer<ImGuiLayer>(); gui && scene) {
+    const auto runtime = ApplicationContext::Get().GetLayer<RuntimeGuiLayer>();
+    const auto proof = gui->GetRuntimeGuiProof();
+    const bool mouse = (runtime && runtime->CapturesMouse()) || (proof && proof->CapturesMouse());
+    const bool keyboard = (runtime && runtime->CapturesKeyboard()) || (proof && proof->CapturesKeyboard());
+    const bool focused = !ImGui::GetIO().AppFocusLost && (main_camera_window_focused_ || mouse || keyboard);
+    Input::ApplyGameplayEvents(runtime_gui_input_, focused, mouse, keyboard);
+  }
+  runtime_gui_input_.clear();
 }
 
 void EditorLayer::OpenAssetInspector(const std::shared_ptr<IAsset>& asset) {
@@ -7304,6 +7322,15 @@ void EditorLayer::MainCameraWindow() {
           ImGui::Image(EditorTextureRegistry::GetColorTextureId(*main_camera->GetRenderTexture()),
                        ImVec2(main_camera_fit_rect.size.x, main_camera_fit_rect.size.y), ImVec2(0, 1), ImVec2(1, 0));
           CaptureViewportImage(main_camera_viewport_input_);
+          if (const auto gui = ApplicationContext::Get().GetLayer<ImGuiLayer>(); gui && gui->GetRuntimeGuiProof())
+            gui->GetRuntimeGuiProof()->Draw(
+                {overlay_pos.x + main_camera_fit_rect.offset.x, overlay_pos.y + main_camera_fit_rect.offset.y},
+                {main_camera_fit_rect.size.x, main_camera_fit_rect.size.y});
+          if (const auto runtime = ApplicationContext::Get().GetLayer<RuntimeGuiLayer>())
+            runtime->DrawView(
+                main_camera,
+                {overlay_pos.x + main_camera_fit_rect.offset.x, overlay_pos.y + main_camera_fit_rect.offset.y},
+                {main_camera_fit_rect.size.x, main_camera_fit_rect.size.y});
           CameraWindowDragAndDrop();
           ImGui::SetCursorScreenPos(overlay_pos);
         } else {
@@ -7339,10 +7366,12 @@ void EditorLayer::MainCameraWindow() {
             } else {
               ImGui::Text("Mouse Pos: <invalid>");
             }
-            uint32_t mode = static_cast<uint32_t>(main_camera->camera_render_mode);
-            if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
-              main_camera->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
-              main_camera->ResetFrameCount();
+            if (main_camera) {
+              uint32_t mode = static_cast<uint32_t>(main_camera->camera_render_mode);
+              if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
+                main_camera->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
+                main_camera->ResetFrameCount();
+              }
             }
           }
           ImGui::EndChild();
@@ -7381,6 +7410,10 @@ void EditorLayer::MainCameraWindow() {
 }
 
 bool EditorLayer::OnInputEvent(const Input::InputEvent& input_event) {
+  if (const auto gui = ApplicationContext::Get().GetLayer<ImGuiLayer>(); gui) {
+    runtime_gui_input_.push_back(input_event);
+    return true;
+  }
   // If main camera is focused, we pass the event to the scene.
   if (main_camera_window_focused_ && ApplicationContext::Get().IsPlaying()) {
     const auto active_scene = ApplicationContext::Get().GetActiveScene();

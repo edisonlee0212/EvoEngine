@@ -9,6 +9,7 @@ from ctypes import wintypes
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,9 @@ SCENE_HANDLE = 0xE703_0000_0000_0001
 CAMERA_ENTITY_HANDLE = 0xE703_0000_0000_0002
 DORMANT_ASSET_HANDLE = 0xE703_0000_0000_0003
 SOURCE_START_SCENE_HANDLE = 0xE703_0000_0000_0004
+GUI_ASSET_HANDLE = 0xE703_0000_0000_0005
+MISSING_GUI_HANDLE = 0xE703_0000_0000_0006
+WRONG_GUI_HANDLE = 0xE703_0000_0000_0007
 
 
 class RuntimeHostTestError(RuntimeError):
@@ -124,6 +128,22 @@ entity_metadata_list:
         post_processing_stack_ref:
           asset_handle_: 0
           type_name_: ""
+      - tn: RuntimeGui
+        e: true
+        camera:
+          entity_handle_: {CAMERA_ENTITY_HANDLE}
+          private_component_type_name_: Camera
+        draw_order: 0
+        layout: ""
+        gui_assets:
+          - asset_handle_: {GUI_ASSET_HANDLE}
+            type_name_: RuntimeDebugGui
+          - asset_handle_: {MISSING_GUI_HANDLE}
+            type_name_: RuntimeDebugGui
+          - asset_handle_: {DORMANT_ASSET_HANDLE}
+            type_name_: UnavailableAssetProvider
+          - asset_handle_: {WRONG_GUI_HANDLE}
+            type_name_: IAsset
 systems_: []
 data_component_storage_list:
   - entity_size: 130
@@ -168,6 +188,8 @@ def _write_distribution_configuration(distribution: Path, template: dict[str, An
     assets.mkdir(parents=True)
     (project / "Runtime.eveproj").write_text(f"start_scene_handle: {SCENE_HANDLE}\n", encoding="utf-8")
     scene_metadata = _write_asset(assets, "Startup.evescene", SCENE_HANDLE, "Scene", _scene_yaml())
+    _write_asset(assets, "Debug.everuntimegui", GUI_ASSET_HANDLE, "RuntimeDebugGui", "show_camera: true\n")
+    _write_asset(assets, "NotGui.eveasset", WRONG_GUI_HANDLE, "IAsset", "{}\n")
     _write_asset(assets, "Dormant.unknown", DORMANT_ASSET_HANDLE, "UnavailableAssetProvider", "opaque payload\n")
 
     identity = template["identity"]
@@ -183,6 +205,7 @@ def _write_distribution_configuration(distribution: Path, template: dict[str, An
             f"  with_editor: {str(identity.get('with_editor')).lower()}",
             'application_name: "EvoEngine Runtime Host Test"',
             'project: "Project/Runtime.eveproj"',
+            'runtime_gui_layout_revision: "runtime-host-fixture"',
             "window:",
             "  width: 320",
             "  height: 240",
@@ -468,6 +491,17 @@ def run(template: Path, work_dir: Path, exporter: Path | None = None) -> None:
     _assert_project_unchanged(distribution / "Project", project_snapshot)
     _assert_isolated(unrelated_cwd, decoy)
 
+    layout_path = distribution / "UserData" / "RuntimeGuiLayouts.json"
+    layout_state = _load_json(layout_path)
+    layout_key = f"{SCENE_HANDLE}/{CAMERA_ENTITY_HANDLE}/RuntimeGui"
+    layout = layout_state.get("layouts", {}).get(layout_key, "")
+    if "IsChild=1" not in layout:
+        raise RuntimeHostTestError("Runtime GUI asset did not create its resizable child layout.")
+    layout = re.sub(r"Pos=-?\d+,-?\d+", "Pos=15,18", layout)
+    layout = re.sub(r"IsChild=1\nSize=(\d+),\d+", r"IsChild=1\nSize=\1,70", layout)
+    layout_state["layouts"][layout_key] = layout
+    layout_path.write_text(json.dumps(layout_state), encoding="utf-8")
+
     relocated_parent = work_dir / "relocated runtime Ω"
     relocated_parent.mkdir()
     relocated = relocated_parent / "distribution"
@@ -483,8 +517,27 @@ def run(template: Path, work_dir: Path, exporter: Path | None = None) -> None:
     else:
         configuration_path.write_text(configuration_text + "\nshow_console: true\n", encoding="utf-8")
     _assert_success(_run_host(relocated, executable_relative, unrelated_cwd, decoy), relocated)
+    restored = _load_json(relocated / "UserData" / "RuntimeGuiLayouts.json")
+    restored_layout = restored["layouts"][layout_key]
+    if not re.search(r"IsChild=1\nSize=\d+,70", restored_layout):
+        raise RuntimeHostTestError("Same-revision relaunch did not retain resizable child height.")
+    if "Pos=15,18" not in restored_layout:
+        raise RuntimeHostTestError("Same-revision relaunch did not retain camera-relative position.")
     if "Runtime console enabled." not in _runtime_log(relocated):
         raise RuntimeHostTestError("Console-enabled runtime did not preserve file logging.")
+    configuration_text = configuration_path.read_text(encoding="utf-8")
+    if configuration_text.lstrip().startswith("{"):
+        configuration = json.loads(configuration_text)
+        configuration["runtime_gui_layout_revision"] = "updated-export-fixture"
+        configuration_path.write_text(json.dumps(configuration), encoding="utf-8")
+    else:
+        configuration_path.write_text(configuration_text.replace('runtime_gui_layout_revision: "runtime-host-fixture"',
+                                                                'runtime_gui_layout_revision: "updated-export-fixture"'),
+                                      encoding="utf-8")
+    _assert_success(_run_host(relocated, executable_relative, unrelated_cwd, decoy), relocated)
+    reset = _load_json(relocated / "UserData" / "RuntimeGuiLayouts.json")
+    if reset["revision"] != "updated-export-fixture" or re.search(r"IsChild=1\nSize=\d+,70", reset["layouts"][layout_key]):
+        raise RuntimeHostTestError("A new export revision did not replace runtime child layout overrides.")
     if distribution.exists():
         raise RuntimeHostTestError(f"Original distribution still exists after relocation: {distribution}")
     _assert_project_unchanged(relocated / "Project", project_snapshot)
