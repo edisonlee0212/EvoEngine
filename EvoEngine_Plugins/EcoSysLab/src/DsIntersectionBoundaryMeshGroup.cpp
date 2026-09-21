@@ -138,14 +138,17 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
           EVOENGINE_ERROR("Intersect and export all: DynamicTreeStrands is missing.");
           return;
         }
-        MeshletObjExport::ExportObjCombined(
+        dts->dynamic_strands->Download();
+        MeshletObjExport::ExportVisualizationObjCombined(
             out_path, export_groups, dts->dynamic_strands->segments,
+            MeshletObjExport::intersection_visualization_grouping,
             DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_height_factor,
             DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_circum_factor,
             DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance,
             dts->dynamic_strands->segment_pairs, dts->dynamic_strands->segment_data_list);
-        EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
-                                                            << out_path.string() << ".");
+        EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size()
+                                                            << " intersection mesh(es) to " << out_path.string()
+                                                            << ".");
         if (collect_intersection_stats && !intersection_stats_rows.empty()) {
           const std::filesystem::path stats_base =
               out_path.parent_path() / (out_path.stem().string() + "_intersection_stats.csv");
@@ -165,8 +168,29 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
     } else {
       ImGui::SetTooltip(
           "For each boundary mesh in this group, compute the intersection and export all results as a single OBJ "
-          "(one object per boundary mesh). Does not modify simulation physics; restores pristine meshlets afterward.");
+          "with Visualization solid colors. Object grouping is set under Visualization Export. Does not modify "
+          "simulation physics; restores pristine meshlets afterward.");
     }
+  }
+
+  if (ImGui::TreeNodeEx("Visualization Export", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::TextUnformatted("Object grouping");
+    ImGui::RadioButton("Intersection meshes",
+                       reinterpret_cast<int*>(&MeshletObjExport::intersection_visualization_grouping),
+                       static_cast<int>(MeshletObjExport::IntersectionVisualizationGrouping::IntersectionMeshes));
+    ImGui::SameLine();
+    ImGui::RadioButton("Strands", reinterpret_cast<int*>(&MeshletObjExport::intersection_visualization_grouping),
+                       static_cast<int>(MeshletObjExport::IntersectionVisualizationGrouping::Strands));
+    ImGui::SameLine();
+    ImGui::RadioButton("Segments", reinterpret_cast<int*>(&MeshletObjExport::intersection_visualization_grouping),
+                       static_cast<int>(MeshletObjExport::IntersectionVisualizationGrouping::Segments));
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Intersection meshes: one object per boundary result (faces colored by Segment color).\n"
+          "Strands / Segments: one object per strand or segment inside each intersection "
+          "(solid colors match Visualization Strand/Segment color).");
+    }
+    ImGui::TreePop();
   }
 
   return changed;

@@ -714,6 +714,10 @@ void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mes
 
 bool MeshletObjExport::enable_smoothing = false;
 bool MeshletObjExport::per_meshlet_objects = false;
+MeshletObjExport::VisualizationGrouping MeshletObjExport::visualization_grouping =
+    MeshletObjExport::VisualizationGrouping::Segments;
+MeshletObjExport::IntersectionVisualizationGrouping MeshletObjExport::intersection_visualization_grouping =
+    MeshletObjExport::IntersectionVisualizationGrouping::IntersectionMeshes;
 
 std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsBySegmentIndex(
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
@@ -1122,4 +1126,342 @@ void MeshletObjExport::ExportObjCombined(const std::filesystem::path& path, cons
                                          const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   WriteCombinedMeshGroups(path, groups, segments, uv_height_factor, uv_circum_factor, fracture_distance,
                           segment_pairs, segment_data_list, true);
+}
+
+namespace {
+
+struct Rgb8Key {
+  uint8_t r = 0;
+  uint8_t g = 0;
+  uint8_t b = 0;
+
+  static Rgb8Key From(const glm::vec4& c) {
+    auto to_u8 = [](float v) -> uint8_t {
+      return static_cast<uint8_t>(glm::clamp(static_cast<int>(std::lround(static_cast<double>(v) * 255.0)), 0, 255));
+    };
+    return Rgb8Key{to_u8(c.x), to_u8(c.y), to_u8(c.z)};
+  }
+
+  bool operator==(const Rgb8Key& other) const {
+    return r == other.r && g == other.g && b == other.b;
+  }
+};
+
+struct Rgb8KeyHash {
+  size_t operator()(const Rgb8Key& key) const {
+    return (static_cast<size_t>(key.r) << 16) | (static_cast<size_t>(key.g) << 8) | static_cast<size_t>(key.b);
+  }
+};
+
+enum class VisualizationColorSource {
+  SegmentColor,
+  StrandColor,
+};
+
+glm::vec4 VisualizationColorForSegment(const DynamicStrands::GpuSegment& segment,
+                                       const std::vector<DynamicStrands::GpuSegment>& segments,
+                                       const VisualizationColorSource color_source) {
+  if (color_source == VisualizationColorSource::StrandColor) {
+    // Matches Segments.mesh Strand color mode: color = segments[strand_handle].color
+    if (segment.strand_handle >= 0 && static_cast<size_t>(segment.strand_handle) < segments.size()) {
+      return segments[static_cast<size_t>(segment.strand_handle)].color;
+    }
+  }
+  return segment.color;
+}
+
+VisualizationColorSource ColorSourceForGrouping(const MeshletObjExport::VisualizationGrouping grouping) {
+  return grouping == MeshletObjExport::VisualizationGrouping::Strands ? VisualizationColorSource::StrandColor
+                                                                     : VisualizationColorSource::SegmentColor;
+}
+
+VisualizationColorSource ColorSourceForIntersectionGrouping(
+    const MeshletObjExport::IntersectionVisualizationGrouping grouping) {
+  return grouping == MeshletObjExport::IntersectionVisualizationGrouping::Strands
+             ? VisualizationColorSource::StrandColor
+             : VisualizationColorSource::SegmentColor;
+}
+
+int VisualizationGroupId(const unsigned int segment_index, const std::vector<DynamicStrands::GpuSegment>& segments,
+                         const VisualizationColorSource color_source) {
+  if (segment_index >= segments.size()) {
+    return static_cast<int>(segment_index);
+  }
+  if (color_source == VisualizationColorSource::StrandColor) {
+    const int strand_handle = segments[segment_index].strand_handle;
+    return strand_handle >= 0 ? strand_handle : static_cast<int>(segment_index);
+  }
+  return static_cast<int>(segment_index);
+}
+
+std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsForVisualization(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorSource color_source,
+    const std::string& name_prefix = {}) {
+  using Triangle = DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle;
+
+  std::unordered_map<int, std::vector<size_t>> triangle_indices_by_group;
+  triangle_indices_by_group.reserve(triangles.size() / 4 + 1);
+  for (size_t tri_index = 0; tri_index < triangles.size(); ++tri_index) {
+    const unsigned int segment_index = vertices[triangles[tri_index].vertex_index0].segment_index;
+    const int group_id = VisualizationGroupId(segment_index, segments, color_source);
+    triangle_indices_by_group[group_id].push_back(tri_index);
+  }
+
+  std::vector<int> group_ids;
+  group_ids.reserve(triangle_indices_by_group.size());
+  for (const auto& [group_id, _] : triangle_indices_by_group) {
+    group_ids.push_back(group_id);
+  }
+  std::sort(group_ids.begin(), group_ids.end());
+
+  const char* id_prefix =
+      color_source == VisualizationColorSource::StrandColor ? "strand_" : "segment_";
+
+  std::vector<MeshletObjExport::MeshGroup> groups;
+  groups.reserve(group_ids.size());
+  for (const int group_id : group_ids) {
+    const auto& tri_indices = triangle_indices_by_group[group_id];
+    MeshletObjExport::MeshGroup group;
+    group.name = name_prefix + id_prefix + std::to_string(group_id);
+
+    std::unordered_map<unsigned int, unsigned int> vertex_remap;
+    vertex_remap.reserve(tri_indices.size() * 2);
+    group.vertices.reserve(tri_indices.size());
+    group.triangles.reserve(tri_indices.size());
+
+    const auto remap_vertex = [&](const unsigned int old_index) -> unsigned int {
+      const auto found = vertex_remap.find(old_index);
+      if (found != vertex_remap.end()) {
+        return found->second;
+      }
+      const unsigned int new_index = static_cast<unsigned int>(group.vertices.size());
+      group.vertices.push_back(vertices[old_index]);
+      vertex_remap.emplace(old_index, new_index);
+      return new_index;
+    };
+
+    for (const size_t tri_index : tri_indices) {
+      const Triangle& src = triangles[tri_index];
+      Triangle dst = src;
+      dst.vertex_index0 = remap_vertex(src.vertex_index0);
+      dst.vertex_index1 = remap_vertex(src.vertex_index1);
+      dst.vertex_index2 = remap_vertex(src.vertex_index2);
+      group.triangles.push_back(dst);
+    }
+    groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+class SolidColorPalette {
+ public:
+  int IdForColor(const glm::vec4& color) {
+    const Rgb8Key key = Rgb8Key::From(color);
+    const auto found = index_by_color_.find(key);
+    if (found != index_by_color_.end()) {
+      return static_cast<int>(found->second);
+    }
+    const size_t index = names_.size();
+    index_by_color_.emplace(key, index);
+    names_.push_back("solid_" + std::to_string(index));
+    kd_.emplace_back(static_cast<double>(key.r) / 255.0, static_cast<double>(key.g) / 255.0,
+                     static_cast<double>(key.b) / 255.0);
+    return static_cast<int>(index);
+  }
+
+  const std::vector<std::string>& Names() const {
+    return names_;
+  }
+  const std::vector<glm::dvec3>& Kd() const {
+    return kd_;
+  }
+
+ private:
+  std::unordered_map<Rgb8Key, size_t, Rgb8KeyHash> index_by_color_;
+  std::vector<std::string> names_;
+  std::vector<glm::dvec3> kd_;
+};
+
+void WriteSolidColoredVisualizationGroups(const std::filesystem::path& path,
+                                          const std::vector<MeshletObjExport::MeshGroup>& groups,
+                                          const std::vector<DynamicStrands::GpuSegment>& segments,
+                                          const VisualizationColorSource color_source, const bool per_face_colors,
+                                          const double uv_height_factor, const double uv_circum_factor,
+                                          const float fracture_distance) {
+  if (groups.empty()) {
+    throw std::runtime_error("WriteSolidColoredVisualizationGroups: no mesh groups to export");
+  }
+
+  size_t total_vertices = 0;
+  size_t total_triangles = 0;
+  size_t non_empty_groups = 0;
+  for (const auto& group : groups) {
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+    total_vertices += group.vertices.size();
+    total_triangles += group.triangles.size();
+    ++non_empty_groups;
+  }
+  if (non_empty_groups == 0) {
+    throw std::runtime_error("WriteSolidColoredVisualizationGroups: all mesh groups were empty");
+  }
+
+  // Pass 1: hash unique RGB8 colors into a dense material palette (O(faces) expected).
+  SolidColorPalette palette;
+  std::vector<int> uniform_material_ids(groups.size(), -1);
+  for (size_t group_index = 0; group_index < groups.size(); ++group_index) {
+    const auto& group = groups[group_index];
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+    if (per_face_colors) {
+      for (const auto& t : group.triangles) {
+        glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+        const unsigned int segment_index = group.vertices[t.vertex_index0].segment_index;
+        if (segment_index < segments.size()) {
+          color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+        }
+        palette.IdForColor(color);
+      }
+    } else {
+      glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+      const unsigned int segment_index = group.vertices.front().segment_index;
+      if (segment_index < segments.size()) {
+        color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+      }
+      uniform_material_ids[group_index] = palette.IdForColor(color);
+    }
+  }
+
+  // Pass 2: append everything into one mesh — no VoronoiMesh::operator+= (avoids per-merge string scans).
+  kinDS::VoronoiMesh combined(palette.Names(), kinDS::PerTriangleCorner);
+  combined.getVertices().reserve(total_vertices);
+  combined.getTriangles().reserve(total_triangles * 3);
+  combined.getNormals().reserve(total_triangles * 3);
+  combined.getUVs().reserve(total_triangles * 3);
+  combined.getUVIndices().reserve(total_triangles * 3);
+  combined.getMaterialIDs().reserve(total_triangles);
+
+  std::vector<size_t> group_offsets;
+  std::vector<std::string> group_names;
+  group_offsets.reserve(non_empty_groups);
+  group_names.reserve(non_empty_groups);
+
+  for (size_t group_index = 0; group_index < groups.size(); ++group_index) {
+    const auto& group = groups[group_index];
+    if (group.vertices.empty() || group.triangles.empty()) {
+      continue;
+    }
+
+    group_offsets.push_back(combined.getTriangleCount());
+    group_names.push_back(group.name);
+
+    const size_t vertex_base = combined.getVertexCount();
+    for (const auto& v : group.vertices) {
+      const glm::vec3 p = v.x - fracture_distance * v.shift;
+      combined.addVertex(glm::dvec3(p.x, p.y, p.z));
+    }
+
+    const int uniform_material_id = uniform_material_ids[group_index];
+    for (const auto& t : group.triangles) {
+      int material_id = uniform_material_id;
+      if (per_face_colors) {
+        glm::vec4 color(0.8f, 0.8f, 0.8f, 1.0f);
+        const unsigned int segment_index = group.vertices[t.vertex_index0].segment_index;
+        if (segment_index < segments.size()) {
+          color = VisualizationColorForSegment(segments[segment_index], segments, color_source);
+        }
+        material_id = palette.IdForColor(color);
+      }
+
+      const size_t uv0 = combined.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
+      const size_t uv1 = combined.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
+      const size_t uv2 = combined.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
+      combined.addTriangle(vertex_base + t.vertex_index0, vertex_base + t.vertex_index1, vertex_base + t.vertex_index2,
+                           uv0, uv1, uv2, material_id);
+      for (int i = 0; i < 3; ++i) {
+        combined.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
+      }
+    }
+  }
+
+  combined.setGroupOffsets(group_offsets);
+  combined.setGroupNames(group_names);
+
+  kinDS::ObjWriteOptions options;
+  options.uv_height_factor = uv_height_factor;
+  options.uv_circum_factor = uv_circum_factor;
+  options.write_obj_groups = true;
+  options.framework_compatible = false;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(combined, path, options);
+}
+
+}  // namespace
+
+void MeshletObjExport::ExportVisualizationObj(
+    const std::filesystem::path& path, const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationGrouping grouping,
+    double uv_height_factor, double uv_circum_factor, float fracture_distance,
+    const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = vertices;
+  std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = triangles;
+  if (enable_smoothing) {
+    ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+  }
+
+  const VisualizationColorSource color_source = ColorSourceForGrouping(grouping);
+  const std::vector<MeshGroup> groups =
+      BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source);
+  WriteSolidColoredVisualizationGroups(path, groups, segments, color_source, false, uv_height_factor, uv_circum_factor,
+                                       fracture_distance);
+}
+
+void MeshletObjExport::ExportVisualizationObjCombined(
+    const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const IntersectionVisualizationGrouping grouping,
+    double uv_height_factor, double uv_circum_factor, float fracture_distance,
+    const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  if (groups.empty()) {
+    throw std::runtime_error("ExportVisualizationObjCombined: no mesh groups to export");
+  }
+
+  std::vector<MeshGroup> export_groups;
+  export_groups.reserve(groups.size());
+
+  const VisualizationColorSource color_source = ColorSourceForIntersectionGrouping(grouping);
+  const bool per_face_colors = grouping == IntersectionVisualizationGrouping::IntersectionMeshes;
+
+  for (const auto& group : groups) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = group.triangles;
+    if (enable_smoothing) {
+      ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+    }
+
+    if (grouping == IntersectionVisualizationGrouping::IntersectionMeshes) {
+      MeshGroup out = group;
+      out.vertices = std::move(export_vertices);
+      out.triangles = std::move(export_triangles);
+      if (!out.vertices.empty() && !out.triangles.empty()) {
+        export_groups.push_back(std::move(out));
+      }
+      continue;
+    }
+
+    const std::string prefix = group.name.empty() ? std::string() : (group.name + "_");
+    auto subdivided = BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source, prefix);
+    for (auto& part : subdivided) {
+      export_groups.push_back(std::move(part));
+    }
+  }
+
+  WriteSolidColoredVisualizationGroups(path, export_groups, segments, color_source, per_face_colors, uv_height_factor,
+                                       uv_circum_factor, fracture_distance);
 }

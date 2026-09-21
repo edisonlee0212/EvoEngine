@@ -36,6 +36,21 @@ class MeshletObjExport {
   /// When true, OBJ export writes one `o` object per segment meshlet (grouped by @c segment_index).
   static bool per_meshlet_objects;
 
+  /// Grouping for @ref ExportVisualizationObj (matches Visualization "Segment mode" Segment/Strand color).
+  enum class VisualizationGrouping {
+    Segments = 0,
+    Strands = 1,
+  };
+  static VisualizationGrouping visualization_grouping;
+
+  /// Object grouping for intersect-and-export visualization OBJ (Intersection Meshes group UI).
+  enum class IntersectionVisualizationGrouping {
+    IntersectionMeshes = 0,
+    Strands = 1,
+    Segments = 2,
+  };
+  static IntersectionVisualizationGrouping intersection_visualization_grouping;
+
   struct MeshGroup {
     std::string name;
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> vertices;
@@ -80,6 +95,28 @@ class MeshletObjExport {
                                 double uv_circum_factor = 1.0, float fracture_distance = 0.0f,
                                 const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
                                 const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {});
+
+  /// One OBJ object per segment or strand; solid materials match Visualization Segment/Strand color
+  /// (unique RGB values only — shared materials across objects).
+  static void ExportVisualizationObj(const std::filesystem::path& path,
+                                     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+                                     const std::vector<DynamicStrands::GpuSegment>& segments,
+                                     VisualizationGrouping grouping, double uv_height_factor = 1.0,
+                                     double uv_circum_factor = 1.0, float fracture_distance = 0.0f,
+                                     const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
+                                     const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {});
+
+  /// Visualization-colored OBJ for multiple intersection results.
+  /// @p grouping selects one object per input mesh, or subdivides each mesh into strand/segment objects
+  /// (prefixed by the input mesh name). Materials are deduplicated by RGB.
+  static void ExportVisualizationObjCombined(const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
+                                             const std::vector<DynamicStrands::GpuSegment>& segments,
+                                             IntersectionVisualizationGrouping grouping,
+                                             double uv_height_factor = 1.0, double uv_circum_factor = 1.0,
+                                             float fracture_distance = 0.0f,
+                                             const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
+                                             const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {});
 };
 
 }  // namespace eco_sys_lab_plugin

@@ -4219,6 +4219,40 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                                     dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
       },
       false);
+
+  if (ImGui::TreeNodeEx("Visualization Export", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::TextUnformatted("Object grouping");
+    ImGui::RadioButton("Strands", reinterpret_cast<int*>(&MeshletObjExport::visualization_grouping),
+                       static_cast<int>(MeshletObjExport::VisualizationGrouping::Strands));
+    ImGui::SameLine();
+    ImGui::RadioButton("Segments", reinterpret_cast<int*>(&MeshletObjExport::visualization_grouping),
+                       static_cast<int>(MeshletObjExport::VisualizationGrouping::Segments));
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "One OBJ object per strand or segment. Solid materials match Visualization Segment mode "
+          "(Strand color / Segment color); duplicate colors share one material.");
+    }
+
+    ImGui::PushID("visualization_export_obj");
+    FileUtils::SaveFile(
+        "Export OBJ", "OBJ", {".obj"},
+        [&](const std::filesystem::path& path) {
+          dynamic_strands->Download();
+          EVOENGINE_LOG("Downloaded data from GPU");
+          MeshletObjExport::ExportVisualizationObj(
+              path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
+              MeshletObjExport::visualization_grouping,
+              render_settings.segment_meshlet_render_parameters.uv_height_factor,
+              render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+              render_settings.segment_meshlet_render_parameters.fracture_distance, dynamic_strands->segment_pairs,
+              dynamic_strands->segment_data_list);
+          EVOENGINE_LOG("Exported visualization OBJ to " + path.string());
+        },
+        false);
+    ImGui::PopID();
+    ImGui::TreePop();
+  }
+
   ImGui::Checkbox("Export smoothing", &MeshletObjExport::enable_smoothing);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
@@ -4230,6 +4264,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip("When enabled, OBJ export writes one object (o) per segment meshlet instead of a single combined "
                       "object.");
   }
+
   // FileUtils::SaveFile(
   //     "Export Boundary OBJ", "OBJ", {".obj"},
   //     [&](const std::filesystem::path& path) {
