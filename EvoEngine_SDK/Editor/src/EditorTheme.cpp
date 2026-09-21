@@ -32,7 +32,8 @@ editor_theme::Theme editor_theme::GetCurrentTheme() {
 void editor_theme::ApplyEvoEngineDark() {
   current_theme = Theme::Dark;
   ImGui::StyleColorsDark();
-  ImNodes::StyleColorsDark();
+  if (ImNodes::GetCurrentContext())
+    ImNodes::StyleColorsDark();
 
   ImGuiStyle& style = ImGui::GetStyle();
   ImVec4* colors = style.Colors;
@@ -119,6 +120,8 @@ void editor_theme::ApplyEvoEngineDark() {
   style.PopupBorderSize = 1.0f;
   style.DisabledAlpha = 0.58f;
 
+  if (!ImNodes::GetCurrentContext())
+    return;
   ImNodesStyle& node_style = ImNodes::GetStyle();
   node_style.NodeCornerRounding = 4.0f;
   node_style.NodeBorderThickness = 1.0f;
@@ -157,7 +160,8 @@ void editor_theme::ApplyEvoEngineDark() {
 void editor_theme::ApplyEvoEngineLight() {
   current_theme = Theme::Light;
   ImGui::StyleColorsLight();
-  ImNodes::StyleColorsLight();
+  if (ImNodes::GetCurrentContext())
+    ImNodes::StyleColorsLight();
 
   ImGuiStyle& style = ImGui::GetStyle();
   ImVec4* colors = style.Colors;
@@ -244,6 +248,8 @@ void editor_theme::ApplyEvoEngineLight() {
   style.PopupBorderSize = 1.0f;
   style.DisabledAlpha = 0.58f;
 
+  if (!ImNodes::GetCurrentContext())
+    return;
   ImNodesStyle& node_style = ImNodes::GetStyle();
   node_style.NodeCornerRounding = 4.0f;
   node_style.NodeBorderThickness = 1.0f;

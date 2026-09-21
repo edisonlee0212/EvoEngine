@@ -2,7 +2,7 @@
 #include <imgui.h>
 #include <string>
 #include <vector>
-#include "EvoEngineAPI.hpp"
+#include "EvoEngineEditorAPI.hpp"
 
 namespace ImGui {
 /**
@@ -16,8 +16,8 @@ namespace ImGui {
  * @param splitter_long_axis_size Length of the splitter along the long axis. Defaults to -1.0f for auto-calculation.
  * @return True if the sizes of the panels were modified, false otherwise.
  */
-IMGUI_API bool Splitter(bool split_vertically, float thickness, float& size1, float& size2, float min_size1,
-                        float min_size2, float splitter_long_axis_size = -1.0f);
+EVOENGINE_EDITOR_API bool Splitter(bool split_vertically, float thickness, float& size1, float& size2, float min_size1,
+                                   float min_size2, float splitter_long_axis_size = -1.0f);
 
 /**
  * @brief Creates a combo box widget with a list of selectable items.
@@ -27,8 +27,8 @@ IMGUI_API bool Splitter(bool split_vertically, float thickness, float& size1, fl
  * @param flags Optional flags for customizing the combo box behavior. Defaults to 0.
  * @return True if the selection was changed, false otherwise.
  */
-IMGUI_API bool Combo(const std::string& label, const std::vector<std::string>& items, unsigned& current_selection,
-                     ImGuiComboFlags flags = 0);
+EVOENGINE_EDITOR_API bool Combo(const std::string& label, const std::vector<std::string>& items,
+                                unsigned& current_selection, ImGuiComboFlags flags = 0);
 
 /**
  * @brief Creates a combo box widget with a list of selectable items.
@@ -38,6 +38,6 @@ IMGUI_API bool Combo(const std::string& label, const std::vector<std::string>& i
  * @param flags Optional flags for customizing the combo box behavior. Defaults to 0.
  * @return True if the selection was changed, false otherwise.
  */
-IMGUI_API bool Combo(const std::string& label, const std::vector<std::string>& items, int& current_selection,
-                     ImGuiComboFlags flags = 0);
+EVOENGINE_EDITOR_API bool Combo(const std::string& label, const std::vector<std::string>& items, int& current_selection,
+                                ImGuiComboFlags flags = 0);
 }  // namespace ImGui

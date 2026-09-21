@@ -12,7 +12,7 @@ import sys
 SOURCE_SUFFIXES = {".h", ".hpp", ".hxx", ".inl", ".c", ".cc", ".cpp", ".cxx"}
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.MULTILINE)
 INCLUDE_DIRECTIVE = re.compile(r'^\s*#\s*include\b[^\n]*', re.MULTILINE)
-GUI = re.compile(r'\b(?:ImGui|ImGuizmo|ImNodes|ImVec[24]|ImTextureID)\b')
+GUI = re.compile(r'\b(?:ImGuizmo|ImNodes|ImGuiFileDialog)\b')
 GUARD = re.compile(r'^\s*#\s*(?:if|ifdef|ifndef|elif)\b[^\n]*\bEVOENGINE_WITH_EDITOR\b', re.MULTILINE)
 
 
@@ -60,7 +60,7 @@ def check(graph: Path) -> list[str]:
             if name in closure:
                 continue
             if name not in targets:
-                if forbidden(Path(name).resolve()) or re.search(r'(?:EditorSDK|EditorPackage|imgui|imguizmo)', name, re.I):
+                if forbidden(Path(name).resolve()) or re.search(r'(?:EditorSDK|EditorPackage|imguizmo|imnodes|imguifiledialog)', name, re.I):
                     errors.add(f"{runtime}: forbidden library {name}")
                 continue
             target = targets[name]

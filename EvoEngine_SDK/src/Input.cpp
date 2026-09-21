@@ -92,3 +92,24 @@ Input::KeyActionType Input::GetKey(const int key) {
     return search->second;
   return KeyActionType::Release;
 }
+
+void Input::ApplyGameplayEvents(const std::vector<InputEvent>& events, const bool focused, const bool capture_mouse,
+                                const bool capture_keyboard) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (!scene)
+    return;
+  auto& keys = scene->pressed_keys_;
+  const auto captured = [&](const int key) {
+    return key <= GLFW_MOUSE_BUTTON_LAST ? capture_mouse : capture_keyboard;
+  };
+  for (auto it = keys.begin(); it != keys.end();)
+    if (!focused || captured(it->first))
+      it = keys.erase(it);
+    else
+      ++it;
+  for (const auto& event : events)
+    if (event.key_action == KeyActionType::Release)
+      keys.erase(event.key);
+    else if (focused && !captured(event.key))
+      keys[event.key] = event.key_action;
+}

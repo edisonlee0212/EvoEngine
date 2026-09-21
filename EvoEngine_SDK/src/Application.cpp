@@ -39,6 +39,8 @@
 #include "ReflectionProbePack.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "RuntimeDebugGui.hpp"
+#include "RuntimeGui.hpp"
 #include "Scene.hpp"
 #include "Shader.hpp"
 #include "SkinnedMesh.hpp"
@@ -1999,6 +2001,22 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<AnimationPlayer>(SerializeAnimationPlayer, DeserializeAnimationPlayer, {},
                                                                "AnimationPlayer");
   Serialization::RegisterSerializationHandler<Camera>(SerializeCamera, DeserializeCamera, {}, "Camera");
+  Serialization::RegisterSerializationHandler<RuntimeGui>(
+      [](YAML::Emitter& out, const RuntimeGui& gui) {
+        gui.Serialize(out);
+      },
+      [](const YAML::Node& in, RuntimeGui& gui) {
+        gui.Deserialize(in);
+      },
+      {}, "RuntimeGui");
+  Serialization::RegisterSerializationHandler<RuntimeDebugGui>(
+      [](YAML::Emitter& out, const RuntimeDebugGui& gui) {
+        gui.Serialize(out);
+      },
+      [](const YAML::Node& in, RuntimeDebugGui& gui) {
+        gui.Deserialize(in);
+      },
+      {}, "RuntimeDebugGui");
   Serialization::RegisterSerializationHandler<Animator>(SerializeAnimator, DeserializeAnimator, {}, "Animator");
   Serialization::RegisterSerializationHandler<PostProcessingStack>(
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
@@ -2429,6 +2447,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterReferenceSerializationHandlers();
 
   RegisterPrivateComponent<Camera>("Camera");
+  RegisterPrivateComponent<RuntimeGui>("RuntimeGui");
   RegisterPrivateComponent<AnimationPlayer>("AnimationPlayer");
   RegisterPrivateComponent<PlayerController>("PlayerController");
   RegisterPrivateComponent<Particles>("Particles");
@@ -2449,6 +2468,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
 
   RegisterAsset<PostProcessingStack>("PostProcessingStack", {".evepostprocessingstack"});
   RegisterAsset<IAsset>("IAsset", {".eveasset"});
+  RegisterAsset<RuntimeDebugGui>("RuntimeDebugGui", {".everuntimegui"});
   RegisterAsset<UnknownAsset>("UnknownAsset", {".eveunknownasset"});
   RegisterAsset<Material>("Material", {".evematerial"});
   RegisterAsset<procedural_noise::ProceduralNoise2D>("ProceduralNoise2D", {".evenoise2d"});
@@ -2825,6 +2845,8 @@ void Application::Attach(const std::shared_ptr<Scene>& scene) {
     EVOENGINE_ERROR("Stop Application to attach scene")
   }
 
+  for (const auto& layer : layers_)
+    layer->OnBeforeSceneDetach();
   this->active_scene_ = scene;
   for (auto& func : this->post_attach_scene_functions_) {
     func(scene);

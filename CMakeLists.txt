@@ -258,7 +258,7 @@ file(GLOB_RECURSE editor_cmake_files CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/EvoEngine_SDK/Editor/CMakeLists.txt"
   "${CMAKE_SOURCE_DIR}/EvoEngine_Packages/*/Editor/CMakeLists.txt"
   "${CMAKE_SOURCE_DIR}/EvoEngine_Services/*/Editor/CMakeLists.txt")
-set(editor_roots ${IMGUI_INCLUDES})
+set(editor_roots ${IMGUI_EDITOR_INCLUDES})
 foreach(editor_cmake IN LISTS editor_cmake_files)
   get_filename_component(editor_root "${editor_cmake}" DIRECTORY)
   list(APPEND editor_roots "${editor_root}")

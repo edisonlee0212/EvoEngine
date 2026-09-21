@@ -67,6 +67,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Getting started | [docs/getting-started.md](docs/getting-started.md) |
 | Build and install | [docs/building.md](docs/building.md) |
 | Build Manager and runtime exports | [docs/runtime-builds.md](docs/runtime-builds.md) |
+| Main-camera runtime GUI | [docs/runtime-gui.md](docs/runtime-gui.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
 | CPU and GPU profiler | [docs/profiler.md](docs/profiler.md) |

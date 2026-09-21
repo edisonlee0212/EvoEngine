@@ -42,6 +42,7 @@ class EVOENGINE_API Input final {
  private:
   friend class Platform;    /**< Grants Platform class access to private members of Input. */
   friend class Application; /**< Grants Application class access to private members of Input. */
+  friend class ImGuiLayer;
   friend class EditorLayer; /**< Grants EditorLayer class access to private members of Input. */
   friend struct RuntimeInputTestAccess;
 
@@ -84,6 +85,8 @@ class EVOENGINE_API Input final {
    * @return The KeyActionType representing the current state of the key.
    */
   static KeyActionType GetKey(int key);
+  static void ApplyGameplayEvents(const std::vector<InputEvent>& events, bool focused, bool capture_mouse,
+                                  bool capture_keyboard);
 };
 
 }  // namespace evo_engine
