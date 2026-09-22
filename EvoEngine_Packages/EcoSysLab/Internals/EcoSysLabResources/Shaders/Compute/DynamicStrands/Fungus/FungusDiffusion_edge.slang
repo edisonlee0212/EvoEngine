@@ -345,21 +345,6 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //  }
     //}
 
-     if (true) {
-         if (segment_biology[segment1_handle].HL < HL_threshold || segment_biology[segment0_handle].HL < HL_threshold) {
-           segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-           segment_pairs[pair_index].connectivity_integrity = 0.0;
-         }
-         if (any(uint4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
-                 uint4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0)))) {
-           if (segment_biology[segment1_handle].HC < HC_threshold &&
-               segment_biology[segment0_handle].HC < HC_threshold)  //ZY: Switch to || for non-tree cases
-           {
-             segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-             segment_pairs[pair_index].connectivity_integrity = 0.0;
-           }
-         }
-     } // For TREE ELM
 
     // if (segments[segment1_handle].color != segments[segment0_handle].color &&
     //     (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
@@ -401,21 +386,6 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
         //  segment_pairs[pair_index].connectivity_integrity = 0.0;
         //}  // Test: Force break if different color near surface(Oak Trunk)
 
-    if (all(uint4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) ==
-            uint4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0)))) {
-      if (segments[segment0_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment1_handle].reach_ground = 1;
-      if (segments[segment1_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment0_handle].reach_ground = 1;
-      if (segments[segment0_handle].quasi_stable == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment1_handle].quasi_stable = 1;
-      if (segments[segment1_handle].quasi_stable == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment0_handle].quasi_stable = 1;
-    }
 
     /*if (segments[segment0_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
                                                         segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))

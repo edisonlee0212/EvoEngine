@@ -157,7 +157,8 @@ The active shader access that crosses stage ownership is:
 | Shader or pass | Read | Write |
 | --- | --- | --- |
 | `FungusDiffusion_node` | Segment biology, boundary distance, particle root distance | Segment defense, health, rot, moisture, diffusion accumulators and pair count (binding 13) |
-| `FungusDiffusion_edge` | Segment biology/profile/color/obstruction, pair endpoints/connectivity, current particles | Biological diffusion (13), pair integrity (3), ground/stability flags (2) |
+| `FungusDiffusion_edge` | Segment biology/profile/obstruction, pair endpoints/connectivity, current particles | Biological diffusion (13) |
+| `FungusMechanicsHandoff` | Segment health, colors, pair connectivity | Pair integrity (3), ground/stability flags (2) |
 | `Operators/FungusFindClosest` and `FungusInjection` | Segment rot density and positions; selection scratch | Selection depth and injected rot density in segments |
 | `Prediction/SegmentPair` | Segment carbon health and pair/particle state | Pair strain and strain limits |
 | `Breaking/SegmentPair` and `Breaking/Leaf` | Segment moisture/ground state and live mechanics | Pair/leaf integrity and damage |
@@ -176,7 +177,10 @@ the two alternative mesher buffer types without overloading simulation slots.
 The safe handoff order is **mechanical prediction → fungus node → fungus edge →
 immediate pair/stability handoff → mechanical constraints and damage** when
 both stages run. With physics paused, only the fungus node/edge and immediate
-handoff run. The existing `DsFungus::Execute()` places a GPU barrier after the
-node and edge dispatches; an ownership split must retain visibility before the
-next fungus step, mechanical pass, or live pair draw. Benchmark the extra
-buffer traffic/dispatches before removing the old shared fields and bindings.
+handoff run. `DsFungus::Execute()` places GPU barriers after node diffusion,
+edge diffusion, and the handoff dispatch. Pair breaks and stability propagation
+remain visible to the next fungus step, mechanical pass, or live pair draw even
+when physics is paused. The handoff adds one pair-sized dispatch per fungus
+step; its compute cost still needs measuring against the pre-split baseline.
+The barrier also makes all edge diffusion finish before any pair break from
+that step, replacing the former within-dispatch cross-pair ordering race.
