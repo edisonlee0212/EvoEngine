@@ -1,5 +1,6 @@
 #include "DsKineticVoronoiMeshing.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -3355,209 +3356,278 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   }
 
-  strand_tree =
-      std::make_shared<kinDS::StrandTree>(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
-                                          transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
+  // Preserve prior successful mesh so a TreeMesher failure leaves GPU/CPU buffers unchanged.
+  const auto previous_strand_tree = strand_tree;
+  const auto previous_tree_mesher = tree_mesher_;
+  const auto previous_vertices = segment_meshlet_vertices;
+  const auto previous_triangles = segment_meshlet_triangles;
+  const auto previous_meshlets = segment_meshlets_;
+  const auto previous_neighbors = meshing_neighbor_indices_;
+  const auto previous_boundary_distances = boundary_distances_by_vertex;
+  const auto previous_root_transform = meshlets_root_transform_;
 
-  if (meshing_settings.dry_run_strand_tree_only) {
-    EVOENGINE_LOG("Dry run: strand tree prepared, skipping meshing algorithm.");
-    return;
+  std::vector<DynamicStrands::GpuSegmentPair> previous_segment_pairs;
+  std::vector<std::array<int, BUNDLE_MAX_CONNECTION>> previous_pair_handles;
+  std::vector<std::pair<int, int>> previous_strand_pair_ends;
+  uint32_t previous_connection_segment_pair_size = 0;
+  const bool snapshot_pairs = meshing_settings.recompute_segment_pairs && dynamic_strands != nullptr;
+  if (snapshot_pairs) {
+    previous_segment_pairs = dynamic_strands->segment_pairs;
+    previous_connection_segment_pair_size = dynamic_strands->connection_segment_pair_size;
+    previous_pair_handles.resize(dynamic_strands->segment_data_list.size());
+    for (size_t i = 0; i < dynamic_strands->segment_data_list.size(); ++i) {
+      std::copy_n(dynamic_strands->segment_data_list[i].pair_handles, BUNDLE_MAX_CONNECTION,
+                  previous_pair_handles[i].begin());
+    }
+    previous_strand_pair_ends.resize(dynamic_strands->strands.size());
+    for (size_t i = 0; i < dynamic_strands->strands.size(); ++i) {
+      previous_strand_pair_ends[i] = {dynamic_strands->strands[i].begin_segment_pair_handle,
+                                      dynamic_strands->strands[i].end_segment_pair_handle};
+    }
   }
 
-  tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
-    Jobs::RunParallelFor(count, [&](size_t i) {
-      func(i);
-    });
-  });
-  tree_mesher_->getSettings().transform_mesh_at_construction = true;
-  tree_mesher_->getSettings().mesh_cap_at_start = true;
-  tree_mesher_->getSettings().alpha_cutoff = meshing_settings.alpha_cutoff;
-  tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
-  tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
-  tree_mesher_->getSettings().export_separate_contributor_objects =
-      meshing_settings.export_separate_contributor_objects;
+  const auto restore_previous_meshing_state = [&]() {
+    strand_tree = previous_strand_tree;
+    tree_mesher_ = previous_tree_mesher;
+    segment_meshlet_vertices = previous_vertices;
+    segment_meshlet_triangles = previous_triangles;
+    segment_meshlets_ = previous_meshlets;
+    meshing_neighbor_indices_ = previous_neighbors;
+    boundary_distances_by_vertex = previous_boundary_distances;
+    meshlets_root_transform_ = previous_root_transform;
+    if (snapshot_pairs) {
+      dynamic_strands->segment_pairs = previous_segment_pairs;
+      dynamic_strands->connection_segment_pair_size = previous_connection_segment_pair_size;
+      for (size_t i = 0; i < previous_pair_handles.size() && i < dynamic_strands->segment_data_list.size(); ++i) {
+        std::copy_n(previous_pair_handles[i].begin(), BUNDLE_MAX_CONNECTION,
+                    dynamic_strands->segment_data_list[i].pair_handles);
+      }
+      for (size_t i = 0; i < previous_strand_pair_ends.size() && i < dynamic_strands->strands.size(); ++i) {
+        dynamic_strands->strands[i].begin_segment_pair_handle = previous_strand_pair_ends[i].first;
+        dynamic_strands->strands[i].end_segment_pair_handle = previous_strand_pair_ends[i].second;
+      }
+    }
+  };
 
-  MeshingInputHashStats hash_stats = ComputeMeshingInputHashStats(
-      support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
-      root_transform, branch_indices, strands_by_branch_id);
-  hash_stats.min_segment_length = min_segment_length;
-  hash_stats.max_segment_length = max_segment_length;
-  LogMeshingInputHashStats(hash_stats);
-  const std::string& input_hash = hash_stats.input_hash;
-  const std::filesystem::path buffer_dir = MeshingBufferDirectory();
-  std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
-  std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
+  try {
+    strand_tree =
+        std::make_shared<kinDS::StrandTree>(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
+                                            transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
 
-  const auto warn_segment_count_mismatch =
-      [&](const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices) {
-        for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
-          if (strand_id >= meshing_strand_to_segment_indices.size()) {
-            continue;
-          }
-          if (meshing_strand_to_segment_indices[strand_id].size() !=
-              physics_strand_to_segment_indices[strand_id].size()) {
-            EVOENGINE_WARNING("Meshing algorithm resulted in "
-                              << meshing_strand_to_segment_indices[strand_id].size() << " segments for strand "
-                              << strand_id << ", but the physics simulation has "
-                              << physics_strand_to_segment_indices[strand_id].size() << ". There are "
-                              << subdivisions_by_strand[strand_id].size() << " subdivision parameters in range ["
-                              << subdivisions_by_strand[strand_id].front() << ", "
-                              << subdivisions_by_strand[strand_id].back() << "].");
-          }
-        }
-      };
-
-  const auto debug_export_meshes = [&]() {
-    if (!meshing_settings.debug_export_meshes) {
+    if (meshing_settings.dry_run_strand_tree_only) {
+      EVOENGINE_LOG("Dry run: strand tree prepared, skipping meshing algorithm.");
       return;
     }
-    EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
-    tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
-    tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
-    EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
-  };
 
-  bool loaded_from_cache = false;
-  bool rebuild_gpu_from_meshlets = false;
-  const auto try_load_cache_at = [&](const std::filesystem::path& load_bin_path,
-                                     const std::filesystem::path& load_yml_path) -> bool {
-    std::vector<GpuMeshletVertex> gpu_vertices;
-    std::vector<GpuMeshletTriangle> gpu_triangles;
-    std::vector<kinDS::VoronoiMesh> meshlets;
-    std::vector<std::vector<int>> neighbors;
-    std::vector<size_t> meshing_to_physics;
-    std::vector<std::vector<size_t>> strand_to_segment;
-    if (!LoadMeshingBuffer(load_bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
-                           meshing_to_physics, strand_to_segment)) {
-      EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
-                                          << " exists but could not be loaded; remeshing (cache miss).");
-      return false;
-    }
-    meshlets_root_transform_ = root_transform;
-    segment_meshlet_vertices = std::move(gpu_vertices);
-    segment_meshlet_triangles = std::move(gpu_triangles);
-    tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
-    tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
-    if (!meshlets.empty()) {
-      segment_meshlets_ = std::move(meshlets);
-      meshing_neighbor_indices_ = std::move(neighbors);
-      RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
-      tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
-      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
-      rebuild_gpu_from_meshlets = true;
-    } else {
-      meshing_neighbor_indices_ = std::move(neighbors);
-      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
-      EnsureCpuMeshletsFromGpu();
-    }
-    if (!HasMeshedSegmentMeshlets()) {
-      EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
-                                          << " loaded GPU data but CPU meshlets could not be restored; remeshing.");
-      return false;
-    }
-    warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
-    EVOENGINE_LOG("Meshing buffer cache hit " << load_bin_path.stem().string() << " ("
-                                              << segment_meshlet_vertices.size() << " vertices, "
-                                              << segment_meshlet_triangles.size() << " triangles).");
-    if (UpdateMeshingBufferYmlOnCacheHit(load_yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
-      EVOENGINE_LOG("Updated meshing buffer metadata for " << load_yml_path.stem().string() << ".");
-    }
-    return true;
-  };
+    tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
+      Jobs::RunParallelFor(count, [&](size_t i) {
+        func(i);
+      });
+    });
+    tree_mesher_->getSettings().transform_mesh_at_construction = true;
+    tree_mesher_->getSettings().mesh_cap_at_start = true;
+    tree_mesher_->getSettings().alpha_cutoff = meshing_settings.alpha_cutoff;
+    tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
+    tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
+    tree_mesher_->getSettings().export_separate_contributor_objects =
+        meshing_settings.export_separate_contributor_objects;
 
-  if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
-    loaded_from_cache = try_load_cache_at(bin_path, yml_path);
-  } else if (!meshing_settings.override_meshing_buffer &&
-             meshing_settings.alpha_cutoff == kLegacyDefaultAlphaCutoff) {
-    // Pre-alpha_cutoff hashes omitted the cutoff (always 10). Fall back and migrate to the new name.
-    MeshingInputHashStats legacy_stats = ComputeMeshingInputHashStats(
+    MeshingInputHashStats hash_stats = ComputeMeshingInputHashStats(
         support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
-        root_transform, branch_indices, strands_by_branch_id, /*include_alpha_cutoff=*/false);
-    legacy_stats.min_segment_length = min_segment_length;
-    legacy_stats.max_segment_length = max_segment_length;
-    const std::filesystem::path legacy_bin = buffer_dir / (legacy_stats.input_hash + ".bin");
-    const std::filesystem::path legacy_yml = buffer_dir / (legacy_stats.input_hash + ".yml");
-    if (legacy_stats.input_hash != input_hash && std::filesystem::exists(legacy_bin)) {
-      EVOENGINE_LOG("Meshing buffer cache miss for " << input_hash << "; trying legacy hash "
-                                                     << legacy_stats.input_hash << " (alpha_cutoff=10).");
-      if (try_load_cache_at(legacy_bin, legacy_yml)) {
-        loaded_from_cache = true;
-        if (TryMigrateMeshingBufferCacheFiles(legacy_bin, legacy_yml, bin_path, yml_path, hash_stats)) {
-          // Paths now point at the migrated files for any later metadata updates.
-        } else {
-          // Still usable from the legacy path if rename failed.
-          bin_path = legacy_bin;
-          yml_path = legacy_yml;
-        }
+        root_transform, branch_indices, strands_by_branch_id);
+    hash_stats.min_segment_length = min_segment_length;
+    hash_stats.max_segment_length = max_segment_length;
+    LogMeshingInputHashStats(hash_stats);
+    const std::string& input_hash = hash_stats.input_hash;
+    const std::filesystem::path buffer_dir = MeshingBufferDirectory();
+    std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
+    std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
+
+    const auto warn_segment_count_mismatch =
+        [&](const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices) {
+          for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+            if (strand_id >= meshing_strand_to_segment_indices.size()) {
+              continue;
+            }
+            if (meshing_strand_to_segment_indices[strand_id].size() !=
+                physics_strand_to_segment_indices[strand_id].size()) {
+              EVOENGINE_WARNING("Meshing algorithm resulted in "
+                                << meshing_strand_to_segment_indices[strand_id].size() << " segments for strand "
+                                << strand_id << ", but the physics simulation has "
+                                << physics_strand_to_segment_indices[strand_id].size() << ". There are "
+                                << subdivisions_by_strand[strand_id].size() << " subdivision parameters in range ["
+                                << subdivisions_by_strand[strand_id].front() << ", "
+                                << subdivisions_by_strand[strand_id].back() << "].");
+            }
+          }
+        };
+
+    const auto debug_export_meshes = [&]() {
+      if (!meshing_settings.debug_export_meshes) {
+        return;
       }
+      EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
+      tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
+      tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
+      EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
+    };
+
+    bool loaded_from_cache = false;
+    bool rebuild_gpu_from_meshlets = false;
+    const auto try_load_cache_at = [&](const std::filesystem::path& load_bin_path,
+                                       const std::filesystem::path& load_yml_path) -> bool {
+      std::vector<GpuMeshletVertex> gpu_vertices;
+      std::vector<GpuMeshletTriangle> gpu_triangles;
+      std::vector<kinDS::VoronoiMesh> meshlets;
+      std::vector<std::vector<int>> neighbors;
+      std::vector<size_t> meshing_to_physics;
+      std::vector<std::vector<size_t>> strand_to_segment;
+      if (!LoadMeshingBuffer(load_bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
+                             meshing_to_physics, strand_to_segment)) {
+        EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
+                                            << " exists but could not be loaded; remeshing (cache miss).");
+        return false;
+      }
+      meshlets_root_transform_ = root_transform;
+      segment_meshlet_vertices = std::move(gpu_vertices);
+      segment_meshlet_triangles = std::move(gpu_triangles);
+      tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
+      tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
+      if (!meshlets.empty()) {
+        segment_meshlets_ = std::move(meshlets);
+        meshing_neighbor_indices_ = std::move(neighbors);
+        RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
+        tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+        rebuild_gpu_from_meshlets = true;
+      } else {
+        meshing_neighbor_indices_ = std::move(neighbors);
+        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+        EnsureCpuMeshletsFromGpu();
+      }
+      if (!HasMeshedSegmentMeshlets()) {
+        EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
+                                            << " loaded GPU data but CPU meshlets could not be restored; remeshing.");
+        return false;
+      }
+      warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+      EVOENGINE_LOG("Meshing buffer cache hit " << load_bin_path.stem().string() << " ("
+                                                << segment_meshlet_vertices.size() << " vertices, "
+                                                << segment_meshlet_triangles.size() << " triangles).");
+      if (UpdateMeshingBufferYmlOnCacheHit(load_yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
+        EVOENGINE_LOG("Updated meshing buffer metadata for " << load_yml_path.stem().string() << ".");
+      }
+      return true;
+    };
+
+    if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
+      loaded_from_cache = try_load_cache_at(bin_path, yml_path);
+    } else if (!meshing_settings.override_meshing_buffer &&
+               meshing_settings.alpha_cutoff == kLegacyDefaultAlphaCutoff) {
+      // Pre-alpha_cutoff hashes omitted the cutoff (always 10). Fall back and migrate to the new name.
+      MeshingInputHashStats legacy_stats = ComputeMeshingInputHashStats(
+          support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
+          root_transform, branch_indices, strands_by_branch_id, /*include_alpha_cutoff=*/false);
+      legacy_stats.min_segment_length = min_segment_length;
+      legacy_stats.max_segment_length = max_segment_length;
+      const std::filesystem::path legacy_bin = buffer_dir / (legacy_stats.input_hash + ".bin");
+      const std::filesystem::path legacy_yml = buffer_dir / (legacy_stats.input_hash + ".yml");
+      if (legacy_stats.input_hash != input_hash && std::filesystem::exists(legacy_bin)) {
+        EVOENGINE_LOG("Meshing buffer cache miss for " << input_hash << "; trying legacy hash "
+                                                       << legacy_stats.input_hash << " (alpha_cutoff=10).");
+        if (try_load_cache_at(legacy_bin, legacy_yml)) {
+          loaded_from_cache = true;
+          if (TryMigrateMeshingBufferCacheFiles(legacy_bin, legacy_yml, bin_path, yml_path, hash_stats)) {
+            // Paths now point at the migrated files for any later metadata updates.
+          } else {
+            // Still usable from the legacy path if rename failed.
+            bin_path = legacy_bin;
+            yml_path = legacy_yml;
+          }
+        }
+      } else {
+        EVOENGINE_LOG("Meshing buffer cache miss " << input_hash << " (no file at " << bin_path.string() << ").");
+      }
+    } else if (meshing_settings.override_meshing_buffer) {
+      EVOENGINE_LOG("Meshing buffer override enabled; remeshing for hash " << input_hash << ".");
     } else {
       EVOENGINE_LOG("Meshing buffer cache miss " << input_hash << " (no file at " << bin_path.string() << ").");
     }
-  } else if (meshing_settings.override_meshing_buffer) {
-    EVOENGINE_LOG("Meshing buffer override enabled; remeshing for hash " << input_hash << ".");
-  } else {
-    EVOENGINE_LOG("Meshing buffer cache miss " << input_hash << " (no file at " << bin_path.string() << ").");
-  }
 
-  if (!loaded_from_cache) {
-    auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
+    if (!loaded_from_cache) {
+      auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
 
-    // Keep pristine copies for later Intersect button runs (no clipping during meshing).
-    segment_meshlets_ = meshes;
-    meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
-    RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
-    tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
-    tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
-    meshlets_root_transform_ = root_transform;
-    warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
-  }
+      // Keep pristine copies for later Intersect button runs (no clipping during meshing).
+      segment_meshlets_ = meshes;
+      meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+      RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
+      tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+      meshlets_root_transform_ = root_transform;
+      warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+    }
 
-  const auto& meshes = tree_mesher_->getSegmentMeshlets();
-  const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
-  const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
-  const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
+    const auto& meshes = tree_mesher_->getSegmentMeshlets();
+    const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
+    const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+    const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
 
-  if (meshing_settings.recompute_segment_pairs) {
-    RecomputeSegmentPairs(*tree_mesher_);
-  }
+    if (meshing_settings.recompute_segment_pairs) {
+      RecomputeSegmentPairs(*tree_mesher_);
+    }
 
-  // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed,
-  // repaired bark neighbor tags from materials, or recomputed pairs after a cache hit.
-  if (!loaded_from_cache || meshing_settings.recompute_segment_pairs || rebuild_gpu_from_meshlets) {
-    segment_meshlet_vertices.clear();
-    segment_meshlet_triangles.clear();
-    PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
-                              meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
-  }
+    // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed,
+    // repaired bark neighbor tags from materials, or recomputed pairs after a cache hit.
+    if (!loaded_from_cache || meshing_settings.recompute_segment_pairs || rebuild_gpu_from_meshlets) {
+      segment_meshlet_vertices.clear();
+      segment_meshlet_triangles.clear();
+      PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
+                                meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
+    }
 
-  if (!loaded_from_cache) {
-    auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
-    auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
+    if (!loaded_from_cache) {
+      auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
+      auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
 
-    boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
-    for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
-      size_t strand_id = boundary_vertex_to_strand_id[i];
+      boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
+      for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
+        size_t strand_id = boundary_vertex_to_strand_id[i];
 
-      // as a heuristic, just use the bottom boundary distance if height is <= 0, otherwise use the top boundary
-      // distance
-      float height = boundary_mesh.getVertices()[i][2];
-      if (height <= 0.0f) {
-        boundary_distances_by_vertex[i] = bottom_boundary_distances_by_strand_id[strand_id];
-      } else {
-        boundary_distances_by_vertex[i] = top_boundary_distances_by_strand_id[strand_id];
+        // as a heuristic, just use the bottom boundary distance if height is <= 0, otherwise use the top boundary
+        // distance
+        float height = boundary_mesh.getVertices()[i][2];
+        if (height <= 0.0f) {
+          boundary_distances_by_vertex[i] = bottom_boundary_distances_by_strand_id[strand_id];
+        } else {
+          boundary_distances_by_vertex[i] = top_boundary_distances_by_strand_id[strand_id];
+        }
       }
+
+      if (SaveMeshingBuffer(bin_path, yml_path, hash_stats, root_transform, segment_meshlet_vertices,
+                            segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
+                            meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
+        EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
+      }
+
+      EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
     }
 
-    if (SaveMeshingBuffer(bin_path, yml_path, hash_stats, root_transform, segment_meshlet_vertices,
-                          segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
-                          meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
-      EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
+    try {
+      debug_export_meshes();
+    } catch (const std::exception& exception) {
+      EVOENGINE_WARNING("Meshing succeeded but debug mesh export failed: " << exception.what());
+    } catch (...) {
+      EVOENGINE_WARNING("Meshing succeeded but debug mesh export failed with an unknown error.");
     }
-
-    EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
+  } catch (const std::exception& exception) {
+    EVOENGINE_ERROR("Kinetic Voronoi meshing failed: " << exception.what()
+                                                       << "; cancelling update, previous mesh buffers kept.");
+    restore_previous_meshing_state();
+  } catch (...) {
+    EVOENGINE_ERROR("Kinetic Voronoi meshing failed with an unknown error; cancelling update, previous mesh buffers "
+                    "kept.");
+    restore_previous_meshing_state();
   }
-
-  debug_export_meshes();
 }
 
 void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
