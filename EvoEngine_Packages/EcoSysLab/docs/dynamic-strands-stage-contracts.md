@@ -38,9 +38,13 @@ preserves fungus demos that explicitly enable the model.
 | Geometry update | Current simulation buffers and meshing settings | Alpha-shape uniform particles/tetrahedron flags or kinetic-Voronoi meshlet vertices/triangles |
 | Draw registration and draw | Meshing buffers, live simulation buffers, materials and cameras | Camera/shadow draw work; alpha-shape draw-time scratch counters |
 
-All stages currently share the per-frame `DynamicStrands::strands_descriptor_sets`
-layout. Bindings 0–7 and 10–12 contain simulation/foliage data; the selected
-mesher fills bindings 8–9. The alpha-shape draw path also reads current
+Simulation stages use the per-frame `DynamicStrands::strands_descriptor_sets`
+layout. Bindings 0–7 and 10–13 contain simulation, foliage, and biology data.
+Each mesher owns a separate two-buffer geometry descriptor set; its compute
+shaders use set 1 and graphics shaders use set 3. Graphics set 2 remains the
+lighting slot. The two meshers share only the descriptor layout schema, which
+keeps the editor's pipeline-rebuild controls usable. The alpha-shape draw path
+also reads current
 segment state for colors, highlighting and small-segment visualization. The
 kinetic-Voronoi branch path draws derived meshlets. Foliage and segment-pair
 shaders read live simulation buffers directly.
@@ -124,12 +128,13 @@ read the stability/ground flags propagated by fungus. These are distinct
 read phases: an ABI migration must not accidentally make the prediction kernel
 see the *new* fungus result one substep earlier than it does today.
 
-### Shared GPU binding inventory
+### GPU binding inventory
 
-`DynamicStrandsSet0.slang` and `DynamicStrandsSet1.slang` expose the same
+`DynamicStrandsSet0.slang` and `DynamicStrandsSet1.slang` expose simulation
 buffers in descriptor sets 0 and 1. `DynamicStrands::UpdateBindings()` binds
-the per-frame set; each mesher supplies bindings 8 and 9. The buffer owner and
-stage access are:
+the per-frame simulation set. Mesher-owned geometry descriptors use bindings
+0 and 1 in compute set 1 or graphics set 3. The buffer owner and stage access
+are:
 
 | Binding | Current buffer | Relevant access |
 | --- | --- | --- |
@@ -139,10 +144,13 @@ stage access are:
 | 4 | Segment correction data | Mechanical constraints |
 | 5–6 | Hashed-grid elements/cell starts | Collision and grouping |
 | 7 | Foliage | Mechanical leaf state and live foliage draw |
-| 8–9 | Alpha-shape uniform particles/tetrahedra **or** kinetic-Voronoi meshlet vertices/triangles | Derived branch geometry, selected by the active mesher |
 | 10–11 | Segment particles 0/1 | Mechanical poses; fungus position/root-distance inputs; mesher inputs; live segment/pair draw |
 | 12 | Segment connection handles | Bundle constraints |
 | 13 | Segment biology | Fungus state and diffusion; mechanical health inputs; diagnostic color modes |
+
+The mesher geometry set has two bindings: alpha shape uses uniform particles
+and tetrahedra; kinetic Voronoi uses meshlet vertices and triangles. These
+resources no longer occupy slots in the simulation descriptor set.
 
 The active shader access that crosses stage ownership is:
 
@@ -154,16 +162,16 @@ The active shader access that crosses stage ownership is:
 | `Prediction/SegmentPair` | Segment carbon health and pair/particle state | Pair strain and strain limits |
 | `Breaking/SegmentPair` and `Breaking/Leaf` | Segment moisture/ground state and live mechanics | Pair/leaf integrity and damage |
 | Bundle constraints | Segment health/moisture and pair state | Mechanical correction and pair state |
-| Alpha-shape update/filter passes | Segment and particle state, pair topology, derived data | Uniform particles and tetrahedra (8–9) |
-| Kinetic-Voronoi vertex/triangle passes | Segment and particle state, pair topology, derived data | Meshlet vertices and triangles (8–9) |
+| Alpha-shape update/filter passes | Segment and particle state, pair topology, derived data | Uniform particles and tetrahedra (geometry set 0–1) |
+| Kinetic-Voronoi vertex/triangle passes | Segment and particle state, pair topology, derived data | Meshlet vertices and triangles (geometry set 0–1) |
 | Segment/pair/foliage draw shaders | Live segments, pairs, foliage and particles; derived data for branches | No simulation buffers; task shaders select draw work |
 
 `DynamicStrands::Upload()` packs CPU segments and particles separately and
 uploads pairs, foliage, and mesher data. `Download()` reverses that packing.
 A biological buffer split therefore needs both CPU transfer directions, the
 active fungus and injection shaders, mechanical health readers, and diagnostic
-draw color modes migrated together. A render-geometry descriptor split must
-also preserve the two alternative meanings of bindings 8–9.
+draw color modes migrated together. The geometry descriptor split preserves
+the two alternative mesher buffer types without overloading simulation slots.
 
 The safe handoff order is **mechanical prediction → fungus node → fungus edge →
 immediate pair/stability handoff → mechanical constraints and damage** when

@@ -124,6 +124,7 @@ void DynamicStrands::ReleaseStaticGpuResources() {
   foliage_point_light_render_pipeline.reset();
 
   strands_layout.reset();
+  DsMeshing::geometry_descriptor_set_layout.reset();
 }
 
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
@@ -279,8 +280,6 @@ void DynamicStrands::Init(MeshingType meshing_type) {
     strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
@@ -308,6 +307,7 @@ void DynamicStrands::Init(MeshingType meshing_type) {
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
+  meshing->InitGeometryDescriptors();
 
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =

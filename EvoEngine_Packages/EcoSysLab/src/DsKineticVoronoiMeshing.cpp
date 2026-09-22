@@ -1023,6 +1023,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   branches_vertex_update_pipeline = std::make_shared<ComputePipeline>();
   branches_vertex_update_pipeline->compute_shader = shader;
   branches_vertex_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_vertex_update_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
 
   auto& push_constant_range = branches_vertex_update_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(VertexPredictionPushConstant);
@@ -1038,6 +1039,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Triangle.slang");
   branches_triangle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_triangle_update_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
 
   auto& triangle_prediction_push_constant_range =
       branches_triangle_update_pipeline->push_constant_ranges.emplace_back();
@@ -1061,6 +1063,8 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateGeometry() const {
     branches_vertex_update_pipeline->Bind(vk_command_buffer);
     branches_vertex_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_vertex_update_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_vertex_update_pipeline->PushConstant(vk_command_buffer, 0, vertex_push_constant);
     branches_vertex_update_pipeline->Dispatch(
         vk_command_buffer, Platform::DivUp(vertex_push_constant.vertex_count, work_group_invocations), 1, 1);
@@ -1072,6 +1076,8 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateGeometry() const {
     branches_triangle_update_pipeline->Bind(vk_command_buffer);
     branches_triangle_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_triangle_update_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_triangle_update_pipeline->PushConstant(vk_command_buffer, 0, triangle_push_constant);
     branches_triangle_update_pipeline->Dispatch(
         vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1, 1);
@@ -1107,10 +1113,10 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::Clear() {
 
 void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, device_segment_meshlet_vertices_buffer, 0);
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      9, device_segment_meshlet_triangles_buffer, 0);
+  geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+      0, device_segment_meshlet_vertices_buffer, 0);
+  geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+      1, device_segment_meshlet_triangles_buffer, 0);
 }
 
 void eco_sys_lab_package::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle& rendering_instance_handle,
@@ -1226,6 +1232,7 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   point_light_push_constant_range.size = sizeof(SegmentMeshletPushConstant);
   point_light_push_constant_range.offset = 0;
   point_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(segment_meshlet_point_light_render_pipeline);
   segment_meshlet_point_light_render_pipeline->Initialize();
   // Descriptor set layout
   segment_meshlet_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -1253,6 +1260,7 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   spot_light_push_constant_range.size = sizeof(SegmentMeshletPushConstant);
   spot_light_push_constant_range.offset = 0;
   spot_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(segment_meshlet_spot_light_render_pipeline);
   segment_meshlet_spot_light_render_pipeline->Initialize();
   // Descriptor set layout
   segment_meshlet_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -1281,6 +1289,7 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   directional_light_push_constant_range.size = sizeof(SegmentMeshletPushConstant);
   directional_light_push_constant_range.offset = 0;
   directional_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(segment_meshlet_directional_light_render_pipeline);
   segment_meshlet_directional_light_render_pipeline->Initialize();
   // Descriptor set layout
   segment_meshlet_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -1312,6 +1321,7 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   push_constant_range.size = sizeof(SegmentMeshletPushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(segment_meshlet_render_pipeline);
   segment_meshlet_render_pipeline->Initialize();
   segment_meshlet_masked_render_pipeline =
       CreateMaskedRawPipeline(segment_meshlet_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
@@ -1339,6 +1349,8 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToPointLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   segment_meshlet_point_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  segment_meshlet_point_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   segment_meshlet_point_light_render_pipeline->states.ResetAllStates(0);
   segment_meshlet_point_light_render_pipeline->states.SetViewportScissor(view.viewport);
   segment_meshlet_point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -1369,6 +1381,8 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToSpotLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   segment_meshlet_spot_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  segment_meshlet_spot_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   segment_meshlet_spot_light_render_pipeline->states.ResetAllStates(0);
   segment_meshlet_spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
   segment_meshlet_spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -1399,6 +1413,8 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToDirectionalLightShadowM
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   segment_meshlet_directional_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  segment_meshlet_directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   segment_meshlet_directional_light_render_pipeline->states.ResetAllStates(0);
   segment_meshlet_directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
   segment_meshlet_directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -1464,6 +1480,8 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 1,
                               dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                              geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
   pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);

@@ -285,6 +285,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     interior_initialization_pipeline = std::make_shared<ComputePipeline>();
     interior_initialization_pipeline->compute_shader = shader;
     interior_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    interior_initialization_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
     auto& push_constant_range = interior_initialization_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
     push_constant_range.offset = 0;
@@ -302,6 +303,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
     bark_flag_initialization_pipeline->compute_shader = shader;
     bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
     auto& push_constant_range = bark_flag_initialization_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(BarkFlagInitializationPushConstant);
     push_constant_range.offset = 0;
@@ -320,6 +322,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     uniform_particle_initialization_pipeline = std::make_shared<ComputePipeline>();
     uniform_particle_initialization_pipeline->compute_shader = shader;
     uniform_particle_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+    uniform_particle_initialization_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
     auto& push_constant_range = uniform_particle_initialization_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(UniformParticleInitializationPushConstant);
     push_constant_range.offset = 0;
@@ -347,6 +350,8 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     interior_initialization_pipeline->Bind(vk_command_buffer);
     interior_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    interior_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     interior_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     interior_initialization_pipeline->Dispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
@@ -356,6 +361,8 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     bark_flag_initialization_pipeline->Bind(vk_command_buffer);
     bark_flag_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    bark_flag_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     bark_flag_initialization_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     bark_flag_initialization_pipeline->Dispatch(vk_command_buffer, delaunay_tetrahedrons_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
@@ -365,6 +372,8 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     uniform_particle_initialization_pipeline->Bind(vk_command_buffer);
     uniform_particle_initialization_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    uniform_particle_initialization_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     uniform_particle_initialization_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
     uniform_particle_initialization_pipeline->Dispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
@@ -399,6 +408,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
   branches_uniform_particle_update_pipeline->compute_shader = shader;
   branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_uniform_particle_update_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
 
   auto& push_constant_range = branches_uniform_particle_update_pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(UniformParticlePredictionPushConstant);
@@ -414,6 +424,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
       std::filesystem::path("./EcoSysLabResources") /
           "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.slang");
   branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
 
   auto& tetrahedron_filtering_push_constant_range =
       branches_tetrahedron_filtering_pipeline->push_constant_ranges.emplace_back();
@@ -430,6 +441,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.slang");
   branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
 
   auto& triangle_filtering_push_constant_range =
       branches_triangle_filtering_pipeline->push_constant_ranges.emplace_back();
@@ -459,6 +471,8 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateGeometry() const {
     branches_uniform_particle_update_pipeline->Bind(vk_command_buffer);
     branches_uniform_particle_update_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_uniform_particle_update_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_uniform_particle_update_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
     branches_uniform_particle_update_pipeline->Dispatch(
         vk_command_buffer,
@@ -480,6 +494,8 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateGeometry() const {
     branches_tetrahedron_filtering_pipeline->Bind(vk_command_buffer);
     branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_tetrahedron_filtering_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_tetrahedron_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
     branches_tetrahedron_filtering_pipeline->Dispatch(
         vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations), 1, 1);
@@ -489,6 +505,8 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateGeometry() const {
     branches_triangle_filtering_pipeline->Bind(vk_command_buffer);
     branches_triangle_filtering_pipeline->BindDescriptorSet(
         vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+    branches_triangle_filtering_pipeline->BindDescriptorSet(
+        vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
     branches_triangle_filtering_pipeline->PushConstant(vk_command_buffer, 0, filtering_push_constant);
     branches_triangle_filtering_pipeline->Dispatch(
         vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations), 1, 1);
@@ -522,12 +540,9 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::Clear() {
 
 void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  // TODO: tie to alpha shape meshing only
-  // TODO: use a different descriptor set for meshing
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, device_uniform_particles_buffer, 0);
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      9, device_delaunay_tetrahedrons_buffer, 0);
+  geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_uniform_particles_buffer, 0);
+  geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_delaunay_tetrahedrons_buffer,
+                                                                               0);
 }
 
 void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera,
@@ -592,6 +607,7 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
+    CompleteGraphicsDescriptorLayouts(uniform_particle_render_pipeline);
     uniform_particle_render_pipeline->Initialize();
   }
 
@@ -638,6 +654,8 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
             uniform_particle_render_pipeline->BindDescriptorSet(
                 vk_command_buffer, 1,
                 dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+            uniform_particle_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
             uniform_particle_render_pipeline->PushConstant(vk_command_buffer, 0, uniform_particle_push_constant);
             const uint32_t count = Platform::DivUp(uniform_particles.size(),
                                                    task_work_group_invocations);  // TODO: move to meshing
