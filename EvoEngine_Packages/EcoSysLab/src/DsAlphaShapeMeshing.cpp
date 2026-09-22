@@ -440,7 +440,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   branches_triangle_filtering_pipeline->Initialize();
 }
 
-void eco_sys_lab_package::DsAlphaShapeMeshing::RenderCompute() const {
+void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateGeometry() const {
   if (dynamic_strands->segments.empty())
     return;
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;

@@ -30,7 +30,7 @@ class DsMeshing {
   virtual void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) = 0;
 
   virtual void BuildRenderComputePipelines() = 0;
-  virtual void RenderCompute() const = 0;
+  virtual void UpdateGeometry() const = 0;
   virtual void BuildRenderingPipelines() = 0;
 
   virtual void Download() = 0;

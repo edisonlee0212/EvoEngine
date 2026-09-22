@@ -73,11 +73,10 @@ class DsFungus {
 
   /**
    * @brief Executes the fungal diffusion simulation on the strands.
-   * @param physics_parameters The physics simulation parameters.
+   * @param fungus_parameters The fungal diffusion parameters.
    * @param target_dynamic_strands The target strand system.
    */
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
+  void Execute(const DynamicStrands::FungusParameters& fungus_parameters, const DynamicStrands& target_dynamic_strands);
 };
 
 /**

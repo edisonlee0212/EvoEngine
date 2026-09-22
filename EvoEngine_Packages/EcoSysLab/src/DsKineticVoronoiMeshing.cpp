@@ -1048,7 +1048,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   branches_triangle_update_pipeline->Initialize();
 }
 
-void eco_sys_lab_package::DsKineticVoronoiMeshing::RenderCompute() const {
+void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateGeometry() const {
   if (dynamic_strands->segments.empty())
     return;
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;

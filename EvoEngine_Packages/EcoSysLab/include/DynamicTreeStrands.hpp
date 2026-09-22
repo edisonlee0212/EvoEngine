@@ -195,7 +195,9 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @brief Advances the physics simulation step.
    * @param physics_parameters Parameters for the physics simulation step.
    */
-  void PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const;
+  void PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters, int fungus_steps = -1,
+                   const DynamicStrands::FungusParameters* fungus_parameters = nullptr) const;
+  void FungusStep(const DynamicStrands::FungusParameters& fungus_parameters, int steps) const;
 
   /**
    * @brief Renders visualizations for dynamic strands.

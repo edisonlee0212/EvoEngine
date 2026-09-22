@@ -65,6 +65,7 @@ class DynamicStrands {
    * \return The total simulated time.
    */
   float GetSimulatedTime() const;
+  float GetSimulatedFungusTime() const;
 
   /**
    * \brief Computes the inertia tensor for a box.
@@ -111,7 +112,42 @@ class DynamicStrands {
   void InitializeMesh(const DynamicStrandsInitializeParameters& initialize_parameters);
 #pragma endregion
 #pragma region Step
-  struct PhysicsParameters {
+  struct FungusParameters {
+    float dt = 0.0005f;
+    float aw = 5.0f;
+    float ab = 5.0f;
+    float bw = 2.0f;
+    float bb = 2.0f;
+    float ycw = 1.0f;
+    float ycb = 1.0f;
+    float ylw = 2.0f;
+    float pc = 0.2f;
+    float pl = 0.1f;
+    float k = 5.0f;
+    float delta = 0.05f;
+    float ll = 0.5f;
+    float lc = 0.5f;
+    float bo = 1.0f;
+    float kc = 0.2f;
+    float be = 2.0f;
+    float brw = 0.5f;
+    float brb = 0.5f;
+    float msr = 0.15f;
+    float cpb = 1.0f;
+    float cpw = 1.0f;
+    float lignin_threshold = -1.0f;
+    float HL_threshold = 0.4f;
+    float HC_threshold = 0.4f;
+    float bd_offset = 0.02f;
+    glm::mat3 matrixAw = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAb = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    glm::mat3 matrixAc = glm::mat3(100.0f, 0.0f, 0.0f, 0.0f, 100.0f, 0.0f, 0.0f, 0.0f, 100.0f);
+    glm::mat3 matrixAm = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
+    int global_parameter = 1;
+    int treespace = 1;
+  };
+
+  struct PhysicsParameters : FungusParameters {
     float time_step = 0.01f;
     int sub_step = 25;
 
@@ -153,39 +189,9 @@ class DynamicStrands {
     float eta = 0.75f;
     float bmax_far = 10.0f * s_min;
 
-    float dt = 0.0005f;
-    float aw = 5.0f;  // growth rate
-    float ab = 5.0f;
-    float bw = 2.0f;  // chemical defense
-    float bb = 2.0f;
-    float ycw = 1.0f;     // carbon tissue damage (w)
-    float ycb = 1.0f;     // carbon tissue damage (b)
-    float ylw = 2.0f;     // lignin tissue damage (w)
-    float pc = 0.2f;      // carbon regeneration
-    float pl = 0.1f;      // lignin regeneration
-    float k = 5.0f;       // defense rate
-    float delta = 0.05f;  // defense decay rate
-    float ll = 0.5f;      // lignin weight for w
-    float lc = 0.5f;      // carbon weight for w
-    float bo = 1.0f;      // Boundary reaction for rot growth
-    float kc = 0.2f;      // Adjustment from carbon to white rot growth
-    float be = 2.0f;      // Boundary reaction for propogation
-    float brw = 0.5f;     // Base growth rate for white rot regardless of moisture
-    float brb = 0.5f;     // Base growth rate for brown rot regardless of moisture
-    float msr = 0.15f;    // Moisture spread rate
-    float cpb = 1.0f;     // Chemical protection for brown rot
-    float cpw = 1.0f;     // Chemical protection for white rot
-    float lignin_threshold = -1.0f;
     float rod_strength_factor = 1.0f;
     float bundle_strength_factor = 1.0f;
     float boundary_strength_decay_factor = 0.0f;
-    float HL_threshold = 0.4f;
-    float HC_threshold = 0.4f;
-    float bd_offset = 0.02f;
-    glm::mat3 matrixAw = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
-    glm::mat3 matrixAb = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
-    glm::mat3 matrixAc = glm::mat3(100.0f, 0.0f, 0.0f, 0.0f, 100.0f, 0.0f, 0.0f, 0.0f, 100.0f);
-    glm::mat3 matrixAm = glm::mat3(2.0f, 0.0f, 0.0f, 0.0f, 2.0f, 0.0f, 0.0f, 0.0f, 2.0f);
 
     float pivot_ring_radius = 10.0f;
 
@@ -193,8 +199,6 @@ class DynamicStrands {
     float crack_R_scale = 1.0f;
     float crack_T_scale = 1.0f;
 
-    int global_parameter = 1;
-    int treespace = 1;
     int moisture_breaking_rod = 0;
     int internal_pattern = 0;
 
@@ -521,8 +525,10 @@ class DynamicStrands {
   void Visualize(const std::shared_ptr<Camera>& target_camera,
                  const DynamicStrandsInitializeParameters& initialize_parameters,
                  const DynamicStrandsVisualizationParameters& visualization_parameters) const;
-  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
-  void RenderCompute() const;
+  void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
+               const std::function<void(int)>& fungus_sub_step_action);
+  void FungusStep(const FungusParameters& fungus_parameters, int steps);
+  void UpdateGeometry() const;
   static void BuildFoliageRenderingPipelines();
   static void BuildSegmentPairsRenderingPipeline();
   static void ReleaseStaticGpuResources();
@@ -542,5 +548,6 @@ class DynamicStrands {
  private:
   uint32_t frame_index = 0;
   float simulated_time = 0.f;
+  float simulated_fungus_time = 0.f;
 };
 }  // namespace eco_sys_lab_package

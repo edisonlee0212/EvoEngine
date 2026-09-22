@@ -58,9 +58,15 @@ class EcoSysLabLayer : public ILayer {
     FoliageRenderParameters foliage_render_parameters{};
     SegmentPairsRenderParameters segment_pairs_render_parameters{};
     DynamicStrands::PhysicsParameters physics_parameters{};
+    DynamicStrands::FungusParameters fungus_parameters{};
     bool enable_physics = true;
+    bool enable_fungus = false;
+    bool enable_geometry_updates = true;
     bool enable_rendering = true;
     int remaining_step = 0;
+    int remaining_fungus_step = 0;
+    int remaining_geometry_step = 0;
+    int fungus_sub_step = 25;
   };
   struct Flower {
     GlobalTransform global_transform;  ///< The global transform of the leaf.

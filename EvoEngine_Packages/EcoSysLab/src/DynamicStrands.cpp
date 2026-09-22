@@ -114,8 +114,8 @@ void DynamicStrands::ReleaseStaticGpuResources() {
   strands_layout.reset();
 }
 
-void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
-                             const std::function<void()>& pre_step_action) {
+void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
+                             const std::function<void(int)>& fungus_sub_step_action) {
   const auto& profiler_items = dynamic_strands_profiler::GetItems();
   if (pre_step) {
     const RecordedGpuProfilerScope gpu_scope(profiler_items.pre_step);
@@ -131,9 +131,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
       if (prediction) {
         prediction->Execute(physics_parameters, *this);
       }
-      if (fungus && physics_parameters.enable_fungus) {
-        fungus->Execute(physics_parameters, *this);
-      }
+      if (fungus_sub_step_action)
+        fungus_sub_step_action(sub_step_index);
       const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
       const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
@@ -216,6 +215,15 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   // }
 
   frame_index++;
+}
+
+void DynamicStrands::FungusStep(const FungusParameters& fungus_parameters, const int steps) {
+  if (!fungus || segments.empty())
+    return;
+  for (int i = 0; i < steps; i++) {
+    fungus->Execute(fungus_parameters, *this);
+    simulated_fungus_time += fungus_parameters.dt;
+  }
 }
 
 void DynamicStrands::InitMeshingAlgorithm(MeshingType meshing_type) {
@@ -312,8 +320,8 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   BuildSegmentPairsRenderingPipeline();
 }
 
-void DynamicStrands::RenderCompute() const {
-  meshing->RenderCompute();
+void DynamicStrands::UpdateGeometry() const {
+  meshing->UpdateGeometry();
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -322,6 +330,10 @@ uint32_t DynamicStrands::GetFrameIndex() const {
 
 float DynamicStrands::GetSimulatedTime() const {
   return simulated_time;
+}
+
+float DynamicStrands::GetSimulatedFungusTime() const {
+  return simulated_fungus_time;
 }
 
 void DynamicStrands::UpdateBindings() const {

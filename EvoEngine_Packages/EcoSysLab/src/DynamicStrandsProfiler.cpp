@@ -60,10 +60,10 @@ bool dynamic_strands_profiler::RegisterItems(PackageRegistrar& registrar) {
       registrar.RegisterProfilerItem(GpuItem("DynamicStrands.Bundle.SliceFitApply", "Bundle: Slice Fit / Apply"));
   items.bundle_coarse_edge_solve =
       registrar.RegisterProfilerItem(GpuItem("DynamicStrands.Bundle.CoarseEdgeSolve", "Bundle: Coarse Edge Solve"));
-  items.render_compute =
-      registrar.RegisterProfilerItem(CpuGpuItem("DynamicStrands.RenderCompute", "Render Compute", true));
+  items.geometry_update =
+      registrar.RegisterProfilerItem(CpuGpuItem("DynamicStrands.GeometryUpdate", "Geometry Update", true));
   return items.simulation_cpu && items.simulation_gpu && items.interaction && items.physics && items.pre_step &&
          items.dynamic_grouping && items.segment_collision && items.bundle_legacy && items.bundle_pair_solve &&
          items.bundle_topology_rebuild && items.bundle_slice_fit_apply && items.bundle_coarse_edge_solve &&
-         items.render_compute;
+         items.geometry_update;
 }

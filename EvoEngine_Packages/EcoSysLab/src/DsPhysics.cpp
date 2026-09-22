@@ -49,7 +49,7 @@ void PackMat3Columns(glm::vec4 (&target)[3], const glm::mat3& source) {
 }
 }  // namespace
 
-void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+void DsFungus::Execute(const DynamicStrands::FungusParameters& physics_parameters,
                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;

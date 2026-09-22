@@ -17,7 +17,7 @@ struct Items {
   evo_engine::ProfilerItemHandle bundle_topology_rebuild;
   evo_engine::ProfilerItemHandle bundle_slice_fit_apply;
   evo_engine::ProfilerItemHandle bundle_coarse_edge_solve;
-  evo_engine::ProfilerItemHandle render_compute;
+  evo_engine::ProfilerItemHandle geometry_update;
 };
 
 [[nodiscard]] const Items& GetItems();

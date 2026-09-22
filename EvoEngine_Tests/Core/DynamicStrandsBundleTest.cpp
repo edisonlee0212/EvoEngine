@@ -4,11 +4,38 @@
 #include "DsConstraints.hpp"
 #include "DynamicStrandsBundleDiagnostics.hpp"
 #include "DynamicStrandsBundleMath.hpp"
+#include "DynamicStrandsStageSchedule.hpp"
 #include "RenderLayer.hpp"
 
 #include <gtest/gtest.h>
 
 using namespace eco_sys_lab_package;
+
+TEST(DynamicStrandsStages, PausedStagesOnlyRunWhenStepped) {
+  EXPECT_FALSE(ShouldRunDynamicStrandsStage(false, 0));
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(false, 1));
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(true, 0));
+}
+
+TEST(DynamicStrandsStages, FungusCadenceIsIndependentOfPhysicsSubstepCount) {
+  for (const int physics_substeps : {1, 10, 25, 32}) {
+    int total = 0;
+    for (int i = 0; i < physics_substeps; i++)
+      total += FungusStepsInPhysicsSubstep(25, physics_substeps, i);
+    EXPECT_EQ(total, 25);
+  }
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 25, 0), 1);
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 25, 24), 1);
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 0, 0), 0);
+}
+
+TEST(DynamicStrandsStages, FungusParametersHaveIndependentValues) {
+  DynamicStrands::PhysicsParameters physics;
+  DynamicStrands::FungusParameters fungus = physics;
+  fungus.dt *= 2.f;
+  EXPECT_FLOAT_EQ(physics.dt, 0.0005f);
+  EXPECT_FLOAT_EQ(fungus.dt, 0.001f);
+}
 
 TEST(DynamicStrandsBundle, ShaderAbiMatchesStd430Layouts) {
   EXPECT_EQ(sizeof(DsBundle::CoupledPairState), 32);

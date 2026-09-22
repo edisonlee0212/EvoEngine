@@ -9,7 +9,8 @@
 using namespace evo_engine;
 using namespace eco_sys_lab_package;
 bool eco_sys_lab_package::InspectSettings(DynamicStrands::PhysicsParameters& target,
-                                          const std::shared_ptr<EditorLayer>& editor_layer) {
+                                          const std::shared_ptr<EditorLayer>& editor_layer,
+                                          const bool show_fungus_toggle) {
   bool changed = false;
   if (ImGui::TreeNode("Preset Settings")) {
     if (ImGui::Button("Log Crack")) {
@@ -98,7 +99,7 @@ bool eco_sys_lab_package::InspectSettings(DynamicStrands::PhysicsParameters& tar
       changed = true;
     }
   }
-  if (ImGui::Checkbox("Enable Fungus", &target.enable_fungus)) {
+  if (show_fungus_toggle && ImGui::Checkbox("Enable Fungus", &target.enable_fungus)) {
     changed = true;
   }
   if (ImGui::Checkbox("Enable Collision", &target.enable_segment_collision)) {
@@ -243,8 +244,8 @@ bool eco_sys_lab_package::InspectSettings(DynamicStrands::PhysicsParameters& tar
       changed = true;
     }
 
-    ImGui::RadioButton("Tree space", &target.treespace, 1);
-    ImGui::RadioButton("Global space", &target.treespace, 0);
+    changed |= ImGui::RadioButton("Tree space", &target.treespace, 1);
+    changed |= ImGui::RadioButton("Global space", &target.treespace, 0);
     ImGui::TreePop();
   }
 
