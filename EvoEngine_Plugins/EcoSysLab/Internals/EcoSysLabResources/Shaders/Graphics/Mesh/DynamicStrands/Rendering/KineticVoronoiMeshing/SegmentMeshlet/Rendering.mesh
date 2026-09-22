@@ -76,6 +76,20 @@ vec4 NeighborConnectivityColor(SegmentMeshletTriangle tri) {
   return vec4(0.0, 1.0, 0.0, 1.0);
 }
 
+// Raw neighbor-tag visualization: -2 bark, -1 open/interior, >=0 lateral, <-2 out-of-range.
+vec4 NeighborTagColor(SegmentMeshletTriangle tri) {
+  if (tri.neighbor_segment_index == -2) {
+    return vec4(0.45, 0.28, 0.12, 1.0);  // brown = bark
+  }
+  if (tri.neighbor_segment_index == -1) {
+    return vec4(0.15, 0.55, 1.0, 1.0);  // bright blue = interior / no neighbor
+  }
+  if (tri.neighbor_segment_index >= 0) {
+    return vec4(0.15, 0.75, 0.25, 1.0);  // green = lateral neighbor
+  }
+  return vec4(0.95, 0.15, 0.85, 1.0);  // magenta = out of range (<-2, e.g. -3)
+}
+
 vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex,
                          in vec4 color, in vec2 uv_coords, in bool is_bark, in vec4 debug_color,
                          in bool use_debug_color) {
@@ -106,6 +120,7 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
       break;
     case COLOR_NEIGHBORS:
     case COLOR_NEIGHBOR_CONNECTIVITY:
+    case COLOR_NEIGHBOR_TAGS:
       ms_v_out[vertex_index].Color = debug_color;
       break;
   }
@@ -137,6 +152,9 @@ void main() {
       bool use_debug_color = false;
       if (color_mode == COLOR_NEIGHBOR_CONNECTIVITY) {
         debug_color = NeighborConnectivityColor(tri);
+        use_debug_color = true;
+      } else if (color_mode == COLOR_NEIGHBOR_TAGS) {
+        debug_color = NeighborTagColor(tri);
         use_debug_color = true;
       } else if (color_mode == COLOR_NEIGHBORS) {
         debug_color = tri.segment_pair_index != -1 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);

@@ -714,10 +714,12 @@ void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mes
 
 bool MeshletObjExport::enable_smoothing = false;
 bool MeshletObjExport::per_meshlet_objects = false;
-MeshletObjExport::VisualizationGrouping MeshletObjExport::visualization_grouping =
-    MeshletObjExport::VisualizationGrouping::Segments;
-MeshletObjExport::IntersectionVisualizationGrouping MeshletObjExport::intersection_visualization_grouping =
-    MeshletObjExport::IntersectionVisualizationGrouping::IntersectionMeshes;
+MeshletObjExport::VisualizationColorMode MeshletObjExport::visualization_color_mode =
+    MeshletObjExport::VisualizationColorMode::Segments;
+MeshletObjExport::VisualizationObjectGrouping MeshletObjExport::visualization_object_grouping =
+    MeshletObjExport::VisualizationObjectGrouping::Combined;
+MeshletObjExport::VisualizationObjectGrouping MeshletObjExport::intersection_visualization_object_grouping =
+    MeshletObjExport::VisualizationObjectGrouping::IntersectionMeshes;
 
 std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsBySegmentIndex(
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
@@ -1153,6 +1155,28 @@ struct Rgb8KeyHash {
   }
 };
 
+/// Push mid-saturation RGB toward a more vivid albedo for ray-traced MTL materials.
+glm::dvec3 VibrantAlbedoFromRgb8(const Rgb8Key& key) {
+  glm::dvec3 rgb(static_cast<double>(key.r) / 255.0, static_cast<double>(key.g) / 255.0,
+                 static_cast<double>(key.b) / 255.0);
+  const double max_c = std::max({rgb.x, rgb.y, rgb.z});
+  const double min_c = std::min({rgb.x, rgb.y, rgb.z});
+  if (max_c <= 1e-8) {
+    return rgb;
+  }
+  // HSV-style saturation boost: keep hue/value, raise chroma toward full saturation.
+  constexpr double kSaturationBoost = 1.75;
+  const double value = max_c;
+  const double saturation = (max_c - min_c) / max_c;
+  if (saturation <= 1e-8) {
+    return rgb;
+  }
+  const double boosted_s = std::min(1.0, saturation * kSaturationBoost);
+  const double scale = boosted_s / saturation;
+  rgb = value + (rgb - glm::dvec3(value)) * scale;
+  return glm::clamp(rgb, 0.0, 1.0);
+}
+
 enum class VisualizationColorSource {
   SegmentColor,
   StrandColor,
@@ -1170,16 +1194,9 @@ glm::vec4 VisualizationColorForSegment(const DynamicStrands::GpuSegment& segment
   return segment.color;
 }
 
-VisualizationColorSource ColorSourceForGrouping(const MeshletObjExport::VisualizationGrouping grouping) {
-  return grouping == MeshletObjExport::VisualizationGrouping::Strands ? VisualizationColorSource::StrandColor
-                                                                     : VisualizationColorSource::SegmentColor;
-}
-
-VisualizationColorSource ColorSourceForIntersectionGrouping(
-    const MeshletObjExport::IntersectionVisualizationGrouping grouping) {
-  return grouping == MeshletObjExport::IntersectionVisualizationGrouping::Strands
-             ? VisualizationColorSource::StrandColor
-             : VisualizationColorSource::SegmentColor;
+VisualizationColorSource ColorSourceFromMode(const MeshletObjExport::VisualizationColorMode color_mode) {
+  return color_mode == MeshletObjExport::VisualizationColorMode::Strands ? VisualizationColorSource::StrandColor
+                                                                         : VisualizationColorSource::SegmentColor;
 }
 
 int VisualizationGroupId(const unsigned int segment_index, const std::vector<DynamicStrands::GpuSegment>& segments,
@@ -1266,8 +1283,7 @@ class SolidColorPalette {
     const size_t index = names_.size();
     index_by_color_.emplace(key, index);
     names_.push_back("solid_" + std::to_string(index));
-    kd_.emplace_back(static_cast<double>(key.r) / 255.0, static_cast<double>(key.g) / 255.0,
-                     static_cast<double>(key.b) / 255.0);
+    kd_.push_back(VibrantAlbedoFromRgb8(key));
     return static_cast<int>(index);
   }
 
@@ -1405,9 +1421,9 @@ void WriteSolidColoredVisualizationGroups(const std::filesystem::path& path,
 void MeshletObjExport::ExportVisualizationObj(
     const std::filesystem::path& path, const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationGrouping grouping,
-    double uv_height_factor, double uv_circum_factor, float fracture_distance,
-    const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorMode color_mode,
+    const VisualizationObjectGrouping object_grouping, double uv_height_factor, double uv_circum_factor,
+    float fracture_distance, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
     const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = vertices;
   std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = triangles;
@@ -1415,18 +1431,31 @@ void MeshletObjExport::ExportVisualizationObj(
     ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
   }
 
-  const VisualizationColorSource color_source = ColorSourceForGrouping(grouping);
-  const std::vector<MeshGroup> groups =
-      BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source);
-  WriteSolidColoredVisualizationGroups(path, groups, segments, color_source, false, uv_height_factor, uv_circum_factor,
-                                       fracture_distance);
+  const VisualizationColorSource color_source = ColorSourceFromMode(color_mode);
+  const bool by_highlight = object_grouping == VisualizationObjectGrouping::ByHighlight;
+
+  std::vector<MeshGroup> groups;
+  if (by_highlight) {
+    groups = BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source);
+  } else {
+    MeshGroup combined;
+    combined.name = "mesh";
+    combined.vertices = std::move(export_vertices);
+    combined.triangles = std::move(export_triangles);
+    if (!combined.vertices.empty() && !combined.triangles.empty()) {
+      groups.push_back(std::move(combined));
+    }
+  }
+
+  WriteSolidColoredVisualizationGroups(path, groups, segments, color_source, !by_highlight, uv_height_factor,
+                                       uv_circum_factor, fracture_distance);
 }
 
 void MeshletObjExport::ExportVisualizationObjCombined(
     const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
-    const std::vector<DynamicStrands::GpuSegment>& segments, const IntersectionVisualizationGrouping grouping,
-    double uv_height_factor, double uv_circum_factor, float fracture_distance,
-    const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<DynamicStrands::GpuSegment>& segments, const VisualizationColorMode color_mode,
+    const VisualizationObjectGrouping object_grouping, double uv_height_factor, double uv_circum_factor,
+    float fracture_distance, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
     const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   if (groups.empty()) {
     throw std::runtime_error("ExportVisualizationObjCombined: no mesh groups to export");
@@ -1435,8 +1464,9 @@ void MeshletObjExport::ExportVisualizationObjCombined(
   std::vector<MeshGroup> export_groups;
   export_groups.reserve(groups.size());
 
-  const VisualizationColorSource color_source = ColorSourceForIntersectionGrouping(grouping);
-  const bool per_face_colors = grouping == IntersectionVisualizationGrouping::IntersectionMeshes;
+  const VisualizationColorSource color_source = ColorSourceFromMode(color_mode);
+  const bool by_highlight = object_grouping == VisualizationObjectGrouping::ByHighlight;
+  const bool per_face_colors = !by_highlight;
 
   for (const auto& group : groups) {
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
@@ -1445,7 +1475,7 @@ void MeshletObjExport::ExportVisualizationObjCombined(
       ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
     }
 
-    if (grouping == IntersectionVisualizationGrouping::IntersectionMeshes) {
+    if (!by_highlight) {
       MeshGroup out = group;
       out.vertices = std::move(export_vertices);
       out.triangles = std::move(export_triangles);

@@ -70,6 +70,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
     Fungus,           ///< Fungus / Woodstock demos.
     SmallTrunk,       ///< Grow Oak_trunk (4 years) then run volumetric meshing.
     NormalTrunk,      ///< Grow Oak_trunk (8 years) then run volumetric meshing.
+    StockyTrunk,      ///< Grow Oak_trunk_stocky (seed 42) then run volumetric meshing.
     LogCut,           ///< Volumetric log cut + board-style pivot break simulation.
     LogSpoon,         ///< Volumetric log spoon cut + board-style pivot break simulation.
     LogCutUprightBunny  ///< Upright half-length log + bunny boundary (bottom fixed, top rotates).

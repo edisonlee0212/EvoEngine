@@ -17,3 +17,4 @@ layout(push_constant) uniform STRANDS_RENDER_CONSTANTS {
 #define COLOR_UVS 2
 #define COLOR_NEIGHBORS 3
 #define COLOR_NEIGHBOR_CONNECTIVITY 4
+#define COLOR_NEIGHBOR_TAGS 5

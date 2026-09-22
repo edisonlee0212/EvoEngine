@@ -158,6 +158,18 @@ void ApplyOakTrunkFullProcessTreePreset(const std::shared_ptr<Tree>& tree) {
   values[3] = glm::vec2(-0.1f, 0.0f);
 }
 
+/// Fewer strands + weaker center attraction → less circular packing; thicker base strand radii.
+void ApplyStockyTrunkTreePreset(const std::shared_ptr<Tree>& tree) {
+  tree->strand_model_parameters.end_node_strands = 1400;
+  tree->strand_model_parameters.center_attraction_strength = 6000.f;
+  tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.0055f;
+  tree->strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.45f, {0, 0}, {1, 1});
+  auto& values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+  // Thicker near the root (low root_distance), thinner toward the tip.
+  values[2] = glm::vec2(0.15f, -0.55f);
+  values[3] = glm::vec2(-0.05f, 0.0f);
+}
+
 void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& physics_parameters) {
   physics_parameters.bundle_strength_factor = 1.0f;
   physics_parameters.crack_bd_shrinkage_offset = 0.0f;
@@ -268,6 +280,15 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
     const char* name = demo_type == DemoType::SmallTrunk ? "Small Trunk" : "Normal Trunk";
     EVOENGINE_LOG(name << ": tree growth finished (" << target_growth_time
                        << " years). Building strands and meshing...");
+  } else if (demo_type == DemoType::StockyTrunk) {
+    ApplyStockyTrunkTreePreset(tree);
+    ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+    tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+    tree_dts->initialize_parameters.min_segment_length = 0.005f;
+    tree_dts->initialize_parameters.max_segment_length = 0.01f;
+    tree_dts->seed = 42;
+    EVOENGINE_LOG("Stocky Trunk: tree growth finished (" << target_growth_time
+                                                         << " years, seed 42). Building strands and meshing...");
   }
   ApplySegmentSubdivisionOverride(tree_dts->initialize_parameters);
   tree_dts->InitializeFromTree(tree, pending_meshing_buffer_description);
@@ -1593,6 +1614,40 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           "Same as Small Trunk but grows Oak_trunk for 8 years before meshing "
           "(uses MeshBuffers cache when available).");
     }
+
+    if (ImGui::Button("Stocky Trunk")) {
+      ResetEnvironment(editor_layer);
+      demo_type = DemoType::StockyTrunk;
+      demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Stocky Trunk";
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
+      const auto tree_entity = scene->CreateEntity("Tree");
+      tree_entity_ref = tree_entity;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      scene->SetDataComponent(tree_entity, tree_initial_pose);
+      target_growth_time = 6.f;
+      tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Basic/Oak_trunk_stocky.tree");
+      tree->shoot_model.seed = 42;
+      tree->shoot_strand_model.seed = 42;
+      ApplyStockyTrunkTreePreset(tree);
+      ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+      const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      tree_dts->enable_physics = false;
+      tree_dts->seed = 42;
+      tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      tree_dts->initialize_parameters.min_segment_length = 0.005f;
+      tree_dts->initialize_parameters.max_segment_length = 0.01f;
+      EVOENGINE_LOG("Stocky Trunk: growing Oak_trunk_stocky for " << target_growth_time
+                                                                  << " years (seed 42)...");
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Grow Oak_trunk_stocky for 6 years with seed 42: thicker root, milder skeleton bends, "
+          "fewer strands / weaker packing for a less round cross-section, then volumetric mesh.");
+    }
     ImGui::TreePop();
   }
 
@@ -1819,7 +1874,8 @@ void DynamicStrandsDemo::Update() {
       break;
     }
     case DemoType::SmallTrunk:
-    case DemoType::NormalTrunk: {
+    case DemoType::NormalTrunk:
+    case DemoType::StockyTrunk: {
       const auto tree_entity = tree_entity_ref.Get();
       if (scene->IsEntityValid(tree_entity)) {
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
@@ -1930,6 +1986,8 @@ const char* DynamicStrandsDemo::DemoTypeExportFolderName(const DemoType type) {
       return "Small Trunk";
     case DemoType::NormalTrunk:
       return "Normal Trunk";
+    case DemoType::StockyTrunk:
+      return "Stocky Trunk";
     case DemoType::LogCut:
       return "Log cut";
     case DemoType::LogSpoon:
@@ -1948,6 +2006,7 @@ std::shared_ptr<DynamicTreeStrands> DynamicStrandsDemo::GetActiveDynamicTreeStra
   switch (demo_type) {
     case DemoType::SmallTrunk:
     case DemoType::NormalTrunk:
+    case DemoType::StockyTrunk:
     case DemoType::TrunkStrength:
     case DemoType::Wind:
     case DemoType::TreeCollision:

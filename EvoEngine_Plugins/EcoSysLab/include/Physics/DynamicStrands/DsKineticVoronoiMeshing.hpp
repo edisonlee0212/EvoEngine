@@ -47,12 +47,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct SegmentMeshletsRenderParameters {
     // TODO
     bool enabled = true;
-    enum ColorMode { Standard, Normals, UVs };
+    enum ColorMode { Standard = 0, Normals = 1, UVs = 2, Pair = 3, NeighborConnectivity = 4, NeighborTags = 5 };
     int color_mode = 0;
     float uv_height_factor = 0.02f;
     float uv_circum_factor = 2.0f;
     float fracture_distance = 0.0004f;
-    double alpha_cutoff = 10.0;
     /// When true, override color mode with neighbor-connectivity debug colors (grey / brown / red / green).
     bool debug_neighbor_connectivity = false;
   };
@@ -81,6 +80,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through
     /// knots).
     float spline_tension = 0.5f;
+    /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
+    double alpha_cutoff = 10.0;
     /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
     bool intersection_boundary_apply_inverse_root_transform = true;
     /// Free-form note stored in mesh buffer YML metadata (not used for cache hashing).
@@ -211,8 +212,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   /// If CPU Voronoi meshlets are missing, rebuild them from the GPU vertex/triangle buffers
   /// (same geometry, different layout). Needed so intersection works after a mesh-buffer cache hit.
   bool EnsureCpuMeshletsFromGpu();
-  /// Locate Kinetic Voronoi meshing for @p entity: nearest DynamicTreeStrands on the entity or its
-  /// ancestors (same parent used by scripted LoadIntersectionSetup). Scene-wide fallback only if unparented.
+  /// Locate Kinetic Voronoi meshing for @p entity: nearest meshed DynamicTreeStrands on the entity or
+  /// its ancestors; if ancestors are empty (e.g. PhysicsDemo host), any meshed DTS in the scene
+  /// (Tree child from trunk experiments); otherwise the nearest empty KVM host.
   struct OwnerMeshing {
     DsKineticVoronoiMeshing* meshing = nullptr;
     Entity dts_owner{};

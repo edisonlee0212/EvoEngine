@@ -67,6 +67,37 @@ int EffectiveSegmentMeshletColorMode(const DsKineticVoronoiMeshing::SegmentMeshl
   return parameters.color_mode;
 }
 
+/// Force neighbor == -2 on faces whose VoronoiMesh material is bark (brown / light_blue / bark).
+/// Used after cache load so remeshed bark tags apply even when GPU neighbors were baked as -1.
+void RepairBarkNeighborTagsFromMaterials(std::vector<kinDS::VoronoiMesh>& meshlets,
+                                         std::vector<std::vector<int>>& neighbors) {
+  const size_t count = std::min(meshlets.size(), neighbors.size());
+  for (size_t mesh_index = 0; mesh_index < count; ++mesh_index) {
+    const auto& mesh = meshlets[mesh_index];
+    const auto& material_ids = mesh.getMaterialIDs();
+    const auto& material_names = mesh.getMaterialNames();
+    auto& face_neighbors = neighbors[mesh_index];
+    const size_t tri_count = mesh.getTriangleCount();
+    if (face_neighbors.size() < tri_count) {
+      face_neighbors.resize(tri_count, -1);
+    }
+    for (size_t tri = 0; tri < tri_count && tri < material_ids.size(); ++tri) {
+      const int material_id = material_ids[tri];
+      bool is_bark = false;
+      if (material_id >= 0 && static_cast<size_t>(material_id) < material_names.size()) {
+        const std::string& name = material_names[static_cast<size_t>(material_id)];
+        is_bark = (name == "brown" || name == "light_blue" || name == "bark");
+      } else if (material_id == kinDS::SegmentBuilder::BoundaryIntervalMeshletMaterialId ||
+                 material_id == kinDS::SegmentBuilder::PendingSplitFallbackMeshletMaterialId) {
+        is_bark = true;
+      }
+      if (is_bark) {
+        face_neighbors[tri] = -2;
+      }
+    }
+  }
+}
+
 bool SegmentPairNeedsMaterialInit(const DynamicStrands::GpuSegmentPair& pair) {
   return pair.max_bending_modulus <= 0.f || pair.max_torsion_modulus <= 0.f;
 }
@@ -320,14 +351,19 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
     const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
-    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
-  const auto mix_settings = [](Fnv64& hash) {
+    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id,
+    const bool include_alpha_cutoff = true) {
+  const auto mix_settings = [include_alpha_cutoff](Fnv64& hash) {
     hash.MixCString("DsKineticVoronoiMeshing.v1");
     hash.MixPod(kMeshingBufferVersion);
     hash.MixPod(static_cast<uint8_t>(1));  // mesh_cap_at_start
     hash.MixPod(static_cast<uint8_t>(1));  // transform_mesh_at_construction
     hash.MixPod(static_cast<uint8_t>(DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0));
     hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.spline_tension);
+    // alpha_cutoff was added later; omit for legacy hashes so default-cutoff caches still hit.
+    if (include_alpha_cutoff) {
+      hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff);
+    }
   };
 
   Fnv64 settings_hash;
@@ -396,11 +432,15 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
   return stats;
 }
 
+/// Default TreeMesher alpha_cutoff; caches hashed before alpha_cutoff entered the key used this value implicitly.
+constexpr double kLegacyDefaultAlphaCutoff = 10.0;
+
 void LogMeshingInputHashStats(const MeshingInputHashStats& stats) {
   EVOENGINE_LOG("Meshing buffer hash "
                 << stats.input_hash << " | settings(v=" << kMeshingBufferVersion
                 << ", store_meta=" << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
                 << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
+                << ", alpha_cutoff=" << DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff
                 << ", cap_start=1, xform_at_construction=1)=" << stats.settings_hash << " root=" << stats.root_hash
                 << " [" << stats.root_transform_summary << "]"
                 << " support(strands=" << stats.support_strand_count << ", pts=" << stats.support_point_count
@@ -424,6 +464,7 @@ YAML::Node BuildMeshingBufferStatisticsNode(const MeshingInputHashStats& stats) 
   statistics["hash_inputs"]["settings"]["store_mesh_metadata"] =
       DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
   statistics["hash_inputs"]["settings"]["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+  statistics["hash_inputs"]["settings"]["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
   statistics["hash_inputs"]["settings"]["mesh_cap_at_start"] = true;
   statistics["hash_inputs"]["settings"]["transform_mesh_at_construction"] = true;
   statistics["hash_inputs"]["settings"]["hash"] = stats.settings_hash;
@@ -465,6 +506,7 @@ bool WriteMeshingBufferYml(const std::filesystem::path& yml_path, const YAML::No
       "vertex_stride",
       "triangle_stride",
       "spline_tension",
+      "alpha_cutoff",
       "store_mesh_metadata",
       "mesh_cap_at_start",
       "transform_mesh_at_construction",
@@ -522,6 +564,59 @@ bool UpdateMeshingBufferYmlOnCacheHit(const std::filesystem::path& yml_path, con
     EVOENGINE_WARNING("Failed to update meshing buffer metadata " << yml_path.string() << ": " << exception.what());
     return false;
   }
+}
+
+bool TryMigrateMeshingBufferCacheFiles(const std::filesystem::path& legacy_bin, const std::filesystem::path& legacy_yml,
+                                       const std::filesystem::path& new_bin, const std::filesystem::path& new_yml,
+                                       const MeshingInputHashStats& new_stats) {
+  std::error_code ec;
+  if (std::filesystem::exists(new_bin, ec)) {
+    EVOENGINE_WARNING("Legacy meshing buffer migrate skipped: target already exists " << new_bin.string());
+    return false;
+  }
+
+  std::filesystem::rename(legacy_bin, new_bin, ec);
+  if (ec) {
+    EVOENGINE_WARNING("Failed to rename meshing buffer " << legacy_bin.string() << " -> " << new_bin.string() << ": "
+                                                         << ec.message());
+    return false;
+  }
+
+  if (std::filesystem::exists(legacy_yml, ec)) {
+    if (std::filesystem::exists(new_yml, ec)) {
+      std::filesystem::remove(legacy_yml, ec);
+    } else {
+      std::filesystem::rename(legacy_yml, new_yml, ec);
+      if (ec) {
+        EVOENGINE_WARNING("Renamed meshing .bin but failed to rename .yml " << legacy_yml.string() << " -> "
+                                                                           << new_yml.string() << ": " << ec.message());
+      }
+    }
+  }
+
+  try {
+    YAML::Node root;
+    if (std::filesystem::exists(new_yml)) {
+      root = YAML::LoadFile(new_yml.string());
+    } else {
+      root["format"] = "KVMG";
+      root["version"] = kMeshingBufferVersion;
+    }
+    root["hash"] = new_stats.input_hash;
+    root["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
+    root["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+    root["statistics"] = BuildMeshingBufferStatisticsNode(new_stats);
+    root["description"] = DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description;
+    WriteMeshingBufferYml(new_yml, root);
+  } catch (const std::exception& exception) {
+    EVOENGINE_WARNING("Migrated meshing buffer binary but failed to refresh metadata " << new_yml.string() << ": "
+                                                                                       << exception.what());
+  }
+
+  EVOENGINE_LOG("Migrated legacy meshing buffer cache " << legacy_bin.filename().string() << " -> "
+                                                        << new_bin.filename().string()
+                                                        << " (added alpha_cutoff to hash).");
+  return true;
 }
 
 class BinaryWriter {
@@ -819,6 +914,7 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
   root["vertex_stride"] = sizeof(GpuMeshletVertex);
   root["triangle_stride"] = sizeof(GpuMeshletTriangle);
   root["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+  root["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
   root["store_mesh_metadata"] = DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
   root["mesh_cap_at_start"] = true;
   root["transform_mesh_at_construction"] = true;
@@ -1952,20 +2048,26 @@ DsKineticVoronoiMeshing::OwnerMeshing DsKineticVoronoiMeshing::FindForEntity(con
     return found;
   };
 
+  // Prefer a meshed KineticVoronoi DTS. PhysicsDemo trunk experiments mesh a Tree child while the
+  // Intersection Meshes group is usually parented under the (empty) PhysicsDemo owner — skipping
+  // empty ancestors avoids the false "No meshlets available" disable.
+  OwnerMeshing first_ancestor;
   Entity current = entity;
-  OwnerMeshing first;
   while (scene->IsEntityValid(current)) {
     OwnerMeshing found = try_entity(current);
     if (found.meshing) {
-      // Prefer the nearest DynamicTreeStrands ancestor (PhysicsDemo in demos), matching
-      // scripted LoadIntersectionSetup(scene, owner, ...). Do not jump to another entity's DTS.
       found.meshing->EnsureCpuMeshletsFromGpu();
-      return found;
+      if (found.meshing->HasMeshedSegmentMeshlets()) {
+        return found;
+      }
+      if (!first_ancestor.meshing) {
+        first_ancestor = found;
+      }
     }
     current = scene->GetParent(current);
   }
 
-  // Only if the group is unparented: fall back to a meshed DTS, else any KVM.
+  OwnerMeshing first_global;
   const auto* dts_owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
   if (dts_owners) {
     for (const auto& owner : *dts_owners) {
@@ -1977,12 +2079,16 @@ DsKineticVoronoiMeshing::OwnerMeshing DsKineticVoronoiMeshing::FindForEntity(con
       if (found.meshing->HasMeshedSegmentMeshlets()) {
         return found;
       }
-      if (!first.meshing) {
-        first = found;
+      if (!first_global.meshing) {
+        first_global = found;
       }
     }
   }
-  return first;
+
+  if (first_ancestor.meshing) {
+    return first_ancestor;
+  }
+  return first_global;
 }
 
 bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>& scene, const Entity& owner,
@@ -3265,6 +3371,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   });
   tree_mesher_->getSettings().transform_mesh_at_construction = true;
   tree_mesher_->getSettings().mesh_cap_at_start = true;
+  tree_mesher_->getSettings().alpha_cutoff = meshing_settings.alpha_cutoff;
   tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
   tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
   tree_mesher_->getSettings().export_separate_contributor_objects =
@@ -3278,8 +3385,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   LogMeshingInputHashStats(hash_stats);
   const std::string& input_hash = hash_stats.input_hash;
   const std::filesystem::path buffer_dir = MeshingBufferDirectory();
-  const std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
-  const std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
+  std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
+  std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
 
   const auto warn_segment_count_mismatch =
       [&](const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices) {
@@ -3311,46 +3418,80 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   };
 
   bool loaded_from_cache = false;
-  if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
+  bool rebuild_gpu_from_meshlets = false;
+  const auto try_load_cache_at = [&](const std::filesystem::path& load_bin_path,
+                                     const std::filesystem::path& load_yml_path) -> bool {
     std::vector<GpuMeshletVertex> gpu_vertices;
     std::vector<GpuMeshletTriangle> gpu_triangles;
     std::vector<kinDS::VoronoiMesh> meshlets;
     std::vector<std::vector<int>> neighbors;
     std::vector<size_t> meshing_to_physics;
     std::vector<std::vector<size_t>> strand_to_segment;
-    if (LoadMeshingBuffer(bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
-                          meshing_to_physics, strand_to_segment)) {
-      meshlets_root_transform_ = root_transform;
-      segment_meshlet_vertices = std::move(gpu_vertices);
-      segment_meshlet_triangles = std::move(gpu_triangles);
-      tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
-      tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
-      if (!meshlets.empty()) {
-        segment_meshlets_ = std::move(meshlets);
-        meshing_neighbor_indices_ = std::move(neighbors);
-        tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
-        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
-      } else {
-        meshing_neighbor_indices_ = std::move(neighbors);
-        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
-        EnsureCpuMeshletsFromGpu();
-      }
-      if (HasMeshedSegmentMeshlets()) {
-        warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
-        EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
-                                                  << " vertices, " << segment_meshlet_triangles.size()
-                                                  << " triangles).");
-        if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
-          EVOENGINE_LOG("Updated meshing buffer metadata for " << input_hash << ".");
-        }
+    if (!LoadMeshingBuffer(load_bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
+                           meshing_to_physics, strand_to_segment)) {
+      EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
+                                          << " exists but could not be loaded; remeshing (cache miss).");
+      return false;
+    }
+    meshlets_root_transform_ = root_transform;
+    segment_meshlet_vertices = std::move(gpu_vertices);
+    segment_meshlet_triangles = std::move(gpu_triangles);
+    tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
+    tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
+    if (!meshlets.empty()) {
+      segment_meshlets_ = std::move(meshlets);
+      meshing_neighbor_indices_ = std::move(neighbors);
+      RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
+      tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+      rebuild_gpu_from_meshlets = true;
+    } else {
+      meshing_neighbor_indices_ = std::move(neighbors);
+      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+      EnsureCpuMeshletsFromGpu();
+    }
+    if (!HasMeshedSegmentMeshlets()) {
+      EVOENGINE_WARNING("Meshing buffer " << load_bin_path.string()
+                                          << " loaded GPU data but CPU meshlets could not be restored; remeshing.");
+      return false;
+    }
+    warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+    EVOENGINE_LOG("Meshing buffer cache hit " << load_bin_path.stem().string() << " ("
+                                              << segment_meshlet_vertices.size() << " vertices, "
+                                              << segment_meshlet_triangles.size() << " triangles).");
+    if (UpdateMeshingBufferYmlOnCacheHit(load_yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
+      EVOENGINE_LOG("Updated meshing buffer metadata for " << load_yml_path.stem().string() << ".");
+    }
+    return true;
+  };
+
+  if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
+    loaded_from_cache = try_load_cache_at(bin_path, yml_path);
+  } else if (!meshing_settings.override_meshing_buffer &&
+             meshing_settings.alpha_cutoff == kLegacyDefaultAlphaCutoff) {
+    // Pre-alpha_cutoff hashes omitted the cutoff (always 10). Fall back and migrate to the new name.
+    MeshingInputHashStats legacy_stats = ComputeMeshingInputHashStats(
+        support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
+        root_transform, branch_indices, strands_by_branch_id, /*include_alpha_cutoff=*/false);
+    legacy_stats.min_segment_length = min_segment_length;
+    legacy_stats.max_segment_length = max_segment_length;
+    const std::filesystem::path legacy_bin = buffer_dir / (legacy_stats.input_hash + ".bin");
+    const std::filesystem::path legacy_yml = buffer_dir / (legacy_stats.input_hash + ".yml");
+    if (legacy_stats.input_hash != input_hash && std::filesystem::exists(legacy_bin)) {
+      EVOENGINE_LOG("Meshing buffer cache miss for " << input_hash << "; trying legacy hash "
+                                                     << legacy_stats.input_hash << " (alpha_cutoff=10).");
+      if (try_load_cache_at(legacy_bin, legacy_yml)) {
         loaded_from_cache = true;
-      } else {
-        EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
-                                            << " loaded GPU data but CPU meshlets could not be restored; remeshing.");
+        if (TryMigrateMeshingBufferCacheFiles(legacy_bin, legacy_yml, bin_path, yml_path, hash_stats)) {
+          // Paths now point at the migrated files for any later metadata updates.
+        } else {
+          // Still usable from the legacy path if rename failed.
+          bin_path = legacy_bin;
+          yml_path = legacy_yml;
+        }
       }
     } else {
-      EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
-                                          << " exists but could not be loaded; remeshing (cache miss).");
+      EVOENGINE_LOG("Meshing buffer cache miss " << input_hash << " (no file at " << bin_path.string() << ").");
     }
   } else if (meshing_settings.override_meshing_buffer) {
     EVOENGINE_LOG("Meshing buffer override enabled; remeshing for hash " << input_hash << ".");
@@ -3364,6 +3505,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     // Keep pristine copies for later Intersect button runs (no clipping during meshing).
     segment_meshlets_ = meshes;
     meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+    RepairBarkNeighborTagsFromMaterials(segment_meshlets_, meshing_neighbor_indices_);
+    tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+    tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
     meshlets_root_transform_ = root_transform;
     warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
   }
@@ -3377,9 +3521,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     RecomputeSegmentPairs(*tree_mesher_);
   }
 
-  // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed
-  // or when pairs were recomputed after a cache hit.
-  if (!loaded_from_cache || meshing_settings.recompute_segment_pairs) {
+  // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed,
+  // repaired bark neighbor tags from materials, or recomputed pairs after a cache hit.
+  if (!loaded_from_cache || meshing_settings.recompute_segment_pairs || rebuild_gpu_from_meshlets) {
     segment_meshlet_vertices.clear();
     segment_meshlet_triangles.clear();
     PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
@@ -4048,6 +4192,17 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "Meshing-only blend for plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through "
         "knots).");
   }
+  {
+    float alpha_cutoff = static_cast<float>(meshing_settings.alpha_cutoff);
+    if (ImGui::DragFloat("Alpha cutoff", &alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
+      meshing_settings.alpha_cutoff = static_cast<double>(glm::max(0.0f, alpha_cutoff));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "kinDS alpha / radius cutoff for inside-outside classification (TreeMesher alpha_cutoff). "
+          "Affects radius events and boundary meshing.");
+    }
+  }
 
   // --- Helpers used by Add / Save / Load / Export all ---
   // Returns the DynamicTreeStrands owner entity for this meshing instance.
@@ -4221,16 +4376,29 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
 
   if (ImGui::TreeNodeEx("Visualization Export", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::TextUnformatted("Object grouping");
-    ImGui::RadioButton("Strands", reinterpret_cast<int*>(&MeshletObjExport::visualization_grouping),
-                       static_cast<int>(MeshletObjExport::VisualizationGrouping::Strands));
+    ImGui::TextUnformatted("Color");
+    ImGui::RadioButton("Strands##viz_color", reinterpret_cast<int*>(&MeshletObjExport::visualization_color_mode),
+                       static_cast<int>(MeshletObjExport::VisualizationColorMode::Strands));
     ImGui::SameLine();
-    ImGui::RadioButton("Segments", reinterpret_cast<int*>(&MeshletObjExport::visualization_grouping),
-                       static_cast<int>(MeshletObjExport::VisualizationGrouping::Segments));
+    ImGui::RadioButton("Segments##viz_color", reinterpret_cast<int*>(&MeshletObjExport::visualization_color_mode),
+                       static_cast<int>(MeshletObjExport::VisualizationColorMode::Segments));
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "One OBJ object per strand or segment. Solid materials match Visualization Segment mode "
-          "(Strand color / Segment color); duplicate colors share one material.");
+          "Solid materials match Visualization Segment mode (Strand color / Segment color); "
+          "duplicate colors share one material.");
+    }
+
+    ImGui::TextUnformatted("Object grouping");
+    ImGui::RadioButton("None##viz_grouping", reinterpret_cast<int*>(&MeshletObjExport::visualization_object_grouping),
+                       static_cast<int>(MeshletObjExport::VisualizationObjectGrouping::Combined));
+    ImGui::SameLine();
+    ImGui::RadioButton("By highlight##viz_grouping",
+                       reinterpret_cast<int*>(&MeshletObjExport::visualization_object_grouping),
+                       static_cast<int>(MeshletObjExport::VisualizationObjectGrouping::ByHighlight));
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "None: one combined OBJ object (faces still colored by Color above).\n"
+          "By highlight: one object per strand or segment matching Color.");
     }
 
     ImGui::PushID("visualization_export_obj");
@@ -4241,7 +4409,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           EVOENGINE_LOG("Downloaded data from GPU");
           MeshletObjExport::ExportVisualizationObj(
               path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
-              MeshletObjExport::visualization_grouping,
+              MeshletObjExport::visualization_color_mode, MeshletObjExport::visualization_object_grouping,
               render_settings.segment_meshlet_render_parameters.uv_height_factor,
               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
               render_settings.segment_meshlet_render_parameters.fracture_distance, dynamic_strands->segment_pairs,
@@ -4297,8 +4465,13 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
       BuildSegmentMeshletsRenderingPipelines();
     }
 
-    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair"},
+    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags"},
                  render_settings.segment_meshlet_render_parameters.color_mode);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Neighbor tags: brown = -2 (bark), blue = -1 (interior/open), green = >=0 (lateral), "
+          "magenta = <-2 (out of range).");
+    }
 
     ImGui::Checkbox("Debug neighbor connectivity", &render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity);
     if (ImGui::IsItemHovered()) {
