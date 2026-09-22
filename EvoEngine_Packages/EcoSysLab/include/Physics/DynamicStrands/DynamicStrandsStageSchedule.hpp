@@ -5,6 +5,11 @@ inline bool ShouldRunDynamicStrandsStage(const bool enabled, const int pending_s
   return enabled || pending_steps > 0;
 }
 
+inline void ConsumePendingDynamicStrandsStep(int& pending_steps) {
+  if (pending_steps > 0)
+    --pending_steps;
+}
+
 inline int FungusStepsInPhysicsSubstep(const int fungus_steps, const int physics_substeps, const int substep_index) {
   if (fungus_steps <= 0 || physics_substeps <= 0)
     return 0;

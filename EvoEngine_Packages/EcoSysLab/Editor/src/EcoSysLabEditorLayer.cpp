@@ -436,7 +436,7 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
     runtime->dynamic_strands_settings_.remaining_step++;
   }
   if (ImGui::TreeNode("Physics settings")) {
-    if (InspectSettings(runtime->dynamic_strands_settings_.physics_parameters, editor_layer, false)) {
+    if (InspectSettings(runtime->dynamic_strands_settings_.physics_parameters, editor_layer)) {
       runtime->dynamic_strands_settings_.fungus_parameters =
           static_cast<const DynamicStrands::FungusParameters&>(runtime->dynamic_strands_settings_.physics_parameters);
     }

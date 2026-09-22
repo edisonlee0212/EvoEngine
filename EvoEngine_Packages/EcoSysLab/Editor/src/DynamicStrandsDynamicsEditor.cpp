@@ -9,8 +9,7 @@
 using namespace evo_engine;
 using namespace eco_sys_lab_package;
 bool eco_sys_lab_package::InspectSettings(DynamicStrands::PhysicsParameters& target,
-                                          const std::shared_ptr<EditorLayer>& editor_layer,
-                                          const bool show_fungus_toggle) {
+                                          const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Preset Settings")) {
     if (ImGui::Button("Log Crack")) {
@@ -99,7 +98,7 @@ bool eco_sys_lab_package::InspectSettings(DynamicStrands::PhysicsParameters& tar
       changed = true;
     }
   }
-  if (show_fungus_toggle && ImGui::Checkbox("Enable Fungus", &target.enable_fungus)) {
+  if (ImGui::Checkbox("Fungus model", &target.enable_fungus)) {
     changed = true;
   }
   if (ImGui::Checkbox("Enable Collision", &target.enable_segment_collision)) {

@@ -10,8 +10,7 @@ bool InspectSettings(DynamicSkeleton::InitializeParameters& target, const std::s
 bool InspectSettings(DynamicSkeleton::PhysicsParameters& target, const std::shared_ptr<EditorLayer>& editor_layer);
 bool InspectSettings(DynamicSkeleton::VisualizationParameters& target,
                      const std::shared_ptr<EditorLayer>& editor_layer);
-bool InspectSettings(DynamicStrands::PhysicsParameters& target, const std::shared_ptr<EditorLayer>& editor_layer,
-                     bool show_fungus_toggle = true);
+bool InspectSettings(DynamicStrands::PhysicsParameters& target, const std::shared_ptr<EditorLayer>& editor_layer);
 bool InspectSettings(DynamicStrandsVisualizationParameters& target, const std::shared_ptr<EditorLayer>& editor_layer);
 bool InspectSettings(DynamicTreeStrands::BoardExperimentSetupSettings& target,
                      const std::shared_ptr<EditorLayer>& editor_layer);

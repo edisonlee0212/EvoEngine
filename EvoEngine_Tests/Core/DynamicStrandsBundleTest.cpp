@@ -17,6 +17,17 @@ TEST(DynamicStrandsStages, PausedStagesOnlyRunWhenStepped) {
   EXPECT_TRUE(ShouldRunDynamicStrandsStage(true, 0));
 }
 
+TEST(DynamicStrandsStages, QueuedRequestsAreConsumedOnce) {
+  int pending_steps = 2;
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(false, pending_steps));
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_EQ(pending_steps, 1);
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_FALSE(ShouldRunDynamicStrandsStage(false, pending_steps));
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_EQ(pending_steps, 0);
+}
+
 TEST(DynamicStrandsStages, FungusCadenceIsIndependentOfPhysicsSubstepCount) {
   for (const int physics_substeps : {1, 10, 25, 32}) {
     int total = 0;

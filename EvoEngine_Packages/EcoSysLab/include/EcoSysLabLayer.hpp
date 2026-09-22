@@ -33,6 +33,9 @@ class EcoSysLabLayer : public ILayer {
   void GenerateStrandModelProfiles() const;
   void GenerateStrandRenderers() const;
   [[nodiscard]] float GetSimulatedTime() const;
+  [[nodiscard]] bool IsDynamicStrandsPhysicsRunning() const;
+  [[nodiscard]] bool IsDynamicStrandsFungusRunning() const;
+  [[nodiscard]] int GetDynamicStrandsFungusStepsPerFrame() const;
   void OnDestroy() override;
   void RefreshMeshForAllDynamicStrands() const;
   void ResetAllTrees(const std::vector<Entity>* tree_entities);
@@ -60,7 +63,7 @@ class EcoSysLabLayer : public ILayer {
     DynamicStrands::PhysicsParameters physics_parameters{};
     DynamicStrands::FungusParameters fungus_parameters{};
     bool enable_physics = true;
-    bool enable_fungus = false;
+    bool enable_fungus = true;
     bool enable_geometry_updates = true;
     bool enable_rendering = true;
     int remaining_step = 0;

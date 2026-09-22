@@ -16,15 +16,17 @@ damage for each physics substep. Grouping and optional segment collision follow
 the loop. The layer schedules fungus independently and distributes its requested
 updates among physics substeps when both stages run; without physics it executes
 fungus alone. `DynamicStrandsDemo::Update()` also calls `PhysicsStep()` directly
-and retains the legacy coupled cadence, so the layer is not the only simulation
-caller.
+under the layer's stage policy. When physics pauses, its scripted time and
+pivot/object motion pause too; fungus can still advance its target strands
+without an extra layer dispatch.
 
 Defaults are a 0.01-second physics frame, 25 substeps, one position and one
 velocity constraint iteration, fungus disabled, structural damage enabled, and
 segment collision disabled. When fungus is enabled, its independent default is
-25 updates per frame even with mechanics paused. The old demo-facing
-`PhysicsParameters::enable_fungus` still controls direct `PhysicsStep()` calls;
-the layer uses its separate stage toggle.
+25 updates per frame even with mechanics paused. The legacy
+`PhysicsParameters::enable_fungus` is the fungus-model eligibility flag (off by
+default), while the separate fungus stage run/pause toggle defaults on. This
+preserves fungus demos that explicitly enable the model.
 
 ## Stage data contract
 
@@ -79,6 +81,86 @@ shared GPU layout. Fungus diffusion now accepts its own parameter type and the
 layer owns its own values and simulated time. `PhysicsParameters` retains the
 fungus fields through inheritance for direct-demo compatibility; the layer
 editor copies its fungus controls into the separate runtime values when they
-change. Direct-demo stage controls and GPU buffer and descriptor separation
-remain to be migrated. The GPU split needs an explicit fungus-to-mechanics
-handoff and the same validation matrix.
+change. GPU buffer and descriptor separation remains to be migrated. The GPU
+split needs an explicit fungus-to-mechanics handoff and the same validation matrix.
+
+## GPU ownership migration notes
+
+The active fungus node kernel writes segment defense, carbon/lignin health,
+white/brown rot, moisture, and diffusion accumulators. It also reads segment
+boundary distance and particle root distance. The active edge kernel reads
+pair endpoints/connectivity, segment positions, color, profile, and
+obstruction fields; it accumulates diffusion into both endpoint segments.
+It additionally zeros `bend_twist_bundle_integrity` and
+`connectivity_integrity` after health thresholds and propagates
+`reach_ground`/`quasi_stable`. Those pair and stability writes are mechanical
+handoff outputs, not fungus-private state. Fungus applies pair breaks
+immediately even when physics is paused: particle poses and velocities stay
+frozen, but pair connectivity, subsequent fungus diffusion, and live pair
+rendering reflect the break. Resuming physics uses the already-broken topology.
+
+The present `Segment` and `SegmentPair` layouts co-locate these fields with
+orientation, mass, constraint, and draw fields in bindings 2 and 3 of the
+13-binding shared set. Splitting only the diffusion fields would leave the
+pair-severing and stability dependency hidden. A stage-owned layout should
+carry biological values in a separate resource, expose the small position and
+profile inputs fungus actually reads, and apply the integrity/stability
+handoff at the same point between prediction and constraints when both stages
+run. When mechanics is paused, apply pair breaks without advancing particle
+mechanics. Fungus must read the newly broken topology on its next update; do
+not queue the break or preserve diffusion across that pair.
+
+The mechanical `Prediction/SegmentPair` kernel reads carbon health before the
+interleaved fungus update. `Breaking/SegmentPair` subsequently reads moisture
+and pair integrity, while `Prediction/Segment` and `VelocityUpdate/Segment`
+read the stability/ground flags propagated by fungus. These are distinct
+read phases: an ABI migration must not accidentally make the prediction kernel
+see the *new* fungus result one substep earlier than it does today.
+
+### Shared GPU binding inventory
+
+`DynamicStrandsSet0.slang` and `DynamicStrandsSet1.slang` expose the same
+buffers in descriptor sets 0 and 1. `DynamicStrands::UpdateBindings()` binds
+the per-frame set; each mesher supplies bindings 8 and 9. The buffer owner and
+stage access are:
+
+| Binding | Current buffer | Relevant access |
+| --- | --- | --- |
+| 0–1 | Strands, nodes | Mechanical state and initialization |
+| 2 | Segments | Fungus biology; mechanical state and stability; mesher inputs; draw-time color and diagnostics |
+| 3 | Segment pairs | Fungus break/connectivity; mechanical constraints and damage; mesher topology; live pair draw |
+| 4 | Segment correction data | Mechanical constraints |
+| 5–6 | Hashed-grid elements/cell starts | Collision and grouping |
+| 7 | Foliage | Mechanical leaf state and live foliage draw |
+| 8–9 | Alpha-shape uniform particles/tetrahedra **or** kinetic-Voronoi meshlet vertices/triangles | Derived branch geometry, selected by the active mesher |
+| 10–11 | Segment particles 0/1 | Mechanical poses; fungus position/root-distance inputs; mesher inputs; live segment/pair draw |
+| 12 | Segment connection handles | Bundle constraints |
+
+The active shader access that crosses stage ownership is:
+
+| Shader or pass | Read | Write |
+| --- | --- | --- |
+| `FungusDiffusion_node` | Segment biology, boundary distance, particle root distance | Segment defense, health, rot, moisture, diffusion accumulators and pair count (binding 2) |
+| `FungusDiffusion_edge` | Segment biology/profile/color/obstruction, pair endpoints/connectivity, current particles | Biological diffusion (2), pair integrity (3), ground/stability flags (2) |
+| `Operators/FungusFindClosest` and `FungusInjection` | Segment rot density and positions; selection scratch | Selection depth and injected rot density in segments |
+| `Prediction/SegmentPair` | Segment carbon health and pair/particle state | Pair strain and strain limits |
+| `Breaking/SegmentPair` and `Breaking/Leaf` | Segment moisture/ground state and live mechanics | Pair/leaf integrity and damage |
+| Bundle constraints | Segment health/moisture and pair state | Mechanical correction and pair state |
+| Alpha-shape update/filter passes | Segment and particle state, pair topology, derived data | Uniform particles and tetrahedra (8–9) |
+| Kinetic-Voronoi vertex/triangle passes | Segment and particle state, pair topology, derived data | Meshlet vertices and triangles (8–9) |
+| Segment/pair/foliage draw shaders | Live segments, pairs, foliage and particles; derived data for branches | No simulation buffers; task shaders select draw work |
+
+`DynamicStrands::Upload()` packs CPU segments and particles separately and
+uploads pairs, foliage, and mesher data. `Download()` reverses that packing.
+A biological buffer split therefore needs both CPU transfer directions, the
+active fungus and injection shaders, mechanical health readers, and diagnostic
+draw color modes migrated together. A render-geometry descriptor split must
+also preserve the two alternative meanings of bindings 8–9.
+
+The safe handoff order is **mechanical prediction → fungus node → fungus edge →
+immediate pair/stability handoff → mechanical constraints and damage** when
+both stages run. With physics paused, only the fungus node/edge and immediate
+handoff run. The existing `DsFungus::Execute()` places a GPU barrier after the
+node and edge dispatches; an ownership split must retain visibility before the
+next fungus step, mechanical pass, or live pair draw. Benchmark the extra
+buffer traffic/dispatches before removing the old shared fields and bindings.
