@@ -40,7 +40,7 @@ public void project_shear_stretch_constraint(in float inv_time_step, in int segm
   float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
-  float HC = segments[segment_handle].HC;
+  float HC = segment_biology[segment_handle].HC;
 
   int prev_handle = segments[segment_handle].prev_handle;
   int next_handle = segments[segment_handle].next_handle;
@@ -87,7 +87,7 @@ public void project_shear_stretch_constraint(in float inv_time_step, in int segm
   float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
-  float HC = segments[segment_handle].HC;
+  float HC = segment_biology[segment_handle].HC;
 
   int prev_handle = segments[segment_handle].prev_handle;
   int next_handle = segments[segment_handle].next_handle;
@@ -261,10 +261,10 @@ public void BundleSegmentPosition(in uint segment_handle, in float inv_time_step
   float3 segment0_center_position = (segment0_particle0_position + segment0_particle1_position) * 0.5f;
 
   float bd = segments[segment_handle].boundary_distance;
-  float HC = segments[segment_handle].HC;
-  float RW = segments[segment_handle].RW;
-  float moisture = segments[segment_handle].moisture;
-  int cube_pattern = segments[segment_handle].cube_pattern;
+  float HC = segment_biology[segment_handle].HC;
+  float RW = segment_biology[segment_handle].RW;
+  float moisture = segment_biology[segment_handle].moisture;
+  int cube_pattern = segment_biology[segment_handle].cube_pattern;
 
 
   float2 tree_profile_position = segments[segment_handle].profile_position;
@@ -543,7 +543,7 @@ public void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_
   float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
-  float HC = segments[segment_handle].HC;
+  float HC = segment_biology[segment_handle].HC;
 
   float inv_mass_q = segments[segment_handle].inv_mass;
   float inv_mass_p0 = prev_handle != -1 ? segments[prev_handle].inv_mass : inv_mass_q;

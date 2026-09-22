@@ -42,7 +42,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     // only allow injection if there is no fungus already.
     // we set threshold to 0.5 * injection amount so small diffusions to surrounding segments will not prohibit
     // injection but the most recently injected segments are avoided.
-    if (segments[segment_index].RW >= 0.5 * injection_amount)
+    if (segment_biology[segment_index].RW >= 0.5 * injection_amount)
       continue;
 
     Segment segment = segments[segment_index];

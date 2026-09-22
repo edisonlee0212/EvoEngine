@@ -215,7 +215,7 @@ BundleExperimentDiagnostics eco_sys_lab_package::CaptureBundleExperimentDiagnost
   }
   result.strand_buffer_bytes =
       BufferBytes(dynamic_strands.device_strands_buffer) + BufferBytes(dynamic_strands.device_nodes_buffer) +
-      BufferBytes(dynamic_strands.device_segments_buffer) +
+      BufferBytes(dynamic_strands.device_segments_buffer) + BufferBytes(dynamic_strands.device_segment_biology_buffer) +
       BufferBytes(dynamic_strands.device_segment_particle0_buffer) +
       BufferBytes(dynamic_strands.device_segment_particle1_buffer) +
       BufferBytes(dynamic_strands.device_segment_pairs_buffer) +

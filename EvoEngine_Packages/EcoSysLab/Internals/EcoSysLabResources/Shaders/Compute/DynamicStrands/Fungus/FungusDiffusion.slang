@@ -89,23 +89,23 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
                             db_weight);
 
     // Accumulate diffusion contribution from neighbors
-    InterlockedAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_b, db_weight * segments[segment1_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_c, dc_weight * segment_biology[segment1_handle].C_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_w, dw_weight * segment_biology[segment1_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_b, db_weight * segment_biology[segment1_handle].RB_pre);
 
     // Add reverse direction contributions (undirected graph)
-    InterlockedAdd(segments[segment1_handle].diffusion_c, dc_weight * segments[segment0_handle].C_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_w, dw_weight * segments[segment0_handle].RW_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_c, dc_weight * segment_biology[segment0_handle].C_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_w, dw_weight * segment_biology[segment0_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_b, db_weight * segment_biology[segment0_handle].RB_pre);
 
     // Add diagonal terms (self-interactions with negative values for conservation)
-    InterlockedAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_c, -dc_weight * segment_biology[segment0_handle].C_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_w, -dw_weight * segment_biology[segment0_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_b, -db_weight * segment_biology[segment0_handle].RB_pre);
 
-    InterlockedAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_c, -dc_weight * segment_biology[segment1_handle].C_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_w, -dw_weight * segment_biology[segment1_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_b, -db_weight * segment_biology[segment1_handle].RB_pre);
   }
 
   // Ensure all diffusion calculations are complete
@@ -119,67 +119,67 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       return;
 
     // Calculate K based on boundary distance
-    segments[segment_index].K = 1.0 / (8.0 * segments[segment_index].boundary_distance + 0.25);
+    segment_biology[segment_index].K = 1.0 / (8.0 * segments[segment_index].boundary_distance + 0.25);
 
     // Get diffusion values from the segment
-    float diffusion_c = segments[segment_index].diffusion_c;
-    float diffusion_w = segments[segment_index].diffusion_w;
-    float diffusion_b = segments[segment_index].diffusion_b;
+    float diffusion_c = segment_biology[segment_index].diffusion_c;
+    float diffusion_w = segment_biology[segment_index].diffusion_w;
+    float diffusion_b = segment_biology[segment_index].diffusion_b;
 
     // Update chemical protection (C)
-    segments[segment_index].C = segments[segment_index].C_pre +
+    segment_biology[segment_index].C = segment_biology[segment_index].C_pre +
                                 params.dt * (0.001 * diffusion_c +
-                                             segments[segment_index].K * (1.0 - segments[segment_index].C_pre) *
-                                                 (segments[segment_index].RW_pre + segments[segment_index].RB_pre) *
-                                                 segments[segment_index].HC_pre -
-                                             params.delta * segments[segment_index].C_pre);
+                                             segment_biology[segment_index].K * (1.0 - segment_biology[segment_index].C_pre) *
+                                                 (segment_biology[segment_index].RW_pre + segment_biology[segment_index].RB_pre) *
+                                                 segment_biology[segment_index].HC_pre -
+                                             params.delta * segment_biology[segment_index].C_pre);
 
     // Clamp to valid range
-    segments[segment_index].C = clamp(segments[segment_index].C, 0.0, 1.0);
+    segment_biology[segment_index].C = clamp(segment_biology[segment_index].C, 0.0, 1.0);
 
     // Update health of carbon (HC)
-    segments[segment_index].HC =
-        segments[segment_index].HC_pre +
-        params.dt * ((-params.ycw * segments[segment_index].RW_pre - params.ycb * segments[segment_index].RB_pre) *
-                         segments[segment_index].HC_pre +
-                     params.pc * segments[segment_index].C_pre * (1.0 - segments[segment_index].HC_pre));
+    segment_biology[segment_index].HC =
+        segment_biology[segment_index].HC_pre +
+        params.dt * ((-params.ycw * segment_biology[segment_index].RW_pre - params.ycb * segment_biology[segment_index].RB_pre) *
+                         segment_biology[segment_index].HC_pre +
+                     params.pc * segment_biology[segment_index].C_pre * (1.0 - segment_biology[segment_index].HC_pre));
 
-    segments[segment_index].HC = clamp(segments[segment_index].HC, 0.0, 1.0);
+    segment_biology[segment_index].HC = clamp(segment_biology[segment_index].HC, 0.0, 1.0);
 
     // Update health of lignin (HL)
-    segments[segment_index].HL =
-        segments[segment_index].HL_pre +
-        params.dt * ((-params.ylw * segments[segment_index].RW_pre) * segments[segment_index].HL_pre +
-                     params.pl * segments[segment_index].C_pre * (1.0 - segments[segment_index].HL_pre));
+    segment_biology[segment_index].HL =
+        segment_biology[segment_index].HL_pre +
+        params.dt * ((-params.ylw * segment_biology[segment_index].RW_pre) * segment_biology[segment_index].HL_pre +
+                     params.pl * segment_biology[segment_index].C_pre * (1.0 - segment_biology[segment_index].HL_pre));
 
-    segments[segment_index].HL = clamp(segments[segment_index].HL, 0.0, 1.0);
+    segment_biology[segment_index].HL = clamp(segment_biology[segment_index].HL, 0.0, 1.0);
 
     // Update white rot (RW)
-    segments[segment_index].RW =
-        segments[segment_index].RW_pre +
-        params.dt * (params.aw * segments[segment_index].RW_pre * (1.0 - segments[segment_index].RW_pre) *
-                         (params.ll * segments[segment_index].HL_pre + params.lc * segments[segment_index].HC_pre) -
-                     params.bw * segments[segment_index].C_pre * segments[segment_index].RW_pre + 0.1 * diffusion_w);
+    segment_biology[segment_index].RW =
+        segment_biology[segment_index].RW_pre +
+        params.dt * (params.aw * segment_biology[segment_index].RW_pre * (1.0 - segment_biology[segment_index].RW_pre) *
+                         (params.ll * segment_biology[segment_index].HL_pre + params.lc * segment_biology[segment_index].HC_pre) -
+                     params.bw * segment_biology[segment_index].C_pre * segment_biology[segment_index].RW_pre + 0.1 * diffusion_w);
 
-    segments[segment_index].RW = clamp(segments[segment_index].RW, 0.0, 1.0);
+    segment_biology[segment_index].RW = clamp(segment_biology[segment_index].RW, 0.0, 1.0);
 
     // Update brown rot (RB)
-    segments[segment_index].RB =
-        segments[segment_index].RB_pre +
-        params.dt * (params.ab * segments[segment_index].RB_pre * (1.0 - segments[segment_index].RB_pre) *
-                         segments[segment_index].HC_pre -
-                     params.bb * segments[segment_index].C_pre * segments[segment_index].RB_pre + 0.1 * diffusion_b);
+    segment_biology[segment_index].RB =
+        segment_biology[segment_index].RB_pre +
+        params.dt * (params.ab * segment_biology[segment_index].RB_pre * (1.0 - segment_biology[segment_index].RB_pre) *
+                         segment_biology[segment_index].HC_pre -
+                     params.bb * segment_biology[segment_index].C_pre * segment_biology[segment_index].RB_pre + 0.1 * diffusion_b);
 
-    segments[segment_index].RB = clamp(segments[segment_index].RB, 0.0, 1.0);
+    segment_biology[segment_index].RB = clamp(segment_biology[segment_index].RB, 0.0, 1.0);
 
     // Update previous values for next iteration
-    segments[segment_index].C_pre = segments[segment_index].C;
-    segments[segment_index].HC_pre = segments[segment_index].HC;
-    segments[segment_index].HL_pre = segments[segment_index].HL;
-    segments[segment_index].RW_pre = segments[segment_index].RW;
-    segments[segment_index].RB_pre = segments[segment_index].RB;
-    segments[segment_index].diffusion_c = 0.0;
-    segments[segment_index].diffusion_w = 0.0;
-    segments[segment_index].diffusion_b = 0.0;
+    segment_biology[segment_index].C_pre = segment_biology[segment_index].C;
+    segment_biology[segment_index].HC_pre = segment_biology[segment_index].HC;
+    segment_biology[segment_index].HL_pre = segment_biology[segment_index].HL;
+    segment_biology[segment_index].RW_pre = segment_biology[segment_index].RW;
+    segment_biology[segment_index].RB_pre = segment_biology[segment_index].RB;
+    segment_biology[segment_index].diffusion_c = 0.0;
+    segment_biology[segment_index].diffusion_w = 0.0;
+    segment_biology[segment_index].diffusion_b = 0.0;
   }
 }

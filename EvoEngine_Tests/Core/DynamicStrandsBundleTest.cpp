@@ -8,6 +8,7 @@
 #include "RenderLayer.hpp"
 
 #include <gtest/gtest.h>
+#include <cstddef>
 
 using namespace eco_sys_lab_package;
 
@@ -46,6 +47,14 @@ TEST(DynamicStrandsStages, FungusParametersHaveIndependentValues) {
   fungus.dt *= 2.f;
   EXPECT_FLOAT_EQ(physics.dt, 0.0005f);
   EXPECT_FLOAT_EQ(fungus.dt, 0.001f);
+}
+
+TEST(DynamicStrandsStages, SegmentBiologyHasSeparateStd430Record) {
+  using Segment = DynamicStrands::GpuSegment;
+  EXPECT_EQ(offsetof(Segment, C), 352);
+  EXPECT_EQ(offsetof(Segment, Obstruction_w) - offsetof(Segment, C), 80);
+  EXPECT_EQ(offsetof(Segment, Obstruction_m) - offsetof(Segment, C), 128);
+  EXPECT_EQ(offsetof(Segment, particle0) - offsetof(Segment, C), 144);
 }
 
 TEST(DynamicStrandsBundle, ShaderAbiMatchesStd430Layouts) {

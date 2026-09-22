@@ -76,13 +76,18 @@ shaders read live simulation buffers directly.
 | Single-step each paused stage | Only the requested stage advances once; queued requests are consumed once |
 | Pause/resume after damage | No implicit reset of fungus state, connectivity, or derived geometry |
 
-The current implementation changes scheduling and APIs while preserving the
-shared GPU layout. Fungus diffusion now accepts its own parameter type and the
+The current implementation changes scheduling and APIs. Fungus diffusion now accepts its own parameter type and the
 layer owns its own values and simulated time. `PhysicsParameters` retains the
 fungus fields through inheritance for direct-demo compatibility; the layer
 editor copies its fungus controls into the separate runtime values when they
-change. GPU buffer and descriptor separation remains to be migrated. The GPU
-split needs an explicit fungus-to-mechanics handoff and the same validation matrix.
+change. Segment biology now uses its own GPU buffer at binding 13, with
+upload/download packing kept in sync. The mechanical record is 352 bytes and
+the biological record is 144 bytes per segment, 16 bytes more than the former
+combined record because four mechanical values had occupied biological
+`float3` padding. Pair integrity and stability flags still
+live in mechanical buffers: the fungus edge kernel writes them immediately,
+followed by its existing visibility barrier. Derived geometry bindings and a
+fully explicit fungus-to-mechanics handoff remain to be migrated and validated.
 
 ## GPU ownership migration notes
 
@@ -99,9 +104,11 @@ immediately even when physics is paused: particle poses and velocities stay
 frozen, but pair connectivity, subsequent fungus diffusion, and live pair
 rendering reflect the break. Resuming physics uses the already-broken topology.
 
-The present `Segment` and `SegmentPair` layouts co-locate these fields with
+The original `Segment` and `SegmentPair` layouts co-located these fields with
 orientation, mass, constraint, and draw fields in bindings 2 and 3 of the
-13-binding shared set. Splitting only the diffusion fields would leave the
+shared set. The first ABI slice moves the whole biological segment block to
+binding 13; pair severing and stability propagation still cross into the
+mechanical buffers. Splitting only the diffusion fields would leave the
 pair-severing and stability dependency hidden. A stage-owned layout should
 carry biological values in a separate resource, expose the small position and
 profile inputs fungus actually reads, and apply the integrity/stability
@@ -127,7 +134,7 @@ stage access are:
 | Binding | Current buffer | Relevant access |
 | --- | --- | --- |
 | 0–1 | Strands, nodes | Mechanical state and initialization |
-| 2 | Segments | Fungus biology; mechanical state and stability; mesher inputs; draw-time color and diagnostics |
+| 2 | Segments | Mechanical state and stability; mesher inputs; draw-time color and diagnostics |
 | 3 | Segment pairs | Fungus break/connectivity; mechanical constraints and damage; mesher topology; live pair draw |
 | 4 | Segment correction data | Mechanical constraints |
 | 5–6 | Hashed-grid elements/cell starts | Collision and grouping |
@@ -135,13 +142,14 @@ stage access are:
 | 8–9 | Alpha-shape uniform particles/tetrahedra **or** kinetic-Voronoi meshlet vertices/triangles | Derived branch geometry, selected by the active mesher |
 | 10–11 | Segment particles 0/1 | Mechanical poses; fungus position/root-distance inputs; mesher inputs; live segment/pair draw |
 | 12 | Segment connection handles | Bundle constraints |
+| 13 | Segment biology | Fungus state and diffusion; mechanical health inputs; diagnostic color modes |
 
 The active shader access that crosses stage ownership is:
 
 | Shader or pass | Read | Write |
 | --- | --- | --- |
-| `FungusDiffusion_node` | Segment biology, boundary distance, particle root distance | Segment defense, health, rot, moisture, diffusion accumulators and pair count (binding 2) |
-| `FungusDiffusion_edge` | Segment biology/profile/color/obstruction, pair endpoints/connectivity, current particles | Biological diffusion (2), pair integrity (3), ground/stability flags (2) |
+| `FungusDiffusion_node` | Segment biology, boundary distance, particle root distance | Segment defense, health, rot, moisture, diffusion accumulators and pair count (binding 13) |
+| `FungusDiffusion_edge` | Segment biology/profile/color/obstruction, pair endpoints/connectivity, current particles | Biological diffusion (13), pair integrity (3), ground/stability flags (2) |
 | `Operators/FungusFindClosest` and `FungusInjection` | Segment rot density and positions; selection scratch | Selection depth and injected rot density in segments |
 | `Prediction/SegmentPair` | Segment carbon health and pair/particle state | Pair strain and strain limits |
 | `Breaking/SegmentPair` and `Breaking/Leaf` | Segment moisture/ground state and live mechanics | Pair/leaf integrity and damage |

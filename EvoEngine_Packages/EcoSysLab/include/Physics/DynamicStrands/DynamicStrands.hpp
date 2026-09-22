@@ -318,6 +318,11 @@ class DynamicStrands {
     float screen_depth = 0.0f;
     int reach_ground;
 
+    int32_t unlink_constraint = 0;
+    float ground_damping = 1.0f;
+    int32_t quasi_stable = 0;
+    float quasi_damping = 1.0f;
+
     float C = 0.2f;
     float HC = 1.0f;
     float HL = 1.0f;
@@ -345,16 +350,16 @@ class DynamicStrands {
     int32_t cube_pattern = 0;
 
     glm::vec3 Obstruction_w;
-    int32_t unlink_constraint = 0;
+    int32_t biology_padding0 = 0;
 
     glm::vec3 Obstruction_b;
-    float ground_damping = 1.0f;
+    float biology_padding1 = 0.0f;
 
     glm::vec3 Obstruction_c;
-    int32_t quasi_stable = 0;
+    int32_t biology_padding2 = 0;
 
     glm::vec3 Obstruction_m;
-    float quasi_damping = 1.0f;
+    float biology_padding3 = 0.0f;
 
     GpuParticle particle0{};
     GpuParticle particle1{};
@@ -471,6 +476,7 @@ class DynamicStrands {
   uint32_t connection_segment_pair_size = 0;
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
+  std::shared_ptr<Buffer> device_segment_biology_buffer;
   std::shared_ptr<Buffer> device_segment_particle0_buffer;
   std::shared_ptr<Buffer> device_segment_particle1_buffer;
   std::shared_ptr<Buffer> device_segment_pairs_buffer;
