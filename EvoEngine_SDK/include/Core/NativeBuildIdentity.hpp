@@ -12,7 +12,7 @@ struct NativeBuildIdentity {
   const char* configuration = nullptr;
   const char* platform = nullptr;
   const char* architecture = nullptr;
-  bool with_editor = false;  // Build composition metadata; runtime ABI compatibility is independent of the editor.
+  bool with_editor = false;  // Transitional composition metadata; shared runtime artifacts always set this to false.
 };
 
 EVOENGINE_API const NativeBuildIdentity& GetNativeBuildIdentity();

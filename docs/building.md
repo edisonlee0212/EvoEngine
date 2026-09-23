@@ -34,6 +34,8 @@ python Scripts\install_apps.py
 python Scripts\install_apps.py --config Debug
 ```
 
+The installer uses one CMake graph for the editor, runtime host, shared SDK/package DLLs, and published runtime template. It does not configure or compile a second runtime tree.
+
 Incremental installs record their configuration in the install directory. Reusing the same configuration preserves the
 installed runtime, while switching between Debug and RelWithDebInfo cleans it first so incompatible MSVC runtimes are
 not mixed.

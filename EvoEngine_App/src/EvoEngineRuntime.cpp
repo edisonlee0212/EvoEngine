@@ -20,7 +20,6 @@
 #include <string>
 
 using namespace evo_engine;
-static_assert(!EVOENGINE_WITH_EDITOR);
 
 namespace {
 class RuntimeConsole final : public std::streambuf {

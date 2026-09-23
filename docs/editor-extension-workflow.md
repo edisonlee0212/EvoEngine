@@ -56,4 +56,4 @@ First-party editor edits change editor identities without invalidating runtime f
 
 Run the negative fixtures with `python -m unittest Scripts.tests.test_runtime_boundary`. They exercise indirect includes, guarded includes, shared headers resolved through different runtime include paths, configuration-specific alias links and imported editor PCHs. CI runs these fixtures and invokes the live graph check through ordinary native builds. With testing enabled, `EvoEngineRuntimeHeaderCheck` compiles representative runtime SDK and package headers with PCH disabled. This is representative coverage, not a claim that every legacy public header is independently self-contained.
 
-The remaining `EVOENGINE_WITH_EDITOR` uses describe app/target composition, native provenance and the no-application runtime-path default. The macro has no default definition in public headers and does not change runtime class layouts.
+The remaining `EVOENGINE_WITH_EDITOR` uses select app/target and editor-resource composition. The macro has no default definition in public headers, is not propagated into shared runtime targets, and does not change runtime class layouts.

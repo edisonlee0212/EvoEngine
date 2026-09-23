@@ -30,6 +30,9 @@ file(APPEND "${OUTPUT}" "library: ${LIBRARY}\n")
 file(APPEND "${OUTPUT}" "version: ${VERSION}\n")
 file(APPEND "${OUTPUT}" "description: ${DESCRIPTION}\n")
 include("${IDENTITY_FILE}")
+if (NOT DEFINED WITH_EDITOR)
+	set(WITH_EDITOR ${EVOENGINE_NATIVE_WITH_EDITOR})
+endif()
 file(SHA256 "${LIBRARY_PATH}" library_sha256)
 file(APPEND "${OUTPUT}"
 	"sdk_source_id: ${EVOENGINE_SDK_SOURCE_ID}\n"
@@ -39,7 +42,7 @@ file(APPEND "${OUTPUT}"
 	"configuration: ${EVOENGINE_NATIVE_BUILD_CONFIGURATION}\n"
 	"platform: ${EVOENGINE_NATIVE_PLATFORM}\n"
 	"architecture: ${EVOENGINE_NATIVE_ARCHITECTURE}\n"
-	"with_editor: ${EVOENGINE_NATIVE_WITH_EDITOR}\n"
+	"with_editor: ${WITH_EDITOR}\n"
 	"library_sha256: ${library_sha256}\n")
 file(APPEND "${OUTPUT}" "dependencies:\n")
 

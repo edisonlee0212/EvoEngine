@@ -156,43 +156,52 @@ def generate(spec: dict, verify: bool = False) -> dict:
         if current != recorded:
             raise ValueError("Native source inputs changed during the build; rebuild before preparing a runtime template.")
         return current
-    definitions = {
-        "EVOENGINE_SDK_SOURCE_ID": current["sdk_source_id"],
-        "EVOENGINE_NATIVE_COMPILER_ID": current["compiler_id"],
-        "EVOENGINE_NATIVE_COMPILER_VERSION": current["compiler_version"],
-        "EVOENGINE_NATIVE_BUILD_CONFIGURATION": current["configuration"],
-        "EVOENGINE_NATIVE_PLATFORM": current["platform"],
-        "EVOENGINE_NATIVE_ARCHITECTURE": current["architecture"],
-    }
-    header = "#pragma once\n" + "".join(f"#define {key} {json.dumps(value)}\n" for key, value in definitions.items())
-    write_if_changed(spec["sdk_header"], header)
-    cmake = "".join(f"set({key} {json.dumps(value)})\n" for key, value in definitions.items())
-    cmake += f"set(EVOENGINE_NATIVE_WITH_EDITOR {'true' if current['with_editor'] else 'false'})\n"
-    if current["with_editor"]:
-        editor_id = current["editor_source_id"]
-        write_if_changed(spec.get("editor_header", str(Path(spec["sdk_header"]).with_name("EvoEngineEditorBuildIdentity.hpp"))),
-                         f'#pragma once\n#define EVOENGINE_EDITOR_SOURCE_ID "{editor_id}"\n')
-        cmake += f'set(EVOENGINE_EDITOR_SOURCE_ID "{editor_id}")\n'
-    for package in spec["packages"]:
-        source_id = current["packages"][package["name"]]
-        write_if_changed(package["header"], f'#pragma once\n#define EVOENGINE_PACKAGE_SOURCE_ID "{source_id}"\n')
-        cmake += f'set(EVOENGINE_PACKAGE_SOURCE_ID_{package["name"]} "{source_id}")\n'
+    if not spec.get("metadata_only", False):
+        definitions = {
+            "EVOENGINE_SDK_SOURCE_ID": current["sdk_source_id"],
+            "EVOENGINE_NATIVE_COMPILER_ID": current["compiler_id"],
+            "EVOENGINE_NATIVE_COMPILER_VERSION": current["compiler_version"],
+            "EVOENGINE_NATIVE_BUILD_CONFIGURATION": current["configuration"],
+            "EVOENGINE_NATIVE_PLATFORM": current["platform"],
+            "EVOENGINE_NATIVE_ARCHITECTURE": current["architecture"],
+        }
+        header = "#pragma once\n" + "".join(f"#define {key} {json.dumps(value)}\n" for key, value in definitions.items())
+        write_if_changed(spec["sdk_header"], header)
+        cmake = "".join(f"set({key} {json.dumps(value)})\n" for key, value in definitions.items())
+        cmake += f"set(EVOENGINE_NATIVE_WITH_EDITOR {'true' if current['with_editor'] else 'false'})\n"
         if current["with_editor"]:
-            editor_id = current["editor_packages"][package["name"]]
-            write_if_changed(package.get("editor_header", str(Path(package["header"]).with_name("EvoEngineEditorPackageBuildIdentity.hpp"))),
-                             f'#pragma once\n#define EVOENGINE_EDITOR_PACKAGE_SOURCE_ID "{editor_id}"\n')
-            cmake += f'set(EVOENGINE_EDITOR_PACKAGE_SOURCE_ID_{package["name"]} "{editor_id}")\n'
+            editor_id = current["editor_source_id"]
+            write_if_changed(spec.get("editor_header", str(Path(spec["sdk_header"]).with_name("EvoEngineEditorBuildIdentity.hpp"))),
+                             f'#pragma once\n#define EVOENGINE_EDITOR_SOURCE_ID "{editor_id}"\n')
+            cmake += f'set(EVOENGINE_EDITOR_SOURCE_ID "{editor_id}")\n'
+        for package in spec["packages"]:
+            source_id = current["packages"][package["name"]]
+            write_if_changed(package["header"], f'#pragma once\n#define EVOENGINE_PACKAGE_SOURCE_ID "{source_id}"\n')
+            cmake += f'set(EVOENGINE_PACKAGE_SOURCE_ID_{package["name"]} "{source_id}")\n'
+            if current["with_editor"]:
+                editor_id = current["editor_packages"][package["name"]]
+                write_if_changed(package.get("editor_header", str(Path(package["header"]).with_name("EvoEngineEditorPackageBuildIdentity.hpp"))),
+                                 f'#pragma once\n#define EVOENGINE_EDITOR_PACKAGE_SOURCE_ID "{editor_id}"\n')
+                cmake += f'set(EVOENGINE_EDITOR_PACKAGE_SOURCE_ID_{package["name"]} "{editor_id}")\n'
+        write_if_changed(spec["metadata_cmake"], cmake)
     write_if_changed(spec["metadata_json"], json.dumps(current, indent=2, sort_keys=True) + "\n")
-    write_if_changed(spec["metadata_cmake"], cmake)
     return current
+
+
+def runtime_metadata_spec(spec: dict, metadata_json: Path) -> dict:
+    return {**spec, "with_editor": False, "metadata_json": str(metadata_json), "metadata_only": True}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spec", type=Path, required=True)
+    parser.add_argument("--runtime-metadata", type=Path)
     parser.add_argument("--verify", action="store_true")
     args = parser.parse_args()
-    generate(json.loads(args.spec.read_text(encoding="utf-8")), args.verify)
+    spec = json.loads(args.spec.read_text(encoding="utf-8"))
+    if args.runtime_metadata:
+        spec = runtime_metadata_spec(spec, args.runtime_metadata)
+    generate(spec, args.verify)
 
 
 if __name__ == "__main__":

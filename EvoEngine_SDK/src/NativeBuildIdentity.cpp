@@ -9,8 +9,7 @@ using namespace evo_engine;
 namespace {
 const NativeBuildIdentity identity{EVOENGINE_SDK_SOURCE_ID,           EVOENGINE_NATIVE_COMPILER_ID,
                                    EVOENGINE_NATIVE_COMPILER_VERSION, EVOENGINE_NATIVE_BUILD_CONFIGURATION,
-                                   EVOENGINE_NATIVE_PLATFORM,         EVOENGINE_NATIVE_ARCHITECTURE,
-                                   EVOENGINE_WITH_EDITOR != 0};
+                                   EVOENGINE_NATIVE_PLATFORM,         EVOENGINE_NATIVE_ARCHITECTURE};
 
 bool Match(const char* field, const char* expected, const char* candidate, std::string* reason) {
   const std::string_view expected_value = expected ? expected : "";

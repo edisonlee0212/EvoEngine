@@ -1,5 +1,6 @@
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(EVOENGINE_BUILD_IDENTITY_DIR "${CMAKE_BINARY_DIR}/BuildIdentity/$<CONFIG>")
+set(EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR "${CMAKE_BINARY_DIR}/RuntimeBuildIdentity/$<CONFIG>")
 
 function(evoengine_json_string output value)
 	string(REPLACE "\\" "\\\\" value "${value}")
@@ -24,9 +25,10 @@ function(evoengine_runtime_payload)
 			"{\"source\":\"$<TARGET_FILE:EvoEngineRuntime>\"}"
 			"{\"source\":\"$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:$<TARGET_PDB_FILE:EvoEngineRuntime>>\"}")
 	endif()
-	foreach(source IN LISTS EVOENGINE_RUNTIME_LIBRARIES)
+	foreach(source IN LISTS EVOENGINE_RUNTIME_PAYLOAD_LIBRARIES)
 		list(APPEND files "{\"source\":\"${source}\"}")
 	endforeach()
+	list(APPEND files "{\"source\":\"${EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR}/evoengine-build.json\"}")
 	foreach(target IN ITEMS EvoEngine_SDK glfw)
 		list(APPEND files "{\"source\":\"$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:$<TARGET_PDB_FILE:${target}>>\"}")
 	endforeach()
@@ -80,11 +82,11 @@ function(evoengine_runtime_payload)
 	list(JOIN packages "," packages)
 	set(payload_dir "${CMAKE_BINARY_DIR}/RuntimePayload/$<CONFIG>")
 	file(GENERATE OUTPUT "${payload_dir}/layout.json" CONTENT
-"{\"schema_version\":1,\"identity_file\":\"${EVOENGINE_BUILD_IDENTITY_DIR}/evoengine-build.json\",\"host\":${host},\"files\":[${files}],\"resource_directories\":[${resources}],\"packages\":[${packages}]}\n")
+"{\"schema_version\":1,\"identity_file\":\"${EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR}/evoengine-build.json\",\"host\":${host},\"files\":[${files}],\"resource_directories\":[${resources}],\"packages\":[${packages}]}\n")
 	add_custom_target(EvoEngineRuntimePayload
-		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/write_build_identity.py" --spec "${EVOENGINE_BUILD_IDENTITY_DIR}/spec.json" --verify
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/write_build_identity.py" --spec "${EVOENGINE_BUILD_IDENTITY_DIR}/spec.json" --runtime-metadata "${EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR}/evoengine-build.json" --verify
 		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/prepare_runtime_template.py" --layout "${payload_dir}/layout.json" --output "${payload_dir}/template"
-		DEPENDS EvoEngine_SDK ${EvoEngine_RuntimePackages} ${host_target}
+		DEPENDS EvoEngineRuntimeBuildIdentity EvoEngine_SDK ${EvoEngine_RuntimePackages} ${host_target}
 		VERBATIM)
 endfunction()
 
@@ -146,8 +148,12 @@ function(evoengine_finalize_native_build)
 	add_custom_target(EvoEngineBuildIdentity
 		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/write_build_identity.py" --spec "${identity_dir}/spec.json"
 		VERBATIM)
+	add_custom_target(EvoEngineRuntimeBuildIdentity
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/write_build_identity.py" --spec "${identity_dir}/spec.json" --runtime-metadata "${EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR}/evoengine-build.json"
+		DEPENDS EvoEngineBuildIdentity
+		VERBATIM)
 	add_dependencies(EvoEngine_SDK EvoEngineBuildIdentity)
-	if(WIN32 AND architecture STREQUAL "x64" AND NOT EVOENGINE_WITH_EDITOR)
+	if(WIN32 AND architecture STREQUAL "x64")
 		evoengine_runtime_payload()
 	endif()
 endfunction()

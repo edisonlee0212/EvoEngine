@@ -11,6 +11,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -158,34 +159,6 @@ def validate_runtime_identity(editor_build: dict[str, Any], template: dict[str, 
         raise SystemExit("Editor/runtime package source identities differ; rebuild the matching package set.")
 
 
-def cmake_build_option_args(editor_build: dict[str, Any]) -> list[str]:
-    identity = build_identity(editor_build)
-    options: dict[str, Any] = {}
-    for field in ("build_options", "package_options"):
-        values = identity.get(field, {})
-        if not isinstance(values, dict):
-            raise SystemExit(f"Editor {field} must be a JSON object.")
-        for name, value in values.items():
-            if name in options and options[name] != value:
-                raise SystemExit(f"Editor build option {name} has conflicting values.")
-            options[name] = value
-    arguments: list[str] = []
-    for name in sorted(options):
-        value = options[name]
-        if (
-            not isinstance(name, str)
-            or not name
-            or not all(character.isalnum() or character in "_.-" for character in name)
-        ):
-            raise SystemExit(f"Invalid editor build option name: {name!r}")
-        if isinstance(value, bool):
-            value = "ON" if value else "OFF"
-        elif not isinstance(value, (str, int, float)):
-            raise SystemExit(f"Invalid value for editor build option {name}: {value!r}")
-        arguments.append(f"-D{name}={value}")
-    return arguments
-
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -229,6 +202,17 @@ def verify_runtime_template(path: Path, expected_id: str | None = None) -> dict[
     return template
 
 
+def rename_with_retry(source: Path, destination: Path) -> None:
+    for attempt in range(5):
+        try:
+            source.rename(destination)
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(0.1 * 2**attempt)
+
+
 def publish_runtime_template(template_dir: Path, install_dir: Path) -> Path:
     template = verify_runtime_template(template_dir)
     identity = build_identity(template)
@@ -250,7 +234,7 @@ def publish_runtime_template(template_dir: Path, install_dir: Path) -> Path:
         if staging.exists():
             raise SystemExit(f"Refusing to replace unknown template staging path: {staging}")
         shutil.copytree(template_dir, staging)
-        staging.rename(destination)
+        rename_with_retry(staging, destination)
 
     pointer_path = destination_root / "current.json"
     if pointer_path.exists():
@@ -298,11 +282,6 @@ def parse_args() -> argparse.Namespace:
         default="RelWithDebInfo",
         choices=["Debug", "RelWithDebInfo", "Release"],
         help="Configuration to install. Defaults to RelWithDebInfo.",
-    )
-    parser.add_argument(
-        "--runtime-build-dir",
-        type=Path,
-        help="Use an already configured runtime build directory instead of the <preset>-runtime preset.",
     )
     parser.add_argument(
         "--no-open",
@@ -401,32 +380,10 @@ def main() -> int:
     )
 
     editor_build = load_json_object(install_dir / "bin" / "evoengine-build.json")
-    runtime_preset = f"{args.preset}-runtime"
-    if args.runtime_build_dir is None:
-        runtime_build_dir = build_dir_for_preset(root, presets, runtime_preset)
-        runtime_configure_command = [
-            "cmake",
-            "--preset",
-            runtime_preset,
-            "-DBUILD_TESTING=OFF",
-            *DEFAULT_DISABLED_DEMO_APP_ARGS,
-            *cmake_build_option_args(editor_build),
-        ]
-        if args.verbose:
-            runtime_configure_command.append("--log-level=VERBOSE")
-        run_step("Configure native runtime template", runtime_configure_command)
-    else:
-        runtime_build_dir = args.runtime_build_dir
-        if not runtime_build_dir.is_absolute():
-            runtime_build_dir = root / runtime_build_dir
-        runtime_build_dir = runtime_build_dir.resolve()
-        if not (runtime_build_dir / "CMakeCache.txt").is_file():
-            raise SystemExit(f"Runtime build directory is not configured: {runtime_build_dir}")
-
     runtime_build_command = [
         "cmake",
         "--build",
-        str(runtime_build_dir),
+        str(build_dir),
         "--config",
         args.config,
         "--target",
@@ -446,7 +403,7 @@ def main() -> int:
     )
     run_step(f"Prepare native runtime template {args.config}", runtime_build_command)
 
-    template_dir = runtime_build_dir / "RuntimePayload" / args.config / "template"
+    template_dir = build_dir / "RuntimePayload" / args.config / "template"
     template = verify_runtime_template(template_dir)
     validate_runtime_identity(editor_build, template)
     published_template = publish_runtime_template(template_dir, install_dir)
