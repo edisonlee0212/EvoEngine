@@ -9,6 +9,9 @@ struct Items {
   evo_engine::ProfilerItemHandle simulation_gpu;
   evo_engine::ProfilerItemHandle interaction;
   evo_engine::ProfilerItemHandle physics;
+  evo_engine::ProfilerItemHandle fungus;
+  evo_engine::ProfilerItemHandle fungus_diffusion;
+  evo_engine::ProfilerItemHandle fungus_mechanics_handoff;
   evo_engine::ProfilerItemHandle pre_step;
   evo_engine::ProfilerItemHandle dynamic_grouping;
   evo_engine::ProfilerItemHandle segment_collision;

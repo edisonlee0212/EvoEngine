@@ -46,6 +46,11 @@ bool dynamic_strands_profiler::RegisterItems(PackageRegistrar& registrar) {
   items.interaction =
       registrar.RegisterProfilerItem(CpuGpuItem("DynamicStrands.Interaction", "Interaction / Operators", true));
   items.physics = registrar.RegisterProfilerItem(CpuGpuItem("DynamicStrands.Physics", "Physics", true));
+  items.fungus = registrar.RegisterProfilerItem(GpuItem("DynamicStrands.Fungus", "Fungus", false));
+  items.fungus_diffusion =
+      registrar.RegisterProfilerItem(GpuItem("DynamicStrands.Fungus.Diffusion", "Fungus: Diffusion", false));
+  items.fungus_mechanics_handoff = registrar.RegisterProfilerItem(
+      GpuItem("DynamicStrands.Fungus.MechanicsHandoff", "Fungus: Mechanics Handoff", false));
   items.pre_step = registrar.RegisterProfilerItem(GpuItem("DynamicStrands.PreStep", "Pre-step"));
   items.dynamic_grouping =
       registrar.RegisterProfilerItem(GpuItem("DynamicStrands.DynamicGrouping", "Dynamic Grouping"));
@@ -62,8 +67,8 @@ bool dynamic_strands_profiler::RegisterItems(PackageRegistrar& registrar) {
       registrar.RegisterProfilerItem(GpuItem("DynamicStrands.Bundle.CoarseEdgeSolve", "Bundle: Coarse Edge Solve"));
   items.geometry_update =
       registrar.RegisterProfilerItem(CpuGpuItem("DynamicStrands.GeometryUpdate", "Geometry Update", true));
-  return items.simulation_cpu && items.simulation_gpu && items.interaction && items.physics && items.pre_step &&
-         items.dynamic_grouping && items.segment_collision && items.bundle_legacy && items.bundle_pair_solve &&
-         items.bundle_topology_rebuild && items.bundle_slice_fit_apply && items.bundle_coarse_edge_solve &&
-         items.geometry_update;
+  return items.simulation_cpu && items.simulation_gpu && items.interaction && items.physics && items.fungus &&
+         items.fungus_diffusion && items.fungus_mechanics_handoff && items.pre_step && items.dynamic_grouping &&
+         items.segment_collision && items.bundle_legacy && items.bundle_pair_solve && items.bundle_topology_rebuild &&
+         items.bundle_slice_fit_apply && items.bundle_coarse_edge_solve && items.geometry_update;
 }

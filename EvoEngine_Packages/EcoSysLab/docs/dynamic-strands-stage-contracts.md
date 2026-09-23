@@ -181,6 +181,24 @@ handoff run. `DsFungus::Execute()` places GPU barriers after node diffusion,
 edge diffusion, and the handoff dispatch. Pair breaks and stability propagation
 remain visible to the next fungus step, mechanical pass, or live pair draw even
 when physics is paused. The handoff adds one pair-sized dispatch per fungus
-step; its compute cost still needs measuring against the pre-split baseline.
+step. Its incremental cost was not measured at M5 closeout because no
+pre-split GPU timing capture was retained.
 The barrier also makes all edge diffusion finish before any pair break from
 that step, replacing the former within-dispatch cross-pair ordering race.
+
+### Fungus GPU timing
+
+The editor profiler exposes three non-additive GPU scopes in the
+`DynamicStrands` group:
+
+- `Fungus` covers node diffusion, edge diffusion, and the mechanics handoff.
+- `Fungus: Diffusion` covers the two diffusion dispatches and their barriers.
+- `Fungus: Mechanics Handoff` covers the pair-sized handoff dispatch and its
+  final barrier.
+
+Use the normal RelWithDebInfo install for timing; validation builds are not
+performance baselines. Hold the fixture, fungus steps per frame, camera, and
+enabled stages constant, discard warm-up frames, and compare stable multi-frame
+averages. The handoff scope is its absolute cost, not the exact regression from
+the formerly fused edge shader: no M1 GPU capture was retained, and part of the
+handoff work already existed inside that shader.

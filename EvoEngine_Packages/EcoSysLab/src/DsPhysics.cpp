@@ -1,5 +1,7 @@
 #include "DsPhysics.hpp"
 
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_package;
@@ -117,34 +119,39 @@ void DsFungus::Execute(const DynamicStrands::FungusParameters& physics_parameter
   node_push_constant.cpw = physics_parameters.cpw;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    // Process node diffusion first
-    fungus_diffusion_node_pipeline->Bind(vk_command_buffer);
-    fungus_diffusion_node_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
-    fungus_diffusion_node_pipeline->Dispatch(
-        vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+    const auto& profiler_items = dynamic_strands_profiler::GetItems();
+    const GpuProfilerCommandScope fungus_scope(vk_command_buffer, profiler_items.fungus);
+    {
+      const GpuProfilerCommandScope diffusion_scope(vk_command_buffer, profiler_items.fungus_diffusion);
+      fungus_diffusion_node_pipeline->Bind(vk_command_buffer);
+      fungus_diffusion_node_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
+      fungus_diffusion_node_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
 
-    // Then edge diffusion
-    fungus_diffusion_edge_pipeline->Bind(vk_command_buffer);
-    fungus_diffusion_edge_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
-    fungus_diffusion_edge_pipeline->Dispatch(
-        vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
-
-    fungus_mechanics_handoff_pipeline->Bind(vk_command_buffer);
-    fungus_mechanics_handoff_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    fungus_mechanics_handoff_pipeline->PushConstant(vk_command_buffer, 0, handoff_push_constant);
-    fungus_mechanics_handoff_pipeline->Dispatch(
-        vk_command_buffer, Platform::DivUp(handoff_push_constant.pair_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+      fungus_diffusion_edge_pipeline->Bind(vk_command_buffer);
+      fungus_diffusion_edge_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
+      fungus_diffusion_edge_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
+    {
+      const GpuProfilerCommandScope handoff_scope(vk_command_buffer, profiler_items.fungus_mechanics_handoff);
+      fungus_mechanics_handoff_pipeline->Bind(vk_command_buffer);
+      fungus_mechanics_handoff_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_mechanics_handoff_pipeline->PushConstant(vk_command_buffer, 0, handoff_push_constant);
+      fungus_mechanics_handoff_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(handoff_push_constant.pair_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
   });
 }
 
