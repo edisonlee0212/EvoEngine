@@ -38,20 +38,21 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       break;
 
     Segment segment = segments[segment_index];
+    SegmentBiology biology = segment_biology[segment_index];
     if (segment.screen_depth != INFINITY && min_distance_state[0].x == floatToOrderedInt(segment.screen_depth)) {
       // useful for debugging, but not needed
       // min_distance_state[0].y = segment_index;
 
       if ((fungus_type & WHITE_ROT) != 0) {
-        segment.RW = segment.RW + injection_amount;
-        segment.RW_pre = segment.RW;
+        biology.RW = biology.RW + injection_amount;
+        biology.RW_pre = biology.RW;
       }
 
       if ((fungus_type & BROWN_ROT) != 0) {
-        segment.RB = segment.RB + injection_amount;
-        segment.RB_pre = segment.RB;
+        biology.RB = biology.RB + injection_amount;
+        biology.RB_pre = biology.RB;
       }
     }
-    segments[segment_index] = segment;
+    segment_biology[segment_index] = biology;
   }
 }

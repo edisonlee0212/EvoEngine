@@ -12,3 +12,4 @@ import EcoSysLab.DynamicStrands;
 [[vk::binding(11, 0)]] public RWStructuredBuffer<Particle, Std430DataLayout> segment_particle1s;
 [[vk::binding(12, 0)]] public RWStructuredBuffer<SegmentConnectionHandles, Std430DataLayout>
     segment_connection_handles;
+[[vk::binding(13, 0)]] public RWStructuredBuffer<SegmentBiology, Std430DataLayout> segment_biology;

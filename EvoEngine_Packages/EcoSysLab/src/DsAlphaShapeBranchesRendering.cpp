@@ -86,6 +86,7 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   point_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   point_light_push_constant_range.offset = 0;
   point_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(branches_point_light_render_pipeline);
   branches_point_light_render_pipeline->Initialize();
   // Descriptor set layout
   branches_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -110,6 +111,7 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   spot_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   spot_light_push_constant_range.offset = 0;
   spot_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(branches_spot_light_render_pipeline);
   branches_spot_light_render_pipeline->Initialize();
   // Descriptor set layout
   branches_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -135,6 +137,7 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   directional_light_push_constant_range.size = sizeof(BranchesRenderPushConstant);
   directional_light_push_constant_range.offset = 0;
   directional_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(branches_directional_light_render_pipeline);
   branches_directional_light_render_pipeline->Initialize();
   // Descriptor set layout
   branches_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -166,6 +169,7 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   push_constant_range.size = sizeof(BranchesRenderPushConstant);
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(branches_render_pipeline);
   branches_render_pipeline->Initialize();
   branches_masked_render_pipeline = CreateMaskedRawPipeline(
       branches_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
@@ -198,6 +202,8 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToPointLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   branches_point_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  branches_point_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   branches_point_light_render_pipeline->states.ResetAllStates(0);
   branches_point_light_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -233,6 +239,8 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToSpotLightShadowMap(
                                                          RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   branches_spot_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  branches_spot_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   branches_spot_light_render_pipeline->states.ResetAllStates(0);
   branches_spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -268,6 +276,8 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToDirectionalLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   branches_directional_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  branches_directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   branches_directional_light_render_pipeline->states.ResetAllStates(0);
   branches_directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -338,6 +348,8 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 1,
                               dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                              geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
   pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);

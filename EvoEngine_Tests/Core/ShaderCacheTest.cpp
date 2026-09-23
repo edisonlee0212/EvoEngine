@@ -1831,6 +1831,20 @@ TEST(ShaderCache, EcoSysLabNativePackedFungusEdgeShaderCompiles) {
   EXPECT_FALSE(binaries.empty());
 }
 
+TEST(ShaderCache, EcoSysLabFungusMechanicsHandoffShaderCompiles) {
+  ShaderCacheScope scope;
+  RegisterEcoSysLabShaderIncludePath();
+
+  const auto shader_path = RepoPath(
+      "EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Compute/DynamicStrands/Fungus/"
+      "FungusMechanicsHandoff.slang");
+  const auto source = std::string(kComputeShaderGlobalDefines) + ReadTextFile(shader_path);
+
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, shader_path));
+  EXPECT_FALSE(binaries.empty());
+}
+
 TEST(ShaderCache, CorruptNativeSlangEntryIsRecompiledWithoutThrowing) {
   ShaderCacheScope scope;
   std::vector<uint32_t> first;

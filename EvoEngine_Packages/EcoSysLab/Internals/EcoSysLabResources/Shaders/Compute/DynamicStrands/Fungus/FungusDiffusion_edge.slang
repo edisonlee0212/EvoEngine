@@ -255,16 +255,16 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     int segment0_handle = segment_pairs[pair_index].segment0_handle;
     int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
-    InterlockedAdd(segments[segment0_handle].pairs_count, 1);
-    InterlockedAdd(segments[segment1_handle].pairs_count, 1);
+    InterlockedAdd(segment_biology[segment0_handle].pairs_count, 1);
+    InterlockedAdd(segment_biology[segment1_handle].pairs_count, 1);
 
     // Get segment positions and boundary distances
     float3 segment0_pos = (segment_particle0s[segment0_handle].x + segment_particle1s[segment0_handle].x) / 2.0;
     float3 segment1_pos = (segment_particle0s[segment1_handle].x + segment_particle1s[segment1_handle].x) / 2.0;
     float segment0_distance = segments[segment0_handle].boundary_distance;
     float segment1_distance = segments[segment1_handle].boundary_distance;
-    float max_b = max(segments[segment0_handle].RB_pre, segments[segment1_handle].RB_pre);
-    float max_w = max(segments[segment0_handle].RW_pre, segments[segment1_handle].RW_pre);
+    float max_b = max(segment_biology[segment0_handle].RB_pre, segment_biology[segment1_handle].RB_pre);
+    float max_w = max(segment_biology[segment0_handle].RW_pre, segment_biology[segment1_handle].RW_pre);
     float3 l_dir = (segment_particle1s[segment0_handle].x - segment_particle0s[segment0_handle].x +
                   segment_particle1s[segment1_handle].x - segment_particle0s[segment1_handle].x) /
                  2.0;
@@ -272,10 +272,10 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     float2 target_profile = segments[segment1_handle].profile_position;
     float2 source_polar = segments[segment0_handle].profile_polar_coordinate;
     float2 target_polar = segments[segment1_handle].profile_polar_coordinate;
-    float3 ob_w = (segments[segment0_handle].Obstruction_w + segments[segment1_handle].Obstruction_w) / 2.0;
-    float3 ob_b = (segments[segment0_handle].Obstruction_b + segments[segment1_handle].Obstruction_b) / 2.0;
-    float3 ob_c = (segments[segment0_handle].Obstruction_c + segments[segment1_handle].Obstruction_c) / 2.0;
-    float3 ob_m = (segments[segment0_handle].Obstruction_m + segments[segment1_handle].Obstruction_m) / 2.0;
+    float3 ob_w = (segment_biology[segment0_handle].Obstruction_w + segment_biology[segment1_handle].Obstruction_w) / 2.0;
+    float3 ob_b = (segment_biology[segment0_handle].Obstruction_b + segment_biology[segment1_handle].Obstruction_b) / 2.0;
+    float3 ob_c = (segment_biology[segment0_handle].Obstruction_c + segment_biology[segment1_handle].Obstruction_c) / 2.0;
+    float3 ob_m = (segment_biology[segment0_handle].Obstruction_m + segment_biology[segment1_handle].Obstruction_m) / 2.0;
 
     // Calculate diffusion weights
     float dc_weight, dw_weight, db_weight, dm_weight;
@@ -289,42 +289,42 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     }
 
     // Accumulate diffusion contribution from neighbors
-    InterlockedAdd(segments[segment0_handle].diffusion_c, dc_weight * segments[segment1_handle].C_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_w, dw_weight * segments[segment1_handle].RW_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_b, db_weight * segments[segment1_handle].RB_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_m, dm_weight * segments[segment1_handle].moisture_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_c, dc_weight * segment_biology[segment1_handle].C_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_w, dw_weight * segment_biology[segment1_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_b, db_weight * segment_biology[segment1_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_m, dm_weight * segment_biology[segment1_handle].moisture_pre);
 
     // Add reverse direction contributions (undirected graph)
-    InterlockedAdd(segments[segment1_handle].diffusion_c, dc_weight * segments[segment0_handle].C_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_w, dw_weight * segments[segment0_handle].RW_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_b, db_weight * segments[segment0_handle].RB_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_m, dm_weight * segments[segment0_handle].moisture_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_c, dc_weight * segment_biology[segment0_handle].C_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_w, dw_weight * segment_biology[segment0_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_b, db_weight * segment_biology[segment0_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_m, dm_weight * segment_biology[segment0_handle].moisture_pre);
 
     // Add diagonal terms (self-interactions with negative values for conservation)
-    InterlockedAdd(segments[segment0_handle].diffusion_c, -dc_weight * segments[segment0_handle].C_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_w, -dw_weight * segments[segment0_handle].RW_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_b, -db_weight * segments[segment0_handle].RB_pre);
-    InterlockedAdd(segments[segment0_handle].diffusion_m, -dm_weight * segments[segment0_handle].moisture_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_c, -dc_weight * segment_biology[segment0_handle].C_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_w, -dw_weight * segment_biology[segment0_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_b, -db_weight * segment_biology[segment0_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment0_handle].diffusion_m, -dm_weight * segment_biology[segment0_handle].moisture_pre);
 
-    InterlockedAdd(segments[segment1_handle].diffusion_c, -dc_weight * segments[segment1_handle].C_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_w, -dw_weight * segments[segment1_handle].RW_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_b, -db_weight * segments[segment1_handle].RB_pre);
-    InterlockedAdd(segments[segment1_handle].diffusion_m, -dm_weight * segments[segment1_handle].moisture_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_c, -dc_weight * segment_biology[segment1_handle].C_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_w, -dw_weight * segment_biology[segment1_handle].RW_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_b, -db_weight * segment_biology[segment1_handle].RB_pre);
+    InterlockedAdd(segment_biology[segment1_handle].diffusion_m, -dm_weight * segment_biology[segment1_handle].moisture_pre);
 
-    // if (segments[segment1_handle].HL < lignin_threshold || segments[segment0_handle].HL < lignin_threshold) {
+    // if (segment_biology[segment1_handle].HL < lignin_threshold || segment_biology[segment0_handle].HL < lignin_threshold) {
     //   segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
     //   segment_pairs[pair_index].connectivity_integrity = 0.0;
     // }
 
-    // if (segments[segment0_handle].internal_pattern * segments[segment1_handle].internal_pattern == 0) {
-    //  if (segments[segment0_handle].cube_pattern * segments[segment1_handle].cube_pattern == 1) {
+    // if (segment_biology[segment0_handle].internal_pattern * segment_biology[segment1_handle].internal_pattern == 0) {
+    //  if (segment_biology[segment0_handle].cube_pattern * segment_biology[segment1_handle].cube_pattern == 1) {
     //    if (uint4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
     //        uint4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0))) {
     //      float temp_boundary_limit = 0.3;
     //      float temp_health_limit = 0.1;
-    //      if (segments[segment1_handle].HC <
+    //      if (segment_biology[segment1_handle].HC <
     //              temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
-    //          segments[segment0_handle].HC <
+    //          segment_biology[segment0_handle].HC <
     //              temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0))  // Surface case
     //      {
     //        segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
@@ -335,9 +335,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //  } else {
     //    float temp_boundary_limit = 0.3;
     //    float temp_health_limit = 0.1;
-    //    if (segments[segment1_handle].HC <
+    //    if (segment_biology[segment1_handle].HC <
     //            temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0) ||
-    //        segments[segment0_handle].HC <
+    //        segment_biology[segment0_handle].HC <
     //            temp_health_limit + max(0.3 - segments[segment1_handle].boundary_distance, 0.0)) {
     //      segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
     //      segment_pairs[pair_index].connectivity_integrity = 0.0;
@@ -345,21 +345,6 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //  }
     //}
 
-     if (true) {
-         if (segments[segment1_handle].HL < HL_threshold || segments[segment0_handle].HL < HL_threshold) {
-           segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-           segment_pairs[pair_index].connectivity_integrity = 0.0;
-         }
-         if (any(uint4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) !=
-                 uint4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0)))) {
-           if (segments[segment1_handle].HC < HC_threshold &&
-               segments[segment0_handle].HC < HC_threshold)  //ZY: Switch to || for non-tree cases
-           {
-             segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
-             segment_pairs[pair_index].connectivity_integrity = 0.0;
-           }
-         }
-     } // For TREE ELM
 
     // if (segments[segment1_handle].color != segments[segment0_handle].color &&
     //     (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
@@ -401,21 +386,6 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
         //  segment_pairs[pair_index].connectivity_integrity = 0.0;
         //}  // Test: Force break if different color near surface(Oak Trunk)
 
-    if (all(uint4(clamp(segments[segment1_handle].color * 255.0, 0.0, 255.0)) ==
-            uint4(clamp(segments[segment0_handle].color * 255.0, 0.0, 255.0)))) {
-      if (segments[segment0_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment1_handle].reach_ground = 1;
-      if (segments[segment1_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment0_handle].reach_ground = 1;
-      if (segments[segment0_handle].quasi_stable == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment1_handle].quasi_stable = 1;
-      if (segments[segment1_handle].quasi_stable == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
-                                                          segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))
-        segments[segment0_handle].quasi_stable = 1;
-    }
 
     /*if (segments[segment0_handle].reach_ground == 1 && (segment_pairs[pair_index].connectivity_integrity > 0.0 ||
                                                         segment_pairs[pair_index].bend_twist_bundle_integrity > 0.0))

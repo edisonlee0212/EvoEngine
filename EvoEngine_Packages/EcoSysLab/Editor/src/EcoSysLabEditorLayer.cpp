@@ -436,10 +436,22 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
     runtime->dynamic_strands_settings_.remaining_step++;
   }
   if (ImGui::TreeNode("Physics settings")) {
-    InspectSettings(runtime->dynamic_strands_settings_.physics_parameters, editor_layer);
+    if (InspectSettings(runtime->dynamic_strands_settings_.physics_parameters, editor_layer)) {
+      runtime->dynamic_strands_settings_.fungus_parameters =
+          static_cast<const DynamicStrands::FungusParameters&>(runtime->dynamic_strands_settings_.physics_parameters);
+    }
     ImGui::TreePop();
   }
 
+  ImGui::Checkbox("Fungus updates", &runtime->dynamic_strands_settings_.enable_fungus);
+  if (!runtime->dynamic_strands_settings_.enable_fungus && ImGui::Button("Fungus step")) {
+    runtime->dynamic_strands_settings_.remaining_fungus_step++;
+  }
+  ImGui::DragInt("Fungus steps per frame", &runtime->dynamic_strands_settings_.fungus_sub_step, 1, 1, 100);
+  ImGui::Checkbox("Geometry updates", &runtime->dynamic_strands_settings_.enable_geometry_updates);
+  if (!runtime->dynamic_strands_settings_.enable_geometry_updates && ImGui::Button("Geometry step")) {
+    runtime->dynamic_strands_settings_.remaining_geometry_step++;
+  }
   ImGui::Checkbox("Rendering", &runtime->dynamic_strands_settings_.enable_rendering);
   if (ImGui::TreeNode("Rendering settings")) {
     if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {

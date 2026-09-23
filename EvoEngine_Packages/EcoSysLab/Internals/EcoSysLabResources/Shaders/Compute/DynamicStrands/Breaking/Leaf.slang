@@ -26,13 +26,12 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
 		Leaf leaf = foliage[leaf_index];
-                Segment segment = segments[leaf.segment_handle];
                 float multiplier = 1.0f;
                 uint seed = leaf_index;
                 float r = rand_ab(seed, 0.0, 0.4);
                 if (leaf_break_from_moisture == 1) {
                   multiplier = clamp(
-                      max(-r + segment.moisture_pre - leaf_break_threshold, 0.0) / (1.0 - leaf_break_threshold), 0.0f, 1.0f);
+                      max(-r + segment_biology[leaf.segment_handle].moisture_pre - leaf_break_threshold, 0.0) / (1.0 - leaf_break_threshold), 0.0f, 1.0f);
                   leaf.health = multiplier;
                 }
 
@@ -42,7 +41,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 			foliage[leaf_index] = leaf;
 		}
                 //if (leaf_break_from_moisture == 1) {
-                //  if (segment.moisture_pre < leaf_break_threshold) {
+                //  if (segment_biology[leaf.segment_handle].moisture_pre < leaf_break_threshold) {
                 //    leaf.attachment_integrity = 0.0f;
                 //    foliage[leaf_index] = leaf;
                 //  }

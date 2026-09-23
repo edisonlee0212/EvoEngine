@@ -73,6 +73,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToPointLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   small_segments_point_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  small_segments_point_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   small_segments_point_light_render_pipeline->states.ResetAllStates(0);
   small_segments_point_light_render_pipeline->states.SetViewportScissor(view.viewport);
   small_segments_point_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -104,6 +106,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToSpotLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   small_segments_spot_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  small_segments_spot_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   small_segments_spot_light_render_pipeline->states.ResetAllStates(0);
   small_segments_spot_light_render_pipeline->states.SetViewportScissor(view.viewport);
   small_segments_spot_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -135,6 +139,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToDirectionalLightShadowMap(
       vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   small_segments_directional_light_render_pipeline->BindDescriptorSet(
       vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  small_segments_directional_light_render_pipeline->BindDescriptorSet(
+      vk_command_buffer, 3, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   small_segments_directional_light_render_pipeline->states.ResetAllStates(0);
   small_segments_directional_light_render_pipeline->states.SetViewportScissor(view.viewport);
   small_segments_directional_light_render_pipeline->states.ApplyAllStates(vk_command_buffer);
@@ -184,6 +190,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
   pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 1,
                               dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                              geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
   pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
@@ -285,6 +293,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
   pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 1,
                               dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                              geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
   pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
@@ -322,6 +332,7 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   point_light_push_constant_range.size = sizeof(SmallSegmentsRenderPushConstant);
   point_light_push_constant_range.offset = 0;
   point_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(small_segments_point_light_render_pipeline);
   small_segments_point_light_render_pipeline->Initialize();
   // Descriptor set layout
   small_segments_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -346,6 +357,7 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   spot_light_push_constant_range.size = sizeof(SmallSegmentsRenderPushConstant);
   spot_light_push_constant_range.offset = 0;
   spot_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(small_segments_spot_light_render_pipeline);
   small_segments_spot_light_render_pipeline->Initialize();
   // Descriptor set layout
   small_segments_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -372,6 +384,7 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   directional_light_push_constant_range.size = sizeof(SmallSegmentsRenderPushConstant);
   directional_light_push_constant_range.offset = 0;
   directional_light_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(small_segments_directional_light_render_pipeline);
   small_segments_directional_light_render_pipeline->Initialize();
   // Descriptor set layout
   small_segments_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -403,6 +416,7 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   render_range.size = sizeof(SmallSegmentsRenderPushConstant);
   render_range.offset = 0;
   render_range.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(small_segments_render_pipeline);
   small_segments_render_pipeline->Initialize();
   small_segments_masked_render_pipeline =
       CreateMaskedRawPipeline(small_segments_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
@@ -440,6 +454,7 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   visualization_render.size = sizeof(SmallSegmentsVisualizationRenderPushConstant);
   visualization_render.offset = 0;
   visualization_render.stageFlags = VK_SHADER_STAGE_ALL;
+  CompleteGraphicsDescriptorLayouts(small_segments_visualization_render_pipeline);
   small_segments_visualization_render_pipeline->Initialize();
   small_segments_visualization_masked_render_pipeline = CreateMaskedRawPipeline(
       small_segments_visualization_render_pipeline, std::filesystem::path("./EcoSysLabResources") /

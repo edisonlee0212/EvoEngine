@@ -9,6 +9,9 @@ struct Items {
   evo_engine::ProfilerItemHandle simulation_gpu;
   evo_engine::ProfilerItemHandle interaction;
   evo_engine::ProfilerItemHandle physics;
+  evo_engine::ProfilerItemHandle fungus;
+  evo_engine::ProfilerItemHandle fungus_diffusion;
+  evo_engine::ProfilerItemHandle fungus_mechanics_handoff;
   evo_engine::ProfilerItemHandle pre_step;
   evo_engine::ProfilerItemHandle dynamic_grouping;
   evo_engine::ProfilerItemHandle segment_collision;
@@ -17,7 +20,7 @@ struct Items {
   evo_engine::ProfilerItemHandle bundle_topology_rebuild;
   evo_engine::ProfilerItemHandle bundle_slice_fit_apply;
   evo_engine::ProfilerItemHandle bundle_coarse_edge_solve;
-  evo_engine::ProfilerItemHandle render_compute;
+  evo_engine::ProfilerItemHandle geometry_update;
 };
 
 [[nodiscard]] const Items& GetItems();

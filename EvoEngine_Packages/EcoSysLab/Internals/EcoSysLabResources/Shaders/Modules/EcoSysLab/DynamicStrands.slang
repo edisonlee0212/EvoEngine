@@ -88,6 +88,13 @@ public struct Segment {
   public float screen_depth;
   public int reach_ground;
 
+  public int unlink_constraint;
+  public float ground_damping;
+  public int quasi_stable;
+  public float quasi_damping;
+};
+
+public struct SegmentBiology {
   public float C;   // Chemical defense
   public float HC;  // Carbon health
   public float HL;  // Lignin health
@@ -114,17 +121,16 @@ public struct Segment {
   public int cube_pattern;
 
   public float3 Obstruction_w;
-  public int unlink_constraint;
+  public int padding0;
 
   public float3 Obstruction_b;
-  public float ground_damping;
+  public float padding1;
 
   public float3 Obstruction_c;
-  public int quasi_stable;
+  public int padding2;
 
   public float3 Obstruction_m;
-  public float quasi_damping;
-
+  public float padding3;
 };
 
 public struct SegmentPair {

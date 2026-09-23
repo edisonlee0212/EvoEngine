@@ -8,7 +8,7 @@
 namespace evo_engine::runtime_paths {
 bool IsStrict() {
   const auto application = ApplicationContext::TryGet();
-  return application ? application->GetApplicationInfo().strict_runtime : !EVOENGINE_WITH_EDITOR;
+  return application && application->GetApplicationInfo().strict_runtime;
 }
 
 std::filesystem::path Root() {

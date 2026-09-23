@@ -8,7 +8,7 @@ TEST(NativeBuildIdentity, RunningSdkHasCompleteMatchingIdentity) {
   ASSERT_NE(identity.sdk_source_id, nullptr);
   EXPECT_EQ(std::string(identity.sdk_source_id).size(), 64);
   EXPECT_TRUE(IsNativeBuildCompatible(identity, identity));
-  EXPECT_EQ(identity.with_editor, EVOENGINE_WITH_EDITOR != 0);
+  EXPECT_FALSE(identity.with_editor);
 }
 
 TEST(NativeBuildIdentity, RejectsIncompatibleNativeInputs) {

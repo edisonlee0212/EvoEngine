@@ -59,7 +59,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 
     float scaling_factor = 1.0f;
     float bundle_scaling_factor = 1.0f;
-    float moisture = (segments[segment0_handle].moisture + segments[segment1_handle].moisture) / 2.0;
+    float moisture = (segment_biology[segment0_handle].moisture + segment_biology[segment1_handle].moisture) / 2.0;
     scaling_factor = 1.0f;
     if (moisture_breaking_rod == 1) {
       scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;

@@ -1,5 +1,7 @@
 #include "DsPhysics.hpp"
 
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_package;
@@ -39,6 +41,23 @@ DsFungus::DsFungus() {
 
     fungus_diffusion_edge_pipeline->Initialize();
   }
+  if (!fungus_mechanics_handoff_pipeline) {
+    static std::shared_ptr<Shader> shader{};
+    shader = std::make_shared<Shader>();
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Fungus/FungusMechanicsHandoff.slang");
+    fungus_mechanics_handoff_pipeline = std::make_shared<ComputePipeline>();
+    fungus_mechanics_handoff_pipeline->compute_shader = shader;
+    fungus_mechanics_handoff_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+
+    auto& push_constant_range = fungus_mechanics_handoff_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(FungusMechanicsHandoffPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    fungus_mechanics_handoff_pipeline->Initialize();
+  }
 }
 
 namespace {
@@ -49,7 +68,7 @@ void PackMat3Columns(glm::vec4 (&target)[3], const glm::mat3& source) {
 }
 }  // namespace
 
-void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
+void DsFungus::Execute(const DynamicStrands::FungusParameters& physics_parameters,
                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
@@ -67,6 +86,11 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   PackMat3Columns(edge_push_constant.matrixAb, physics_parameters.matrixAb);
   PackMat3Columns(edge_push_constant.matrixAc, physics_parameters.matrixAc);
   PackMat3Columns(edge_push_constant.matrixAm, physics_parameters.matrixAm);
+
+  FungusMechanicsHandoffPushConstant handoff_push_constant;
+  handoff_push_constant.pair_size = edge_push_constant.pair_size;
+  handoff_push_constant.HC_threshold = physics_parameters.HC_threshold;
+  handoff_push_constant.HL_threshold = physics_parameters.HL_threshold;
 
   // Then, update fungal properties on nodes (segments)
   FungusDiffusionNodePushConstant node_push_constant;
@@ -95,25 +119,39 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   node_push_constant.cpw = physics_parameters.cpw;
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    // Process node diffusion first
-    fungus_diffusion_node_pipeline->Bind(vk_command_buffer);
-    fungus_diffusion_node_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
-    fungus_diffusion_node_pipeline->Dispatch(
-        vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+    const auto& profiler_items = dynamic_strands_profiler::GetItems();
+    const GpuProfilerCommandScope fungus_scope(vk_command_buffer, profiler_items.fungus);
+    {
+      const GpuProfilerCommandScope diffusion_scope(vk_command_buffer, profiler_items.fungus_diffusion);
+      fungus_diffusion_node_pipeline->Bind(vk_command_buffer);
+      fungus_diffusion_node_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_diffusion_node_pipeline->PushConstant(vk_command_buffer, 0, node_push_constant);
+      fungus_diffusion_node_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(node_push_constant.segment_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
 
-    // Then edge diffusion
-    fungus_diffusion_edge_pipeline->Bind(vk_command_buffer);
-    fungus_diffusion_edge_pipeline->BindDescriptorSet(
-        vk_command_buffer, 0,
-        target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-    fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
-    fungus_diffusion_edge_pipeline->Dispatch(
-        vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
-    Platform::EverythingBarrier(vk_command_buffer);
+      fungus_diffusion_edge_pipeline->Bind(vk_command_buffer);
+      fungus_diffusion_edge_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_diffusion_edge_pipeline->PushConstant(vk_command_buffer, 0, edge_push_constant);
+      fungus_diffusion_edge_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(edge_push_constant.pair_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
+    {
+      const GpuProfilerCommandScope handoff_scope(vk_command_buffer, profiler_items.fungus_mechanics_handoff);
+      fungus_mechanics_handoff_pipeline->Bind(vk_command_buffer);
+      fungus_mechanics_handoff_pipeline->BindDescriptorSet(
+          vk_command_buffer, 0,
+          target_dynamic_strands.strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+      fungus_mechanics_handoff_pipeline->PushConstant(vk_command_buffer, 0, handoff_push_constant);
+      fungus_mechanics_handoff_pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(handoff_push_constant.pair_size, work_group_invocations), 1, 1);
+      Platform::EverythingBarrier(vk_command_buffer);
+    }
   });
 }
 

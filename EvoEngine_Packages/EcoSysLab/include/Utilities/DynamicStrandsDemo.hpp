@@ -96,5 +96,6 @@ class DynamicStrandsDemo : public IPrivateComponent {
    * @brief Updates the physics simulation and demo state.
    */
   void Update() override;
+  [[nodiscard]] bool ControlsStrands(Entity entity);
 };
 }  // namespace eco_sys_lab_package

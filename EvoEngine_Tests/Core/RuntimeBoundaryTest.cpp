@@ -14,8 +14,6 @@
 
 using namespace evo_engine;
 
-static_assert(!EVOENGINE_WITH_EDITOR);
-
 namespace evo_engine {
 struct RuntimeInputTestAccess {
   static void AltEnter(GLFWwindow* window, const int action = GLFW_PRESS) {

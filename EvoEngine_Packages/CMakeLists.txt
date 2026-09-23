@@ -132,6 +132,7 @@ function(evoengine_configure_editor_package target_name runtime_target)
       "-DNAME=${package_name}" "-DEDITOR_API_VERSION=2"
       "-DLIBRARY=$<TARGET_FILE_NAME:${target_name}>" "-DLIBRARY_PATH=$<TARGET_FILE:${target_name}>"
       "-DIDENTITY_FILE=${EVOENGINE_BUILD_IDENTITY_DIR}/identity.cmake"
+      -DWITH_EDITOR=true
       "-DDEPENDENCIES=${editor_dependencies}"
       -P "${CMAKE_SOURCE_DIR}/cmake/EvoEngineWritePackageManifest.cmake"
     VERBATIM)
@@ -242,6 +243,7 @@ function(evoengine_generate_runtime_package_manifest package_name target_name pa
 			"-DEDITOR_MANIFEST=$<TARGET_PROPERTY:${target_name},EVOENGINE_EDITOR_MANIFEST>"
 			"-DLIBRARY_PATH=$<TARGET_FILE:${target_name}>"
 			"-DIDENTITY_FILE=${EVOENGINE_BUILD_IDENTITY_DIR}/identity.cmake"
+			-DWITH_EDITOR=false
 			"-DVERSION=${package_version}"
 			"-DDESCRIPTION=${package_description}"
 			"-DDEPENDENCIES=${dependencies_encoded}"

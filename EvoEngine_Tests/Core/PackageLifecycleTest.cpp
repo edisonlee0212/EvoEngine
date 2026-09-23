@@ -255,6 +255,8 @@ TEST_F(PackageLifecycle, DeclaredCompanionMustExistAndMatchItsRuntimePackageAndH
   std::filesystem::create_directories(scratch.path / "Editor");
   const auto runtime_manifest = YAML::LoadFile((packages / "TextureBaking.evepackage").string());
   const auto editor_manifest = YAML::LoadFile((packages / "Editor/TextureBaking.eveeditorpackage").string());
+  EXPECT_FALSE(runtime_manifest["with_editor"].as<bool>());
+  EXPECT_TRUE(editor_manifest["with_editor"].as<bool>());
   for (const auto& relative : {std::filesystem::path("TextureBaking.evepackage"),
                                std::filesystem::path(runtime_manifest["library"].as<std::string>()),
                                std::filesystem::path("Editor") / editor_manifest["library"].as<std::string>()})
