@@ -153,7 +153,7 @@ function(evoengine_finalize_native_build)
 		DEPENDS EvoEngineBuildIdentity
 		VERBATIM)
 	add_dependencies(EvoEngine_SDK EvoEngineBuildIdentity)
-	if(WIN32 AND architecture STREQUAL "x64")
+	if(WIN32 AND architecture STREQUAL "x64" AND EVOENGINE_ENABLE_RUNTIME_PACKAGES)
 		evoengine_runtime_payload()
 	endif()
 endfunction()
