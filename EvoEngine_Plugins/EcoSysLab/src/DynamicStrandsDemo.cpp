@@ -184,7 +184,7 @@ void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& ph
   physics_parameters.be = 0.5f;
 }
 
-constexpr float kDefaultPhysicsDemoHeight = 1.0f;
+constexpr float kDefaultPhysicsDemoHeight = 0.0f;
 constexpr float kVolumetricLogExperimentHeight = 0.25f;
 constexpr float kVolumetricLogExperimentCameraHeight = 0.55f;
 

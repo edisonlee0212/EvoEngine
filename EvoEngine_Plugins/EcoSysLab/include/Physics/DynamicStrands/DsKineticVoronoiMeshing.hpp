@@ -86,6 +86,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     double branch_alpha_cutoff = 10.0;
     /// Extra sections above floor(t)+1 when classifying same-branch membership for branch_alpha_cutoff (0 = default).
     size_t look_ahead = 0;
+    /// Debug: for non-parallel profile-plane mixes, apply only the hinge about the intersection line
+    /// (skip in-plane origin shift and rotation about the plane normal).
+    bool hinge_only_profile_plane_mix = false;
     /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
     bool intersection_boundary_apply_inverse_root_transform = true;
     /// Free-form note stored in mesh buffer YML metadata (not used for cache hashing).

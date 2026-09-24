@@ -44,6 +44,8 @@
 #include "kinDS/kinDS/Polynomial.hpp"
 #include "kinDS/kinDS/SegmentBuilder.hpp"
 #include "kinDS/kinDS/Statistics.hpp"
+#include "kinDS/kinDS/StrandTree.hpp"
+#include <glm/gtc/matrix_transform.hpp>
 
 using namespace eco_sys_lab_plugin;
 
@@ -372,6 +374,9 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
       // look_ahead only affects the key when non-zero (default preserves legacy hashes).
       if (DsKineticVoronoiMeshing::meshing_settings.look_ahead != 0) {
         hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.look_ahead);
+      }
+      if (DsKineticVoronoiMeshing::meshing_settings.hinge_only_profile_plane_mix) {
+        hash.MixPod(static_cast<uint8_t>(1));
       }
     }
   };
@@ -992,6 +997,216 @@ bool LoadMeshingBuffer(const std::filesystem::path& bin_path, const GlobalTransf
   return reader.Good();
 }
 
+/// Debug tag for how a profile plane was produced (group-name suffix + vertex/face metadata).
+enum class ProfilePlaneDebugKind { Original, Parallel, Rotated };
+
+const char* ProfilePlaneDebugKindSuffix(ProfilePlaneDebugKind kind) {
+  switch (kind) {
+    case ProfilePlaneDebugKind::Original:
+      return "original";
+    case ProfilePlaneDebugKind::Parallel:
+      return "parallel";
+    case ProfilePlaneDebugKind::Rotated:
+      return "rotated";
+  }
+  return "unknown";
+}
+
+constexpr double kProfilePlaneNearParallelAngle = 1e-3;
+constexpr double kProfilePlaneHingeEps = 1e-10;
+
+/// Hinge between two profile planes for EcoSysLab mix (independent of kinDS::PlaneProjector).
+struct ProfilePlaneHinge {
+  glm::dvec3 axis{0.0, 1.0, 0.0};
+  glm::dvec3 point{0.0};
+  double angle = 0.0;
+  glm::dvec3 nA{0.0, 1.0, 0.0};
+  glm::dvec3 nB{0.0, 1.0, 0.0};
+};
+
+/// Geometric normal from profile span columns (col0 × col2), matching PlaneProjector's spanning-vector sense.
+glm::dvec3 ProfilePlaneGeometricNormal(const glm::dmat4& transform) {
+  const glm::dvec3 u(transform[0]);
+  const glm::dvec3 v(transform[2]);
+  const glm::dvec3 n = glm::cross(u, v);
+  const double len = glm::length(n);
+  if (len < kProfilePlaneHingeEps) {
+    const glm::dvec3 front(transform[1]);
+    const double fl = glm::length(front);
+    return (fl > kProfilePlaneHingeEps) ? (front / fl) : glm::dvec3(0.0, 1.0, 0.0);
+  }
+  return n / len;
+}
+
+/**
+ * Build the rotation hinge that maps plane A onto plane B.
+ * Intersection point is the particular solution in span{nA, nB} (closest to the origin on the line),
+ * satisfying nA·x + dA = 0 and nB·x + dB = 0 with d = -n·origin.
+ *
+ * NOTE: kinDS::PlaneProjector uses a different (incorrect) intersection formula; do not reuse it here.
+ * @return false when planes are parallel / anti-parallel within @c kProfilePlaneHingeEps.
+ */
+bool TryBuildProfilePlaneHinge(const glm::dmat4& plane_a, const glm::dmat4& plane_b, ProfilePlaneHinge& out) {
+  const glm::dvec3 oA(plane_a[3]);
+  const glm::dvec3 oB(plane_b[3]);
+  out.nA = ProfilePlaneGeometricNormal(plane_a);
+  out.nB = ProfilePlaneGeometricNormal(plane_b);
+
+  glm::dvec3 axis_raw = glm::cross(out.nA, out.nB);
+  const double axis_len = glm::length(axis_raw);
+  if (axis_len < kProfilePlaneHingeEps) {
+    return false;
+  }
+  out.axis = axis_raw / axis_len;
+
+  const double cos_theta = glm::clamp(glm::dot(out.nA, out.nB), -1.0, 1.0);
+  out.angle = std::acos(cos_theta);
+
+  // Planes: n·x + d = 0, d = -n·o. Particular point on the line in span{nA, nB}:
+  //   λ nA + μ nB with [1, c; c, 1][λ; μ] = [-dA; -dB], c = nA·nB.
+  const double dA = -glm::dot(out.nA, oA);
+  const double dB = -glm::dot(out.nB, oB);
+  const double c = cos_theta;
+  const double det = 1.0 - c * c;  // sin^2(theta) = |nA × nB|^2 for unit normals
+  if (std::abs(det) < kProfilePlaneHingeEps) {
+    return false;
+  }
+  const double lambda = (-dA + c * dB) / det;
+  const double mu = (-dB + c * dA) / det;
+  out.point = lambda * out.nA + mu * out.nB;
+  return true;
+}
+
+/// Same parallel / near-parallel decision as @ref MixProfilePlaneTransforms (keep thresholds in sync).
+bool ProfilePlaneMixUsesParallelFallback(const glm::dmat4& lower, const glm::dmat4& upper) {
+  ProfilePlaneHinge hinge;
+  if (!TryBuildProfilePlaneHinge(lower, upper, hinge)) {
+    return true;
+  }
+  const glm::dvec3 oA(lower[3]);
+  const glm::dvec3 oB(upper[3]);
+  const double len_uA = glm::length(glm::dvec3(lower[0]));
+  const double len_vA = glm::length(glm::dvec3(lower[2]));
+  const double len_uB = glm::length(glm::dvec3(upper[0]));
+  const double len_vB = glm::length(glm::dvec3(upper[2]));
+  const double span = std::max({len_uA, len_vA, len_uB, len_vB, glm::length(oB - oA), 1.0});
+  const double hinge_radius = std::max(glm::length(oA - hinge.point), glm::length(oB - hinge.point));
+  return hinge.angle < kProfilePlaneNearParallelAngle || hinge_radius > 1e4 * span;
+}
+
+/// Debug mesh: one axis-aligned quad per (height, branch) profile plane from StrandTree input only.
+/// Quad extents are the min/max of that branch's site support points at that height, transformed by
+/// the stored profile→object matrix (local convention (u, 0, v)).
+/// Group names are suffixed with original / parallel / rotated; matching JSON is stored as metadata.
+kinDS::VoronoiMesh BuildProfilePlanesDebugMesh(const kinDS::StrandTree& tree, int uniform_subdivision) {
+  kinDS::VoronoiMesh mesh({}, kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(true);
+  const auto& support_points = tree.getSupportPoints();
+  const auto& transforms = tree.getTransformsByHeightAndBranch();
+  const auto& strands_by_branch_id = tree.getStrandsByBranchId();
+  const size_t subdiv =
+      static_cast<size_t>(std::max(1, uniform_subdivision));
+
+  size_t plane_count = 0;
+  for (size_t height = 0; height < transforms.size(); ++height) {
+    if (height >= strands_by_branch_id.size()) {
+      break;
+    }
+    for (size_t branch_id = 0; branch_id < transforms[height].size(); ++branch_id) {
+      if (branch_id >= strands_by_branch_id[height].size()) {
+        continue;
+      }
+      const auto& strand_ids = strands_by_branch_id[height][branch_id];
+      if (strand_ids.empty()) {
+        continue;
+      }
+
+      double min_u = std::numeric_limits<double>::infinity();
+      double max_u = -std::numeric_limits<double>::infinity();
+      double min_v = std::numeric_limits<double>::infinity();
+      double max_v = -std::numeric_limits<double>::infinity();
+      size_t site_count = 0;
+      for (const size_t strand_id : strand_ids) {
+        if (strand_id >= support_points.size() || height >= support_points[strand_id].size()) {
+          continue;
+        }
+        const glm::dvec2& p = support_points[strand_id][height];
+        min_u = std::min(min_u, p.x);
+        max_u = std::max(max_u, p.x);
+        min_v = std::min(min_v, p.y);
+        max_v = std::max(max_v, p.y);
+        ++site_count;
+      }
+      if (site_count == 0) {
+        continue;
+      }
+
+      constexpr double kMinExtent = 1e-4;
+      if (max_u - min_u < kMinExtent) {
+        const double mid = 0.5 * (min_u + max_u);
+        min_u = mid - 0.5 * kMinExtent;
+        max_u = mid + 0.5 * kMinExtent;
+      }
+      if (max_v - min_v < kMinExtent) {
+        const double mid = 0.5 * (min_v + max_v);
+        min_v = mid - 0.5 * kMinExtent;
+        max_v = mid + 0.5 * kMinExtent;
+      }
+
+      ProfilePlaneDebugKind kind = ProfilePlaneDebugKind::Original;
+      if (height % subdiv != 0) {
+        const size_t lower_h = (height / subdiv) * subdiv;
+        const size_t upper_h = std::min(lower_h + subdiv, transforms.size() - 1);
+        const size_t strand_id = strand_ids.front();
+        const size_t lower_b = tree.getBranchIndex(strand_id, lower_h);
+        const size_t upper_b = tree.getBranchIndex(strand_id, upper_h);
+        if (lower_h < transforms.size() && upper_h < transforms.size() && lower_b < transforms[lower_h].size() &&
+            upper_b < transforms[upper_h].size()) {
+          kind = ProfilePlaneMixUsesParallelFallback(transforms[lower_h][lower_b], transforms[upper_h][upper_b])
+                     ? ProfilePlaneDebugKind::Parallel
+                     : ProfilePlaneDebugKind::Rotated;
+        } else {
+          // Missing bracketing originals — still mark as interpolated via hinge path unknown; use rotated label.
+          kind = ProfilePlaneDebugKind::Rotated;
+        }
+      }
+
+      const char* kind_suffix = ProfilePlaneDebugKindSuffix(kind);
+      std::ostringstream group_name;
+      group_name << "h" << height << "_b" << branch_id << "_n" << site_count << "_" << kind_suffix;
+      mesh.startNewGroup(group_name.str());
+
+      std::ostringstream material_name;
+      material_name << "branch_" << branch_id << "_" << kind_suffix;
+      const int material_id = mesh.ensureMaterialName(material_name.str());
+
+      std::ostringstream meta;
+      meta << "{\"plane_kind\":\"" << kind_suffix << "\",\"height\":" << height << ",\"branch\":" << branch_id
+           << ",\"sites\":" << site_count << "}";
+      const std::string metadata = meta.str();
+
+      const glm::dmat4& profile_to_object = transforms[height][branch_id];
+      const auto to_object = [&](double u, double v) -> glm::dvec3 {
+        const glm::dvec4 world = profile_to_object * glm::dvec4(u, 0.0, v, 1.0);
+        return glm::dvec3(world.x, world.y, world.z);
+      };
+
+      const size_t v0 = mesh.addVertex(to_object(min_u, min_v), metadata);
+      const size_t v1 = mesh.addVertex(to_object(max_u, min_v), metadata);
+      const size_t v2 = mesh.addVertex(to_object(max_u, max_v), metadata);
+      const size_t v3 = mesh.addVertex(to_object(min_u, max_v), metadata);
+      mesh.addTriangle(v0, v1, v2, material_id, metadata);
+      mesh.addTriangle(v0, v2, v3, material_id, metadata);
+      ++plane_count;
+    }
+  }
+
+  if (plane_count > 0) {
+    mesh.computeNormals(kinDS::PerTriangleCorner);
+  }
+  return mesh;
+}
+
 }  // namespace
 
 // helper functions
@@ -1232,12 +1447,180 @@ glm::dmat4 BuildInternodeProfileTransformAtStart(const StrandModelSkeleton& skel
   return BuildInternodeProfileTransformAtOrigin(skeleton, node_handle, glm::dvec3(node.info.global_position));
 }
 
-glm::dmat4 MixAffineTransforms(const glm::dmat4& lower, const glm::dmat4& upper, double fraction) {
-  const double t = glm::clamp(fraction, 0.0, 1.0);
-  glm::dmat4 result(1.0);
-  for (int column = 0; column < 4; ++column) {
-    result[column] = glm::mix(lower[column], upper[column], t);
+/// Signed in-plane angle from @p from to @p to about unit normal @p normal (radians).
+double SignedAngleAboutNormal(const glm::dvec3& from, const glm::dvec3& to, const glm::dvec3& normal) {
+  constexpr double kEps = 1e-12;
+  glm::dvec3 a = from - normal * glm::dot(from, normal);
+  glm::dvec3 b = to - normal * glm::dot(to, normal);
+  const double la = glm::length(a);
+  const double lb = glm::length(b);
+  if (la < kEps || lb < kEps) {
+    return 0.0;
   }
+  a /= la;
+  b /= lb;
+  return std::atan2(glm::dot(normal, glm::cross(a, b)), glm::dot(a, b));
+}
+
+/// Geometric profile-plane normal from span columns (matches @ref kinDS::PlaneProjector).
+/// Note: transform column 1 is @c front = -cross(left, up), so do not use column 1 here.
+glm::dvec3 GeometricProfileNormal(const glm::dvec3& u, const glm::dvec3& v, const glm::dvec3& fallback) {
+  constexpr double kEps = 1e-12;
+  const glm::dvec3 n = glm::cross(u, v);
+  const double len = glm::length(n);
+  if (len < kEps) {
+    const double fl = glm::length(fallback);
+    return (fl > kEps) ? (fallback / fl) : glm::dvec3(0.0, 1.0, 0.0);
+  }
+  return n / len;
+}
+
+/**
+ * Interpolate profile-plane transforms between two original internode frames.
+ *
+ * Non-parallel: hinge about the plane intersection line, then in-plane rotation about the (hinged)
+ * origin, then in-plane origin shift — each scaled by @p fraction. The shift is expressed in the
+ * intermediate hinged frame (not as a fixed upper-plane world vector).
+ * When @ref DsKineticVoronoiMeshing::MeshingSettings::hinge_only_profile_plane_mix is set, only the
+ * hinge is applied (debug).
+ * Parallel / near-parallel fallback: translation plus rotation about the geometric plane normal.
+ * Span/normal column lengths are lerped separately.
+ */
+glm::dmat4 MixProfilePlaneTransforms(const glm::dmat4& lower, const glm::dmat4& upper, double fraction) {
+  const double f = glm::clamp(fraction, 0.0, 1.0);
+  if (f <= 0.0) {
+    return lower;
+  }
+  if (f >= 1.0) {
+    return upper;
+  }
+
+  constexpr double kEps = 1e-8;
+
+  const glm::dvec3 oA(lower[3]);
+  const glm::dvec3 uA(lower[0]);
+  const glm::dvec3 nA_col(lower[1]);  // front; opposite geometric normal
+  const glm::dvec3 vA(lower[2]);
+  const glm::dvec3 oB(upper[3]);
+  const glm::dvec3 uB(upper[0]);
+  const glm::dvec3 nB_col(upper[1]);
+  const glm::dvec3 vB(upper[2]);
+
+  const double len_uA = glm::length(uA);
+  const double len_vA = glm::length(vA);
+  const double len_uB = glm::length(uB);
+  const double len_vB = glm::length(vB);
+  const double len_nA = glm::length(nA_col);
+  const double len_nB = glm::length(nB_col);
+
+  // Same spanning-vector normals as PlaneProjector (not the front column).
+  const glm::dvec3 nA_geo = GeometricProfileNormal(uA, vA, nA_col);
+  glm::dvec3 nB_geo = GeometricProfileNormal(uB, vB, nB_col);
+
+  glm::dvec3 o_f = oA;
+  glm::dvec3 u_f = uA;
+  glm::dvec3 v_f = vA;
+  glm::dvec3 n_f = nA_col;
+
+  // Keep in sync with ProfilePlaneMixUsesParallelFallback (profile-plane debug tags).
+  // Hinge geometry comes from TryBuildProfilePlaneHinge — not PlaneProjector (known bad m_p0).
+  const bool use_parallel = ProfilePlaneMixUsesParallelFallback(lower, upper);
+
+  if (use_parallel) {
+    // Parallel: translation + rotation about the geometric plane normal (matches PlaneProjector sense).
+    if (glm::dot(nA_geo, nB_geo) < 0.0) {
+      nB_geo = -nB_geo;
+    }
+    const glm::dvec3 translation = oB - oA;
+    const double phi = SignedAngleAboutNormal(uA, uB, nA_geo);
+
+    const glm::dmat3 R = glm::dmat3(glm::rotate(glm::dmat4(1.0), f * phi, nA_geo));
+    // Rotate spans about the lower origin, then translate (same as translating first for pure axes).
+    u_f = R * uA;
+    v_f = R * vA;
+    n_f = R * ((len_nA > kEps) ? nA_col : nA_geo);
+    o_f = oA + f * translation;
+  } else {
+    // Non-parallel: hinge about intersection line → (optional) in-plane rot → (optional) in-plane shift.
+    ProfilePlaneHinge hinge;
+    if (!TryBuildProfilePlaneHinge(lower, upper, hinge)) {
+      // Should be unreachable when use_parallel is false; fall back to parallel mix.
+      if (glm::dot(nA_geo, nB_geo) < 0.0) {
+        nB_geo = -nB_geo;
+      }
+      const glm::dvec3 translation = oB - oA;
+      const double phi = SignedAngleAboutNormal(uA, uB, nA_geo);
+      const glm::dmat3 R = glm::dmat3(glm::rotate(glm::dmat4(1.0), f * phi, nA_geo));
+      u_f = R * uA;
+      v_f = R * vA;
+      n_f = R * ((len_nA > kEps) ? nA_col : nA_geo);
+      o_f = oA + f * translation;
+    } else {
+      const glm::dvec3& axis = hinge.axis;
+      const glm::dvec3& p0 = hinge.point;
+      const double theta = hinge.angle;
+      // Use hinge normals (same sense as spanning-vector cross products).
+      nB_geo = hinge.nB;
+      const glm::dvec3 nA_hinge = hinge.nA;
+
+      const glm::dmat3 R_h_f = glm::dmat3(glm::rotate(glm::dmat4(1.0), f * theta, axis));
+      o_f = p0 + R_h_f * (oA - p0);
+      u_f = R_h_f * uA;
+      v_f = R_h_f * vA;
+      n_f = R_h_f * ((len_nA > kEps) ? nA_col : nA_hinge);
+
+      // Debug: hinge only — skip in-plane origin shift and rotation about the plane normal.
+      if (!DsKineticVoronoiMeshing::meshing_settings.hinge_only_profile_plane_mix) {
+        const glm::dmat3 R_full = glm::dmat3(glm::rotate(glm::dmat4(1.0), theta, axis));
+        const glm::dmat3 R_full_inv = glm::transpose(R_full);  // pure rotation
+        const glm::dvec3 oA_h = p0 + R_full * (oA - p0);
+        const glm::dvec3 uA_h = R_full * uA;
+
+        // Residual after full hinge, parallel to the upper geometric plane.
+        glm::dvec3 shift_B = oB - oA_h;
+        shift_B -= nB_geo * glm::dot(shift_B, nB_geo);
+
+        // In-plane twist about geometric normal after full hinge.
+        const double phi = SignedAngleAboutNormal(uA_h, uB, nB_geo);
+
+        glm::dvec3 n_mid = glm::normalize(R_h_f * nA_hinge);
+        if (glm::length2(n_mid) < kEps * kEps) {
+          n_mid = nB_geo;
+        }
+        // In-plane rotation about the hinged support origin (before shifting it).
+        const glm::dmat3 R_n_f = glm::dmat3(glm::rotate(glm::dmat4(1.0), f * phi, n_mid));
+        u_f = R_n_f * u_f;
+        v_f = R_n_f * v_f;
+        n_f = R_n_f * n_f;
+
+        // Carry the residual shift in the intermediate hinged orientation (not as a fixed B-world vector).
+        o_f += f * (R_h_f * (R_full_inv * shift_B));
+      }
+    }
+  }
+
+  const double su = glm::mix(len_uA, len_uB, f);
+  const double sv = glm::mix(len_vA, len_vB, f);
+  const double sn = glm::mix(len_nA > kEps ? len_nA : 1.0, len_nB > kEps ? len_nB : 1.0, f);
+
+  if (glm::length(u_f) > kEps) {
+    u_f = glm::normalize(u_f) * su;
+  }
+  if (glm::length(v_f) > kEps) {
+    v_f = glm::normalize(v_f) * sv;
+  }
+  if (glm::length(n_f) > kEps) {
+    n_f = glm::normalize(n_f) * sn;
+  } else {
+    // Prefer front-aligned geometric normal (opposite cross(u,v) in our frame convention).
+    n_f = -GeometricProfileNormal(u_f, v_f, n_f) * sn;
+  }
+
+  glm::dmat4 result(1.0);
+  result[0] = glm::dvec4(u_f, 0.0);
+  result[1] = glm::dvec4(n_f, 0.0);
+  result[2] = glm::dvec4(v_f, 0.0);
+  result[3] = glm::dvec4(o_f, 1.0);
   return result;
 }
 
@@ -1287,7 +1670,7 @@ glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(const StrandModelSkeleton
 
   const double fraction =
       (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
-  return MixAffineTransforms(lower_transform, upper_transform, fraction);
+  return MixProfilePlaneTransforms(lower_transform, upper_transform, fraction);
 }
 
 struct ProfilePlane {
@@ -4276,6 +4659,13 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Store JSON vertex/face metadata on meshlets (TreeMesher store_mesh_metadata).");
   }
+  ImGui::Checkbox("Hinge-only profile plane mix", &meshing_settings.hinge_only_profile_plane_mix);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Debug: for non-parallel (rotated) profile-plane interpolation, apply only the hinge about the "
+        "intersection line — skip in-plane origin shift and rotation about the plane normal. "
+        "Parallel mixes are unchanged. Affects meshing buffer hash.");
+  }
   if (ImGui::DragFloat("Spline tension", &meshing_settings.spline_tension, 0.01f, 0.0f, 1.0f)) {
     meshing_settings.spline_tension = glm::clamp(meshing_settings.spline_tension, 0.0f, 1.0f);
   }
@@ -4488,6 +4878,29 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                                     dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
       },
       false);
+  ImGui::SameLine();
+  if (strand_tree) {
+    FileUtils::SaveFile(
+        "Export Profile Planes", "OBJ", {".obj"},
+        [&](const std::filesystem::path& path) {
+          const kinDS::VoronoiMesh planes_mesh =
+              BuildProfilePlanesDebugMesh(*strand_tree, initialize_parameters_.uniform_subdivision);
+          if (planes_mesh.getTriangles().empty()) {
+            EVOENGINE_WARNING("Export Profile Planes: no (height, branch) planes with sites in StrandTree.");
+            return;
+          }
+          kinDS::ObjExporter::writeMesh(planes_mesh, path, 1.0, 1.0, {}, /*include_metadata=*/true);
+          EVOENGINE_LOG("Exported profile-plane debug mesh (" +
+                        std::to_string(planes_mesh.getTriangles().size() / 3) + " triangles) to " + path.string());
+        },
+        false);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "OBJ of one quad per StrandTree profile plane (height × branch). "
+          "Group suffix original/parallel/rotated; JSON metadata on vertices/faces. "
+          "Extents from min/max site support points; placement from stored profile transforms.");
+    }
+  }
 
   if (ImGui::TreeNodeEx("Visualization Export", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::TextUnformatted("Color");
