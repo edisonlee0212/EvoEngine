@@ -364,6 +364,15 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
     // alpha_cutoff was added later; omit for legacy hashes so default-cutoff caches still hit.
     if (include_alpha_cutoff) {
       hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff);
+      // branch_alpha_cutoff only affects the key when it differs from alpha_cutoff (feature enabled).
+      if (DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff
+          != DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff) {
+        hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff);
+      }
+      // look_ahead only affects the key when non-zero (default preserves legacy hashes).
+      if (DsKineticVoronoiMeshing::meshing_settings.look_ahead != 0) {
+        hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.look_ahead);
+      }
     }
   };
 
@@ -442,6 +451,8 @@ void LogMeshingInputHashStats(const MeshingInputHashStats& stats) {
                 << ", store_meta=" << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
                 << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
                 << ", alpha_cutoff=" << DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff
+                << ", branch_alpha_cutoff=" << DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff
+                << ", look_ahead=" << DsKineticVoronoiMeshing::meshing_settings.look_ahead
                 << ", cap_start=1, xform_at_construction=1)=" << stats.settings_hash << " root=" << stats.root_hash
                 << " [" << stats.root_transform_summary << "]"
                 << " support(strands=" << stats.support_strand_count << ", pts=" << stats.support_point_count
@@ -466,6 +477,9 @@ YAML::Node BuildMeshingBufferStatisticsNode(const MeshingInputHashStats& stats) 
       DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
   statistics["hash_inputs"]["settings"]["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
   statistics["hash_inputs"]["settings"]["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
+  statistics["hash_inputs"]["settings"]["branch_alpha_cutoff"] =
+      DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff;
+  statistics["hash_inputs"]["settings"]["look_ahead"] = DsKineticVoronoiMeshing::meshing_settings.look_ahead;
   statistics["hash_inputs"]["settings"]["mesh_cap_at_start"] = true;
   statistics["hash_inputs"]["settings"]["transform_mesh_at_construction"] = true;
   statistics["hash_inputs"]["settings"]["hash"] = stats.settings_hash;
@@ -508,6 +522,8 @@ bool WriteMeshingBufferYml(const std::filesystem::path& yml_path, const YAML::No
       "triangle_stride",
       "spline_tension",
       "alpha_cutoff",
+      "branch_alpha_cutoff",
+      "look_ahead",
       "store_mesh_metadata",
       "mesh_cap_at_start",
       "transform_mesh_at_construction",
@@ -605,6 +621,8 @@ bool TryMigrateMeshingBufferCacheFiles(const std::filesystem::path& legacy_bin, 
     }
     root["hash"] = new_stats.input_hash;
     root["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
+    root["branch_alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff;
+    root["look_ahead"] = DsKineticVoronoiMeshing::meshing_settings.look_ahead;
     root["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
     root["statistics"] = BuildMeshingBufferStatisticsNode(new_stats);
     root["description"] = DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description;
@@ -916,6 +934,8 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
   root["triangle_stride"] = sizeof(GpuMeshletTriangle);
   root["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
   root["alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
+  root["branch_alpha_cutoff"] = DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff;
+  root["look_ahead"] = DsKineticVoronoiMeshing::meshing_settings.look_ahead;
   root["store_mesh_metadata"] = DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
   root["mesh_cap_at_start"] = true;
   root["transform_mesh_at_construction"] = true;
@@ -3427,6 +3447,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     tree_mesher_->getSettings().transform_mesh_at_construction = true;
     tree_mesher_->getSettings().mesh_cap_at_start = true;
     tree_mesher_->getSettings().alpha_cutoff = meshing_settings.alpha_cutoff;
+    tree_mesher_->getSettings().branch_alpha_cutoff = meshing_settings.branch_alpha_cutoff;
+    tree_mesher_->getSettings().look_ahead = meshing_settings.look_ahead;
     tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
     tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
     tree_mesher_->getSettings().export_separate_contributor_objects =
@@ -4271,6 +4293,28 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       ImGui::SetTooltip(
           "kinDS alpha / radius cutoff for inside-outside classification (TreeMesher alpha_cutoff). "
           "Affects radius events and boundary meshing.");
+    }
+  }
+  {
+    float branch_alpha_cutoff = static_cast<float>(meshing_settings.branch_alpha_cutoff);
+    if (ImGui::DragFloat("Branch alpha cutoff", &branch_alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
+      meshing_settings.branch_alpha_cutoff = static_cast<double>(glm::max(0.0f, branch_alpha_cutoff));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "kinDS radius cutoff for Delaunay triangles whose three strands are not on the same input branch "
+          "(TreeMesher branch_alpha_cutoff). Disabled when equal to Alpha cutoff.");
+    }
+  }
+  {
+    int look_ahead = static_cast<int>(meshing_settings.look_ahead);
+    if (ImGui::DragInt("Look ahead", &look_ahead, 1, 0, 1024)) {
+      meshing_settings.look_ahead = static_cast<size_t>(glm::max(0, look_ahead));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Extra sections above floor(t)+1 when deciding whether a triangle's strands share an input branch "
+          "for Branch alpha cutoff (0 = default). Out-of-range heights clamp to the last valid index.");
     }
   }
 

@@ -82,6 +82,10 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float spline_tension = 0.5f;
     /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
     double alpha_cutoff = 10.0;
+    /// Cross-branch alpha cutoff (@ref TreeMesher::Settings::branch_alpha_cutoff). Disabled when equal to alpha_cutoff.
+    double branch_alpha_cutoff = 10.0;
+    /// Extra sections above floor(t)+1 when classifying same-branch membership for branch_alpha_cutoff (0 = default).
+    size_t look_ahead = 0;
     /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
     bool intersection_boundary_apply_inverse_root_transform = true;
     /// Free-form note stored in mesh buffer YML metadata (not used for cache hashing).
