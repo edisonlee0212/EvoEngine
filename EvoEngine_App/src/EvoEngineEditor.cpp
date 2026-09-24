@@ -77,6 +77,7 @@ struct EditorCommandLine {
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
   std::optional<int> preview_capture_ray_bounces;
   std::optional<CameraSettings::RayDebugView> preview_capture_ray_debug_view;
+  std::optional<CameraSettings::RayIntegrator> preview_capture_ray_integrator;
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<float> preview_capture_firefly_clamp_threshold;
@@ -612,6 +613,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument(argument + " requires a ray debug view.");
       }
       command_line.preview_capture_ray_debug_view = ParsePreviewRayDebugView(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-ray-integrator") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ray-integrator requires pathtracing, candidate, or spatial.");
+      }
+      const std::string value = argv[++arg_index] ? argv[arg_index] : "";
+      if (value == "pathtracing") {
+        command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::PathTracing;
+      } else if (value == "candidate") {
+        command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtCandidateOnly;
+      } else if (value == "spatial") {
+        command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtSpatialOnly;
+      } else {
+        throw std::invalid_argument("--preview-ray-integrator requires pathtracing, candidate, or spatial.");
+      }
     } else if (argument == "--preview-ray-outputs") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a comma-separated ray output list or all.");
@@ -842,6 +857,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_ray_debug_view && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-debug requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_ray_integrator && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-ray-integrator requires --capture-demo-preview.");
+  }
   if (command_line.preview_capture_ray_outputs && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-outputs requires --capture-demo-preview.");
   }
@@ -864,6 +882,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       (!command_line.preview_capture_render_mode ||
        !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
     throw std::invalid_argument("--preview-ray-debug requires --preview-render-mode raytracing or rayquery.");
+  }
+  if (command_line.preview_capture_ray_integrator &&
+      (!command_line.preview_capture_render_mode ||
+       !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
+    throw std::invalid_argument("--preview-ray-integrator requires --preview-render-mode raytracing or rayquery.");
   }
   if (command_line.preview_capture_ray_outputs &&
       (!command_line.preview_capture_render_mode ||
@@ -919,6 +942,7 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "geometry-moving",
                                                "analytic-light",
                                                "emissive-direct-hit",
+                                               "restir-mirror",
                                                "emissive-empty"};
     if (fixture_ids.find(*command_line.preview_ddgi_fixture) == fixture_ids.end()) {
       throw std::invalid_argument("Unknown DDGI validation fixture: " + *command_line.preview_ddgi_fixture);
@@ -944,12 +968,17 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                   small_emitter_baseline_fixture || temporal_response_fixture
                                               ? ".hdr"
                                               : ".png";
-    if (!command_line.preview_capture_deterministic || command_line.preview_capture_width != 1920 ||
-        command_line.preview_capture_height != 1080 ||
-        command_line.demo_preview_capture_path->extension() != expected_image_extension) {
+    const bool restir_fixture_capture =
+        command_line.preview_capture_ray_integrator.has_value() &&
+        command_line.preview_capture_render_mode == Camera::CameraRenderMode::RayQuery &&
+        !command_line.preview_ddgi_report_path && !command_line.preview_ddgi_reference;
+    if (!restir_fixture_capture &&
+        (!command_line.preview_capture_deterministic || command_line.preview_capture_width != 1920 ||
+         command_line.preview_capture_height != 1080 ||
+         command_line.demo_preview_capture_path->extension() != expected_image_extension)) {
       throw std::invalid_argument("DDGI validation requires its canonical deterministic 1920x1080 image format.");
     }
-    if (command_line.preview_ddgi_reference) {
+    if (!restir_fixture_capture && command_line.preview_ddgi_reference) {
       if (command_line.preview_ddgi_report_path || command_line.preview_ddgi_disabled ||
           command_line.preview_capture_render_mode != Camera::CameraRenderMode::RayTracing ||
           command_line.preview_capture_ray_debug_view != CameraSettings::RayDebugView::Beauty ||
@@ -959,9 +988,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument(
             "DDGI quality references require a fixed 64-frame, 4-SPP RT-pipeline beauty capture.");
       }
-    } else if (!command_line.preview_ddgi_report_path ||
-               command_line.preview_ddgi_report_path->extension() != ".json" ||
-               command_line.preview_capture_render_mode != Camera::CameraRenderMode::Rasterization) {
+    } else if (!restir_fixture_capture &&
+               (!command_line.preview_ddgi_report_path ||
+                command_line.preview_ddgi_report_path->extension() != ".json" ||
+                command_line.preview_capture_render_mode != Camera::CameraRenderMode::Rasterization)) {
       throw std::invalid_argument(
           "DDGI measurements require deterministic 1920x1080 rasterization image and JSON report outputs.");
     }
@@ -1856,6 +1886,7 @@ void CaptureDemoPreview(
     const std::optional<DemoProfileId> demo_profile_id,
     const std::optional<Camera::CameraRenderMode>& preview_render_mode, const std::optional<int>& preview_ray_bounces,
     const std::optional<CameraSettings::RayDebugView>& preview_ray_debug_view,
+    const std::optional<CameraSettings::RayIntegrator>& preview_ray_integrator,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
@@ -1931,6 +1962,10 @@ void CaptureDemoPreview(
   }
   if (preview_ray_debug_view) {
     scene_camera->camera_settings.ray_debug_view = *preview_ray_debug_view;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_ray_integrator) {
+    scene_camera->camera_settings.ray_integrator = *preview_ray_integrator;
     scene_camera->ResetFrameCount();
   }
   if (preview_ray_outputs) {
@@ -2737,7 +2772,8 @@ int main(const int argc, char** argv) {
             }
             if (command_line.preview_ddgi_continuous_updates) {
             }
-            ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
+            ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference &&
+                                   !command_line.preview_capture_ray_integrator.has_value();
             if (command_line.preview_ddgi_reference &&
                 (*command_line.preview_ddgi_fixture == "scrolling" ||
                  *command_line.preview_ddgi_fixture == "emissive-moving-rigid" ||
@@ -2754,9 +2790,10 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
               command_line.demo_profile_id, command_line.preview_capture_render_mode,
               command_line.preview_capture_ray_bounces, command_line.preview_capture_ray_debug_view,
-              command_line.preview_capture_ray_outputs, command_line.preview_capture_ser_mode,
-              command_line.preview_capture_firefly_clamp_threshold, command_line.preview_capture_auto_spp_enabled,
-              command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
+              command_line.preview_capture_ray_integrator, command_line.preview_capture_ray_outputs,
+              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
+              command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_auto_spp_min_samples,
+              command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_ray_profile_report_path, command_line.preview_raster_profile_report_path,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,

@@ -111,6 +111,26 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
                  RayCameraOptionalOutputByteSize(output);
   }
+  for (const auto& buffer : history.restir_candidate_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
+  for (const auto& buffer : history.restir_primary_surface_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
+  for (const auto& buffer : history.restir_resolved_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
+  for (const auto& buffer : history.restir_shift_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
   return byte_size;
 }
 
@@ -313,6 +333,32 @@ const std::vector<std::string>& Camera::GetRayDebugViewNames() {
       "Direct Punctual", "Direct Environment", "Direct Emissive", "Indirect Radiance", "Path Depth",     "BSDF PDF",
       "Light PDF",       "Emissive PDF"};
   return view_names;
+}
+
+const std::vector<std::string>& Camera::GetRayIntegratorNames() {
+  static const std::vector<std::string> names{"Path Tracing", "ReSTIR PT Candidate Only", "ReSTIR PT Spatial Only"};
+  return names;
+}
+
+const char* Camera::GetRayIntegratorName(const CameraSettings::RayIntegrator integrator) {
+  return GetRayIntegratorNames()[static_cast<uint32_t>(NormalizeRayIntegrator(static_cast<uint32_t>(integrator)))]
+      .c_str();
+}
+
+CameraSettings::RayIntegrator Camera::ParseRayIntegrator(const std::string& value,
+                                                         const CameraSettings::RayIntegrator fallback) {
+  const auto& names = GetRayIntegratorNames();
+  for (uint32_t index = 0u; index < names.size(); ++index) {
+    if (value == names[index]) {
+      return static_cast<CameraSettings::RayIntegrator>(index);
+    }
+  }
+  return fallback;
+}
+
+CameraSettings::RayIntegrator Camera::NormalizeRayIntegrator(const uint32_t integrator) {
+  return integrator < kRayIntegratorCount ? static_cast<CameraSettings::RayIntegrator>(integrator)
+                                          : CameraSettings::RayIntegrator::PathTracing;
 }
 
 const char* Camera::GetRayDebugViewName(const CameraSettings::RayDebugView view) {
@@ -912,7 +958,8 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
     ++stats.live_history_count;
     if (history.technique == RayCameraHistoryTechnique::RayTracing) {
       ++stats.live_ray_tracing_history_count;
-    } else if (history.technique == RayCameraHistoryTechnique::RayQuery) {
+    } else if (history.technique == RayCameraHistoryTechnique::RayQuery ||
+               history.technique == RayCameraHistoryTechnique::RestirPt) {
       ++stats.live_ray_query_history_count;
     }
     stats.valid_history_count += history.valid ? 1u : 0u;
@@ -1048,6 +1095,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.convergence_view = CreateGraphImageMipView(history.convergence_image, 0);
     }
     history.technique = technique;
+    history.integrator = camera_settings.ray_integrator;
     history.scene_handle = scene_handle;
     history.temporal_history_version = temporal_history_version_;
     history.frame_id = 0;
@@ -1057,12 +1105,14 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
   } else {
     ++ray_camera_history_counters_.reuse_count;
     const bool technique_changed = history.technique != technique;
-    if (technique_changed || history.scene_handle != scene_handle ||
+    const bool integrator_changed = history.integrator != camera_settings.ray_integrator;
+    if (technique_changed || integrator_changed || history.scene_handle != scene_handle ||
         history.temporal_history_version != temporal_history_version_) {
-      if (technique_changed) {
+      if (technique_changed || integrator_changed) {
         frame_count_ = 0;
       }
       history.technique = technique;
+      history.integrator = camera_settings.ray_integrator;
       history.scene_handle = scene_handle;
       history.temporal_history_version = temporal_history_version_;
       history.frame_id = 0;

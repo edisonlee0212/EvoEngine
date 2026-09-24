@@ -18,7 +18,7 @@ class EVOENGINE_API PostProcessingStack;
 class EVOENGINE_API RenderGraphTransientResourceStore;
 struct EVOENGINE_API PostProcessingCameraResources;
 
-enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
+enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery, RestirPt };
 
 enum class RayCameraOptionalOutput : uint32_t {
   Albedo,
@@ -34,6 +34,10 @@ inline constexpr uint32_t kRayCameraOptionalOutputCount = static_cast<uint32_t>(
 inline constexpr uint32_t kRayCameraOutputDescriptorBaseBindingCount = 4u;
 inline constexpr uint32_t kRayCameraOutputDescriptorBindingCount =
     kRayCameraOutputDescriptorBaseBindingCount + kRayCameraOptionalOutputCount;
+inline constexpr uint32_t kRayCameraRestirCandidateBinding = kRayCameraOutputDescriptorBindingCount;
+inline constexpr uint32_t kRayCameraRestirPrimarySurfaceBinding = kRayCameraRestirCandidateBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirResolvedBinding = kRayCameraRestirPrimarySurfaceBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirShiftBinding = kRayCameraRestirResolvedBinding + 1u;
 
 struct RayCameraOutputDescriptorSlot {
   std::shared_ptr<DescriptorSet> descriptor_set;
@@ -57,12 +61,17 @@ struct RayCameraHistoryResources {
   std::shared_ptr<ImageView> convergence_view;
   RayCameraOptionalOutputResources optional_outputs;
   RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
+  CameraSettings::RayIntegrator integrator = CameraSettings::RayIntegrator::PathTracing;
   uint64_t scene_handle = 0;
   uint32_t temporal_history_version = 0;
   uint32_t frame_id = 0;
   bool valid = false;
   uint64_t resource_generation = 0;
   std::vector<RayCameraOutputDescriptorSlot> output_descriptor_slots;
+  std::vector<std::shared_ptr<Buffer>> restir_candidate_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
 };
 
 struct RayCameraHistoryStats {
@@ -171,6 +180,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
   static constexpr uint32_t kRayDebugViewCount = 20;
+  static constexpr uint32_t kRayIntegratorCount = 3;
   static constexpr uint32_t kBackgroundSourceCount = 5;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
@@ -185,6 +195,11 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] static const char* GetShaderExecutionReorderingModeName(
       CameraSettings::ShaderExecutionReorderingMode mode);
   [[nodiscard]] static const std::vector<std::string>& GetRayDebugViewNames();
+  [[nodiscard]] static const std::vector<std::string>& GetRayIntegratorNames();
+  [[nodiscard]] static const char* GetRayIntegratorName(CameraSettings::RayIntegrator integrator);
+  [[nodiscard]] static CameraSettings::RayIntegrator ParseRayIntegrator(
+      const std::string& value, CameraSettings::RayIntegrator fallback = CameraSettings::RayIntegrator::PathTracing);
+  [[nodiscard]] static CameraSettings::RayIntegrator NormalizeRayIntegrator(uint32_t integrator);
   [[nodiscard]] static const char* GetRayDebugViewName(CameraSettings::RayDebugView view);
   [[nodiscard]] static CameraSettings::RayDebugView ParseRayDebugView(
       const std::string& value, CameraSettings::RayDebugView fallback = CameraSettings::RayDebugView::Beauty);

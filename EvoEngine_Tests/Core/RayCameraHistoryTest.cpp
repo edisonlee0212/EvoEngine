@@ -155,6 +155,29 @@ TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   EXPECT_EQ(stats.peak_live_history_count, 1u);
 }
 
+TEST(RayCameraHistory, SwitchingRestirModesInvalidatesAccumulation) {
+  Camera camera;
+  constexpr VkExtent3D extent = {64, 32, 1};
+  const auto factory = [](const VkExtent3D size) {
+    return MakeFakeHistory(size);
+  };
+  camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtCandidateOnly;
+  auto& candidate =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, extent, factory);
+  candidate.valid = true;
+  candidate.frame_id = 7;
+  RayCameraHistoryTestAccess::SetFrameCount(camera, 7);
+  const auto radiance = candidate.radiance_image;
+
+  camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtSpatialOnly;
+  auto& spatial = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, extent, factory);
+  EXPECT_EQ(spatial.radiance_image, radiance);
+  EXPECT_EQ(spatial.integrator, CameraSettings::RayIntegrator::RestirPtSpatialOnly);
+  EXPECT_FALSE(spatial.valid);
+  EXPECT_EQ(spatial.frame_id, 0u);
+  EXPECT_EQ(camera.GetFrameCount(), 0u);
+}
+
 TEST(RayCameraHistory, OutputDescriptorsAreCachedPerFrameSlotWithinOneHistoryGeneration) {
   Camera camera;
   auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayTracing, 1, {64, 32, 1},

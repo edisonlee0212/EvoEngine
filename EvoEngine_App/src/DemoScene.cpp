@@ -3039,6 +3039,10 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   if (fixture_id == "furnace") {
     CreateRenderingRegressionProbe(scene, root, "DDGI Furnace Center", primitives.sphere, glm::vec3(0.0f, 0.85f, -2.4f),
                                    glm::vec3(1.6f), glm::vec3(1.0f), 1.0f, 0.0f);
+  } else if (fixture_id == "restir-mirror") {
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Mirror", primitives.sphere, glm::vec3(0.0f, 0.85f, -2.4f),
+                                   glm::vec3(0.85f), glm::vec3(1.0f), 0.0f, 1.0f);
+    create_emitter("ReSTIR Mirror Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
   } else if (fixture_id == "alpha-tested") {
     create_emitter("DDGI Alpha Fixture Emitter", glm::vec3(0.8f, 0.02f, 0.8f), true);
     const auto blocker_mesh = CreateRenderingRegressionMaterialQuad(

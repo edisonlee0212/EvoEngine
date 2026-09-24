@@ -89,6 +89,21 @@ traversal adapters differ.
 Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
 unchanged cameras continue accumulating.
 
+### ReSTIR PT ray integrators
+
+In the camera inspector, select a ray technique and then choose **Path Tracing**, **ReSTIR PT Candidate Only**, or
+**ReSTIR PT Spatial Only** under **Ray Integrator**. The two ReSTIR modes are opt-in and use compute shaders with
+inline RayQuery traversal. Candidate Only generates a path reservoir and resolves it without reuse. Spatial Only
+also replays selected paths at paired neighboring pixels, combines reciprocal shifts, and resolves a separate
+reservoir. It alternates horizontal and vertical pairs between frames; it does not reuse previous-frame reservoirs.
+Switching integrators resets camera accumulation.
+
+The current ReSTIR path supports opaque rigid triangles, including perfectly specular reflections, with environment
+and emissive-triangle lighting. Spatial Only requires one sample per frame. Both modes require automatic SPP, ray
+debug views, and optional ray outputs to be disabled. Unsupported scene features or settings select the conventional
+path tracer for the whole camera. Spatial shifts currently use full path replay; hybrid reconnection and temporal
+reuse are not implemented.
+
 ### Ray-tracing camera pass flow
 
 ```mermaid

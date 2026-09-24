@@ -15,6 +15,7 @@
 #include "ApplicationInitializationSettings.hpp"
 #include "Camera.hpp"
 #include "RenderInstanceStorage.hpp"
+#include "RestirPt.hpp"
 #include "Serialization.hpp"
 
 using namespace evo_engine;
@@ -139,6 +140,12 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(Camera::NormalizeRayDebugView(999), CameraSettings::RayDebugView::Beauty);
 
   EXPECT_FALSE(default_settings.ray_outputs.AnyEnabled());
+  EXPECT_EQ(default_settings.ray_integrator, CameraSettings::RayIntegrator::PathTracing);
+  EXPECT_EQ(Camera::GetRayIntegratorNames().size(), Camera::kRayIntegratorCount);
+  EXPECT_EQ(Camera::ParseRayIntegrator("ReSTIR PT Candidate Only"),
+            CameraSettings::RayIntegrator::RestirPtCandidateOnly);
+  EXPECT_EQ(Camera::ParseRayIntegrator("ReSTIR PT Spatial Only"), CameraSettings::RayIntegrator::RestirPtSpatialOnly);
+  EXPECT_EQ(Camera::NormalizeRayIntegrator(99u), CameraSettings::RayIntegrator::PathTracing);
 }
 
 TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
@@ -164,6 +171,24 @@ TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
         "[[vk::binding(" + std::to_string(kRayCameraOutputDescriptorBaseBindingCount + index) + ", 2)]]";
     EXPECT_NE(output_shader.find(binding), std::string::npos) << output_names[index];
   }
+}
+
+TEST(CameraRenderTechnique, RestirPtReservoirUsesStableByteAddressedLayout) {
+  EXPECT_EQ(sizeof(RestirPtPathReservoir), 128u);
+  EXPECT_EQ(sizeof(RestirPtPrimarySurface), 32u);
+  EXPECT_EQ(sizeof(RestirPtSpatialShift), 32u);
+  EXPECT_EQ(offsetof(RestirPtPathReservoir, contribution), 48u);
+  EXPECT_EQ(offsetof(RestirPtPathReservoir, reconnection_direction), 64u);
+  EXPECT_EQ(offsetof(RestirPtPathReservoir, primary_position), 112u);
+  EXPECT_EQ(RestirPtPathReservoir{}.version, 1u);
+  EXPECT_EQ(RestirPtPathReservoir{}.instance_id, RestirPtPathReservoir::kInvalidInstance);
+
+  const auto shader =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/RestirPt.slang"));
+  EXPECT_NE(shader.find("EE_RESTIR_PT_RESERVOIR_VERSION = 1u"), std::string::npos);
+  EXPECT_NE(shader.find("EE_RESTIR_PT_RESERVOIR_BYTES = 128u"), std::string::npos);
+  EXPECT_NE(shader.find("EE_RESTIR_PT_SPATIAL_SHIFT_BYTES = 32u"), std::string::npos);
+  EXPECT_NE(shader.find("buffer.Store4(base + 112u"), std::string::npos);
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {

@@ -2536,6 +2536,7 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "bounce" << YAML::Value << settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
+  out << YAML::Key << "ray_integrator" << YAML::Value << Camera::GetRayIntegratorName(settings.ray_integrator);
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
@@ -2560,6 +2561,9 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "bounce", settings.bounce);
   ReadYamlValue(in, "gamma", settings.gamma);
   ReadYamlValue(in, "firefly_clamp_threshold", settings.firefly_clamp_threshold);
+  if (const auto integrator = in["ray_integrator"]) {
+    settings.ray_integrator = Camera::ParseRayIntegrator(integrator.as<std::string>(), settings.ray_integrator);
+  }
   if (const auto view = in["ray_debug_view"]) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }

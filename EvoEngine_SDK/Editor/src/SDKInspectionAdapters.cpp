@@ -564,6 +564,12 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     changed = true;
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
+    uint32_t integrator = static_cast<uint32_t>(camera.camera_settings.ray_integrator);
+    if (ImGui::Combo("Ray Integrator", Camera::GetRayIntegratorNames(), integrator)) {
+      camera.camera_settings.ray_integrator = Camera::NormalizeRayIntegrator(integrator);
+      camera.ResetFrameCount();
+      changed = true;
+    }
     uint32_t debug_view = static_cast<uint32_t>(camera.camera_settings.ray_debug_view);
     if (ImGui::Combo("Ray Debug View", Camera::GetRayDebugViewNames(), debug_view)) {
       camera.camera_settings.ray_debug_view = Camera::NormalizeRayDebugView(debug_view);

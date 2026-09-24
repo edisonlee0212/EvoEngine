@@ -10,6 +10,11 @@ namespace evo_engine {
  * @brief A structure to define the camera settings used in the engine.
  */
 struct CameraSettings {
+  enum class RayIntegrator : uint32_t {
+    PathTracing,
+    RestirPtCandidateOnly,
+    RestirPtSpatialOnly,
+  };
   enum class BackgroundSource : uint32_t {
     ClearColor,
     Cubemap,
@@ -104,6 +109,8 @@ struct CameraSettings {
 
   /** @brief Selects a shared RTX/RayQuery diagnostic output. */
   RayDebugView ray_debug_view = RayDebugView::Beauty;
+
+  RayIntegrator ray_integrator = RayIntegrator::PathTracing;
 
   /** @brief Optional ray-camera diagnostic outputs. */
   RayOutputSettings ray_outputs{};

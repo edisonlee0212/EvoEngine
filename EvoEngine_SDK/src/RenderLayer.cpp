@@ -51,6 +51,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "RestirPt.hpp"
 #include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
@@ -1377,6 +1378,21 @@ std::shared_ptr<Buffer> CreateDdgiProbeStateBuffer(const uint64_t byte_size) {
   return std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
 }
 
+std::shared_ptr<Buffer> CreateRestirPtStorageBuffer(const VkExtent3D extent, const uint32_t bytes_per_pixel) {
+  const uint64_t byte_size = static_cast<uint64_t>(extent.width) * extent.height * bytes_per_pixel;
+  if (byte_size == 0u) {
+    return {};
+  }
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = byte_size;
+  buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  return std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+}
+
 std::shared_ptr<Buffer> CreateDdgiFallbackProbeStateBuffer(const uint64_t byte_size) {
   const auto fallback_byte_size = glm::max(byte_size, static_cast<uint64_t>(sizeof(glm::vec4)));
   auto buffer = CreateDdgiProbeStateBuffer(fallback_byte_size);
@@ -1466,6 +1482,24 @@ std::shared_ptr<ComputePipeline> CreateRayQueryCameraPipeline(
   pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, shader_header,
                               Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.slang");
+  pipeline->linear_swept_spheres_enabled = Platform::RayTracingLinearSweptSpheresEnabled();
+  pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RayTracingCameraPushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  pipeline->Initialize();
+  return pipeline;
+}
+
+std::shared_ptr<ComputePipeline> CreateRestirPtCameraPipeline(
+    const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
+    const std::shared_ptr<DescriptorSetLayout>& ray_tracing_layout,
+    const std::shared_ptr<DescriptorSetLayout>& camera_output_layout, const std::string& shader_name) {
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, CameraVariantShaderHeader(kGltfSceneAllFeatures),
+                              Resources::GetDefaultResourcesPath() / "Shaders/Compute" / shader_name);
   pipeline->linear_swept_spheres_enabled = Platform::RayTracingLinearSweptSpheresEnabled();
   pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
   auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
@@ -1647,6 +1681,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
       ray_tracing_camera_output_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                                ray_camera_output_stages, 0);
     }
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraRestirCandidateBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraRestirPrimarySurfaceBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraRestirResolvedBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraRestirShiftBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracing_camera_output_layout_->Initialize();
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_layout_) {
@@ -3144,14 +3186,22 @@ void RenderLayer::PrepareSceneForRendering(
     if (ray_camera_shader_variant_cache_) {
       bool need_ray_tracing = false;
       bool need_ray_query = false;
+      bool need_restir_pt = false;
+      bool need_restir_pt_spatial = false;
       bool need_ray_tracing_debug_views = false;
       bool need_ray_query_debug_views = false;
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
         const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
+        const bool restir_pt_requested =
+            Camera::IsRayCameraRenderMode(mode) &&
+            camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
+        need_restir_pt |= restir_pt_requested;
+        need_restir_pt_spatial |= restir_pt_requested && camera->camera_settings.ray_integrator ==
+                                                             CameraSettings::RayIntegrator::RestirPtSpatialOnly;
         need_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
-        need_ray_query |= mode == Camera::CameraRenderMode::RayQuery;
+        need_ray_query |= mode == Camera::CameraRenderMode::RayQuery || restir_pt_requested;
         const bool debug_views = camera->camera_settings.ray_debug_view != CameraSettings::RayDebugView::Beauty;
         need_ray_tracing_debug_views |= mode == Camera::CameraRenderMode::RayTracing && debug_views;
         need_ray_query_debug_views |= mode == Camera::CameraRenderMode::RayQuery && debug_views;
@@ -3166,6 +3216,20 @@ void RenderLayer::PrepareSceneForRendering(
                                                    need_ray_query_debug_views || force_full_ray_camera_shader_variant);
       ray_tracing_camera_pipeline = ray_camera_shader_variant_cache_->GetRayTracingPipeline();
       ray_query_camera_pipeline_ = ray_camera_shader_variant_cache_->GetRayQueryPipeline();
+      if (need_restir_pt && Platform::RayQueryEnabled() && !restir_pt_candidate_pipeline_) {
+        restir_pt_candidate_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtCandidate.slang");
+        restir_pt_resolve_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtResolve.slang");
+      }
+      if (need_restir_pt_spatial && Platform::RayQueryEnabled() && !restir_pt_spatial_pipeline_) {
+        restir_pt_spatial_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatial.slang");
+        restir_pt_spatial_combine_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialCombine.slang");
+        restir_pt_spatial_resolve_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialResolve.slang");
+      }
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
@@ -7895,7 +7959,52 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
   if (resolved_render_mode == Camera::CameraRenderMode::RayTracing ||
       resolved_render_mode == Camera::CameraRenderMode::RayQuery) {
-    const bool use_ray_query = resolved_render_mode == Camera::CameraRenderMode::RayQuery;
+    const auto requested_integrator = camera->camera_settings.ray_integrator;
+    const bool restir_requested = requested_integrator != CameraSettings::RayIntegrator::PathTracing;
+    const auto& materials = current_render_instances->GetGltfShadeMaterials();
+    const uint32_t scene_features =
+        restir_requested ? DetectGltfSceneFeatures(materials, current_render_instances->GetGltfTextureInfos()) : 0u;
+    constexpr uint32_t unsupported_material_features =
+        static_cast<uint32_t>(GltfSceneFeature::Transmission) | static_cast<uint32_t>(GltfSceneFeature::Volume) |
+        static_cast<uint32_t>(GltfSceneFeature::VolumeScatter) | static_cast<uint32_t>(GltfSceneFeature::Dispersion) |
+        static_cast<uint32_t>(GltfSceneFeature::DiffuseTransmission) | static_cast<uint32_t>(GltfSceneFeature::Unlit);
+    const bool opaque_materials =
+        !restir_requested || std::all_of(materials.begin(), materials.end(), [](const auto& material) {
+          return material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque);
+        });
+    const auto& render_info = current_render_instances->render_info_block;
+    const bool supported_restir_scene =
+        restir_requested && Platform::RayQueryEnabled() && opaque_materials &&
+        (scene_features & unsupported_material_features) == 0u && render_info.directional_light_size == 0 &&
+        render_info.point_light_size == 0 && render_info.spot_light_size == 0 &&
+        current_render_instances->total_skinned_mesh_triangles == 0u &&
+        current_render_instances->total_instanced_mesh_triangles == 0u &&
+        current_render_instances->total_strands_segments == 0u && current_render_instances->total_gaussian_splats == 0u;
+    const bool restir_common_ready = supported_restir_scene && !camera->camera_settings.auto_spp_enabled &&
+                                     !camera->camera_settings.ray_outputs.AnyEnabled() &&
+                                     camera->camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty &&
+                                     restir_pt_candidate_pipeline_ && restir_pt_candidate_pipeline_->Initialized();
+    const bool use_restir_candidate = requested_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly &&
+                                      restir_common_ready && restir_pt_resolve_pipeline_ &&
+                                      restir_pt_resolve_pipeline_->Initialized();
+    const bool use_restir_spatial =
+        requested_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly && restir_common_ready &&
+        camera->camera_settings.sample_size == 1 && restir_pt_spatial_pipeline_ &&
+        restir_pt_spatial_pipeline_->Initialized() && restir_pt_spatial_combine_pipeline_ &&
+        restir_pt_spatial_combine_pipeline_->Initialized() && restir_pt_spatial_resolve_pipeline_ &&
+        restir_pt_spatial_resolve_pipeline_->Initialized();
+    const bool use_restir_pt = use_restir_candidate || use_restir_spatial;
+    if (restir_requested && camera->frame_count_ == 0 && !use_restir_pt) {
+      EVOENGINE_WARNING("ReSTIR PT unavailable; using the conventional integrator. Mode=" +
+                        std::to_string(static_cast<uint32_t>(requested_integrator)) +
+                        ", SPP=" + std::to_string(camera->camera_settings.sample_size) +
+                        ", scene features=" + std::to_string(scene_features) +
+                        ", directional=" + std::to_string(render_info.directional_light_size) +
+                        ", point=" + std::to_string(render_info.point_light_size) +
+                        ", spot=" + std::to_string(render_info.spot_light_size) + ", instanced triangles=" +
+                        std::to_string(current_render_instances->total_instanced_mesh_triangles))
+    }
+    const bool use_ray_query = use_restir_pt || resolved_render_mode == Camera::CameraRenderMode::RayQuery;
     const auto ray_query_pipeline = ray_query_camera_pipeline_;
     const auto ray_tracing_pipeline = ray_tracing_camera_pipeline;
     if ((use_ray_query && (!ray_query_pipeline || !ray_query_pipeline->Initialized())) ||
@@ -7905,8 +8014,51 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     const auto camera_handle = camera->GetHandle().GetValue();
     ray_camera_history_cameras_[camera_handle] = camera;
     auto& ray_camera_history = camera->AcquireRayCameraHistory(
-        use_ray_query ? RayCameraHistoryTechnique::RayQuery : RayCameraHistoryTechnique::RayTracing,
+        use_restir_pt ? RayCameraHistoryTechnique::RestirPt
+                      : (use_ray_query ? RayCameraHistoryTechnique::RayQuery : RayCameraHistoryTechnique::RayTracing),
         scene ? scene->GetHandle().GetValue() : 0u, render_texture->GetExtent());
+    std::shared_ptr<Buffer> restir_candidate_buffer;
+    std::shared_ptr<Buffer> restir_primary_surface_buffer;
+    std::shared_ptr<Buffer> restir_resolved_buffer;
+    std::shared_ptr<Buffer> restir_shift_buffer;
+    if (use_restir_pt) {
+      auto& candidates = ray_camera_history.restir_candidate_buffers;
+      auto& surfaces = ray_camera_history.restir_primary_surface_buffers;
+      candidates.resize(Platform::GetMaxFramesInFlight());
+      surfaces.resize(Platform::GetMaxFramesInFlight());
+      if (!candidates[current_frame_index]) {
+        candidates[current_frame_index] =
+            CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPathReservoir));
+      }
+      if (!surfaces[current_frame_index]) {
+        surfaces[current_frame_index] =
+            CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPrimarySurface));
+      }
+      restir_candidate_buffer = candidates[current_frame_index];
+      restir_primary_surface_buffer = surfaces[current_frame_index];
+      if (!restir_candidate_buffer || !restir_primary_surface_buffer) {
+        return;
+      }
+      if (use_restir_spatial) {
+        auto& resolved = ray_camera_history.restir_resolved_buffers;
+        resolved.resize(Platform::GetMaxFramesInFlight());
+        if (!resolved[current_frame_index]) {
+          resolved[current_frame_index] =
+              CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPathReservoir));
+        }
+        restir_resolved_buffer = resolved[current_frame_index];
+        auto& shifts = ray_camera_history.restir_shift_buffers;
+        shifts.resize(Platform::GetMaxFramesInFlight());
+        if (!shifts[current_frame_index]) {
+          shifts[current_frame_index] =
+              CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtSpatialShift));
+        }
+        restir_shift_buffer = shifts[current_frame_index];
+        if (!restir_resolved_buffer || !restir_shift_buffer) {
+          return;
+        }
+      }
+    }
     camera->SynchronizeRayCameraOptionalOutputs(ray_camera_history, camera->camera_settings.ray_outputs);
     const auto ray_camera_output_descriptor = camera->AcquireRayCameraOutputDescriptor(
         current_frame_index, Platform::GetFrameCount(), ray_tracing_camera_output_layout_);
@@ -7915,7 +8067,8 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       return;
     }
     const std::string ray_camera_pass_name =
-        use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera;
+        use_restir_pt ? "ReSTIR PT Resolve"
+                      : (use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera);
     VolumetricCloudSettings volumetric_cloud_settings{};
     const bool volumetric_clouds_enabled = volumetric_cloud_settings.enabled;
     const bool gaussian_splat_rendering_enabled = current_render_instances &&
@@ -7928,6 +8081,18 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     RenderGraphTransientResourceStore* active_camera_transient_resources = nullptr;
     RenderGraph camera_render_graph;
     AddDefaultRayTracingCameraResources(camera_render_graph);
+    if (use_restir_pt) {
+      camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+          RenderResourceNames::camera_restir_candidate, restir_candidate_buffer->GetSize()));
+      camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+          RenderResourceNames::camera_restir_primary_surface, restir_primary_surface_buffer->GetSize()));
+      if (use_restir_spatial) {
+        camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+            RenderResourceNames::camera_restir_resolved, restir_resolved_buffer->GetSize()));
+        camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+            RenderResourceNames::camera_restir_shift, restir_shift_buffer->GetSize()));
+      }
+    }
     if (camera->camera_settings.ray_outputs.AnyEnabled()) {
       AddRayCameraOptionalOutputResources(camera_render_graph, camera->camera_settings.ray_outputs);
     }
@@ -7939,7 +8104,64 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                         static_cast<uint32_t>(volumetric_cloud_settings.resolution_divisor));
     }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
-    if (use_ray_query) {
+    if (use_restir_pt) {
+      auto candidate_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Candidate");
+      candidate_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+      candidate_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                          RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+      camera_render_graph.AddPass(candidate_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Execute(
+            context, {camera, restir_pt_candidate_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                      ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                      ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
+                      restir_candidate_buffer, restir_primary_surface_buffer, false});
+      });
+      if (use_restir_spatial) {
+        auto spatial_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Shift");
+        spatial_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        spatial_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        spatial_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+        camera_render_graph.AddPass(spatial_pass, [&](const RenderGraphExecutionContext& context) {
+          RayQueryCameraPass::Execute(
+              context, {camera, restir_pt_spatial_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                        ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
+                        restir_candidate_buffer, restir_primary_surface_buffer, false, restir_resolved_buffer,
+                        restir_shift_buffer});
+        });
+        auto combine_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Combine");
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_resolved, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+        camera_render_graph.AddPass(combine_pass, [&](const RenderGraphExecutionContext& context) {
+          RayQueryCameraPass::Execute(
+              context, {camera, restir_pt_spatial_combine_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                        ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
+                        restir_candidate_buffer, restir_primary_surface_buffer, false, restir_resolved_buffer,
+                        restir_shift_buffer});
+        });
+      }
+      auto resolve_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Resolve");
+      resolve_pass.resources.push_back({use_restir_spatial ? RenderResourceNames::camera_restir_resolved
+                                                           : RenderResourceNames::camera_restir_candidate,
+                                        RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+      camera_render_graph.AddPass(resolve_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Execute(
+            context, {camera, use_restir_spatial ? restir_pt_spatial_resolve_pipeline_ : restir_pt_resolve_pipeline_,
+                      per_frame_descriptor_sets_[current_frame_index],
+                      ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                      ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
+                      restir_candidate_buffer, restir_primary_surface_buffer, true, restir_resolved_buffer});
+      });
+    } else if (use_ray_query) {
       camera_render_graph.AddPass(
           RayQueryCameraPass::CreateDescriptor(camera->camera_settings.ray_outputs),
           [&](const RenderGraphExecutionContext& context) {
@@ -8014,6 +8236,15 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         camera_render_graph, CreateCameraRenderGraphCompileContext(camera));
     auto camera_render_graph_resources = CreateCameraRenderGraphResourceRegistry(
         per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index], camera);
+    if (use_restir_pt) {
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_candidate, restir_candidate_buffer);
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_primary_surface,
+                                               restir_primary_surface_buffer);
+      if (use_restir_spatial) {
+        camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_resolved, restir_resolved_buffer);
+        camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_shift, restir_shift_buffer);
+      }
+    }
     BindRayCameraOptionalOutputResources(camera_render_graph_resources, ray_camera_history);
     auto& camera_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
     active_camera_transient_resources = &camera_transient_resources;
@@ -8090,6 +8321,11 @@ void RenderLayer::OnDestroy() {
   ray_tracing_camera_pipeline.reset();
   ray_tracing_camera_fallback_pipeline_.reset();
   ray_query_camera_pipeline_.reset();
+  restir_pt_candidate_pipeline_.reset();
+  restir_pt_resolve_pipeline_.reset();
+  restir_pt_spatial_pipeline_.reset();
+  restir_pt_spatial_combine_pipeline_.reset();
+  restir_pt_spatial_resolve_pipeline_.reset();
   ray_query_camera_fallback_pipeline_.reset();
   render_graph_transient_resource_stores_.clear();
   ray_camera_render_graph_plan_cache_.Clear();

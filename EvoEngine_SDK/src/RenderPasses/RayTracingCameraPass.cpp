@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <string_view>
 #include <utility>
 
 using namespace evo_engine;
@@ -138,9 +139,10 @@ RenderPassDescriptor RayTracingCameraPass::CreateDescriptor(const char* pass_nam
   return descriptor;
 }
 
-RenderPassDescriptor RayQueryCameraPass::CreateDescriptor(const CameraSettings::RayOutputSettings outputs) {
+RenderPassDescriptor RayQueryCameraPass::CreateDescriptor(const CameraSettings::RayOutputSettings outputs,
+                                                          const char* pass_name) {
   RenderPassDescriptor descriptor{
-      RenderPassNames::ray_query_camera,
+      pass_name,
       RenderPassQueue::Graphics,
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
@@ -152,7 +154,8 @@ RenderPassDescriptor RayQueryCameraPass::CreateDescriptor(const CameraSettings::
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
   AddRayCameraOptionalOutputAccesses(descriptor, outputs);
   descriptor.profiler_group = RenderPassProfilerGroup::RayTracing;
-  descriptor.profiler_display_name = "Path Trace (RQ)";
+  descriptor.profiler_display_name =
+      std::string_view(pass_name) == RenderPassNames::ray_query_camera ? "Path Trace (RQ)" : pass_name;
   return descriptor;
 }
 
@@ -294,6 +297,24 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     const auto fallback_uint_image_info = PrepareRayCameraUintFallback(vk_command_buffer, history_resources);
     UpdateRayCameraOptionalOutputDescriptors(output_descriptor_set, history_resources, fallback_color_image_info,
                                              fallback_uint_image_info);
+    if (parameters.candidate_buffer) {
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirCandidateBinding,
+                                                           parameters.candidate_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.candidate_buffer);
+    }
+    if (parameters.primary_surface_buffer) {
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirPrimarySurfaceBinding,
+                                                           parameters.primary_surface_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.primary_surface_buffer);
+    }
+    if (parameters.resolved_buffer) {
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirResolvedBinding, parameters.resolved_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.resolved_buffer);
+    }
+    if (parameters.shift_buffer) {
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirShiftBinding, parameters.shift_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.shift_buffer);
+    }
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -316,8 +337,10 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
           vk_command_buffer, Platform::DivUp(render_texture->GetExtent().width, kRayQueryCameraWorkGroupSize),
           Platform::DivUp(render_texture->GetExtent().height, kRayQueryCameraWorkGroupSize), 1);
     }
-    history_resources.valid = true;
-    ++history_resources.frame_id;
+    if (parameters.commit_history) {
+      history_resources.valid = true;
+      ++history_resources.frame_id;
+    }
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });

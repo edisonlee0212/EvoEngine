@@ -46,9 +46,15 @@ class EVOENGINE_API RayQueryCameraPass final {
     std::shared_ptr<DescriptorSet> output_descriptor_set;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     RayCameraHistoryResources* history_resources = nullptr;
+    std::shared_ptr<Buffer> candidate_buffer;
+    std::shared_ptr<Buffer> primary_surface_buffer;
+    bool commit_history = true;
+    std::shared_ptr<Buffer> resolved_buffer;
+    std::shared_ptr<Buffer> shift_buffer;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {});
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {},
+                                                             const char* pass_name = RenderPassNames::ray_query_camera);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
