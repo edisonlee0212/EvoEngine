@@ -8,6 +8,7 @@
 #include "CameraSettings.hpp"
 #include "IPrivateComponent.hpp"
 #include "RenderTexture.hpp"
+#include "RestirPt.hpp"
 #include "Transform.hpp"
 
 namespace evo_engine {
@@ -72,6 +73,7 @@ struct RayCameraHistoryResources {
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
+  uint32_t restir_last_shift_slot = UINT32_MAX;
 };
 
 struct RayCameraHistoryStats {
@@ -371,6 +373,8 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
   [[nodiscard]] const RayCameraOptionalOutputResources& GetRayCameraOptionalOutputResources() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
+  [[nodiscard]] bool DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& candidates,
+                                                  std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const;
   [[nodiscard]] SampledImageResources GetGBufferBaseColorAoResources() const;
   [[nodiscard]] SampledImageResources GetGBufferNormalRoughnessResources() const;
   [[nodiscard]] SampledImageResources GetGBufferPbrFlagsResources() const;
@@ -409,6 +413,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   RayCameraHistoryStats ray_camera_history_counters_{};
   uint64_t next_ray_camera_history_resource_generation_ = 0;
   bool ray_camera_history_owner_alive_ = false;
+  bool restir_unavailable_logged_ = false;
   std::shared_ptr<PostProcessingCameraResources> post_processing_resources_;
 
   glm::mat4 prev_global_transform_{};

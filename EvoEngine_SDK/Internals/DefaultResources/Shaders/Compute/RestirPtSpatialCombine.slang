@@ -25,9 +25,8 @@ import EvoEngine.Random;
     float mis = 1.0f;
     if (has_partner && outgoing.partner_index == partner_index &&
         (outgoing.status == EE_RESTIR_PT_SHIFT_VALID || outgoing.status == EE_RESTIR_PT_SHIFT_ZERO_TARGET)) {
-      const float self_pdf = central.target_density / central.weight_sum;
-      const float neighbor_pdf = outgoing.weight_sum > 0.0f
-          ? EE_RESTIR_PT_TARGET_DENSITY(outgoing.contribution) / outgoing.weight_sum : 0.0f;
+      const float self_pdf = central.target_density;
+      const float neighbor_pdf = EE_RESTIR_PT_TARGET_DENSITY(outgoing.contribution);
       mis = self_pdf / (self_pdf + neighbor_pdf);
     }
     RestirPtPathReservoir sample = central;
@@ -40,9 +39,8 @@ import EvoEngine.Random;
     if (neighbor.target_density > 0.0f && neighbor.weight_sum > 0.0f &&
         incoming.partner_index == index &&
         (incoming.status == EE_RESTIR_PT_SHIFT_VALID || incoming.status == EE_RESTIR_PT_SHIFT_ZERO_TARGET)) {
-      const float source_pdf = neighbor.target_density / neighbor.weight_sum;
-      const float target_pdf = incoming.weight_sum > 0.0f
-          ? EE_RESTIR_PT_TARGET_DENSITY(incoming.contribution) / incoming.weight_sum : 0.0f;
+      const float source_pdf = neighbor.target_density;
+      const float target_pdf = EE_RESTIR_PT_TARGET_DENSITY(incoming.contribution);
       RestirPtPathReservoir sample = neighbor;
       sample.contribution = incoming.contribution * neighbor.selected_weight *
                             (source_pdf / (source_pdf + target_pdf));

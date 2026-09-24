@@ -35,6 +35,11 @@ import EvoEngine.CameraRayTraversalPolicies;
     EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, index, shift);
     return;
   }
+  if (source.path_type == EE_RESTIR_PT_PATH_PRIMARY_BACKGROUND) {
+    shift.status = EE_RESTIR_PT_SHIFT_SKIPPED_BACKGROUND;
+    EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, index, shift);
+    return;
+  }
   float3 contribution;
   RestirPtPathReservoir replay;
   RestirPtPrimarySurface target_surface;

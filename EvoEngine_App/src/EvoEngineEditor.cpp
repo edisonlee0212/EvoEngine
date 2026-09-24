@@ -32,6 +32,7 @@
 #include "WindowLayer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -943,6 +944,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "analytic-light",
                                                "emissive-direct-hit",
                                                "restir-mirror",
+                                               "restir-diffuse-visible",
+                                               "restir-diffuse-occluded",
+                                               "restir-glossy",
+                                               "restir-roulette",
+                                               "restir-mixed",
+                                               "restir-edges",
                                                "emissive-empty"};
     if (fixture_ids.find(*command_line.preview_ddgi_fixture) == fixture_ids.end()) {
       throw std::invalid_argument("Unknown DDGI validation fixture: " + *command_line.preview_ddgi_fixture);
@@ -1599,6 +1606,89 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   std::cout << "EVOENGINE_DDGI_VALIDATION_REPORT path=\"" << report_path.string() << "\"" << std::endl;
 }
 
+std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesystem::path& report_path,
+                                                            const Camera& camera) {
+  std::vector<RestirPtPathReservoir> candidates;
+  std::vector<RestirPtSpatialShift> shifts;
+  glm::uvec2 extent{};
+  if (!camera.DownloadRestirPtSpatialFrame(candidates, shifts, extent)) {
+    return std::nullopt;
+  }
+  const auto heatmap_path = report_path.parent_path() / (report_path.stem().string() + "-shift.ppm");
+  std::ofstream heatmap(heatmap_path, std::ios::binary | std::ios::trunc);
+  if (!heatmap) {
+    throw std::runtime_error("Failed to open ReSTIR PT shift heatmap: " + heatmap_path.string());
+  }
+  heatmap << "P6\n" << extent.x << ' ' << extent.y << "\n255\n";
+  nlohmann::json paths = nlohmann::json::object();
+  nlohmann::json path_lengths = nlohmann::json::object();
+  nlohmann::json status_counts = {
+      {"valid", 0},       {"no_partner", 0},         {"no_source", 0}, {"surface_mismatch", 0},
+      {"zero_target", 0}, {"skipped_background", 0}, {"unknown", 0}};
+  constexpr std::array<const char*, 7> path_names = {"invalid",           "primary_emission", "bsdf_emission",
+                                                     "bsdf_environment",  "nee_emission",     "nee_environment",
+                                                     "primary_background"};
+  constexpr std::array<const char*, 7> status_names = {
+      "valid", "no_partner", "no_source", "surface_mismatch", "zero_target", "skipped_background", "unknown"};
+  constexpr std::array<std::array<unsigned char, 3>, 7> colors = {
+      {{36, 190, 75}, {0, 0, 0}, {90, 90, 90}, {220, 40, 40}, {240, 205, 45}, {55, 95, 190}, {220, 20, 220}}};
+  uint64_t attempts = 0;
+  uint64_t accepted = 0;
+  uint64_t rays = 0;
+  uint64_t finite_failures = 0;
+  uint32_t maximum_path_length = 0;
+  for (size_t index = 0; index < shifts.size(); ++index) {
+    const auto& shift = shifts[index];
+    const auto& candidate = candidates[index];
+    const auto status = std::min<size_t>(shift.status, status_names.size() - 1);
+    const bool attempted = shift.status != 1u && shift.status != 2u && shift.status != 5u;
+    const bool valid = shift.status == 0u;
+    const bool finite = std::isfinite(candidate.target_density) && std::isfinite(candidate.weight_sum) &&
+                        std::isfinite(candidate.selected_weight) && std::isfinite(shift.weight_sum) &&
+                        std::isfinite(shift.contribution[0]) && std::isfinite(shift.contribution[1]) &&
+                        std::isfinite(shift.contribution[2]);
+    const auto path = candidate.path_type < path_names.size() ? path_names[candidate.path_type] : "unknown";
+    const auto key =
+        std::string(path) + ((candidate.flags & RestirPtPathReservoir::kDeltaPrefix) ? "_delta" : "_non_delta");
+    if (!paths.contains(key)) {
+      paths[key] = {{"pixels", 0}, {"attempts", 0}, {"accepted", 0}, {"rays", 0}, {"finite_failures", 0}};
+    }
+    if (candidate.path_type != static_cast<uint32_t>(RestirPtPathType::Invalid)) {
+      const auto length = std::to_string(candidate.path_length);
+      path_lengths[length] = path_lengths.value(length, uint64_t{0}) + 1;
+      maximum_path_length = std::max(maximum_path_length, candidate.path_length);
+    }
+    paths[key]["pixels"] = paths[key]["pixels"].get<uint64_t>() + 1;
+    paths[key]["attempts"] = paths[key]["attempts"].get<uint64_t>() + attempted;
+    paths[key]["accepted"] = paths[key]["accepted"].get<uint64_t>() + valid;
+    paths[key]["rays"] = paths[key]["rays"].get<uint64_t>() + shift.ray_count;
+    paths[key]["finite_failures"] = paths[key]["finite_failures"].get<uint64_t>() + !finite;
+    status_counts[status_names[status]] = status_counts[status_names[status]].get<uint64_t>() + 1;
+    attempts += attempted;
+    accepted += valid;
+    rays += shift.ray_count;
+    finite_failures += !finite;
+    heatmap.write(reinterpret_cast<const char*>(colors[status].data()), 3);
+  }
+  if (!heatmap) {
+    throw std::runtime_error("Failed to write ReSTIR PT shift heatmap: " + heatmap_path.string());
+  }
+  return nlohmann::json{
+      {"frame_scope", "last_completed_frame"},
+      {"reservoir_bytes_per_pixel",
+       sizeof(RestirPtPathReservoir) * 2 + sizeof(RestirPtPrimarySurface) + sizeof(RestirPtSpatialShift)},
+      {"heatmap_file", heatmap_path.filename().string()},
+      {"status", status_counts},
+      {"attempts", attempts},
+      {"accepted", accepted},
+      {"acceptance", attempts ? static_cast<double>(accepted) / attempts : 0.0},
+      {"rays", rays},
+      {"finite_failures", finite_failures},
+      {"maximum_path_length", maximum_path_length},
+      {"path_lengths", path_lengths},
+      {"by_path", paths}};
+}
+
 void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
                                  const Camera& camera, const Camera::CameraRenderMode render_mode,
                                  const size_t rendered_frames, const double elapsed_seconds,
@@ -1618,6 +1708,13 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   if (const auto parent = report_path.parent_path(); !parent.empty()) {
     std::filesystem::create_directories(parent);
   }
+  const auto restir_shift = WriteRestirPtShiftDiagnostics(report_path, camera);
+  const auto restir_bytes_per_pixel =
+      camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
+          ? sizeof(RestirPtPathReservoir) * 2 + sizeof(RestirPtPrimarySurface) + sizeof(RestirPtSpatialShift)
+      : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly
+          ? sizeof(RestirPtPathReservoir) + sizeof(RestirPtPrimarySurface)
+          : 0u;
   std::ofstream output(report_path, std::ios::trunc);
   if (!output) {
     throw std::runtime_error("Failed to open ray camera profile report: " + report_path.string());
@@ -1650,6 +1747,8 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << "}},\n"
          << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
          << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"
+         << "  \"restir_pt_storage_bytes_per_pixel\": " << restir_bytes_per_pixel << ",\n"
+         << "  \"restir_pt_shift\": " << (restir_shift ? restir_shift->dump() : "null") << ",\n"
          << "  \"vma_memory\": {\"block_count\": " << memory.block_count
          << ", \"allocation_count\": " << memory.allocation_count << ", \"block_bytes\": " << memory.block_bytes
          << ", \"allocation_bytes\": " << memory.allocation_bytes << "},\n"
@@ -2199,6 +2298,10 @@ void CaptureDemoPreview(
   constexpr size_t max_capture_frame_slack = 30000;
   const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
   size_t capture_frame_count = 0;
+  size_t stalled_restir_frames = 0;
+  uint32_t previous_camera_frames = scene_camera->GetFrameCount();
+  const bool restir_capture =
+      preview_ray_integrator && *preview_ray_integrator != CameraSettings::RayIntegrator::PathTracing;
   std::vector<double> cpu_frame_samples;
   cpu_frame_samples.reserve(warmup_frames);
   const auto capture_start_time = std::chrono::steady_clock::now();
@@ -2207,6 +2310,13 @@ void CaptureDemoPreview(
     const auto frame_start_time = std::chrono::steady_clock::now();
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
+    }
+    const auto current_camera_frames = scene_camera->GetFrameCount();
+    stalled_restir_frames =
+        restir_capture && current_camera_frames == previous_camera_frames ? stalled_restir_frames + 1 : 0;
+    previous_camera_frames = current_camera_frames;
+    if (stalled_restir_frames >= 256) {
+      throw std::runtime_error("ReSTIR PT preview camera did not render; check the unsupported-setting error.");
     }
     cpu_frame_samples.emplace_back(
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start_time).count());

@@ -1386,7 +1386,7 @@ std::shared_ptr<Buffer> CreateRestirPtStorageBuffer(const VkExtent3D extent, con
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_create_info.size = byte_size;
-  buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   VmaAllocationCreateInfo allocation_create_info{};
   allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
@@ -7994,16 +7994,20 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         restir_pt_spatial_combine_pipeline_->Initialized() && restir_pt_spatial_resolve_pipeline_ &&
         restir_pt_spatial_resolve_pipeline_->Initialized();
     const bool use_restir_pt = use_restir_candidate || use_restir_spatial;
-    if (restir_requested && camera->frame_count_ == 0 && !use_restir_pt) {
-      EVOENGINE_WARNING("ReSTIR PT unavailable; using the conventional integrator. Mode=" +
-                        std::to_string(static_cast<uint32_t>(requested_integrator)) +
+    if (restir_requested && !use_restir_pt) {
+      if (!camera->restir_unavailable_logged_) {
+        EVOENGINE_ERROR("ReSTIR PT unavailable. Mode=" + std::to_string(static_cast<uint32_t>(requested_integrator)) +
                         ", SPP=" + std::to_string(camera->camera_settings.sample_size) +
                         ", scene features=" + std::to_string(scene_features) +
                         ", directional=" + std::to_string(render_info.directional_light_size) +
                         ", point=" + std::to_string(render_info.point_light_size) +
                         ", spot=" + std::to_string(render_info.spot_light_size) + ", instanced triangles=" +
                         std::to_string(current_render_instances->total_instanced_mesh_triangles))
+        camera->restir_unavailable_logged_ = true;
+      }
+      return;
     }
+    camera->restir_unavailable_logged_ = false;
     const bool use_ray_query = use_restir_pt || resolved_render_mode == Camera::CameraRenderMode::RayQuery;
     const auto ray_query_pipeline = ray_query_camera_pipeline_;
     const auto ray_tracing_pipeline = ray_tracing_camera_pipeline;
@@ -8057,6 +8061,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         if (!restir_resolved_buffer || !restir_shift_buffer) {
           return;
         }
+        ray_camera_history.restir_last_shift_slot = current_frame_index;
       }
     }
     camera->SynchronizeRayCameraOptionalOutputs(ray_camera_history, camera->camera_settings.ray_outputs);
@@ -8129,9 +8134,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
           RayQueryCameraPass::Execute(
               context, {camera, restir_pt_spatial_pipeline_, per_frame_descriptor_sets_[current_frame_index],
                         ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                        ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
-                        restir_candidate_buffer, restir_primary_surface_buffer, false, restir_resolved_buffer,
-                        restir_shift_buffer});
+                        camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                                 ray_tracing_camera_output_layout_),
+                        active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
+                        restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
         });
         auto combine_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Combine");
         combine_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
@@ -8144,9 +8150,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
           RayQueryCameraPass::Execute(
               context, {camera, restir_pt_spatial_combine_pipeline_, per_frame_descriptor_sets_[current_frame_index],
                         ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                        ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
-                        restir_candidate_buffer, restir_primary_surface_buffer, false, restir_resolved_buffer,
-                        restir_shift_buffer});
+                        camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                                 ray_tracing_camera_output_layout_),
+                        active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
+                        restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
         });
       }
       auto resolve_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Resolve");
@@ -8158,8 +8165,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
             context, {camera, use_restir_spatial ? restir_pt_spatial_resolve_pipeline_ : restir_pt_resolve_pipeline_,
                       per_frame_descriptor_sets_[current_frame_index],
                       ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                      ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history,
-                      restir_candidate_buffer, restir_primary_surface_buffer, true, restir_resolved_buffer});
+                      camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                               ray_tracing_camera_output_layout_),
+                      active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
+                      restir_primary_surface_buffer, true, restir_resolved_buffer});
       });
     } else if (use_ray_query) {
       camera_render_graph.AddPass(

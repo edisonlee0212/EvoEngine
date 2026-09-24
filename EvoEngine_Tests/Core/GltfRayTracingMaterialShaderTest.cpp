@@ -986,7 +986,7 @@ TEST(GltfRayTracingMaterial, RetroreflectionSampleUsesMarginalBsdfAndPdf) {
   const auto lobe_sample = sample_body.find("EE_GLTF_RT_BSDF_SAMPLE_LOBE(data, material, lobe, sample_weights)");
   ASSERT_NE(lobe_sample, std::string::npos);
   EXPECT_EQ(sample_body.find("material.occlusion"), std::string::npos);
-  EXPECT_NE(sample_body.find("data.pdf <= EE_GLTF_RT_BSDF_MIN_PDF || any(isnan(data.bsdf_over_pdf))"),
+  EXPECT_NE(sample_body.find("data.pdf <= EE_GLTF_RT_BSDF_MIN_PDF && data.pdf != EE_GLTF_RT_BSDF_DIRAC_PDF"),
             std::string::npos);
   EXPECT_NE(sample_body.find("data.event_type = EE_GLTF_RT_BSDF_EVENT_ABSORB"), std::string::npos);
   EXPECT_NE(sample_body.find("isinf(data.pdf)"), std::string::npos);
@@ -1351,10 +1351,9 @@ TEST(GltfRayTracingMaterial, CameraRaygenBuildsReferenceStylePrimaryRays) {
   EXPECT_NE(source.find("mul(float4(clip_coords, -1.0f, 1.0f), camera.inverse_projection)"), std::string::npos);
   EXPECT_NE(source.find("const float3 origin = camera.inverse_view[3].xyz"), std::string::npos);
   EXPECT_NE(source.find("mul(view_position, camera.inverse_view)"), std::string::npos);
-  EXPECT_NE(
-      source.find(
-          "EE_CAMERA_TRACE_PATH<T, feature_mask>(traversal, sample_seed, primary_ray.origin, primary_ray.direction"),
-      std::string::npos);
+  EXPECT_NE(source.find("EE_CAMERA_TRACE_PATH<T, feature_mask, false>(traversal, sample_seed, primary_ray.origin, "
+                        "primary_ray.direction"),
+            std::string::npos);
   EXPECT_EQ(source.find("- float2(0.5f)"), std::string::npos);
   EXPECT_EQ(source.find("camera.inverse_projection_view * float4(d.x, d.y"), std::string::npos);
 }
@@ -2169,7 +2168,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesDomainSeparatedPcgAndAccumulation) 
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_VOLUME_SCATTER"), std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_SURFACE_ROULETTE"), std::string::npos);
   EXPECT_NE(raygen.find("const uint current_segment = path_segment++"), std::string::npos);
-  EXPECT_NE(raygen.find("float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>("),
+  EXPECT_NE(raygen.find("float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, "
+                        "let collect_candidates : bool>("),
             std::string::npos);
   EXPECT_EQ(raygen.find("EE_RANDOM("), std::string::npos);
   EXPECT_EQ(ray_query.find("EE_RANDOM("), std::string::npos);
@@ -2601,8 +2601,9 @@ TEST(GltfRayTracingMaterial, BistroParityCaptureDisablesUnrelatedStateAndLogsCou
   EXPECT_NE(demo_scene_header.find("ConfigureBistroParityCapture"), std::string::npos);
   EXPECT_NE(demo_scene_header.find("LogBistroParityCaptureState"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ApplyBistroParityRendererState"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("lighting->ddgi_settings.runtime.enabled = false"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("lighting->ddgi_settings.runtime.enabled = false"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("lighting->indirect_gi_provider = IndirectGiProvider::Environment"),
+            std::string::npos);
+  EXPECT_NE(demo_scene_source.find("DisableDdgiDebugVisualization()"), std::string::npos);
   EXPECT_EQ(demo_scene_source.find("scene->environment.volumetric_cloud_settings"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroReferencePathTraceMaxDepth = 5"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroDirectionalLightIntensity = 10.0f"), std::string::npos);
@@ -2619,7 +2620,7 @@ TEST(GltfRayTracingMaterial, BistroParityCaptureDisablesUnrelatedStateAndLogsCou
   EXPECT_NE(bistro_source.find("ConfigureEnvironmentalLightingMapSource(*lighting, "
                                "Resources::GetInstance().GetDefaultEnvironmentalMap(), 1.0f"),
             std::string::npos);
-  EXPECT_NE(demo_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f)"),
+  EXPECT_EQ(demo_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f)"),
             std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.environment_type"), std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.indirect_lighting_intensity"), std::string::npos);

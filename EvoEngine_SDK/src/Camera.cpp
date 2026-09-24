@@ -985,6 +985,22 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
   return stats;
 }
 
+bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& candidates,
+                                          std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const {
+  const auto& history = ray_camera_history_;
+  const auto slot = history.restir_last_shift_slot;
+  if (!history.valid || history.integrator != CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+      slot >= history.restir_candidate_buffers.size() || slot >= history.restir_shift_buffers.size() ||
+      !history.restir_candidate_buffers[slot] || !history.restir_shift_buffers[slot]) {
+    return false;
+  }
+  extent = {history.extent.width, history.extent.height};
+  const auto pixel_count = static_cast<size_t>(extent.x) * extent.y;
+  history.restir_candidate_buffers[slot]->DownloadVector(candidates, pixel_count);
+  history.restir_shift_buffers[slot]->DownloadVector(shifts, pixel_count);
+  return true;
+}
+
 SampledImageResources Camera::GetGBufferBaseColorAoResources() const {
   return {g_buffer_base_color_ao_, g_buffer_base_color_ao_view_, g_buffer_sampler_};
 }
@@ -1074,6 +1090,7 @@ void Camera::InvalidateRayCameraHistory() {
     ray_camera_history_.temporal_history_version = temporal_history_version_;
     ray_camera_history_.frame_id = 0;
     ray_camera_history_.valid = false;
+    ray_camera_history_.restir_last_shift_slot = UINT32_MAX;
     ++ray_camera_history_counters_.invalidation_count;
   }
 }
@@ -1117,6 +1134,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.temporal_history_version = temporal_history_version_;
       history.frame_id = 0;
       history.valid = false;
+      history.restir_last_shift_slot = UINT32_MAX;
       ++ray_camera_history_counters_.invalidation_count;
     }
   }

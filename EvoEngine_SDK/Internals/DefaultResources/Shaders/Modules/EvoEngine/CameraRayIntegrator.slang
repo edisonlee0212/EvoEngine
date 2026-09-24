@@ -1490,6 +1490,11 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
           surface_hit.position, surface_hit.geometric_normal, ray_direction, emissive_hit_pdf, last_sample_pdf,
           delta_prefix, emissive_contribution, match_type, match_length, matched_contribution);
     }
+    if (collect_candidates && match_type == (surface_depth == 0u ? EE_RESTIR_PT_PATH_PRIMARY_EMISSION
+                                                                   : EE_RESTIR_PT_PATH_BSDF_EMISSION) &&
+        match_length == surface_depth + 1u) {
+      break;
+    }
     if (debug_view == EE_CAMERA_DEBUG_EMISSION && surface_depth == 0u) {
       debug_radiance += emissive_contribution;
     } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
@@ -1515,11 +1520,21 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
         EE_CAMERA_RANDOM_STREAM(sample_seed, EE_CAMERA_RANDOM_DOMAIN_SURFACE_EMISSIVE_SHADOW_ALPHA, current_segment);
     uint surface_roulette_seed =
         EE_CAMERA_RANDOM_STREAM(sample_seed, EE_CAMERA_RANDOM_DOMAIN_SURFACE_ROULETTE, current_segment);
-    EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, diffuse_indirect_path,
-                                      surface_depth == 0u, surface_light_seed, surface_direct_bsdf_seed, bounce);
-    EE_CAMERA_PREPARE_EMISSIVE_LIGHTING<feature_mask>(surface_hit, view_direction, throughput, diffuse_indirect_path,
-                                                      surface_depth == 0u, surface_emissive_seed,
-                                                      surface_emissive_bsdf_seed, emissive_bounce);
+    const bool evaluate_direct = match_type == EE_RESTIR_PT_PATH_INVALID ||
+                                 (match_type == EE_RESTIR_PT_PATH_NEE_ENVIRONMENT &&
+                                  match_length == surface_depth + 2u);
+    const bool evaluate_emissive = match_type == EE_RESTIR_PT_PATH_INVALID ||
+                                   (match_type == EE_RESTIR_PT_PATH_NEE_EMISSION &&
+                                    match_length == surface_depth + 2u);
+    if (evaluate_direct) {
+      EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, diffuse_indirect_path,
+                                        surface_depth == 0u, surface_light_seed, surface_direct_bsdf_seed, bounce);
+    }
+    if (evaluate_emissive) {
+      EE_CAMERA_PREPARE_EMISSIVE_LIGHTING<feature_mask>(surface_hit, view_direction, throughput, diffuse_indirect_path,
+                                                        surface_depth == 0u, surface_emissive_seed,
+                                                        surface_emissive_bsdf_seed, emissive_bounce);
+    }
     const bool direct_prefix_delta = delta_prefix;
     GltfRayTracingBsdfSampleData sample_data;
     sample_data.k1 = view_direction;
@@ -1572,6 +1587,10 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
           surface_hit.geometric_normal, emissive_bounce.shadow_ray_direction, emissive_bounce.light_pdf,
           emissive_bounce.bsdf_pdf, direct_prefix_delta, direct_emissive_contribution,
           match_type, match_length, matched_contribution);
+    }
+    if (collect_candidates && match_length == surface_depth + 2u &&
+        (match_type == EE_RESTIR_PT_PATH_NEE_ENVIRONMENT || match_type == EE_RESTIR_PT_PATH_NEE_EMISSION)) {
+      break;
     }
     if (surface_depth == 0u) {
       if (debug_view == EE_CAMERA_DEBUG_DIRECT_PUNCTUAL && bounce.light_kind == EE_CAMERA_LIGHT_KIND_PUNCTUAL) {

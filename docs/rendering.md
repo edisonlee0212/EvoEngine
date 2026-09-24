@@ -98,11 +98,22 @@ also replays selected paths at paired neighboring pixels, combines reciprocal sh
 reservoir. It alternates horizontal and vertical pairs between frames; it does not reuse previous-frame reservoirs.
 Switching integrators resets camera accumulation.
 
-The current ReSTIR path supports opaque rigid triangles, including perfectly specular reflections, with environment
-and emissive-triangle lighting. Spatial Only requires one sample per frame. Both modes require automatic SPP, ray
-debug views, and optional ray outputs to be disabled. Unsupported scene features or settings select the conventional
-path tracer for the whole camera. Spatial shifts currently use full path replay; hybrid reconnection and temporal
-reuse are not implemented.
+The current ReSTIR path supports opaque rigid triangles with environment and emissive-triangle lighting. Exactly
+zero-roughness, fully metallic surfaces with no retroreflection use ideal specular reflection in the shared path-tracing
+BSDF; positive roughness remains glossy. Spatial Only requires one sample per frame. Both modes require automatic SPP,
+ray debug views, and optional ray outputs to be disabled. Unsupported scene features or settings leave the requested
+ReSTIR camera unavailable and log an error; they do not select another integrator. Preview captures fail if that
+camera cannot accumulate frames. Spatial shifts currently replay the source random stream through its selected path
+event; hybrid reconnection and temporal reuse are not implemented. Primary background samples retain their canonical
+candidate without a spatial shift.
+
+Ray camera preview captures with `--preview-ray-profile-report <path>.json` report ReSTIR reservoir storage per pixel.
+Spatial captures also report the last completed frame's shift statuses, acceptance, rays, finite-value failures, and
+path/delta breakdown. A `*-shift.ppm` heatmap is saved beside the JSON: green means accepted, black means no partner,
+gray means no source, red means surface mismatch, yellow means zero target, blue means skipped background reuse,
+and magenta means an unknown status.
+The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`, and
+`restir-edges` rendering-regression fixtures cover the full-replay reference gate.
 
 ### Ray-tracing camera pass flow
 

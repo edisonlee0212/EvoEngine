@@ -17,6 +17,7 @@ public static const uint EE_RESTIR_PT_SHIFT_NO_PARTNER = 1u;
 public static const uint EE_RESTIR_PT_SHIFT_NO_SOURCE = 2u;
 public static const uint EE_RESTIR_PT_SHIFT_SURFACE_MISMATCH = 3u;
 public static const uint EE_RESTIR_PT_SHIFT_ZERO_TARGET = 4u;
+public static const uint EE_RESTIR_PT_SHIFT_SKIPPED_BACKGROUND = 5u;
 
 public struct RestirPtPathReservoir {
   public uint version;

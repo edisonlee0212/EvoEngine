@@ -2985,11 +2985,12 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   lighting->ddgi_settings.runtime.enable_probe_classification = true;
   lighting->GetOrCreateReflectionProbePack()->probes.clear();
 
-  const glm::vec3 camera_position(0.0f, 1.25f, 5.0f);
+  const bool restir_fixture = fixture_id.rfind("restir-", 0) == 0;
+  const glm::vec3 camera_position = restir_fixture ? glm::vec3(0.0f, 1.1f, 1.2f) : glm::vec3(0.0f, 1.25f, 5.0f);
   const glm::vec3 camera_target(0.0f, 0.8f, -2.4f);
   const auto camera_rotation =
       glm::quatLookAt(glm::normalize(camera_target - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
-  configure_validation_camera(camera_position, camera_rotation, 48.0f, 0.05f, 250.0f);
+  configure_validation_camera(camera_position, camera_rotation, restir_fixture ? 56.0f : 48.0f, 0.05f, 250.0f);
 
   const auto& primitives = Resources::GetInstance().GetPrimitives();
   if (fixture_id != "furnace") {
@@ -3040,9 +3041,59 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     CreateRenderingRegressionProbe(scene, root, "DDGI Furnace Center", primitives.sphere, glm::vec3(0.0f, 0.85f, -2.4f),
                                    glm::vec3(1.6f), glm::vec3(1.0f), 1.0f, 0.0f);
   } else if (fixture_id == "restir-mirror") {
+    ConfigureEnvironmentalLightingColorSource(*lighting, glm::vec3(1.0f), 1.0f, 1.0f);
     CreateRenderingRegressionProbe(scene, root, "ReSTIR Mirror", primitives.sphere, glm::vec3(0.0f, 0.85f, -2.4f),
                                    glm::vec3(0.85f), glm::vec3(1.0f), 0.0f, 1.0f);
     create_emitter("ReSTIR Mirror Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-diffuse-visible" || fixture_id == "restir-diffuse-occluded" ||
+             fixture_id == "restir-roulette") {
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Diffuse Receiver", primitives.sphere,
+                                   glm::vec3(0.0f, 0.85f, -2.4f), glm::vec3(0.85f), glm::vec3(0.75f, 0.6f, 0.45f), 0.9f,
+                                   0.0f);
+    create_emitter("ReSTIR Diffuse Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+    if (fixture_id == "restir-diffuse-occluded") {
+      CreateRenderingRegressionProbe(scene, root, "ReSTIR Occluder", primitives.cube, glm::vec3(0.0f, 1.9f, -2.4f),
+                                     glm::vec3(0.5f, 0.06f, 0.5f), glm::vec3(0.25f), 0.9f, 0.0f);
+    }
+    if (fixture_id == "restir-roulette") {
+      CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Ceiling", primitives.cube,
+                                     glm::vec3(0.0f, 2.6f, -2.4f), glm::vec3(2.2f, 0.05f, 2.0f), glm::vec3(0.78f), 0.9f,
+                                     0.0f);
+      CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Left Wall", primitives.cube,
+                                     glm::vec3(-2.2f, 1.25f, -2.4f), glm::vec3(0.05f, 1.3f, 2.0f),
+                                     glm::vec3(0.78f, 0.2f, 0.16f), 0.9f, 0.0f);
+      CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Right Wall", primitives.cube,
+                                     glm::vec3(2.2f, 1.25f, -2.4f), glm::vec3(0.05f, 1.3f, 2.0f),
+                                     glm::vec3(0.16f, 0.78f, 0.2f), 0.9f, 0.0f);
+      const glm::vec3 roulette_camera_position(0.0f, 1.1f, 1.5f);
+      const auto roulette_rotation = glm::quatLookAt(
+          glm::normalize(glm::vec3(0.0f, 1.0f, -2.4f) - roulette_camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
+      configure_validation_camera(roulette_camera_position, roulette_rotation, 62.0f, 0.05f, 250.0f);
+      main_camera->camera_settings.bounce = 8;
+      if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+        if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+          scene_camera->camera_settings.bounce = 8;
+        }
+      }
+    }
+  } else if (fixture_id == "restir-glossy" || fixture_id == "restir-mixed") {
+    if (fixture_id == "restir-mixed") {
+      ConfigureEnvironmentalLightingColorSource(*lighting, glm::vec3(1.0f), 1.0f, 1.0f);
+    }
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Glossy Receiver", primitives.sphere,
+                                   glm::vec3(-0.6f, 0.85f, -2.4f), glm::vec3(0.75f), glm::vec3(0.9f, 0.8f, 0.7f), 0.28f,
+                                   1.0f);
+    if (fixture_id == "restir-mixed") {
+      CreateRenderingRegressionProbe(scene, root, "ReSTIR Mixed Mirror", primitives.sphere,
+                                     glm::vec3(0.65f, 0.85f, -2.9f), glm::vec3(0.68f), glm::vec3(1.0f), 0.0f, 1.0f);
+    }
+    create_emitter("ReSTIR Glossy Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-edges") {
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Near Edge", primitives.cube, glm::vec3(-0.5f, 0.75f, -1.9f),
+                                   glm::vec3(0.48f, 0.75f, 0.28f), glm::vec3(0.7f, 0.15f, 0.12f), 0.8f, 0.0f);
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Far Edge", primitives.cube, glm::vec3(0.5f, 0.75f, -3.0f),
+                                   glm::vec3(0.48f, 0.75f, 0.28f), glm::vec3(0.12f, 0.2f, 0.7f), 0.8f, 0.0f);
+    create_emitter("ReSTIR Edge Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
   } else if (fixture_id == "alpha-tested") {
     create_emitter("DDGI Alpha Fixture Emitter", glm::vec3(0.8f, 0.02f, 0.8f), true);
     const auto blocker_mesh = CreateRenderingRegressionMaterialQuad(
