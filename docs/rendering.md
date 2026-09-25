@@ -91,153 +91,49 @@ unchanged cameras continue accumulating.
 
 ### ReSTIR PT ray integrators
 
-In the camera inspector, select a ray technique and then choose **Path Tracing**, **ReSTIR PT Candidate Only**, or
-**ReSTIR PT Spatial Only** under **Ray Integrator**. The two ReSTIR modes are opt-in and use compute shaders with
-inline RayQuery traversal. Candidate Only generates a path reservoir and resolves it without reuse. Spatial Only
-also replays selected paths at paired neighboring pixels, combines reciprocal shifts, and resolves a separate
-reservoir. It alternates horizontal and vertical pairs between frames; it does not reuse previous-frame reservoirs.
-Switching integrators resets camera accumulation.
+Under **Ray Integrator**, choose **Path Tracing**, **ReSTIR PT Candidate Only**, or **ReSTIR PT Spatial Only**.
+ReSTIR uses compute shaders with inline RayQuery. Candidate Only samples a path reservoir; Spatial Only also replays
+candidates at reciprocal neighboring pixels and combines their estimates. It uses no previous-frame reservoirs.
+Changing the integrator or reuse settings resets accumulation.
 
-**Spatial neighbors** selects 1–4 distinct reciprocal pixel pairs per pixel; the default is 4. Each pair shifts
-the same current-frame candidate independently and the resulting radiance estimates are averaged. More neighbors
-reduce error at a fixed frame count but increase ray work and buffer storage. **Hybrid shifts** is off by default.
-When enabled, it reconnects eligible three-vertex diffuse paths ending in emissive next-event estimation; other
-paths retain full replay. Reconnection is active only when all scene materials are opaque and non-transmissive;
-otherwise the camera keeps full replay for every path. Both settings reset accumulation. Preview captures accept
-`--preview-restir-spatial-neighbors 1|2|3|4` and `--preview-restir-spatial-hybrid enabled|disabled`.
-Hybrid mode runs a separate reconnection pass. At 256×144 and 64 frames, it reduced shift rays from 5,523 to 4,390
-on `restir-indirect-upward` and from 19,829 to 18,761 on `restir-roulette`, while total ReSTIR GPU time rose from
-0.335 to 0.380 ms and from 0.314 to 0.359 ms, respectively. The same-frame RMSE against 512-frame Path Tracing
-changed from 0.007814 to 0.007805 and from 0.103709 to 0.103594. Hybrid is an experimental quality option,
-not a measured speedup.
+**Spatial neighbors** selects 1–4 pairs per pixel and defaults to 4. More pairs improve the recorded equal-frame
+quality but cost more GPU time. **Hybrid shifts** is off by default. It reconnects eligible three-vertex diffuse
+emissive-light paths; other paths use full replay. Scenes with transmissive materials use full replay throughout.
+Preview captures accept `--preview-restir-spatial-neighbors 1|2|3|4` and
+`--preview-restir-spatial-hybrid enabled|disabled`.
 
-The ray-camera **Accumulate Samples** checkbox is enabled by default. Disable it to replace radiance every frame
-with fresh pseudorandom samples, without blending earlier frames. The sample index still advances, so the image
-changes each frame; ReSTIR Spatial Only continues to reuse same-frame neighbors. Auto SPP is inactive while
-accumulation is disabled. Preview captures can set `--preview-accumulate-samples enabled|disabled`.
+**Accumulate Samples** averages radiance across frames by default. Disable it for a fresh random sample each frame;
+same-frame spatial reuse still works. Preview captures use `--preview-accumulate-samples enabled|disabled`.
+Spatial Only requires one sample per frame. Both ReSTIR modes require Auto SPP, ray debug views, and optional outputs
+to be off. Unsupported scene features leave ReSTIR unavailable without switching integrators.
 
-The current ReSTIR path supports triangle geometry, including alpha masked surfaces, skinned triangles, and instanced
-mesh triangles, plus linear swept sphere strands when the device supports them. It supports unlit surface colors, with
-environment, emissive-triangle, directional, point, and spot lighting. Exactly zero-roughness, fully metallic surfaces
-with no retroreflection use ideal specular reflection in the shared path-tracing BSDF; positive roughness remains
-glossy. Thin specular and diffuse transmission, closed transmissive surfaces with absorption, and homogeneous volume
-scattering are supported; dispersion remains unavailable, and Gaussian-splat support is deferred. Spatial Only requires
-one sample per frame. Both modes require Auto SPP, ray debug views, and optional ray outputs to be inactive. Unsupported
-scene features or settings leave the requested ReSTIR camera unavailable and log an error; they do not select another
-integrator. Preview captures fail if that camera cannot accumulate frames. Full-replay spatial shifts replay the source
-random stream through its selected path event. Hybrid reconnection is optional; temporal reuse is not implemented.
-Primary background samples retain their canonical
-candidate without a spatial shift.
-Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing. In the
-diffuse-visible and indirect-upward fixtures at 256×144, 2–4 neighbors improved equal-frame RMSE but were slower
-enough to raise equal-GPU-time error relative to one neighbor.
+Supported paths include triangle meshes (instanced, skinned, and alpha masked), device-supported linear swept sphere
+strands, unlit surfaces, environment and emissive lighting, punctual lights, specular reflection, thin and closed
+transmission, absorption, and homogeneous scattering. Dispersion and Gaussian splats are unavailable. Temporal reuse
+is not implemented. Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path
+Tracing.
 
-Ray camera preview captures with `--preview-ray-profile-report <path>.json` report ReSTIR reservoir storage per pixel.
-Spatial captures also report the last completed frame's shift statuses, acceptance, rays, finite-value failures, and
-path/delta breakdown. A `*-shift.ppm` heatmap is saved beside the JSON: green means accepted, black means no partner,
-gray means no source, red means surface mismatch, yellow means zero target, blue means skipped background reuse,
-and magenta means an unknown status. With multiple neighbors, the heatmap shows the first pair while JSON counts
-cover every pair. Hybrid captures include attempt, acceptance, and rejection-reason counts. Add
-`--preview-restir-generated-profile` with the JSON report to capture
-generated event counts and target weights by path type and length. This uses a profiled shader variant; ordinary JSON
-capture timings use the normal rendering variant.
-The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`, and
-`restir-edges` rendering-regression fixtures cover the full-replay reference gate. `restir-indirect-upward` places a
-one-sided emitter toward the ceiling with a black camera background to stress indirect paths.
+Preview captures can write `--preview-ray-profile-report <path>.json` with per-pair shift outcomes, ray counts, and a
+`*-shift.ppm` heatmap. The heatmap shows the first pair; JSON covers every pair. Add
+`--preview-restir-generated-profile` to record candidate path types and target weights. The
+`restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`,
+`restir-edges`, and `restir-indirect-upward` fixtures exercise spatial reuse.
 
-### Ray-tracing camera pass flow
+### Ray-camera pass flow
 
-```mermaid
-flowchart TD
-  A[Prepared scene, BLAS and TLAS, materials and lights] --> B[Prepare camera accumulation and optional outputs]
-  B --> C[RayTracingCamera: dispatch rays]
-  subgraph T[Inside the ray-tracing pass]
-    C --> D[Ray generation: camera samples]
-    D --> E[Shared integrator: surface and shadow rays]
-    E --> F[Hit and miss shaders: traversal results]
-    F --> G[Material, direct light, emission, environment, next bounce]
-    G -->|Continue path| E
-    G -->|Finish samples| H[Write radiance history, convergence, hit distance and outputs]
-  end
-  H --> I[Optional volumetric clouds]
-  I --> J[Optional Gaussian splats: cull, sort, overlay]
-  J --> K[PostProcessing: bloom and tone mapping]
-  K --> L[Camera output]
-```
-
-### Ray-query camera pass flow
-
-```mermaid
-flowchart TD
-  A[Prepared scene, BLAS and TLAS, materials and lights] --> B[Prepare camera accumulation and optional outputs]
-  B --> C[RayQueryCamera: dispatch compute in 8 by 8 groups]
-  subgraph T[Inside the compute pass]
-    C --> D[Compute threads: camera samples]
-    D --> E[Shared integrator: surface and shadow rays]
-    E --> F[Inline ray queries: candidate and committed hits]
-    F --> G[Material, direct light, emission, environment, next bounce]
-    G -->|Continue path| E
-    G -->|Finish samples| H[Write radiance history, convergence, hit distance and outputs]
-  end
-  H --> I[Optional volumetric clouds]
-  I --> J[Optional Gaussian splats: cull, sort, overlay]
-  J --> K[PostProcessing: bloom and tone mapping]
-  K --> L[Camera output]
-```
-
-Each ray diagram expands one GPU camera pass; bounces and history writes are shader work within that pass.
-Both modes use `CameraRayIntegrator`. They trace indirect lighting directly rather than gathering raster GI fields.
-Optional outputs include albedo, normal, ray count, path length, timing, and debug data.
+Ray-tracing cameras dispatch a ray-generation pipeline; ray-query cameras dispatch compute threads using inline ray
+queries. Both call `CameraRayIntegrator` for materials, light sampling, bounces, and accumulation, then run optional
+volumetric clouds, Gaussian splats, and post-processing. Ray cameras trace indirect lighting directly and can output
+albedo, normals, ray counts, path lengths, timing, and debug data.
 
 ## Raster Path
 
 ### Raster camera pass flow
 
-```mermaid
-flowchart TD
-  subgraph S[Shared scene GI updates]
-    S0{GI provider} -->|DDGI| S1{Use Occlusion?}
-    S1 -->|On| S2[Voxelize changes; update occupancy and visibility]
-    S1 -->|Off: no voxel field| S3[DDGI probe rays and histories]
-    S2 --> S3
-    S3 --> S4[Classify; relocate only when occlusion is off]
-    S0 -->|SDFGI| S5[Voxelize; build SDF and occlusion; update lighting]
-    S0 -->|HDDAGI| S6[Voxelize; update occupancy and occlusion; update lighting]
-  end
-  S4 --> A[Updated GI and reflection probes]
-  S5 --> A
-  S6 --> A
-  S0 -->|Environment| A
-  A --> B[Directional shadow maps]
-  B --> C[DeferredGeometry: raw GBuffer and depth]
-  C --> D[MotionVectors and MotionCoverage]
-  D --> E[DepthPyramid]
-  E --> F[AmbientOcclusion: optional GTAO]
-  F --> G{GI provider}
-  G -->|HDDAGI| H[HddagiCameraSurface: normal and roughness]
-  H --> I[HddagiCameraGather: full-resolution GI]
-  I --> J[Optional horizontal and vertical reflection filters]
-  subgraph K[DeferredCamera: material evaluation and lighting]
-    KD[Gather DDGI diffuse: visibility and probe recovery]
-    KS[Gather SDFGI diffuse and specular]
-    KH[Compose HDDAGI camera images]
-    KE[Environment and reflection probes]
-  end
-  G -->|DDGI| KD
-  G -->|SDFGI| KS
-  G -->|Environment or unavailable field| KE
-  J --> KH
-  KD --> L[Optional forward callbacks and volumetric clouds]
-  KS --> L
-  KH --> L
-  KE --> L
-  L --> M[Optional transparent geometry]
-  M --> N[Optional Gaussian splats: cull, sort, render]
-  N --> O[Optional DDGI debug overlays]
-  O --> P[PostProcessing: SSR, bloom, tone mapping, SMAA]
-  P --> Q[Editor selection and optional SDFGI debug view]
-  Q --> R[Camera output]
-```
+The selected DDGI, SDFGI, or HDDAGI provider updates its shared field before camera rendering. The camera graph then
+records shadows, raw GBuffer and depth, motion vectors, depth pyramid, optional GTAO, deferred material evaluation and
+lighting, forward and transparent geometry, optional splats and overlays, and post-processing. HDDAGI prepares
+full-resolution camera GI images before deferred composition.
 
 GI updates and point/spot shadows are shared across cameras. DDGI reuses HDDAGI's voxel visibility structures only with
 occlusion enabled; it builds no SDF or HDDAGI transport history. Classification remains optional and independent.
