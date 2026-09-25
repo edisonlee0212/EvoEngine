@@ -3198,6 +3198,7 @@ void RenderLayer::PrepareSceneForRendering(
       bool need_ray_query = false;
       bool need_restir_pt = false;
       bool need_restir_pt_spatial = false;
+      bool need_restir_pt_hybrid = false;
       bool need_restir_pt_generated = false;
       bool need_ray_tracing_debug_views = false;
       bool need_ray_query_debug_views = false;
@@ -3212,6 +3213,10 @@ void RenderLayer::PrepareSceneForRendering(
         need_restir_pt_generated |= restir_pt_requested && camera->restir_pt_profile_generated;
         need_restir_pt_spatial |= restir_pt_requested && camera->camera_settings.ray_integrator ==
                                                              CameraSettings::RayIntegrator::RestirPtSpatialOnly;
+        need_restir_pt_hybrid |=
+            restir_pt_requested &&
+            camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
+            camera->camera_settings.restir_spatial_hybrid;
         need_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
         need_ray_query |= mode == Camera::CameraRenderMode::RayQuery || restir_pt_requested;
         const bool debug_views = camera->camera_settings.ray_debug_view != CameraSettings::RayDebugView::Beauty;
@@ -3256,6 +3261,10 @@ void RenderLayer::PrepareSceneForRendering(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialCombine.slang");
         restir_pt_spatial_resolve_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialResolve.slang");
+      }
+      if (need_restir_pt_hybrid && Platform::RayQueryEnabled() && !restir_pt_spatial_hybrid_pipeline_) {
+        restir_pt_spatial_hybrid_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialHybrid.slang");
       }
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
@@ -8012,6 +8021,8 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
          (restir_pt_profile_candidate_pipeline_ && restir_pt_profile_candidate_pipeline_->Initialized() &&
           restir_pt_profile_single_sample_candidate_pipeline_ &&
           restir_pt_profile_single_sample_candidate_pipeline_->Initialized()));
+    const bool hybrid_requested =
+        current_render_instances->camera_info_blocks_.at(camera_index).restir_spatial_hybrid != 0u;
     const bool use_restir_candidate = requested_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly &&
                                       restir_common_ready && restir_pt_resolve_pipeline_ &&
                                       restir_pt_resolve_pipeline_->Initialized();
@@ -8022,7 +8033,10 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         (!camera->restir_pt_profile_generated ||
          (restir_pt_profile_spatial_pipeline_ && restir_pt_profile_spatial_pipeline_->Initialized())) &&
         restir_pt_spatial_combine_pipeline_ && restir_pt_spatial_combine_pipeline_->Initialized() &&
-        restir_pt_spatial_resolve_pipeline_ && restir_pt_spatial_resolve_pipeline_->Initialized();
+        restir_pt_spatial_resolve_pipeline_ && restir_pt_spatial_resolve_pipeline_->Initialized() &&
+        (!hybrid_requested ||
+         (restir_pt_spatial_hybrid_pipeline_ && restir_pt_spatial_hybrid_pipeline_->Initialized()));
+    const bool use_restir_hybrid = use_restir_spatial && hybrid_requested;
     const bool use_restir_pt = use_restir_candidate || use_restir_spatial;
     if (restir_requested && !use_restir_pt) {
       if (!camera->restir_unavailable_logged_) {
@@ -8105,8 +8119,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         auto& shifts = ray_camera_history.restir_shift_buffers;
         shifts.resize(Platform::GetMaxFramesInFlight());
         if (!shifts[current_frame_index]) {
-          shifts[current_frame_index] =
-              CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtSpatialShift));
+          shifts[current_frame_index] = CreateRestirPtStorageBuffer(
+              render_texture->GetExtent(),
+              sizeof(RestirPtSpatialShift) * glm::clamp(camera->camera_settings.restir_spatial_neighbors, 1, 4));
         }
         restir_shift_buffer = shifts[current_frame_index];
         if (!restir_resolved_buffer || !restir_shift_buffer) {
@@ -8216,6 +8231,24 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
                restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
         });
+        if (use_restir_hybrid) {
+          auto hybrid_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Hybrid Shift");
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                           RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::ReadWrite,
+                                           RenderResourceState::StorageReadWrite});
+          camera_render_graph.AddPass(hybrid_pass, [&](const RenderGraphExecutionContext& context) {
+            RayQueryCameraPass::Execute(
+                context, {camera, restir_pt_spatial_hybrid_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
+                          camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                                   ray_tracing_camera_output_layout_),
+                          active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
+                          restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
+          });
+        }
         auto combine_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Combine");
         combine_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
                                           RenderResourceState::StorageReadWrite});
@@ -8416,6 +8449,7 @@ void RenderLayer::OnDestroy() {
   restir_pt_profile_single_sample_candidate_pipeline_.reset();
   restir_pt_resolve_pipeline_.reset();
   restir_pt_spatial_pipeline_.reset();
+  restir_pt_spatial_hybrid_pipeline_.reset();
   restir_pt_profile_spatial_pipeline_.reset();
   restir_pt_spatial_combine_pipeline_.reset();
   restir_pt_spatial_resolve_pipeline_.reset();

@@ -17,6 +17,8 @@ public static const uint EE_RESTIR_PT_PATH_NEE_PUNCTUAL = 7u;
 public static const uint EE_RESTIR_PT_PATH_UNLIT = 8u;
 public static const uint EE_RESTIR_PT_PATH_VOLUME_SCATTER_NEE = 9u;
 public static const uint EE_RESTIR_PT_FLAG_DELTA_PREFIX = 1u;
+public static const uint EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION = 4u;
+public static const uint EE_RESTIR_PT_FLAG_FIRST_DIFFUSE_EVENT = 8u;
 public static const uint EE_RESTIR_PT_PROFILE_SOURCE_REASON_SHIFT = 8u;
 public static const uint EE_RESTIR_PT_SHIFT_VALID = 0u;
 public static const uint EE_RESTIR_PT_SHIFT_NO_PARTNER = 1u;
@@ -65,9 +67,11 @@ public struct RestirPtSpatialShift {
   public uint reserved;
 };
 
-public uint2 EE_RESTIR_PT_PAIR(const uint2 pixel, const uint2 image_size, const uint frame_id) {
-  const uint2 partner = (frame_id & 1u) == 0u ? uint2(pixel.x ^ 1u, pixel.y)
-                                                : uint2(pixel.x, pixel.y ^ 1u);
+public uint2 EE_RESTIR_PT_PAIR(const uint2 pixel, const uint2 image_size, const uint frame_id,
+                              const uint neighbor_index) {
+  const uint offset = neighbor_index < 2u ? 1u : 2u;
+  const uint2 partner = ((frame_id + neighbor_index) & 1u) == 0u
+                            ? uint2(pixel.x ^ offset, pixel.y) : uint2(pixel.x, pixel.y ^ offset);
   return any(partner >= image_size) ? uint2(0xffffffffu) : partner;
 }
 

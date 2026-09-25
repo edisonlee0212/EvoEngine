@@ -585,6 +585,16 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
+    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
+        ImGui::SliderInt("Spatial neighbors", &camera.camera_settings.restir_spatial_neighbors, 1, 4)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
+        ImGui::Checkbox("Hybrid shifts", &camera.camera_settings.restir_spatial_hybrid)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
     if (ImGui::SliderInt("Bounce", &camera.camera_settings.bounce, 1, 8)) {
       changed = true;
     }

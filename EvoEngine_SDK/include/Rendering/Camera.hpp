@@ -145,8 +145,8 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
   uint32_t ray_output_flags = 0;
-  uint32_t camera_block_reserved0 = 0;
-  uint32_t camera_block_reserved1 = 0;
+  uint32_t restir_spatial_neighbors = 4;
+  uint32_t restir_spatial_hybrid = 0;
   uint32_t camera_block_reserved2 = 0;
   glm::vec4 shadow_split_distances = {};
 

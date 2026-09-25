@@ -4382,6 +4382,14 @@ void RenderInstanceStorage::BuildFromScene(
   {
     const ProfilerScope stage_scope("RenderInstanceStorage::BuildRenderInstanceBlocks", "Render");
     BuildRenderInstanceBlocks();
+    const auto& shade_materials = GetGltfShadeMaterials();
+    const bool hybrid_safe = std::all_of(shade_materials.begin(), shade_materials.end(), [](const auto& material) {
+      return material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque) &&
+             material.transmission_factor == 0.0f && material.diffuse_transmission_factor == 0.0f;
+    });
+    for (auto& camera_info_block : camera_info_blocks_) {
+      camera_info_block.restir_spatial_hybrid &= uint32_t(hybrid_safe);
+    }
   }
   UpdateRasterSpatialIndex();
   {

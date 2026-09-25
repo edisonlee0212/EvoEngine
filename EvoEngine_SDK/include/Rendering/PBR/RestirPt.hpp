@@ -23,6 +23,7 @@ struct RestirPtPathReservoir {
   static constexpr uint32_t kVersion = 1u;
   static constexpr uint32_t kInvalidInstance = UINT32_MAX;
   static constexpr uint32_t kDeltaPrefix = 1u;
+  static constexpr uint32_t kSecondaryEmissionReconnection = 4u;
   static constexpr uint32_t kProfileSourceReasonShift = 8u;
 
   uint32_t version = kVersion;

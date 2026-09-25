@@ -111,6 +111,8 @@ struct CameraSettings {
   RayDebugView ray_debug_view = RayDebugView::Beauty;
 
   RayIntegrator ray_integrator = RayIntegrator::PathTracing;
+  int restir_spatial_neighbors = 4;
+  bool restir_spatial_hybrid = false;
 
   /** @brief Optional ray-camera diagnostic outputs. */
   RayOutputSettings ray_outputs{};

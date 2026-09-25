@@ -35,8 +35,8 @@ public struct Camera {
   public uint ray_debug_view;
   public uint raster_lighting_flags;
   public uint ray_output_flags;
-  public uint camera_block_reserved0;
-  public uint camera_block_reserved1;
+  public uint restir_spatial_neighbors;
+  public uint restir_spatial_hybrid;
   public uint camera_block_reserved2;
   public float4 shadow_split_distances;
 };

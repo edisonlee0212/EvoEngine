@@ -41,51 +41,29 @@ uint EE_RESTIR_PT_SECONDARY_NEE_ELIGIBILITY(const RestirPtPathReservoir source,
   const uint index = pixel.y * width + pixel.x;
   const uint neighbor_count = EE_CAMERA_RESTIR_NEIGHBOR_COUNT();
   for (uint neighbor_index = 0u; neighbor_index < neighbor_count; ++neighbor_index) {
-    const uint shift_index = index * neighbor_count + neighbor_index;
-    RestirPtSpatialShift shift;
-    shift.contribution = 0.0f;
-    shift.weight_sum = 0.0f;
-    shift.partner_index = 0xffffffffu;
-    shift.status = EE_RESTIR_PT_SHIFT_NO_PARTNER;
-    shift.ray_count = 0u;
-    shift.reserved = 0u;
-    const uint2 partner = EE_RESTIR_PT_PAIR(pixel, image_size, EE_CAMERA_RESTIR_FRAME_ID(), neighbor_index);
-    if (any(partner >= image_size)) {
-      EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, shift_index, shift);
-      continue;
-    }
-    shift.partner_index = partner.y * width + partner.x;
     const RestirPtPathReservoir source = EE_RESTIR_PT_LOAD(candidate_buffer, index);
-    shift.status = EE_RESTIR_PT_SHIFT_NO_SOURCE;
-    if (source.target_density <= 0.0f || source.weight_sum <= 0.0f) {
-      EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, shift_index, shift);
-      continue;
-    }
-    if (source.path_type == EE_RESTIR_PT_PATH_PRIMARY_BACKGROUND) {
-      shift.status = EE_RESTIR_PT_SHIFT_SKIPPED_BACKGROUND;
-      EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, shift_index, shift);
-      continue;
-    }
-    if ((source.flags & EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION) != 0u) {
-      EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, shift_index, shift);
-      continue;
-    }
+    if ((source.flags & EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION) == 0u) continue;
+    const uint shift_index = index * neighbor_count + neighbor_index;
+    const uint2 partner = EE_RESTIR_PT_PAIR(pixel, image_size, EE_CAMERA_RESTIR_FRAME_ID(), neighbor_index);
+    if (any(partner >= image_size)) continue;
+    RestirPtSpatialShift shift = EE_RESTIR_PT_LOAD_SPATIAL_SHIFT(shift_buffer, shift_index);
+    shift.ray_count = 0u;
     float3 contribution;
-    RestirPtPathReservoir replay;
     RestirPtPrimarySurface target_surface;
     const RestirPtPrimarySurface source_surface = EE_RESTIR_PT_LOAD_PRIMARY_SURFACE(primary_surface_buffer, index);
-    EE_CAMERA_REPLAY_RESTIR_EVENT<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
-                                  EE_GLTF_COMPILED_FEATURE_MASK>(
-        partner, image_size, source, contribution, replay, target_surface, shift.ray_count);
+    float jacobian = 1.0f;
+    uint rejection_reason;
+    EE_CAMERA_RECONNECT_RESTIR_SECONDARY_EMISSION<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
+                                                   EE_GLTF_COMPILED_FEATURE_MASK>(
+        partner, image_size, source, source_surface, contribution, target_surface, jacobian, shift.ray_count,
+        rejection_reason);
+    shift.reserved = (shift.reserved & 0xffu) | 0x10000u | (rejection_reason << 8u);
     shift.status = EE_RESTIR_PT_SHIFT_SURFACE_MISMATCH;
     if (EE_RESTIR_PT_SURFACES_COMPATIBLE(source_surface, target_surface)) {
-      shift.contribution = contribution;
-      shift.weight_sum = replay.weight_sum;
+      shift.contribution = contribution * jacobian;
+      shift.weight_sum = jacobian;
       shift.status = EE_RESTIR_PT_TARGET_DENSITY(contribution) > 0.0f
                          ? EE_RESTIR_PT_SHIFT_VALID : EE_RESTIR_PT_SHIFT_ZERO_TARGET;
-    }
-    if (EE_RESTIR_PT_PROFILE_ELIGIBILITY != 0) {
-      shift.reserved = EE_RESTIR_PT_SECONDARY_NEE_ELIGIBILITY(source, source_surface, target_surface);
     }
     EE_RESTIR_PT_STORE_SPATIAL_SHIFT(shift_buffer, shift_index, shift);
   }

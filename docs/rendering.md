@@ -98,6 +98,19 @@ also replays selected paths at paired neighboring pixels, combines reciprocal sh
 reservoir. It alternates horizontal and vertical pairs between frames; it does not reuse previous-frame reservoirs.
 Switching integrators resets camera accumulation.
 
+**Spatial neighbors** selects 1–4 distinct reciprocal pixel pairs per pixel; the default is 4. Each pair shifts
+the same current-frame candidate independently and the resulting radiance estimates are averaged. More neighbors
+reduce error at a fixed frame count but increase ray work and buffer storage. **Hybrid shifts** is off by default.
+When enabled, it reconnects eligible three-vertex diffuse paths ending in emissive next-event estimation; other
+paths retain full replay. Reconnection is active only when all scene materials are opaque and non-transmissive;
+otherwise the camera keeps full replay for every path. Both settings reset accumulation. Preview captures accept
+`--preview-restir-spatial-neighbors 1|2|3|4` and `--preview-restir-spatial-hybrid enabled|disabled`.
+Hybrid mode runs a separate reconnection pass. At 256×144 and 64 frames, it reduced shift rays from 5,523 to 4,390
+on `restir-indirect-upward` and from 19,829 to 18,761 on `restir-roulette`, while total ReSTIR GPU time rose from
+0.335 to 0.380 ms and from 0.314 to 0.359 ms, respectively. The same-frame RMSE against 512-frame Path Tracing
+changed from 0.007814 to 0.007805 and from 0.103709 to 0.103594. Hybrid is an experimental quality option,
+not a measured speedup.
+
 The ray-camera **Accumulate Samples** checkbox is enabled by default. Disable it to replace radiance every frame
 with fresh pseudorandom samples, without blending earlier frames. The sample index still advances, so the image
 changes each frame; ReSTIR Spatial Only continues to reuse same-frame neighbors. Auto SPP is inactive while
@@ -111,17 +124,21 @@ glossy. Thin specular and diffuse transmission, closed transmissive surfaces wit
 scattering are supported; dispersion remains unavailable, and Gaussian-splat support is deferred. Spatial Only requires
 one sample per frame. Both modes require Auto SPP, ray debug views, and optional ray outputs to be inactive. Unsupported
 scene features or settings leave the requested ReSTIR camera unavailable and log an error; they do not select another
-integrator. Preview captures fail if that camera cannot accumulate frames. Spatial shifts currently replay the source
-random stream through its selected path
-event; hybrid reconnection and temporal reuse are not implemented. Primary background samples retain their canonical
+integrator. Preview captures fail if that camera cannot accumulate frames. Full-replay spatial shifts replay the source
+random stream through its selected path event. Hybrid reconnection is optional; temporal reuse is not implemented.
+Primary background samples retain their canonical
 candidate without a spatial shift.
-Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing.
+Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing. In the
+diffuse-visible and indirect-upward fixtures at 256×144, 2–4 neighbors improved equal-frame RMSE but were slower
+enough to raise equal-GPU-time error relative to one neighbor.
 
 Ray camera preview captures with `--preview-ray-profile-report <path>.json` report ReSTIR reservoir storage per pixel.
 Spatial captures also report the last completed frame's shift statuses, acceptance, rays, finite-value failures, and
 path/delta breakdown. A `*-shift.ppm` heatmap is saved beside the JSON: green means accepted, black means no partner,
 gray means no source, red means surface mismatch, yellow means zero target, blue means skipped background reuse,
-and magenta means an unknown status. Add `--preview-restir-generated-profile` with the JSON report to capture
+and magenta means an unknown status. With multiple neighbors, the heatmap shows the first pair while JSON counts
+cover every pair. Hybrid captures include attempt, acceptance, and rejection-reason counts. Add
+`--preview-restir-generated-profile` with the JSON report to capture
 generated event counts and target weights by path type and length. This uses a profiled shader variant; ordinary JSON
 capture timings use the normal rendering variant.
 The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`, and

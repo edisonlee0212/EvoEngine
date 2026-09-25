@@ -499,6 +499,10 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (accumulate_samples != other.accumulate_samples)
     return true;
+  if (restir_spatial_neighbors != other.restir_spatial_neighbors)
+    return true;
+  if (restir_spatial_hybrid != other.restir_spatial_hybrid)
+    return true;
   if (auto_spp_min_samples != other.auto_spp_min_samples)
     return true;
   if (auto_spp_max_samples != other.auto_spp_max_samples)
@@ -679,6 +683,8 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
   camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled && camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.accumulate_samples = camera_settings.accumulate_samples ? 1u : 0u;
+  camera_info_block.restir_spatial_neighbors = glm::clamp(camera_settings.restir_spatial_neighbors, 1, 4);
+  camera_info_block.restir_spatial_hybrid = camera_settings.restir_spatial_hybrid ? 1u : 0u;
   camera_info_block.auto_spp_min_samples = auto_spp_min_samples;
   camera_info_block.auto_spp_max_samples = auto_spp_max_samples;
   camera_info_block.auto_spp_convergence_threshold = glm::max(camera_settings.auto_spp_convergence_threshold, 0.0f);
@@ -1005,7 +1011,8 @@ bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& ca
   extent = {history.extent.width, history.extent.height};
   const auto pixel_count = static_cast<size_t>(extent.x) * extent.y;
   history.restir_candidate_buffers[slot]->DownloadVector(candidates, pixel_count);
-  history.restir_shift_buffers[slot]->DownloadVector(shifts, pixel_count);
+  history.restir_shift_buffers[slot]->DownloadVector(
+      shifts, pixel_count * static_cast<size_t>(glm::clamp(camera_settings.restir_spatial_neighbors, 1, 4)));
   return true;
 }
 

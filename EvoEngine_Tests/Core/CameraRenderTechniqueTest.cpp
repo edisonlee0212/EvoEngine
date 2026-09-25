@@ -194,8 +194,8 @@ TEST(CameraRenderTechnique, RestirPtReservoirUsesStableByteAddressedLayout) {
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 812u);
   EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 816u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved0), 820u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved1), 824u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_neighbors), 820u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_hybrid), 824u);
   EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved2), 828u);
   EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 832u);
   EXPECT_EQ(sizeof(CameraInfoBlock), 848u);
@@ -204,8 +204,8 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
   EXPECT_NE(camera_source.find("camera_info_block.ray_output_flags"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint ray_output_flags"), std::string::npos);
-  EXPECT_NE(cameras_header.find("uint camera_block_reserved0"), std::string::npos);
-  EXPECT_NE(cameras_header.find("uint camera_block_reserved1"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint restir_spatial_neighbors"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint restir_spatial_hybrid"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint camera_block_reserved2"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint camera_block_reserved3"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint accumulate_samples"), std::string::npos);
@@ -253,6 +253,21 @@ TEST(CameraRenderTechnique, AccumulationModeChangeInvalidatesCameraHistory) {
   CameraInfoBlock fresh_frame = accumulated;
   fresh_frame.accumulate_samples = 0u;
   EXPECT_TRUE(accumulated != fresh_frame);
+}
+
+TEST(CameraRenderTechnique, SpatialNeighborCountChangeInvalidatesCameraHistory) {
+  CameraInfoBlock four_neighbors;
+  EXPECT_EQ(four_neighbors.restir_spatial_neighbors, 4u);
+  CameraInfoBlock one_neighbor = four_neighbors;
+  one_neighbor.restir_spatial_neighbors = 1u;
+  EXPECT_TRUE(four_neighbors != one_neighbor);
+}
+
+TEST(CameraRenderTechnique, SpatialHybridChangeInvalidatesCameraHistory) {
+  CameraInfoBlock full_replay;
+  CameraInfoBlock hybrid = full_replay;
+  hybrid.restir_spatial_hybrid = 1u;
+  EXPECT_TRUE(full_replay != hybrid);
 }
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
@@ -317,6 +332,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::SpecularF0;
     camera.camera_settings.auto_spp_enabled = true;
     camera.camera_settings.accumulate_samples = false;
+    camera.camera_settings.restir_spatial_neighbors = 2;
+    camera.camera_settings.restir_spatial_hybrid = true;
     camera.camera_settings.auto_spp_min_samples = 8;
     camera.camera_settings.auto_spp_max_samples = 64;
     camera.camera_settings.auto_spp_convergence_threshold = 0.025f;
@@ -339,6 +356,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_EQ(restored.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
     EXPECT_TRUE(restored.camera_settings.auto_spp_enabled);
     EXPECT_FALSE(restored.camera_settings.accumulate_samples);
+    EXPECT_EQ(restored.camera_settings.restir_spatial_neighbors, 2);
+    EXPECT_TRUE(restored.camera_settings.restir_spatial_hybrid);
     EXPECT_EQ(restored.camera_settings.auto_spp_min_samples, 8);
     EXPECT_EQ(restored.camera_settings.auto_spp_max_samples, 64);
     EXPECT_FLOAT_EQ(restored.camera_settings.auto_spp_convergence_threshold, 0.025f);

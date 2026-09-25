@@ -1272,7 +1272,7 @@ void EE_CAMERA_RECORD_RESTIR_CANDIDATE<let profile_generated : bool>(
   candidate.path_length = path_length;
   candidate.flags = delta_prefix ? EE_RESTIR_PT_FLAG_DELTA_PREFIX : 0u;
   candidate.contribution = contribution;
-  if (profile_generated) {
+  if (profile_generated || EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index].restir_spatial_hybrid != 0u) {
     candidate.reconnection_length = path_length;
     candidate.instance_id = instance_id;
     candidate.primitive_id = primitive_id;
@@ -1323,6 +1323,9 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
   bool primary_retroreflection = false;
   float3 first_bsdf_factor = float3(0.0f);
   float first_bsdf_pdf = 0.0f;
+  bool first_diffuse_event = false;
+  float2 first_roughness = float2(0.0f);
+  bool primary_opaque = false;
   uint path_surface_count = 0u;
   primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_CONSTANTS.camera_index));
   uint surface_depth = 0u;
@@ -1387,7 +1390,9 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
         is_inside, ray_origin, ray_direction, ray_cone_width, ray_spread_angle);
     if (surface_depth == 0u) {
       primary_surface_position = surface_hit.position;
-      if (profile_generated) primary_retroreflection = surface_hit.pbr.retroreflection > 0.0f;
+      primary_opaque = EE_GLTF_MATERIALS[surface_hit.material_index].alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE;
+      if (profile_generated || camera.restir_spatial_hybrid != 0u)
+        primary_retroreflection = surface_hit.pbr.retroreflection > 0.0f;
       primary_surface.position = surface_hit.position;
       primary_surface.depth = hit_value.hit_t;
       primary_surface.normal = surface_hit.geometric_normal;
@@ -1582,9 +1587,11 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
     sample_data.k1 = view_direction;
     sample_data.xi = EE_PCG_RANDOM_3(surface_bsdf_seed);
     EE_GLTF_RT_BSDF_SAMPLE(sample_data, surface_hit.pbr);
-    if (profile_generated && surface_depth == 0u) {
+    if ((profile_generated || camera.restir_spatial_hybrid != 0u) && surface_depth == 0u) {
       first_bsdf_factor = sample_data.bsdf_over_pdf;
       first_bsdf_pdf = sample_data.pdf;
+      first_diffuse_event = (sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_DIFFUSE) != 0;
+      first_roughness = surface_hit.pbr.roughness;
     }
     bool terminate_path = (sample_data.pdf <= EE_CAMERA_PDF_EPSILON && sample_data.pdf != EE_GLTF_RT_BSDF_DIRAC_PDF) ||
                           sample_data.event_type == EE_GLTF_RT_BSDF_EVENT_ABSORB;
@@ -1656,6 +1663,22 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
                  candidate_reservoir.target_density <= 0.0f) reason = 6u;
         candidate_reservoir.flags |= reason << EE_RESTIR_PT_PROFILE_SOURCE_REASON_SHIFT;
       }
+      if (camera.restir_spatial_hybrid != 0u && surface_depth == 1u &&
+          candidate_reservoir.path_type == EE_RESTIR_PT_PATH_NEE_EMISSION &&
+          candidate_reservoir.path_length == 3u && first_diffuse_event && primary_opaque &&
+          !primary_retroreflection && scatter_bounces == 0u &&
+          surface_geometry_type == EE_CAMERA_GEOMETRY_TRIANGLE &&
+          surface_material.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE &&
+          min(first_bsdf_factor.x, min(first_bsdf_factor.y, first_bsdf_factor.z)) > EE_CAMERA_PDF_EPSILON &&
+          first_bsdf_pdf > EE_CAMERA_PDF_EPSILON &&
+          candidate_reservoir.light_pdf > EE_CAMERA_PDF_EPSILON &&
+          candidate_reservoir.target_density > 0.0f) {
+        candidate_reservoir.flags |= EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION |
+                                     EE_RESTIR_PT_FLAG_FIRST_DIFFUSE_EVENT;
+        candidate_reservoir.reconnection_normal = first_bsdf_factor;
+        candidate_reservoir.bsdf_pdf = first_bsdf_pdf;
+        candidate_reservoir.primary_position = float3(first_roughness, 0.0f);
+      }
     }
     if (collect_candidates && match_length == surface_depth + 2u &&
         (match_type == EE_RESTIR_PT_PATH_NEE_ENVIRONMENT || match_type == EE_RESTIR_PT_PATH_NEE_EMISSION ||
@@ -1707,7 +1730,9 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
   }
   if (collect_candidates) {
     EE_RESTIR_PT_FINALIZE_CANDIDATES(candidate_reservoir);
-    if (profile_generated) candidate_reservoir.primary_position = primary_surface_position;
+    if (profile_generated &&
+        (candidate_reservoir.flags & EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION) == 0u)
+      candidate_reservoir.primary_position = primary_surface_position;
   }
   ray_outputs.debug = EE_CAMERA_SANITIZE_RADIANCE(radiance);
   return EE_CAMERA_SANITIZE_RADIANCE(radiance);
@@ -1946,8 +1971,121 @@ public void EE_CAMERA_REPLAY_RESTIR_EVENT<T : ICameraRayTraversal, let feature_m
   ray_count = diagnostics.ray_count;
 }
 
+[noinline] public void EE_CAMERA_RECONNECT_RESTIR_SECONDARY_EMISSION<T : ICameraRayTraversal, let feature_mask : uint>(
+    const uint2 pixel_coordinate, const uint2 image_size, const RestirPtPathReservoir source,
+    const RestirPtPrimarySurface source_surface,
+    out float3 contribution, out RestirPtPrimarySurface primary_surface, out float jacobian, out uint ray_count,
+    out uint rejection_reason) {
+  contribution = float3(0.0f);
+  primary_surface = EE_RESTIR_PT_EMPTY_PRIMARY_SURFACE();
+  jacobian = 0.0f;
+  ray_count = 0u;
+  rejection_reason = 1u;
+  T traversal;
+  traversal.initialize(false);
+  const Camera camera = EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index];
+  uint camera_seed = EE_CAMERA_RANDOM_STREAM(source.sample_seed, EE_CAMERA_RANDOM_DOMAIN_CAMERA, 0u);
+  const float2 sample_offset = EE_CAMERA_CONSTANTS.frame_id == 0u
+                                   ? float2(0.5f) + EE_CAMERA_ANTIALIASING_STANDARD_DEVIATION *
+                                                        EE_CAMERA_SAMPLE_GAUSSIAN(EE_PCG_RANDOM_2(camera_seed))
+                                   : EE_PCG_RANDOM_2(camera_seed);
+  const EE_CAMERA_PRIMARY_RAY ray =
+      EE_CAMERA_CREATE_PRIMARY_RAY(camera, float2(pixel_coordinate), sample_offset, float2(image_size));
+  uint alpha_seed = EE_CAMERA_RANDOM_STREAM(source.sample_seed, EE_CAMERA_RANDOM_DOMAIN_SURFACE_ALPHA, 0u);
+  EE_CAMERA_RESET_PAYLOAD(alpha_seed);
+  EE_CAMERA_TRACE_SURFACE(traversal, ray.origin, ray.direction, 0.0f, false, alpha_seed);
+  ray_count = 1u;
+  if (hit_value.type == EE_CAMERA_RAY_PAYLOAD_MISS) return;
+  const EE_CAMERA_SURFACE_HIT first_hit = EE_CAMERA_RECONSTRUCT_SURFACE_HIT<feature_mask>(
+      false, ray.origin, ray.direction, 0.0f, EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y)));
+  primary_surface.position = first_hit.position;
+  primary_surface.depth = hit_value.hit_t;
+  primary_surface.normal = first_hit.geometric_normal;
+  primary_surface.material_id = first_hit.material_index;
+  rejection_reason = 2u;
+  if (!EE_RESTIR_PT_SURFACES_COMPATIBLE(source_surface, primary_surface)) return;
+  if (first_hit.pbr.retroreflection > 0.0f) return;
+  rejection_reason = 3u;
+  const float3 target_offset = source.reconnection_position - first_hit.position;
+  const float3 source_offset = source.reconnection_position - source_surface.position;
+  const float target_distance_squared = dot(target_offset, target_offset);
+  const float source_distance_squared = dot(source_offset, source_offset);
+  if (target_distance_squared <= EE_CAMERA_PDF_EPSILON || source_distance_squared <= EE_CAMERA_PDF_EPSILON) return;
+  const float3 target_direction = target_offset * rsqrt(target_distance_squared);
+  const float3 source_direction = source_offset * rsqrt(source_distance_squared);
+  rejection_reason = 4u;
+  uint bsdf_seed = EE_CAMERA_RANDOM_STREAM(source.sample_seed, EE_CAMERA_RANDOM_DOMAIN_SURFACE_BSDF, 0u);
+  GltfRayTracingBsdfEvaluateData first_evaluation;
+  first_evaluation.k1 = EE_CAMERA_SAFE_NORMALIZE(-ray.direction, first_hit.normal);
+  first_evaluation.k2 = target_direction;
+  first_evaluation.xi = EE_PCG_RANDOM_3(bsdf_seed);
+  first_evaluation.bsdf_diffuse = float3(0.0f);
+  first_evaluation.bsdf_glossy = float3(0.0f);
+  first_evaluation.pdf = 0.0f;
+  first_evaluation.event_type = EE_GLTF_RT_BSDF_EVENT_ABSORB;
+  const GltfRayTracingBsdfLobeWeights first_weights =
+      EE_GLTF_RT_COMPUTE_LOBE_WEIGHTS(first_hit.pbr, dot(first_hit.pbr.normal, first_evaluation.k1));
+  EE_GLTF_RT_BSDF_EVALUATE_LOBE(first_evaluation, first_hit.pbr,
+                                 EE_GLTF_RT_FIND_BSDF_LOBE(first_weights, first_evaluation.xi.z), first_weights);
+  if (first_evaluation.pdf <= EE_CAMERA_PDF_EPSILON || source.bsdf_pdf <= EE_CAMERA_PDF_EPSILON ||
+      (first_evaluation.event_type & EE_GLTF_RT_BSDF_EVENT_DIFFUSE) == 0) return;
+  rejection_reason = 5u;
+  hit_value.instance_index = source.instance_id;
+  hit_value.primitive_id = source.primitive_id;
+  hit_value.barycentrics = source.barycentrics;
+  hit_value.geometry_type = EE_CAMERA_GEOMETRY_TRIANGLE;
+  hit_value.hit_t = sqrt(source_distance_squared);
+  EE_CAMERA_SURFACE_HIT source_second = EE_CAMERA_RECONSTRUCT_SURFACE_HIT<feature_mask>(
+      false, source_surface.position, source_direction, 0.0f, EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y)));
+  hit_value.hit_t = sqrt(target_distance_squared);
+  EE_CAMERA_SURFACE_HIT target_second = EE_CAMERA_RECONSTRUCT_SURFACE_HIT<feature_mask>(
+      false, first_hit.position, target_direction, 0.0f, EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y)));
+  if (source_second.front_facing != target_second.front_facing) return;
+  source_second.pbr.roughness = max(source_second.pbr.roughness, source.primary_position.xy);
+  target_second.pbr.roughness = max(target_second.pbr.roughness, first_hit.pbr.roughness);
+  const float source_geometry = abs(dot(source_second.geometric_normal, -source_direction)) / source_distance_squared;
+  const float target_geometry = abs(dot(target_second.geometric_normal, -target_direction)) / target_distance_squared;
+  if (source_geometry <= EE_CAMERA_PDF_EPSILON || target_geometry <= EE_CAMERA_PDF_EPSILON) return;
+  jacobian = first_evaluation.pdf / source.bsdf_pdf * target_geometry / source_geometry;
+  if (!isfinite(jacobian) || jacobian <= 0.0f) {
+    jacobian = 0.0f;
+    return;
+  }
+  const bool diffuse_prefix = (source.flags & EE_RESTIR_PT_FLAG_FIRST_DIFFUSE_EVENT) != 0u;
+  uint source_light_seed = EE_CAMERA_RANDOM_STREAM(source.sample_seed, EE_CAMERA_RANDOM_DOMAIN_SURFACE_EMISSIVE_BSDF, 1u);
+  uint target_light_seed = source_light_seed;
+  float source_light_bsdf_pdf;
+  float target_light_bsdf_pdf;
+  const float3 source_light_bsdf = EE_CAMERA_EVALUATE_DIRECT_BSDF(
+      source_second, -source_direction, source.reconnection_direction, float3(1.0f),
+      EE_CAMERA_LIGHT_KIND_EMISSIVE, diffuse_prefix, false, source_light_seed, source_light_bsdf_pdf);
+  const float3 target_light_bsdf = EE_CAMERA_EVALUATE_DIRECT_BSDF(
+      target_second, -target_direction, source.reconnection_direction, float3(1.0f),
+      EE_CAMERA_LIGHT_KIND_EMISSIVE, diffuse_prefix, false, target_light_seed, target_light_bsdf_pdf);
+  const float source_mis = EE_CAMERA_CONTRIBUTION_MIS_WEIGHT(camera, source.light_pdf, source_light_bsdf_pdf);
+  const float target_mis = EE_CAMERA_CONTRIBUTION_MIS_WEIGHT(camera, source.light_pdf, target_light_bsdf_pdf);
+  const float3 source_factor = source.reconnection_normal * source_light_bsdf * source_mis;
+  const float3 target_factor = (first_evaluation.bsdf_diffuse + first_evaluation.bsdf_glossy) /
+                               first_evaluation.pdf * target_light_bsdf * target_mis;
+  if (min(source_factor.x, min(source_factor.y, source_factor.z)) <= EE_CAMERA_PDF_EPSILON) {
+    jacobian = 0.0f;
+    return;
+  }
+  rejection_reason = 0u;
+  uint visibility_seed = EE_XXHASH32(uint3(pixel_coordinate, source.sample_seed));
+  const float3 visibility = EE_CAMERA_SHADOW_TRANSMISSION(
+      traversal, EE_CAMERA_OFFSET_RAY_ORIGIN(first_hit, target_direction), target_direction,
+      sqrt(target_distance_squared) - EE_CAMERA_RAY_EPSILON, visibility_seed, false);
+  ray_count += 1u;
+  contribution = EE_CAMERA_SANITIZE_RADIANCE(source.contribution * target_factor / source_factor * visibility);
+}
+
 public uint EE_CAMERA_RESTIR_FRAME_ID() {
   return EE_CAMERA_CONSTANTS.frame_id;
+}
+
+public uint EE_CAMERA_RESTIR_NEIGHBOR_COUNT() {
+  return clamp(EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index].restir_spatial_neighbors, 1u, 4u);
 }
 
 public void EE_CAMERA_RESOLVE_RESTIR_CANDIDATE_PIXEL(const uint2 pixel_coordinate, const uint2 image_size,
