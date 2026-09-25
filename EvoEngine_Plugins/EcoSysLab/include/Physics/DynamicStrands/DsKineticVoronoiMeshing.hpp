@@ -268,7 +268,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   size_t SplitIntersectingMeshletsByConnectedComponents(const std::vector<size_t>& intersecting_meshing_indices);
   /// After @ref RecomputeSegmentPairs: refresh strand prev/next/begin/end and initialize pair materials.
   void FinalizeStrandConnectivityAndPairMaterials();
-  void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
+  /// Upload CPU segment meshlets to GPU buffers. Averages shared bark seam normals on @p meshes first.
+  void PopulateGpuMeshletBuffers(std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
                                  const std::vector<std::vector<int>>& meshing_neighbor_indices,

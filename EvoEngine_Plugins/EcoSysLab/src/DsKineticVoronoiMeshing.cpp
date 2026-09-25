@@ -21,6 +21,7 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -99,6 +100,340 @@ void RepairBarkNeighborTagsFromMaterials(std::vector<kinDS::VoronoiMesh>& meshle
       }
     }
   }
+}
+
+/// Per-meshlet bark flag from face neighbor tags (-2 = bark / exterior).
+std::vector<uint8_t> BuildMeshletHasBarkFlags(const std::vector<std::vector<int>>& meshing_neighbor_indices) {
+  std::vector<uint8_t> has_bark(meshing_neighbor_indices.size(), 0);
+  for (size_t meshlet_id = 0; meshlet_id < meshing_neighbor_indices.size(); ++meshlet_id) {
+    for (const int neighbor : meshing_neighbor_indices[meshlet_id]) {
+      if (neighbor == -2) {
+        has_bark[meshlet_id] = 1;
+        break;
+      }
+    }
+  }
+  return has_bark;
+}
+
+struct ExactPositionKey {
+  uint64_t x = 0;
+  uint64_t y = 0;
+  uint64_t z = 0;
+
+  static ExactPositionKey From(const glm::dvec3& v) {
+    ExactPositionKey key;
+    std::memcpy(&key.x, &v.x, sizeof(double));
+    std::memcpy(&key.y, &v.y, sizeof(double));
+    std::memcpy(&key.z, &v.z, sizeof(double));
+    return key;
+  }
+
+  bool operator==(const ExactPositionKey& other) const {
+    return x == other.x && y == other.y && z == other.z;
+  }
+};
+
+struct ExactPositionKeyHash {
+  size_t operator()(const ExactPositionKey& key) const {
+    size_t h = static_cast<size_t>(key.x);
+    h ^= static_cast<size_t>(key.y) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    h ^= static_cast<size_t>(key.z) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+
+class BarkSeamUnionFind {
+ public:
+  explicit BarkSeamUnionFind(const size_t count) : parent_(count), rank_(count, 0) {
+    std::iota(parent_.begin(), parent_.end(), size_t{0});
+  }
+
+  size_t Find(size_t i) {
+    while (parent_[i] != i) {
+      parent_[i] = parent_[parent_[i]];
+      i = parent_[i];
+    }
+    return i;
+  }
+
+  void Unite(size_t a, size_t b) {
+    a = Find(a);
+    b = Find(b);
+    if (a == b) {
+      return;
+    }
+    if (rank_[a] < rank_[b]) {
+      std::swap(a, b);
+    }
+    parent_[b] = a;
+    if (rank_[a] == rank_[b]) {
+      ++rank_[a];
+    }
+  }
+
+ private:
+  std::vector<size_t> parent_;
+  std::vector<size_t> rank_;
+};
+
+bool ArePhysicsSegmentsConnected(const int segment_a, const int segment_b,
+                                 const std::vector<DynamicStrands::GpuSegment>& segments,
+                                 const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                 const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  if (segment_a == segment_b) {
+    return true;
+  }
+  if (segment_a < 0 || segment_b < 0 || static_cast<size_t>(segment_a) >= segments.size() ||
+      static_cast<size_t>(segment_b) >= segments.size()) {
+    return false;
+  }
+
+  const auto& seg_a = segments[static_cast<size_t>(segment_a)];
+  const auto& seg_b = segments[static_cast<size_t>(segment_b)];
+  const bool strand_adjacent = seg_a.prev_handle == segment_b || seg_a.next_handle == segment_b ||
+                               seg_b.prev_handle == segment_a || seg_b.next_handle == segment_a;
+
+  // Strand neighbors are always treated as connected for bark-seam averaging at construction time.
+  if (strand_adjacent) {
+    return true;
+  }
+
+  if (static_cast<size_t>(segment_a) >= segment_data_list.size() ||
+      static_cast<size_t>(segment_b) >= segment_data_list.size()) {
+    return false;
+  }
+
+  const auto& data_a = segment_data_list[static_cast<size_t>(segment_a)];
+  for (const int pair_handle : data_a.pair_handles) {
+    if (pair_handle < 0 || static_cast<size_t>(pair_handle) >= segment_pairs.size()) {
+      continue;
+    }
+    const auto& pair = segment_pairs[static_cast<size_t>(pair_handle)];
+    const int other = (pair.segment0_handle == segment_a)   ? pair.segment1_handle
+                      : (pair.segment1_handle == segment_a) ? pair.segment0_handle
+                                                            : -1;
+    if (other != segment_b) {
+      continue;
+    }
+    return pair.bend_twist_bundle_integrity > 0.f;
+  }
+  return false;
+}
+
+/// Average bark corner normals at vertices shared across neighboring segment meshlets.
+/// Uses the same shared-vertex identification as OBJ export smoothing (exact position + intact
+/// segment-pair / strand links). Runs on CPU meshlets before GPU upload.
+void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
+                                  const std::vector<std::vector<int>>& meshing_neighbor_indices,
+                                  const std::vector<uint8_t>& meshlet_has_bark,
+                                  const std::vector<size_t>& meshing_to_physics_segment_indices,
+                                  const std::vector<DynamicStrands::GpuSegment>& segments,
+                                  const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                  const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  struct BarkCornerRef {
+    size_t meshlet_id = 0;
+    size_t triangle_index = 0;
+    int corner = 0;
+  };
+
+  // One entry per (meshlet, local vertex) that participates in at least one bark corner.
+  struct BarkVertex {
+    size_t meshlet_id = 0;
+    size_t local_vertex = 0;
+    int physics_segment = -1;
+    ExactPositionKey position{};
+    std::vector<BarkCornerRef> corners;
+  };
+
+  size_t bark_meshlet_count = 0;
+  for (const uint8_t flag : meshlet_has_bark) {
+    bark_meshlet_count += flag ? 1 : 0;
+  }
+
+  std::vector<BarkVertex> bark_vertices;
+  bark_vertices.reserve(meshes.size() * 8);
+
+  std::unordered_map<uint64_t, size_t> bark_vertex_index;
+  const auto pack_key = [](size_t meshlet_id, size_t local_vertex) -> uint64_t {
+    return (static_cast<uint64_t>(meshlet_id) << 32) | static_cast<uint64_t>(local_vertex);
+  };
+
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    if (meshlet_id >= meshlet_has_bark.size() || !meshlet_has_bark[meshlet_id]) {
+      continue;
+    }
+    auto& mesh = meshes[meshlet_id];
+    if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner) {
+      continue;
+    }
+    if (mesh.getNormals().size() != mesh.getTriangles().size()) {
+      EVOENGINE_WARNING("Bark seam normals: meshlet " << meshlet_id << " has " << mesh.getNormals().size()
+                                                      << " normals for " << mesh.getTriangles().size()
+                                                      << " corners; skipping.");
+      continue;
+    }
+    if (meshlet_id >= meshing_neighbor_indices.size()) {
+      continue;
+    }
+    const int physics_segment =
+        meshlet_id < meshing_to_physics_segment_indices.size()
+            ? static_cast<int>(meshing_to_physics_segment_indices[meshlet_id])
+            : -1;
+    if (physics_segment < 0) {
+      continue;
+    }
+
+    const auto& face_neighbors = meshing_neighbor_indices[meshlet_id];
+    const auto& triangles = mesh.getTriangles();
+    const auto& vertices = mesh.getVertices();
+    const size_t tri_count = mesh.getTriangleCount();
+    for (size_t tri = 0; tri < tri_count; ++tri) {
+      if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
+        continue;
+      }
+      for (int corner = 0; corner < 3; ++corner) {
+        const size_t local_vertex = triangles[3 * tri + static_cast<size_t>(corner)];
+        if (local_vertex >= vertices.size()) {
+          continue;
+        }
+        const uint64_t key = pack_key(meshlet_id, local_vertex);
+        auto it = bark_vertex_index.find(key);
+        if (it == bark_vertex_index.end()) {
+          BarkVertex bv;
+          bv.meshlet_id = meshlet_id;
+          bv.local_vertex = local_vertex;
+          bv.physics_segment = physics_segment;
+          bv.position = ExactPositionKey::From(vertices[local_vertex]);
+          bv.corners.push_back(BarkCornerRef{meshlet_id, tri, corner});
+          bark_vertex_index.emplace(key, bark_vertices.size());
+          bark_vertices.push_back(std::move(bv));
+        } else {
+          bark_vertices[it->second].corners.push_back(BarkCornerRef{meshlet_id, tri, corner});
+        }
+      }
+    }
+  }
+
+  size_t co_located_position_groups = 0;
+  size_t shared_bark_vertices = 0;
+  size_t shared_seam_groups = 0;
+  size_t corners_updated = 0;
+  size_t corners_failed = 0;
+
+  if (bark_vertices.size() < 2) {
+    EVOENGINE_LOG("Bark seam normals: bark_meshlets=" << bark_meshlet_count << ", bark_vertices="
+                                                     << bark_vertices.size()
+                                                     << ", shared_bark_vertices=0 (nothing to average). segments="
+                                                     << segments.size() << ", pairs=" << segment_pairs.size());
+    return;
+  }
+
+  std::unordered_map<ExactPositionKey, std::vector<size_t>, ExactPositionKeyHash> groups_by_position;
+  groups_by_position.reserve(bark_vertices.size());
+  for (size_t i = 0; i < bark_vertices.size(); ++i) {
+    groups_by_position[bark_vertices[i].position].push_back(i);
+  }
+
+  for (auto& [position_key, member_indices] : groups_by_position) {
+    (void)position_key;
+    const size_t member_count = member_indices.size();
+    if (member_count < 2) {
+      continue;
+    }
+    ++co_located_position_groups;
+
+    BarkSeamUnionFind uf(member_count);
+    for (size_t i = 0; i < member_count; ++i) {
+      const int segment_i = bark_vertices[member_indices[i]].physics_segment;
+      for (size_t j = i + 1; j < member_count; ++j) {
+        const int segment_j = bark_vertices[member_indices[j]].physics_segment;
+        if (ArePhysicsSegmentsConnected(segment_i, segment_j, segments, segment_pairs, segment_data_list)) {
+          uf.Unite(i, j);
+        }
+      }
+    }
+
+    std::unordered_map<size_t, std::vector<size_t>> components;
+    components.reserve(member_count);
+    for (size_t i = 0; i < member_count; ++i) {
+      components[uf.Find(i)].push_back(member_indices[i]);
+    }
+
+    for (const auto& [root, component] : components) {
+      (void)root;
+      if (component.size() < 2) {
+        continue;
+      }
+
+      std::unordered_set<int> segment_indices;
+      std::unordered_set<size_t> meshlet_ids;
+      segment_indices.reserve(component.size());
+      meshlet_ids.reserve(component.size());
+      for (const size_t bark_vertex_index : component) {
+        segment_indices.insert(bark_vertices[bark_vertex_index].physics_segment);
+        meshlet_ids.insert(bark_vertices[bark_vertex_index].meshlet_id);
+      }
+      // Require at least two segment meshlets so we only smooth true seams.
+      if (meshlet_ids.size() < 2 || segment_indices.size() < 2) {
+        continue;
+      }
+
+      ++shared_seam_groups;
+      shared_bark_vertices += component.size();
+
+      glm::dvec3 sum_normal(0.0);
+      size_t corner_count = 0;
+      for (const size_t bark_vertex_index : component) {
+        for (const BarkCornerRef& ref : bark_vertices[bark_vertex_index].corners) {
+          const size_t corner_index = 3 * ref.triangle_index + static_cast<size_t>(ref.corner);
+          sum_normal += meshes[ref.meshlet_id].getNormal(corner_index);
+          ++corner_count;
+        }
+      }
+      if (corner_count == 0) {
+        continue;
+      }
+      const double length = glm::length(sum_normal);
+      if (length <= 1.0e-16) {
+        continue;
+      }
+      const glm::dvec3 averaged = sum_normal / length;
+
+      // Write the same averaged normal to every bark corner on every participating meshlet vertex.
+      for (const size_t bark_vertex_index : component) {
+        const BarkVertex& bark_vertex = bark_vertices[bark_vertex_index];
+        kinDS::VoronoiMesh& mesh = meshes[bark_vertex.meshlet_id];
+        for (const BarkCornerRef& ref : bark_vertex.corners) {
+          if (ref.meshlet_id != bark_vertex.meshlet_id) {
+            ++corners_failed;
+            continue;
+          }
+          const size_t corner_index = 3 * ref.triangle_index + static_cast<size_t>(ref.corner);
+          if (corner_index >= mesh.getNormals().size()) {
+            ++corners_failed;
+            continue;
+          }
+          // Confirm this corner still references the same local vertex.
+          if (corner_index >= mesh.getTriangles().size() ||
+              mesh.getTriangles()[corner_index] != bark_vertex.local_vertex) {
+            ++corners_failed;
+            continue;
+          }
+          mesh.setNormal(averaged, corner_index);
+          ++corners_updated;
+        }
+      }
+    }
+  }
+
+  EVOENGINE_LOG("Bark seam normals: bark_meshlets="
+                << bark_meshlet_count << ", bark_vertices=" << bark_vertices.size()
+                << ", co_located_groups=" << co_located_position_groups
+                << ", shared_seam_groups=" << shared_seam_groups
+                << ", shared_bark_vertices=" << shared_bark_vertices << ", corners_updated=" << corners_updated
+                << ", corners_failed=" << corners_failed << ", segments=" << segments.size()
+                << ", pairs=" << segment_pairs.size());
 }
 
 bool SegmentPairNeedsMaterialInit(const DynamicStrands::GpuSegmentPair& pair) {
@@ -3972,8 +4307,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
     }
 
-    const auto& meshes = tree_mesher_->getSegmentMeshlets();
-    const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
     const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
     const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
 
@@ -3986,8 +4319,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     if (!loaded_from_cache || meshing_settings.recompute_segment_pairs || rebuild_gpu_from_meshlets) {
       segment_meshlet_vertices.clear();
       segment_meshlet_triangles.clear();
-      PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
-                                meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
+      PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), physics_strand_to_segment_indices,
+                                meshing_strand_to_segment_indices, tree_mesher_->getMeshingNeighborIndices(),
+                                meshing_to_physics_segment_indices, root_transform);
     }
 
     if (!loaded_from_cache) {
@@ -4036,13 +4370,23 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 }
 
 void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
-    const std::vector<kinDS::VoronoiMesh>& meshes,
+    std::vector<kinDS::VoronoiMesh>& meshes,
     const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
     const std::vector<std::vector<int>>& meshing_neighbor_indices,
     const std::vector<size_t>& meshing_to_physics_segment_indices, const GlobalTransform& root_transform) {
   std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = dynamic_strands->segment_data_list;
   std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
+
+  // Smooth bark seams on CPU meshlets before the first GPU upload of this extraction.
+  const std::vector<uint8_t> meshlet_has_bark = BuildMeshletHasBarkFlags(meshing_neighbor_indices);
+  AverageSharedBarkSeamNormals(meshes, meshing_neighbor_indices, meshlet_has_bark,
+                               meshing_to_physics_segment_indices, dynamic_strands->segments, segment_pairs,
+                               segment_data_list);
+  // Keep the member cache aligned with the meshlets that were just smoothed and uploaded.
+  if (&meshes != &segment_meshlets_) {
+    segment_meshlets_ = meshes;
+  }
 
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
     for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
