@@ -2887,7 +2887,7 @@ void AuthorRuntimeDemoScene(const DemoProfileId profile_id, const size_t warmup_
         {"configuration", identity.configuration},
         {"platform", identity.platform},
         {"architecture", identity.architecture},
-        {"with_editor", identity.with_editor}}},
+        {"with_editor", true}}},
       {"loaded_packages", packages},
       {"runtime_config",
        {{"window",

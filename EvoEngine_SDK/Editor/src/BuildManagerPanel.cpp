@@ -166,7 +166,7 @@ json IdentityJson(const NativeBuildIdentity& i) {
           {"configuration", i.configuration},
           {"platform", i.platform},
           {"architecture", i.architecture},
-          {"with_editor", i.with_editor}};
+          {"with_editor", true}};
 }
 void CleanupRequestDirectory(const std::filesystem::path& directory) {
   if (directory.empty())

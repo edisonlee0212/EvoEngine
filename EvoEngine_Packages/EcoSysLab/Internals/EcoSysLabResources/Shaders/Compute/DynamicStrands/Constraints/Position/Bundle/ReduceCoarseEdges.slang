@@ -49,10 +49,12 @@ void main() {
       SegmentPair pair = segment_pairs[candidates[end].pair];
       Segment segment0 = segments[pair.segment0_handle];
       Segment segment1 = segments[pair.segment1_handle];
+      SegmentBiology biology0 = segment_biology[pair.segment0_handle];
+      SegmentBiology biology1 = segment_biology[pair.segment1_handle];
       float cohesion = min(pair.connectivity_integrity, pair.bend_twist_bundle_integrity);
-      cohesion *= saturate(min(min(segment0.HC, segment1.HC), min(segment0.HL, segment1.HL)));
-      cohesion *= saturate(1.f - max(max(segment0.RW, segment1.RW), max(segment0.RB, segment1.RB)));
-      cohesion *= saturate(min(segment0.moisture, segment1.moisture));
+      cohesion *= saturate(min(min(biology0.HC, biology1.HC), min(biology0.HL, biology1.HL)));
+      cohesion *= saturate(1.f - max(max(biology0.RW, biology1.RW), max(biology0.RB, biology1.RB)));
+      cohesion *= saturate(min(biology0.moisture, biology1.moisture));
       edge.compliance_cohesion +=
           float4(.5f * (segment0.shear_stretch_alpha + segment1.shear_stretch_alpha), pair.bending_alpha,
                  pair.twisting_alpha, cohesion);

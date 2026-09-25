@@ -28,6 +28,10 @@ TEST(RuntimePaths, ResolvesFromExecutableRatherThanWorkingDirectory) {
             std::filesystem::weakly_canonical(runtime_paths::Root() / "UserData/save.dat"));
 }
 
+TEST(RuntimePaths, DefaultsToNonStrictBeforeApplicationInitialization) {
+  EXPECT_FALSE(runtime_paths::IsStrict());
+}
+
 TEST(RuntimePaths, RejectsPathsOutsideDistribution) {
   EXPECT_THROW(runtime_paths::Resolve("../save.dat"), std::runtime_error);
   EXPECT_THROW(runtime_paths::Resolve("UserData/../../save.dat"), std::runtime_error);

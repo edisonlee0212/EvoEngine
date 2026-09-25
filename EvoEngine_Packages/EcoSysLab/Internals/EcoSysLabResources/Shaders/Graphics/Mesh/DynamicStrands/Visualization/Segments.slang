@@ -53,8 +53,8 @@ static const uint3 triangles[] = {uint3(0, 1, 2), uint3(1, 0, 3), uint3(4, 5, 6)
 
 // group_id.x runs from [0 .. parentTask.groupCountX - 1]
 float4 computeRotCompetitionColor(uint segment_id) {
-  float b = clamp(segments[segment_id].RB, 0.0, 1.0);
-  float w = clamp(segments[segment_id].RW, 0.0, 1.0);
+  float b = clamp(segment_biology[segment_id].RB, 0.0, 1.0);
+  float w = clamp(segment_biology[segment_id].RW, 0.0, 1.0);
 
   float sum = b + w;
   float eps = 1e-6;
@@ -144,8 +144,8 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
   } else if (color_mode == 8) {
     color = segments[segment.strand_handle].color;
   } else if (color_mode == 9) {  // fungus density
-    //color = float4(0.0, clamp(segments[segment_id].RW, 0.0, 1.0), clamp(segments[segment_id].RW, 0.0, 1.0), 1.0);
-    //color = float4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
+    //color = float4(0.0, clamp(segment_biology[segment_id].RW, 0.0, 1.0), clamp(segment_biology[segment_id].RW, 0.0, 1.0), 1.0);
+    //color = float4(clamp(segment_biology[segment_id].HL, 0.0, 1.0), clamp(segment_biology[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
     //color = float4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
     //color = float4(float3(1.0, 1.0, 1.0) *
     //                 (clamp(segments[segment_id].profile_polar_coordinate.y / (2.0 * 3.1415926), -0.5, 0.5) + 0.5),
@@ -153,8 +153,8 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
     //color = float4(float3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.x / 80.0, -0.5, 0.5) + 0.5), 1.0);
     color = computeRotCompetitionColor(segment_id);
   } else if (color_mode == 10) {  // health
-    color = float4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
-    //color = float4(0.0, clamp(segments[segment_id].RB, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
+    color = float4(clamp(segment_biology[segment_id].HL, 0.0, 1.0), clamp(segment_biology[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
+    //color = float4(0.0, clamp(segment_biology[segment_id].RB, 0.0, 1.0), clamp(segment_biology[segment_id].RB, 0.0, 1.0), 1.0);
     //color = float4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
     //color = float4(clamp(segment_particle0s[segment_id].root_distance, 0.0, 1.0),
                   //clamp(segment_particle0s[segment_id].root_distance, 0.0, 1.0),
@@ -163,7 +163,7 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
     //color = float4(float3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].boundary_distance / 0.3, 0.0, 1.0)), 1.0);
   } else if (color_mode == 11) {  // fungus moisture
     color =
-        float4(lerp(float3(1.00, 0.90, 0.20), float3(0.00, 0.45, 0.80), clamp(segments[segment_id].moisture, 0.0, 1.0)), 1.0);
+        float4(lerp(float3(1.00, 0.90, 0.20), float3(0.00, 0.45, 0.80), clamp(segment_biology[segment_id].moisture, 0.0, 1.0)), 1.0);
     if (segments[segment_id].profile_position[1] > 0.0) {
       instance_matrix = mul(mul(scale(float3(0.0, 0.0, 0.0)), mat4_cast(rotation)), translate(center_position));
       transform = mul(instance_matrix, EE_CAMERAS[camera_index].projection_view);

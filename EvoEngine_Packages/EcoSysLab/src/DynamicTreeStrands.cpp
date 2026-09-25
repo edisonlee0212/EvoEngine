@@ -8,6 +8,7 @@
 #include "DsOperators.hpp"
 #include "DsPhysics.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsStageSchedule.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "Tree.hpp"
 #include "VoronoiMeshGenerator.hpp"
@@ -1104,8 +1105,11 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
   dynamic_strands->InitializeMesh(initialize_parameters);
 }
 
-void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters) const {
+void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& physics_parameters, int fungus_steps,
+                                     const DynamicStrands::FungusParameters* fungus_parameters) const {
   if (!dynamic_strands->segments.empty()) {
+    if (fungus_steps < 0)
+      fungus_steps = physics_parameters.enable_fungus ? physics_parameters.sub_step : 0;
     const auto scene = GetScene();
     for (const auto& pivot_operator : transform_pivots) {
       if (scene->IsEntityValid(pivot_operator.target_entity)) {
@@ -1125,36 +1129,52 @@ void DynamicTreeStrands::PhysicsStep(const DynamicStrands::PhysicsParameters& ph
         pivot_operator.ds_pivot_point->Update(global_transform);
       }
     }
-    dynamic_strands->Physics(physics_parameters, [&]() {
-      if (leaf_drop->enabled)
-        leaf_drop->Execute(physics_parameters, dynamic_strands);
-      if (drag_operator->enabled) {
-        drag_operator->Execute(physics_parameters, dynamic_strands);
-      }
-      if (snow->enabled) {
-        snow->Execute(physics_parameters, dynamic_strands);
-      }
-      if (wind->enabled) {
-        wind->Execute(physics_parameters, dynamic_strands);
-      }
-      if (stop_all->enabled) {
-        stop_all->Execute(physics_parameters, dynamic_strands);
-      }
+    dynamic_strands->Physics(
+        physics_parameters,
+        [&]() {
+          if (leaf_drop->enabled)
+            leaf_drop->Execute(physics_parameters, dynamic_strands);
+          if (drag_operator->enabled) {
+            drag_operator->Execute(physics_parameters, dynamic_strands);
+          }
+          if (snow->enabled) {
+            snow->Execute(physics_parameters, dynamic_strands);
+          }
+          if (wind->enabled) {
+            wind->Execute(physics_parameters, dynamic_strands);
+          }
+          if (stop_all->enabled) {
+            stop_all->Execute(physics_parameters, dynamic_strands);
+          }
 
-      if (line_cut_operator->enabled) {
-        line_cut_operator->Execute(dynamic_strands);
-      }
-      if (saw_operator->enabled) {
-        saw_operator->Execute(dynamic_strands);
-      }
-      if (point_cut_operator->enabled) {
-        point_cut_operator->Execute(dynamic_strands);
-      }
-      if (fungus_injection_operator->enabled) {
-        fungus_injection_operator->Execute(dynamic_strands);
-      }
-    });
+          if (line_cut_operator->enabled) {
+            line_cut_operator->Execute(dynamic_strands);
+          }
+          if (saw_operator->enabled) {
+            saw_operator->Execute(dynamic_strands);
+          }
+          if (point_cut_operator->enabled) {
+            point_cut_operator->Execute(dynamic_strands);
+          }
+          if (fungus_steps > 0 && fungus_injection_operator->enabled) {
+            fungus_injection_operator->Execute(dynamic_strands);
+          }
+        },
+        [&](const int sub_step_index) {
+          dynamic_strands->FungusStep(
+              fungus_parameters ? *fungus_parameters
+                                : static_cast<const DynamicStrands::FungusParameters&>(physics_parameters),
+              FungusStepsInPhysicsSubstep(fungus_steps, physics_parameters.sub_step, sub_step_index));
+        });
   }
+}
+
+void DynamicTreeStrands::FungusStep(const DynamicStrands::FungusParameters& fungus_parameters, const int steps) const {
+  if (steps <= 0 || dynamic_strands->segments.empty())
+    return;
+  if (fungus_injection_operator->enabled)
+    fungus_injection_operator->Execute(dynamic_strands);
+  dynamic_strands->FungusStep(fungus_parameters, steps);
 }
 
 void DynamicTreeStrands::Visualization(const std::shared_ptr<Camera>& target_camera,

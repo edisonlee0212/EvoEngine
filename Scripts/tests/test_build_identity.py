@@ -1,11 +1,12 @@
 import copy
+import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from write_build_identity import generate, identity
+from write_build_identity import generate, identity, runtime_metadata_spec
 
 
 class BuildIdentityTest(unittest.TestCase):
@@ -29,10 +30,50 @@ class BuildIdentityTest(unittest.TestCase):
             "metadata_cmake": str(self.root / "generated/identity.cmake"),
         }
 
-    def test_editor_and_runtime_share_compatibility_id(self):
+    def test_editor_and_runtime_share_runtime_artifact_identities(self):
         runtime = copy.deepcopy(self.spec)
         runtime["with_editor"] = False
-        self.assertEqual(identity(self.spec)["sdk_source_id"], identity(runtime)["sdk_source_id"])
+        editor_identity = identity(self.spec)
+        runtime_identity = identity(runtime)
+        self.assertEqual(editor_identity["sdk_source_id"], runtime_identity["sdk_source_id"])
+        self.assertEqual(editor_identity["packages"], runtime_identity["packages"])
+        self.assertNotIn("editor_source_id", runtime_identity)
+        self.assertNotIn("editor_packages", runtime_identity)
+
+    def test_generated_runtime_headers_are_composition_neutral(self):
+        editor = generate(self.spec)
+        editor_sdk_header = Path(self.spec["sdk_header"]).read_text(encoding="utf-8")
+        editor_package_header = Path(self.spec["packages"][0]["header"]).read_text(encoding="utf-8")
+
+        runtime_spec = copy.deepcopy(self.spec)
+        runtime_spec["with_editor"] = False
+        runtime_spec["sdk_header"] = str(self.root / "runtime/sdk.hpp")
+        runtime_spec["metadata_json"] = str(self.root / "runtime/identity.json")
+        runtime_spec["metadata_cmake"] = str(self.root / "runtime/identity.cmake")
+        runtime_spec["packages"][0]["header"] = str(self.root / "runtime/package.hpp")
+        runtime = generate(runtime_spec)
+
+        self.assertEqual(editor["sdk_source_id"], runtime["sdk_source_id"])
+        self.assertEqual(editor["packages"], runtime["packages"])
+        self.assertEqual(editor_sdk_header, Path(runtime_spec["sdk_header"]).read_text(encoding="utf-8"))
+        self.assertEqual(
+            editor_package_header,
+            Path(runtime_spec["packages"][0]["header"]).read_text(encoding="utf-8"),
+        )
+
+    def test_runtime_metadata_does_not_replace_editor_generated_files(self):
+        editor = generate(self.spec)
+        sdk_header = Path(self.spec["sdk_header"]).read_text(encoding="utf-8")
+        runtime_path = self.root / "runtime/identity.json"
+
+        runtime = generate(runtime_metadata_spec(self.spec, runtime_path))
+
+        self.assertFalse(runtime["with_editor"])
+        self.assertNotIn("editor_source_id", runtime)
+        self.assertEqual(editor["sdk_source_id"], runtime["sdk_source_id"])
+        self.assertEqual(editor["packages"], runtime["packages"])
+        self.assertEqual(sdk_header, Path(self.spec["sdk_header"]).read_text(encoding="utf-8"))
+        self.assertEqual(runtime, json.loads(runtime_path.read_text(encoding="utf-8")))
 
     def test_sdk_editor_changes_preserve_runtime_identities(self):
         editor = self.root / "SDK/Editor"

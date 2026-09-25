@@ -21,15 +21,22 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
 #endif
 
 namespace {
-constexpr size_t kGpuSegmentStride = offsetof(DynamicStrands::GpuSegment, particle0);
+constexpr size_t kGpuSegmentStride = offsetof(DynamicStrands::GpuSegment, C);
+constexpr size_t kGpuSegmentBiologyStride = offsetof(DynamicStrands::GpuSegment, particle0) - kGpuSegmentStride;
 constexpr size_t kGpuSegmentDataStride = offsetof(DynamicStrands::GpuSegmentData, pair_handles);
 
 static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegment>);
 static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegment>);
-static_assert(kGpuSegmentStride == 480);
+static_assert(kGpuSegmentStride == 352);
+static_assert(kGpuSegmentBiologyStride == 144);
+static_assert(offsetof(DynamicStrands::GpuSegment, Obstruction_w) == kGpuSegmentStride + 80);
+static_assert(offsetof(DynamicStrands::GpuSegment, Obstruction_b) == kGpuSegmentStride + 96);
+static_assert(offsetof(DynamicStrands::GpuSegment, Obstruction_c) == kGpuSegmentStride + 112);
+static_assert(offsetof(DynamicStrands::GpuSegment, Obstruction_m) == kGpuSegmentStride + 128);
 static_assert(offsetof(DynamicStrands::GpuSegment, particle1) ==
-              kGpuSegmentStride + sizeof(DynamicStrands::GpuParticle));
-static_assert(sizeof(DynamicStrands::GpuSegment) == kGpuSegmentStride + 2 * sizeof(DynamicStrands::GpuParticle));
+              kGpuSegmentStride + kGpuSegmentBiologyStride + sizeof(DynamicStrands::GpuParticle));
+static_assert(sizeof(DynamicStrands::GpuSegment) ==
+              kGpuSegmentStride + kGpuSegmentBiologyStride + 2 * sizeof(DynamicStrands::GpuParticle));
 static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegmentData>);
 static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegmentData>);
 static_assert(kGpuSegmentDataStride == 48);
@@ -39,6 +46,7 @@ static_assert(sizeof(DynamicStrands::GpuSegmentData) ==
 
 struct PackedSegments {
   std::vector<std::byte> segments;
+  std::vector<std::byte> biology;
   std::vector<DynamicStrands::GpuParticle> particle0s;
   std::vector<DynamicStrands::GpuParticle> particle1s;
 };
@@ -46,6 +54,7 @@ struct PackedSegments {
 PackedSegments MakePackedSegments(const size_t count) {
   PackedSegments packed;
   packed.segments.resize(kGpuSegmentStride * count);
+  packed.biology.resize(kGpuSegmentBiologyStride * count);
   packed.particle0s.resize(count);
   packed.particle1s.resize(count);
   return packed;
@@ -55,6 +64,7 @@ PackedSegments PackSegments(const std::vector<DynamicStrands::GpuSegment>& sourc
   auto packed = MakePackedSegments(source.size());
   for (size_t index = 0; index < source.size(); ++index) {
     std::memcpy(packed.segments.data() + index * kGpuSegmentStride, &source[index], kGpuSegmentStride);
+    std::memcpy(packed.biology.data() + index * kGpuSegmentBiologyStride, &source[index].C, kGpuSegmentBiologyStride);
     packed.particle0s[index] = source[index].particle0;
     packed.particle1s[index] = source[index].particle1;
   }
@@ -64,6 +74,8 @@ PackedSegments PackSegments(const std::vector<DynamicStrands::GpuSegment>& sourc
 void UnpackSegments(std::vector<DynamicStrands::GpuSegment>& destination, const PackedSegments& packed) {
   for (size_t index = 0; index < destination.size(); ++index) {
     std::memcpy(&destination[index], packed.segments.data() + index * kGpuSegmentStride, kGpuSegmentStride);
+    std::memcpy(&destination[index].C, packed.biology.data() + index * kGpuSegmentBiologyStride,
+                kGpuSegmentBiologyStride);
     destination[index].particle0 = packed.particle0s[index];
     destination[index].particle1 = packed.particle1s[index];
   }
@@ -112,10 +124,11 @@ void DynamicStrands::ReleaseStaticGpuResources() {
   foliage_point_light_render_pipeline.reset();
 
   strands_layout.reset();
+  DsMeshing::geometry_descriptor_set_layout.reset();
 }
 
-void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
-                             const std::function<void()>& pre_step_action) {
+void DynamicStrands::Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action,
+                             const std::function<void(int)>& fungus_sub_step_action) {
   const auto& profiler_items = dynamic_strands_profiler::GetItems();
   if (pre_step) {
     const RecordedGpuProfilerScope gpu_scope(profiler_items.pre_step);
@@ -131,9 +144,8 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
       if (prediction) {
         prediction->Execute(physics_parameters, *this);
       }
-      if (fungus && physics_parameters.enable_fungus) {
-        fungus->Execute(physics_parameters, *this);
-      }
+      if (fungus_sub_step_action)
+        fungus_sub_step_action(sub_step_index);
       const auto scene = ApplicationContext::Get().GetActiveScene();
       const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
       const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
@@ -218,6 +230,15 @@ void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
   frame_index++;
 }
 
+void DynamicStrands::FungusStep(const FungusParameters& fungus_parameters, const int steps) {
+  if (!fungus || segments.empty())
+    return;
+  for (int i = 0; i < steps; i++) {
+    fungus->Execute(fungus_parameters, *this);
+    simulated_fungus_time += fungus_parameters.dt;
+  }
+}
+
 void DynamicStrands::InitMeshingAlgorithm(MeshingType meshing_type) {
   // create new meshing object
 
@@ -259,11 +280,10 @@ void DynamicStrands::Init(MeshingType meshing_type) {
     strands_layout->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
-    strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   VkBufferCreateInfo buffer_create_info{};
@@ -278,6 +298,7 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_biology_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_particle0_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_particle1_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -286,6 +307,7 @@ void DynamicStrands::Init(MeshingType meshing_type) {
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
+  meshing->InitGeometryDescriptors();
 
   device_hashed_grid_elements_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_hashed_grid_cell_starts_buffer =
@@ -312,8 +334,8 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   BuildSegmentPairsRenderingPipeline();
 }
 
-void DynamicStrands::RenderCompute() const {
-  meshing->RenderCompute();
+void DynamicStrands::UpdateGeometry() const {
+  meshing->UpdateGeometry();
 }
 
 uint32_t DynamicStrands::GetFrameIndex() const {
@@ -322,6 +344,10 @@ uint32_t DynamicStrands::GetFrameIndex() const {
 
 float DynamicStrands::GetSimulatedTime() const {
   return simulated_time;
+}
+
+float DynamicStrands::GetSimulatedFungusTime() const {
+  return simulated_fungus_time;
 }
 
 void DynamicStrands::UpdateBindings() const {
@@ -339,6 +365,7 @@ void DynamicStrands::UpdateBindings() const {
   descriptor_set->UpdateBufferDescriptorBinding(10, device_segment_particle0_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(11, device_segment_particle1_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(12, device_segment_connection_handles_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(13, device_segment_biology_buffer, 0);
 
   meshing->UpdateBindings();
   for (const auto& c : constraints) {
@@ -358,6 +385,8 @@ void DynamicStrands::Upload() {
   const auto packed_segments = PackSegments(segments);
   device_segments_buffer->UploadData(packed_segments.segments.size(), packed_segments.segments.data());
   device_segments_buffer->SetDebugName("Segments Buffer");
+  device_segment_biology_buffer->UploadData(packed_segments.biology.size(), packed_segments.biology.data());
+  device_segment_biology_buffer->SetDebugName("Segment Biology Buffer");
   device_segment_particle0_buffer->UploadVector(packed_segments.particle0s);
   device_segment_particle0_buffer->SetDebugName("Segment Particle 0 Buffer");
   device_segment_particle1_buffer->UploadVector(packed_segments.particle1s);
@@ -393,6 +422,7 @@ void DynamicStrands::Download() {
   if (!segments.empty()) {
     auto packed_segments = MakePackedSegments(segments.size());
     device_segments_buffer->DownloadData(packed_segments.segments.size(), packed_segments.segments.data());
+    device_segment_biology_buffer->DownloadData(packed_segments.biology.size(), packed_segments.biology.data());
     device_segment_particle0_buffer->DownloadVector(packed_segments.particle0s, packed_segments.particle0s.size());
     device_segment_particle1_buffer->DownloadVector(packed_segments.particle1s, packed_segments.particle1s.size());
     UnpackSegments(segments, packed_segments);

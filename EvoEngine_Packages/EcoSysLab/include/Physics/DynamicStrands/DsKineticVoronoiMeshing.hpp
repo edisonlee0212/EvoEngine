@@ -22,7 +22,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) override;
 
   void BuildRenderComputePipelines() override;
-  void RenderCompute() const override;
+  void UpdateGeometry() const override;
   void BuildRenderingPipelines() override;
 
   void Download() override;

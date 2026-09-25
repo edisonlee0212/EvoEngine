@@ -66,9 +66,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     float cohesion = pair.bend_twist_bundle_integrity;
     Segment segment0 = segments[pair.segment0_handle];
     Segment segment1 = segments[pair.segment1_handle];
-    cohesion *= saturate(min(min(segment0.HC, segment1.HC), min(segment0.HL, segment1.HL)));
-    cohesion *= saturate(1.f - max(max(segment0.RW, segment1.RW), max(segment0.RB, segment1.RB)));
-    cohesion *= saturate(min(segment0.moisture, segment1.moisture));
+    SegmentBiology biology0 = segment_biology[pair.segment0_handle];
+    SegmentBiology biology1 = segment_biology[pair.segment1_handle];
+    cohesion *= saturate(min(min(biology0.HC, biology1.HC), min(biology0.HL, biology1.HL)));
+    cohesion *= saturate(1.f - max(max(biology0.RW, biology1.RW), max(biology0.RB, biology1.RB)));
+    cohesion *= saturate(min(biology0.moisture, biology1.moisture));
     if (cohesion <= 1e-6f) {
       pair_states[pair_index] = (PairState)0;
       pair_corrections[pair_index] = correction;

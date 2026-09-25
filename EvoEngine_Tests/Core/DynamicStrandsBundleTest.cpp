@@ -4,11 +4,58 @@
 #include "DsConstraints.hpp"
 #include "DynamicStrandsBundleDiagnostics.hpp"
 #include "DynamicStrandsBundleMath.hpp"
+#include "DynamicStrandsStageSchedule.hpp"
 #include "RenderLayer.hpp"
 
 #include <gtest/gtest.h>
+#include <cstddef>
 
 using namespace eco_sys_lab_package;
+
+TEST(DynamicStrandsStages, PausedStagesOnlyRunWhenStepped) {
+  EXPECT_FALSE(ShouldRunDynamicStrandsStage(false, 0));
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(false, 1));
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(true, 0));
+}
+
+TEST(DynamicStrandsStages, QueuedRequestsAreConsumedOnce) {
+  int pending_steps = 2;
+  EXPECT_TRUE(ShouldRunDynamicStrandsStage(false, pending_steps));
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_EQ(pending_steps, 1);
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_FALSE(ShouldRunDynamicStrandsStage(false, pending_steps));
+  ConsumePendingDynamicStrandsStep(pending_steps);
+  EXPECT_EQ(pending_steps, 0);
+}
+
+TEST(DynamicStrandsStages, FungusCadenceIsIndependentOfPhysicsSubstepCount) {
+  for (const int physics_substeps : {1, 10, 25, 32}) {
+    int total = 0;
+    for (int i = 0; i < physics_substeps; i++)
+      total += FungusStepsInPhysicsSubstep(25, physics_substeps, i);
+    EXPECT_EQ(total, 25);
+  }
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 25, 0), 1);
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 25, 24), 1);
+  EXPECT_EQ(FungusStepsInPhysicsSubstep(25, 0, 0), 0);
+}
+
+TEST(DynamicStrandsStages, FungusParametersHaveIndependentValues) {
+  DynamicStrands::PhysicsParameters physics;
+  DynamicStrands::FungusParameters fungus = physics;
+  fungus.dt *= 2.f;
+  EXPECT_FLOAT_EQ(physics.dt, 0.0005f);
+  EXPECT_FLOAT_EQ(fungus.dt, 0.001f);
+}
+
+TEST(DynamicStrandsStages, SegmentBiologyHasSeparateStd430Record) {
+  using Segment = DynamicStrands::GpuSegment;
+  EXPECT_EQ(offsetof(Segment, C), 352);
+  EXPECT_EQ(offsetof(Segment, Obstruction_w) - offsetof(Segment, C), 80);
+  EXPECT_EQ(offsetof(Segment, Obstruction_m) - offsetof(Segment, C), 128);
+  EXPECT_EQ(offsetof(Segment, particle0) - offsetof(Segment, C), 144);
+}
 
 TEST(DynamicStrandsBundle, ShaderAbiMatchesStd430Layouts) {
   EXPECT_EQ(sizeof(DsBundle::CoupledPairState), 32);

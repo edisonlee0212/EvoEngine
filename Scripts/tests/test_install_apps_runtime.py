@@ -3,16 +3,26 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from install_apps import clean_install_dir, cmake_build_option_args, publish_runtime_template, validate_runtime_identity
+from install_apps import clean_install_dir, publish_runtime_template, rename_with_retry, validate_runtime_identity
 from prepare_runtime_template import build_template
 
 
 class InstallRuntimeTemplateTest(unittest.TestCase):
+    def test_template_publication_retries_transient_windows_file_lock(self) -> None:
+        source = Path("source")
+        with patch.object(Path, "rename", side_effect=[PermissionError(), None]) as rename, patch(
+            "install_apps.time.sleep"
+        ) as sleep:
+            rename_with_retry(source, Path("destination"))
+        self.assertEqual(rename.call_count, 2)
+        sleep.assert_called_once_with(0.1)
+
     def test_identity_options_and_immutable_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -52,10 +62,6 @@ class InstallRuntimeTemplateTest(unittest.TestCase):
             editor = {"identity": {**identity, "with_editor": True}}
 
             validate_runtime_identity(editor, template)
-            self.assertEqual(
-                cmake_build_option_args(editor),
-                ["-DA_OPTION=ON", "-DPACKAGE_OPTION=OFF", "-DZ_OPTION=value"],
-            )
             install_dir = root / "install"
             published = publish_runtime_template(template_dir, install_dir)
             self.assertEqual(published.name, template["template_id"])

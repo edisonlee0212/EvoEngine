@@ -6,7 +6,10 @@
 
 namespace evo_engine {
 class Camera;
-}
+class DescriptorSet;
+class DescriptorSetLayout;
+class GraphicsPipeline;
+}  // namespace evo_engine
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -30,7 +33,7 @@ class DsMeshing {
   virtual void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) = 0;
 
   virtual void BuildRenderComputePipelines() = 0;
-  virtual void RenderCompute() const = 0;
+  virtual void UpdateGeometry() const = 0;
   virtual void BuildRenderingPipelines() = 0;
 
   virtual void Download() = 0;
@@ -38,6 +41,9 @@ class DsMeshing {
   virtual void Clear() = 0;
 
   virtual void UpdateBindings() const = 0;
+
+  void InitGeometryDescriptors();
+  static void CompleteGraphicsDescriptorLayouts(const std::shared_ptr<GraphicsPipeline>& pipeline);
 
   virtual void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
                                        Entity& owner) = 0;
@@ -47,5 +53,7 @@ class DsMeshing {
                          const DynamicStrandsVisualizationParameters& visualization_parameters) = 0;
 
   DynamicStrands* dynamic_strands;  // Raw pointer is fine here since DynamicStrands owns DsMeshing
+  inline static std::shared_ptr<DescriptorSetLayout> geometry_descriptor_set_layout{};
+  std::vector<std::shared_ptr<DescriptorSet>> geometry_descriptor_sets;
 };
 }  // namespace eco_sys_lab_package

@@ -111,6 +111,7 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
 
   frame_index = 0;
   simulated_time = 0.f;
+  simulated_fungus_time = 0.f;
   const auto& target_strands = randomly_subdivided_strand_group.PeekStrands();
   const auto& target_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
   const auto& target_strand_segment_data_list = randomly_subdivided_strand_group.PeekStrandSegmentDataList();

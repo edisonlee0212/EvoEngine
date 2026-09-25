@@ -31,8 +31,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     int segment1_handle = segment_pairs[pair_index].segment1_handle;
 
     // carbon health will affect the strain limits for connectivity and bending twist
-    float carbon_health0 = segments[segment0_handle].HC;
-    float carbon_health1 = segments[segment1_handle].HC;
+    float carbon_health0 = segment_biology[segment0_handle].HC;
+    float carbon_health1 = segment_biology[segment1_handle].HC;
     float connection_health = min(carbon_health0, carbon_health1);
 
     // we need to amplify decay somehow or no effect is visible

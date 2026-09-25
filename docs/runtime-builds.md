@@ -10,18 +10,18 @@ The output contains the named executable, runtime SDK/dependencies, default reso
 
 `EVOENGINE_WITH_EDITOR` defaults to `ON` and selects application composition. Runtime SDK/package targets always use their runtime sources and interfaces. Editor code and resources live under each SDK/package `Editor` directory; `EvoEngine_EditorSDK` and companion DLLs supply optional editor behavior. Runtime classes have no editor inspection hooks or empty compatibility implementations. Core ImGui and RuntimeGui are runtime features; editor inspection remains separate. See [the authoring workflow](editor-extension-workflow.md) and [separation design](editor-runtime-separation.md).
 
-Use separate build and install directories for the two variants. Their libraries have the same filenames and must never be installed over each other or mixed in one process.
+The normal editor graph builds `EvoEngineRuntime` alongside the editor and produces the runtime template from the same runtime SDK and package targets:
 
 ```powershell
-cmake --preset vs2026-x64-runtime
-cmake --build out/build/vs2026-x64-runtime --config RelWithDebInfo --target EvoEngineRuntimePayload
+cmake --preset vs2026-x64
+cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EvoEngineRuntimePayload
 ```
 
-Editor applications, Python bindings and companion DLLs are omitted in this variant. Normal editor builds retain the default option. Add inspectors in `Editor/src` and register them through the editor companion; do not add editor guards or inspection methods to runtime classes. The build checks runtime include and link dependencies in both configurations.
+This target assembles, but does not recompile, the shared runtime DLLs. The standalone `vs2026-x64-runtime` preset remains available for runtime-boundary validation; editor applications, Python bindings, and companion DLLs are omitted from that graph. Add inspectors in `Editor/src` and register them through the editor companion; do not add editor guards or inspection methods to runtime classes. The build checks runtime include and link dependencies in both configurations.
 
 Configure with `-DBUILD_TESTING=ON` to build `EvoEngineRuntimeBoundaryTests`. Its tests cover component registration, scene cloning, graph serialization, and a Vulkan window with main-camera rendering and keyboard dispatch. Run them with `ctest --test-dir out/build/runtime -C RelWithDebInfo --output-on-failure` on the Windows graphics test machine.
 
-`Scripts/install_apps.py` builds and installs the editor, then prepares a matching runtime template in a separate build tree. It mirrors the editor configuration, native build options, and enabled package set. Templates are published under `bin/RuntimeTemplates/Windows/x64/<configuration>/<template_id>/`; `current.json` selects the latest complete template while older versions remain available. The editor SDK is never replaced by its runtime variant. `--runtime-build-dir` can reuse an already configured runtime tree, but identity mismatches still fail installation.
+`Scripts/install_apps.py` configures one build tree, builds and installs the editor applications, then assembles and publishes the matching runtime template from that same graph. Templates are published under `bin/RuntimeTemplates/Windows/x64/<configuration>/<template_id>/`; `current.json` selects the latest complete template while older versions remain available. Runtime composition metadata is generated separately from editor metadata, but both consumers use byte-identical SDK and runtime package DLLs. Identity mismatches still fail installation.
 
 Each template records file sizes and SHA-256 hashes, native compiler/configuration identity, and separate source identities for the SDK and packages. Source identities include local modifications and dependency revisions/content. Package identities include their declared dependency identities, so changes propagate through dependent packages without invalidating the SDK identity. The build checks for source changes during compilation before assembling the payload. Debug and RelWithDebInfo payloads include host, SDK, and package PDBs; Release payloads omit them. The template identifies EvoEngineRuntime.exe as its host. A template is project-independent: an export must add runtime.yaml and saved project content before it can launch.
 

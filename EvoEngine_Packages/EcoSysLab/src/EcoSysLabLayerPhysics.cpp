@@ -4,9 +4,12 @@
 
 #include "EcoSysLabLayer.hpp"
 
+#include <algorithm>
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
+#include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsProfiler.hpp"
+#include "DynamicStrandsStageSchedule.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "GpuProfiler.hpp"
@@ -16,52 +19,83 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
+bool EcoSysLabLayer::IsDynamicStrandsPhysicsRunning() const {
+  return ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_physics,
+                                      dynamic_strands_settings_.remaining_step);
+}
+
+bool EcoSysLabLayer::IsDynamicStrandsFungusRunning() const {
+  return ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_fungus,
+                                      dynamic_strands_settings_.remaining_fungus_step);
+}
+
+int EcoSysLabLayer::GetDynamicStrandsFungusStepsPerFrame() const {
+  return std::max(0, dynamic_strands_settings_.fungus_sub_step);
+}
+
 void EcoSysLabLayer::DynamicStrandSimulation() {
-  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
-    const auto scene = GetScene();
-    const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
-    if (!dts_entities || dts_entities->empty())
-      return;
-    const auto& profiler_items = dynamic_strands_profiler::GetItems();
-    const ProfilerScope simulation_cpu_scope(profiler_items.simulation_cpu);
-    const RecordedGpuProfilerScope simulation_gpu_scope(profiler_items.simulation_gpu);
-    const auto for_each_dts_entity =
-        [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
-          if (dts_entities && !dts_entities->empty()) {
-            for (const auto& i : *dts_entities) {
-              const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
-              action(dts);
-            }
+  const auto scene = GetScene();
+  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+  if (!dts_entities || dts_entities->empty())
+    return;
+  const auto& profiler_items = dynamic_strands_profiler::GetItems();
+  const ProfilerScope simulation_cpu_scope(profiler_items.simulation_cpu);
+  const RecordedGpuProfilerScope simulation_gpu_scope(profiler_items.simulation_gpu);
+  const auto for_each_dts_entity =
+      [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
+        if (dts_entities && !dts_entities->empty()) {
+          for (const auto& i : *dts_entities) {
+            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(i).lock();
+            action(dts);
           }
-        };
-    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      dts->dynamic_strands->UpdateBindings();
-    });
-    {
-      const ProfilerScope cpu_scope(profiler_items.interaction);
-      const RecordedGpuProfilerScope gpu_scope(profiler_items.interaction);
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        dts->InteractionStep();
-      });
-    }
-    if (dynamic_strands_settings_.enable_physics || dynamic_strands_settings_.remaining_step > 0) {
-      const ProfilerScope cpu_scope(profiler_items.physics);
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled() && dts->enable_physics)
-          dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
-      });
-      if (dynamic_strands_settings_.remaining_step > 0)
-        dynamic_strands_settings_.remaining_step--;
-    }
-    {
-      const ProfilerScope cpu_scope(profiler_items.render_compute);
-      const RecordedGpuProfilerScope gpu_scope(profiler_items.render_compute);
-      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-        if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
-          dts->dynamic_strands->RenderCompute();
         }
-      });
-    }
+      };
+  for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+    dts->dynamic_strands->UpdateBindings();
+  });
+  {
+    const ProfilerScope cpu_scope(profiler_items.interaction);
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.interaction);
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      dts->InteractionStep();
+    });
+  }
+  const bool run_physics = IsDynamicStrandsPhysicsRunning();
+  const bool run_fungus = dynamic_strands_settings_.physics_parameters.enable_fungus && IsDynamicStrandsFungusRunning();
+  if (run_physics || run_fungus) {
+    const int fungus_steps = GetDynamicStrandsFungusStepsPerFrame();
+    const auto* demo_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicStrandsDemo>();
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      if (!scene->IsEntityEnabled(dts->GetOwner()) || !dts->IsEnabled())
+        return;
+      if (demo_entities) {
+        for (const auto& entity : *demo_entities) {
+          const auto demo = scene->GetOrSetPrivateComponent<DynamicStrandsDemo>(entity).lock();
+          if (demo && demo->IsEnabled() && scene->IsEntityEnabled(entity) && demo->ControlsStrands(dts->GetOwner()))
+            return;
+        }
+      }
+      if (run_physics && dts->enable_physics) {
+        const ProfilerScope cpu_scope(profiler_items.physics);
+        dts->PhysicsStep(dynamic_strands_settings_.physics_parameters, run_fungus ? fungus_steps : 0,
+                         &dynamic_strands_settings_.fungus_parameters);
+      } else if (run_fungus) {
+        dts->FungusStep(dynamic_strands_settings_.fungus_parameters, fungus_steps);
+      }
+    });
+  }
+  ConsumePendingDynamicStrandsStep(dynamic_strands_settings_.remaining_step);
+  ConsumePendingDynamicStrandsStep(dynamic_strands_settings_.remaining_fungus_step);
+  if (ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_geometry_updates,
+                                   dynamic_strands_settings_.remaining_geometry_step)) {
+    const ProfilerScope cpu_scope(profiler_items.geometry_update);
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.geometry_update);
+    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+      if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
+        dts->dynamic_strands->UpdateGeometry();
+      }
+    });
+    ConsumePendingDynamicStrandsStep(dynamic_strands_settings_.remaining_geometry_step);
   }
 }
 

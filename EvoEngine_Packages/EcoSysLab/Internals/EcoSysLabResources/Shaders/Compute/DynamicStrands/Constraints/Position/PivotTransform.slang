@@ -51,8 +51,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 		Particle segment_particle1 = segment_particle1s[segment_index];
                 if (segment.boundary_distance > ring_radius || segment.unlink_constraint == 1)
                         continue;
-                if (segment.HC < HC_threshold || segment.HL < HL_threshold)
-                //if (segment.HC < 0.1 + max(0.3 - segment.boundary_distance, 0.0))
+                if (segment_biology[segment_index].HC < HC_threshold || segment_biology[segment_index].HL < HL_threshold)
+                //if (segment_biology[segment_index].HC < 0.1 + max(0.3 - segment.boundary_distance, 0.0))
                   segment.unlink_constraint = 1;
 		segment.q = segment.last_q = segment_update.new_rotation;
 		segment.torque = float3(0, 0, 0);

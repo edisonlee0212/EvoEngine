@@ -206,7 +206,7 @@ Documentation-only change. Verified the inventory and major source anchors again
 All applications and the matching runtime template installed successfully, exit 0 (`out/editor-separation-m1-install.log`), using:
 
 ```powershell
-python Scripts/install_apps.py --config RelWithDebInfo --incremental --no-clean-install --no-open --jobs 8 --runtime-build-dir out/build/runtime-m4-final-validation-off --cmake-arg=-DBUILD_TESTING=OFF --cmake-arg=-DEVOENGINE_WITH_EDITOR=ON --cmake-arg=-DEVOENGINE_ENABLE_GRAPHICS_VALIDATION=OFF
+python Scripts/install_apps.py --config RelWithDebInfo --incremental --no-clean-install --no-open --jobs 8 --cmake-arg=-DBUILD_TESTING=OFF --cmake-arg=-DEVOENGINE_WITH_EDITOR=ON --cmake-arg=-DEVOENGINE_ENABLE_GRAPHICS_VALIDATION=OFF
 ```
 
 Installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
@@ -268,7 +268,7 @@ The standalone native exporter/runtime-host integration also passed (`out/editor
 All applications and the matching runtime template installed successfully (exit 0, `out/editor-separation-m6-install-final.log`) using:
 
 ```powershell
-python Scripts/install_apps.py --config RelWithDebInfo --incremental --no-clean-install --no-open --jobs 8 --runtime-build-dir out/build/runtime-m4-final-validation-off --cmake-arg=-DBUILD_TESTING=OFF --cmake-arg=-DEVOENGINE_WITH_EDITOR=ON --cmake-arg=-DEVOENGINE_ENABLE_GRAPHICS_VALIDATION=OFF
+python Scripts/install_apps.py --config RelWithDebInfo --incremental --no-clean-install --no-open --jobs 8 --cmake-arg=-DBUILD_TESTING=OFF --cmake-arg=-DEVOENGINE_WITH_EDITOR=ON --cmake-arg=-DEVOENGINE_ENABLE_GRAPHICS_VALIDATION=OFF
 ```
 
 The authoring harness launched `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`. The launcher and runtime exporter are installed alongside it, with the Python runtime under `out/install/vs2026-x64/python`.

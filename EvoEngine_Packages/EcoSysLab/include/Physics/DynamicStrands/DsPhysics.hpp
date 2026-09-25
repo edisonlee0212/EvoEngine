@@ -36,6 +36,13 @@ class DsFungus {
   static_assert(sizeof(FungusDiffusionEdgePushConstant) == 224,
                 "Fungus diffusion edge push constants must stay packed as 32 scalar bytes plus 12 vec4 columns.");
 
+  struct FungusMechanicsHandoffPushConstant {
+    uint32_t pair_size = 0;
+    float HC_threshold = 0.4f;
+    float HL_threshold = 0.4f;
+    float padding = 0.0f;
+  };
+
   /**
    * @struct FungusDiffusionNodePushConstant
    * @brief Stores push constants for fungal diffusion node calculations.
@@ -70,14 +77,14 @@ class DsFungus {
       fungus_diffusion_edge_pipeline;  ///< Compute pipeline for fungal diffusion through edges.
   inline static std::shared_ptr<ComputePipeline>
       fungus_diffusion_node_pipeline;  ///< Compute pipeline for fungal diffusion at nodes.
+  inline static std::shared_ptr<ComputePipeline> fungus_mechanics_handoff_pipeline;
 
   /**
    * @brief Executes the fungal diffusion simulation on the strands.
-   * @param physics_parameters The physics simulation parameters.
+   * @param fungus_parameters The fungal diffusion parameters.
    * @param target_dynamic_strands The target strand system.
    */
-  void Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
-               const DynamicStrands& target_dynamic_strands);
+  void Execute(const DynamicStrands::FungusParameters& fungus_parameters, const DynamicStrands& target_dynamic_strands);
 };
 
 /**
