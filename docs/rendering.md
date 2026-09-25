@@ -98,22 +98,35 @@ also replays selected paths at paired neighboring pixels, combines reciprocal sh
 reservoir. It alternates horizontal and vertical pairs between frames; it does not reuse previous-frame reservoirs.
 Switching integrators resets camera accumulation.
 
-The current ReSTIR path supports opaque rigid triangles with environment and emissive-triangle lighting. Exactly
-zero-roughness, fully metallic surfaces with no retroreflection use ideal specular reflection in the shared path-tracing
-BSDF; positive roughness remains glossy. Spatial Only requires one sample per frame. Both modes require automatic SPP,
-ray debug views, and optional ray outputs to be disabled. Unsupported scene features or settings leave the requested
-ReSTIR camera unavailable and log an error; they do not select another integrator. Preview captures fail if that
-camera cannot accumulate frames. Spatial shifts currently replay the source random stream through its selected path
+The ray-camera **Accumulate Samples** checkbox is enabled by default. Disable it to replace radiance every frame
+with fresh pseudorandom samples, without blending earlier frames. The sample index still advances, so the image
+changes each frame; ReSTIR Spatial Only continues to reuse same-frame neighbors. Auto SPP is inactive while
+accumulation is disabled. Preview captures can set `--preview-accumulate-samples enabled|disabled`.
+
+The current ReSTIR path supports triangle geometry, including alpha masked surfaces, skinned triangles, and instanced
+mesh triangles, plus linear swept sphere strands when the device supports them. It supports unlit surface colors, with
+environment, emissive-triangle, directional, point, and spot lighting. Exactly zero-roughness, fully metallic surfaces
+with no retroreflection use ideal specular reflection in the shared path-tracing BSDF; positive roughness remains
+glossy. Thin specular and diffuse transmission, closed transmissive surfaces with absorption, and homogeneous volume
+scattering are supported; dispersion remains unavailable, and Gaussian-splat support is deferred. Spatial Only requires
+one sample per frame. Both modes require Auto SPP, ray debug views, and optional ray outputs to be inactive. Unsupported
+scene features or settings leave the requested ReSTIR camera unavailable and log an error; they do not select another
+integrator. Preview captures fail if that camera cannot accumulate frames. Spatial shifts currently replay the source
+random stream through its selected path
 event; hybrid reconnection and temporal reuse are not implemented. Primary background samples retain their canonical
 candidate without a spatial shift.
+Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing.
 
 Ray camera preview captures with `--preview-ray-profile-report <path>.json` report ReSTIR reservoir storage per pixel.
 Spatial captures also report the last completed frame's shift statuses, acceptance, rays, finite-value failures, and
 path/delta breakdown. A `*-shift.ppm` heatmap is saved beside the JSON: green means accepted, black means no partner,
 gray means no source, red means surface mismatch, yellow means zero target, blue means skipped background reuse,
-and magenta means an unknown status.
+and magenta means an unknown status. Add `--preview-restir-generated-profile` with the JSON report to capture
+generated event counts and target weights by path type and length. This uses a profiled shader variant; ordinary JSON
+capture timings use the normal rendering variant.
 The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`, and
-`restir-edges` rendering-regression fixtures cover the full-replay reference gate.
+`restir-edges` rendering-regression fixtures cover the full-replay reference gate. `restir-indirect-upward` places a
+one-sided emitter toward the ceiling with a black camera background to stress indirect paths.
 
 ### Ray-tracing camera pass flow
 

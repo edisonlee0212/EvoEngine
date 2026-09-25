@@ -83,11 +83,13 @@ struct EditorCommandLine {
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<float> preview_capture_firefly_clamp_threshold;
   std::optional<bool> preview_capture_auto_spp_enabled;
+  std::optional<bool> preview_capture_accumulate_samples;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
   std::optional<float> preview_capture_auto_spp_convergence_threshold;
   std::optional<int> preview_capture_sample_size;
   std::optional<std::filesystem::path> preview_ray_profile_report_path;
+  bool preview_restir_generated_profile = false;
   std::optional<std::filesystem::path> preview_raster_profile_report_path;
   std::optional<bool> preview_gpu_timestamp_capture;
   std::optional<glm::vec3> preview_capture_camera_position;
@@ -650,6 +652,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_auto_spp_enabled =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-accumulate-samples") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-accumulate-samples requires enabled or disabled.");
+      }
+      command_line.preview_capture_accumulate_samples =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-auto-spp-min-samples") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-auto-spp-min-samples requires a positive integer.");
@@ -675,6 +683,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ray-profile-report requires an output JSON path.");
       }
       command_line.preview_ray_profile_report_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--preview-restir-generated-profile") {
+      command_line.preview_restir_generated_profile = true;
     } else if (argument == "--preview-raster-profile-report") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-raster-profile-report requires an output JSON path.");
@@ -864,6 +874,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_ray_outputs && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-outputs requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_accumulate_samples && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-accumulate-samples requires --capture-demo-preview.");
+  }
   if (command_line.preview_ray_profile_report_path &&
       (!command_line.demo_preview_capture_path ||
        command_line.preview_ray_profile_report_path->extension() != ".json" ||
@@ -871,6 +884,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
        !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
     throw std::invalid_argument(
         "--preview-ray-profile-report requires a JSON demo capture in raytracing or rayquery mode.");
+  }
+  if (command_line.preview_restir_generated_profile &&
+      (!command_line.preview_ray_profile_report_path || !command_line.preview_capture_ray_integrator ||
+       *command_line.preview_capture_ray_integrator == CameraSettings::RayIntegrator::PathTracing)) {
+    throw std::invalid_argument("--preview-restir-generated-profile requires a ReSTIR PT ray profile capture.");
   }
   if (command_line.preview_raster_profile_report_path &&
       (!command_line.demo_preview_capture_path ||
@@ -948,8 +966,18 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "restir-diffuse-occluded",
                                                "restir-glossy",
                                                "restir-roulette",
+                                               "restir-indirect",
+                                               "restir-indirect-upward",
                                                "restir-mixed",
                                                "restir-edges",
+                                               "restir-instanced",
+                                               "restir-unlit",
+                                               "restir-transmission-thin",
+                                               "restir-diffuse-transmission-thin",
+                                               "restir-volume-absorption",
+                                               "restir-volume-scattering",
+                                               "restir-internal-reflection",
+                                               "restir-strands",
                                                "emissive-empty"};
     if (fixture_ids.find(*command_line.preview_ddgi_fixture) == fixture_ids.end()) {
       throw std::invalid_argument("Unknown DDGI validation fixture: " + *command_line.preview_ddgi_fixture);
@@ -1622,12 +1650,20 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   heatmap << "P6\n" << extent.x << ' ' << extent.y << "\n255\n";
   nlohmann::json paths = nlohmann::json::object();
   nlohmann::json path_lengths = nlohmann::json::object();
+  nlohmann::json paths_by_length = nlohmann::json::object();
+  nlohmann::json secondary_nee_eligibility = {{"not_profiled", 0},     {"source_invalid", 0},
+                                              {"surface_mismatch", 0}, {"degenerate_connection", 0},
+                                              {"facing_mismatch", 0},  {"geometry_eligible", 0}};
+  nlohmann::json secondary_nee_source_eligibility = {
+      {"not_profiled", 0},      {"delta_prefix", 0},      {"primary_retroreflection", 0}, {"volume_scatter", 0},
+      {"geometry_or_alpha", 0}, {"first_bsdf_or_pdf", 0}, {"light_pdf_or_target", 0},     {"source_eligible", 0}};
   nlohmann::json status_counts = {
       {"valid", 0},       {"no_partner", 0},         {"no_source", 0}, {"surface_mismatch", 0},
       {"zero_target", 0}, {"skipped_background", 0}, {"unknown", 0}};
-  constexpr std::array<const char*, 7> path_names = {"invalid",           "primary_emission", "bsdf_emission",
-                                                     "bsdf_environment",  "nee_emission",     "nee_environment",
-                                                     "primary_background"};
+  constexpr std::array<const char*, 10> path_names = {
+      "invalid",      "primary_emission",  "bsdf_emission",      "bsdf_environment",
+      "nee_emission", "nee_environment",   "primary_background", "nee_punctual",
+      "unlit",        "volume_scatter_nee"};
   constexpr std::array<const char*, 7> status_names = {
       "valid", "no_partner", "no_source", "surface_mismatch", "zero_target", "skipped_background", "unknown"};
   constexpr std::array<std::array<unsigned char, 3>, 7> colors = {
@@ -1636,6 +1672,7 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   uint64_t accepted = 0;
   uint64_t rays = 0;
   uint64_t finite_failures = 0;
+  double candidate_weight_sum = 0.0;
   uint32_t maximum_path_length = 0;
   for (size_t index = 0; index < shifts.size(); ++index) {
     const auto& shift = shifts[index];
@@ -1647,9 +1684,27 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
                         std::isfinite(candidate.selected_weight) && std::isfinite(shift.weight_sum) &&
                         std::isfinite(shift.contribution[0]) && std::isfinite(shift.contribution[1]) &&
                         std::isfinite(shift.contribution[2]);
+    if (std::isfinite(candidate.weight_sum)) {
+      candidate_weight_sum += candidate.weight_sum;
+    }
     const auto path = candidate.path_type < path_names.size() ? path_names[candidate.path_type] : "unknown";
     const auto key =
         std::string(path) + ((candidate.flags & RestirPtPathReservoir::kDeltaPrefix) ? "_delta" : "_non_delta");
+    if (candidate.path_type == static_cast<uint32_t>(RestirPtPathType::NeeEmission) && candidate.path_length == 3u) {
+      constexpr std::array<const char*, 8> reasons = {
+          "not_profiled",      "delta_prefix",      "primary_retroreflection", "volume_scatter",
+          "geometry_or_alpha", "first_bsdf_or_pdf", "light_pdf_or_target",     "source_eligible"};
+      const auto reason_index = candidate.flags >> RestirPtPathReservoir::kProfileSourceReasonShift;
+      const auto reason = reasons[std::min<size_t>(reason_index, reasons.size() - 1)];
+      secondary_nee_source_eligibility[reason] = secondary_nee_source_eligibility[reason].get<uint64_t>() + 1;
+    }
+    if (candidate.path_type == static_cast<uint32_t>(RestirPtPathType::NeeEmission) && candidate.path_length == 3u &&
+        (candidate.flags & RestirPtPathReservoir::kDeltaPrefix) == 0u) {
+      constexpr std::array<const char*, 6> reasons = {"not_profiled",          "source_invalid",  "surface_mismatch",
+                                                      "degenerate_connection", "facing_mismatch", "geometry_eligible"};
+      const auto reason = reasons[std::min<size_t>(shift.reserved, reasons.size() - 1)];
+      secondary_nee_eligibility[reason] = secondary_nee_eligibility[reason].get<uint64_t>() + 1;
+    }
     if (!paths.contains(key)) {
       paths[key] = {{"pixels", 0}, {"attempts", 0}, {"accepted", 0}, {"rays", 0}, {"finite_failures", 0}};
     }
@@ -1657,6 +1712,21 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
       const auto length = std::to_string(candidate.path_length);
       path_lengths[length] = path_lengths.value(length, uint64_t{0}) + 1;
       maximum_path_length = std::max(maximum_path_length, candidate.path_length);
+      if (!paths_by_length.contains(key)) {
+        paths_by_length[key] = nlohmann::json::object();
+      }
+      if (!paths_by_length[key].contains(length)) {
+        paths_by_length[key][length] = {
+            {"selected", 0}, {"attempts", 0}, {"accepted", 0}, {"rays", 0}, {"target_density_sum", 0.0}};
+      }
+      auto& bucket = paths_by_length[key][length];
+      bucket["selected"] = bucket["selected"].get<uint64_t>() + 1;
+      bucket["attempts"] = bucket["attempts"].get<uint64_t>() + attempted;
+      bucket["accepted"] = bucket["accepted"].get<uint64_t>() + valid;
+      bucket["rays"] = bucket["rays"].get<uint64_t>() + shift.ray_count;
+      bucket["target_density_sum"] =
+          bucket["target_density_sum"].get<double>() +
+          (std::isfinite(candidate.target_density) ? std::max(candidate.target_density, 0.0f) : 0.0f);
     }
     paths[key]["pixels"] = paths[key]["pixels"].get<uint64_t>() + 1;
     paths[key]["attempts"] = paths[key]["attempts"].get<uint64_t>() + attempted;
@@ -1684,9 +1754,62 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
       {"acceptance", attempts ? static_cast<double>(accepted) / attempts : 0.0},
       {"rays", rays},
       {"finite_failures", finite_failures},
+      {"candidate_weight_sum", candidate_weight_sum},
       {"maximum_path_length", maximum_path_length},
       {"path_lengths", path_lengths},
+      {"selected_by_path_length", paths_by_length},
+      {"secondary_nee_emission_eligibility", secondary_nee_eligibility},
+      {"secondary_nee_source_eligibility", secondary_nee_source_eligibility},
       {"by_path", paths}};
+}
+
+std::optional<nlohmann::json> CollectRestirPtGeneratedDiagnostics(const Camera& camera) {
+  std::vector<RestirPtGeneratedPixel> pixels;
+  glm::uvec2 extent{};
+  if (!camera.DownloadRestirPtGeneratedFrame(pixels, extent)) {
+    return std::nullopt;
+  }
+  constexpr std::array<const char*, 10> path_names = {
+      "invalid",      "primary_emission",  "bsdf_emission",      "bsdf_environment",
+      "nee_emission", "nee_environment",   "primary_background", "nee_punctual",
+      "unlit",        "volume_scatter_nee"};
+  nlohmann::json by_path_length = nlohmann::json::object();
+  uint64_t generated = 0;
+  uint64_t truncated = 0;
+  uint64_t non_finite = 0;
+  double target_weight_sum = 0.0;
+  for (const auto& pixel : pixels) {
+    generated += pixel.count;
+    truncated +=
+        pixel.count > RestirPtGeneratedPixel::kMaxEvents ? pixel.count - RestirPtGeneratedPixel::kMaxEvents : 0u;
+    for (uint32_t index = 0; index < std::min(pixel.count, RestirPtGeneratedPixel::kMaxEvents); ++index) {
+      const auto& event = pixel.events[index];
+      const auto path_type = event.key & 255u;
+      const auto path_length = (event.key >> 8u) & 255u;
+      const bool delta = (event.key & (1u << 16u)) != 0u;
+      const auto key = std::string(path_type < path_names.size() ? path_names[path_type] : "unknown") +
+                       (delta ? "_delta" : "_non_delta");
+      const auto length = std::to_string(path_length);
+      auto& bucket = by_path_length[key][length];
+      if (bucket.is_null()) {
+        bucket = {{"generated", 0}, {"positive_weight", 0}, {"target_weight_sum", 0.0}};
+      }
+      bucket["generated"] = bucket["generated"].get<uint64_t>() + 1;
+      if (!std::isfinite(event.target_density)) {
+        ++non_finite;
+      } else if (event.target_density > 0.0f) {
+        bucket["positive_weight"] = bucket["positive_weight"].get<uint64_t>() + 1;
+        bucket["target_weight_sum"] = bucket["target_weight_sum"].get<double>() + event.target_density;
+        target_weight_sum += event.target_density;
+      }
+    }
+  }
+  return nlohmann::json{{"frame_scope", "last_completed_frame"},
+                        {"generated", generated},
+                        {"truncated", truncated},
+                        {"non_finite", non_finite},
+                        {"target_weight_sum", target_weight_sum},
+                        {"by_path_length", by_path_length}};
 }
 
 void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
@@ -1709,12 +1832,14 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
     std::filesystem::create_directories(parent);
   }
   const auto restir_shift = WriteRestirPtShiftDiagnostics(report_path, camera);
+  const auto restir_generated = CollectRestirPtGeneratedDiagnostics(camera);
   const auto restir_bytes_per_pixel =
       camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
           ? sizeof(RestirPtPathReservoir) * 2 + sizeof(RestirPtPrimarySurface) + sizeof(RestirPtSpatialShift)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly
           ? sizeof(RestirPtPathReservoir) + sizeof(RestirPtPrimarySurface)
           : 0u;
+  const auto restir_profile_bytes_per_pixel = camera.restir_pt_profile_generated ? sizeof(RestirPtGeneratedPixel) : 0u;
   std::ofstream output(report_path, std::ios::trunc);
   if (!output) {
     throw std::runtime_error("Failed to open ray camera profile report: " + report_path.string());
@@ -1748,7 +1873,9 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
          << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"
          << "  \"restir_pt_storage_bytes_per_pixel\": " << restir_bytes_per_pixel << ",\n"
+         << "  \"restir_pt_profile_bytes_per_pixel\": " << restir_profile_bytes_per_pixel << ",\n"
          << "  \"restir_pt_shift\": " << (restir_shift ? restir_shift->dump() : "null") << ",\n"
+         << "  \"restir_pt_generated\": " << (restir_generated ? restir_generated->dump() : "null") << ",\n"
          << "  \"vma_memory\": {\"block_count\": " << memory.block_count
          << ", \"allocation_count\": " << memory.allocation_count << ", \"block_bytes\": " << memory.block_bytes
          << ", \"allocation_bytes\": " << memory.allocation_bytes << "},\n"
@@ -1989,9 +2116,11 @@ void CaptureDemoPreview(
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
-    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<bool>& preview_accumulate_samples, const std::optional<int>& preview_auto_spp_min_samples,
+    const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
+    const bool preview_restir_generated_profile,
     const std::optional<std::filesystem::path>& preview_raster_profile_report_path,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
@@ -2067,6 +2196,9 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.ray_integrator = *preview_ray_integrator;
     scene_camera->ResetFrameCount();
   }
+  scene_camera->restir_pt_profile_generated =
+      preview_restir_generated_profile &&
+      scene_camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
   if (preview_ray_outputs) {
     scene_camera->camera_settings.ray_outputs = *preview_ray_outputs;
     scene_camera->ResetFrameCount();
@@ -2081,6 +2213,10 @@ void CaptureDemoPreview(
   }
   if (preview_auto_spp_enabled) {
     scene_camera->camera_settings.auto_spp_enabled = *preview_auto_spp_enabled;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_accumulate_samples) {
+    scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
     scene_camera->ResetFrameCount();
   }
   if (preview_auto_spp_min_samples) {
@@ -2441,6 +2577,7 @@ void CaptureDemoPreview(
             << " rendered_frames=" << capture_frame_count << " camera_frames=" << scene_camera->GetFrameCount()
             << " elapsed_seconds=" << capture_elapsed_seconds << " frames_per_second=" << capture_frames_per_second
             << " samples_per_frame=" << scene_camera->camera_settings.sample_size
+            << " accumulate_samples=" << scene_camera->camera_settings.accumulate_samples
             << " ray_bounces=" << scene_camera->camera_settings.bounce << std::endl;
   const auto render_texture = scene_camera->GetRenderTexture();
   if (!render_texture) {
@@ -2902,21 +3039,21 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_ray_bounces, command_line.preview_capture_ray_debug_view,
               command_line.preview_capture_ray_integrator, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_auto_spp_min_samples,
-              command_line.preview_capture_auto_spp_max_samples,
+              command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_accumulate_samples,
+              command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
-              command_line.preview_ray_profile_report_path, command_line.preview_raster_profile_report_path,
-              command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
-              command_line.preview_ambient_occlusion_enabled, command_line.preview_anti_aliasing_enabled,
-              command_line.preview_anti_aliasing_preset, command_line.preview_anti_aliasing_debug_mode,
-              command_line.preview_anti_aliasing_debug_disabled, command_line.preview_shadow_split_lambda,
-              command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
-              command_line.preview_shadow_fit_mode, command_line.preview_shadow_debug_mode,
-              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
-              command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
-              command_line.preview_strand_gizmo_fixture, command_line.preview_capture_deterministic,
-              command_line.preview_capture_bistro_ddgi, command_line.preview_ddgi_fixture,
-              command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
+              command_line.preview_ray_profile_report_path, command_line.preview_restir_generated_profile,
+              command_line.preview_raster_profile_report_path, command_line.preview_capture_camera_position,
+              command_line.preview_capture_camera_look_at, command_line.preview_ambient_occlusion_enabled,
+              command_line.preview_anti_aliasing_enabled, command_line.preview_anti_aliasing_preset,
+              command_line.preview_anti_aliasing_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
+              command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
+              command_line.preview_shadow_distance_fade, command_line.preview_shadow_fit_mode,
+              command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
+              command_line.preview_shadow_debug_light, command_line.preview_strand_fixture,
+              command_line.preview_strand_punctual_fixture, command_line.preview_strand_gizmo_fixture,
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
+              command_line.preview_ddgi_fixture, command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
               command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_response_frames,
               command_line.preview_ddgi_disabled, command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
               command_line.preview_ddgi_run_index);

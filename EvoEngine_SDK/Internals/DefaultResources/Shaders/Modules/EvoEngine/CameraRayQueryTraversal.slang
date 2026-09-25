@@ -88,11 +88,13 @@ void EE_CAMERA_RQ_CANDIDATE_LSS_SURFACE<let Flags : uint>(
 
 public
 void EE_CAMERA_RQ_TRACE_SURFACE<let feature_mask : uint>(const float3 origin, const float3 direction,
-                                                         const float min_distance, inout uint seed,
+                                                         const float min_distance, const bool is_inside,
+                                                         inout uint seed,
                                                          inout CameraRayTracingPayload hit_value) {
   RayDesc ray = {origin, min_distance, direction, EE_CAMERA_MAX_TRACE_DISTANCE};
-  RayQuery<RAY_FLAG_CULL_BACK_FACING_TRIANGLES> triangle_query;
-  triangle_query.TraceRayInline(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, EE_CAMERA_TRIANGLE_RAY_MASK_GEOMETRY,
+  RayQuery<RAY_FLAG_NONE> triangle_query;
+  triangle_query.TraceRayInline(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+                                EE_CAMERA_TRIANGLE_RAY_MASK_GEOMETRY,
                                 ray);
   while (triangle_query.Proceed()) {
     if (triangle_query.CandidateType() != CANDIDATE_NON_OPAQUE_TRIANGLE) {

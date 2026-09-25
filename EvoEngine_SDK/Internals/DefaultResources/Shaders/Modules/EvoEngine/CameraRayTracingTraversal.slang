@@ -27,12 +27,13 @@ public float3 EE_CAMERA_RT_SHADOW_TRANSMISSION(const float3 origin, const float3
              : shadow_transmission;
 }
 
-bool EE_CAMERA_RT_TRACE_SURFACE_SER(const RayDesc ray, const bool shader_execution_reordering, inout uint seed,
+bool EE_CAMERA_RT_TRACE_SURFACE_SER(const RayDesc ray, const bool shader_execution_reordering,
+                                    const bool is_inside, inout uint seed,
                                     inout CameraRayTracingPayload hit_value) {
   __target_switch {
     case spvShaderInvocationReorderEXT:
       if (shader_execution_reordering) {
-        HitObject hit_object = HitObject::TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+        HitObject hit_object = HitObject::TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
                                                    EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray,
                                                    hit_value);
         ReorderThread(hit_object);
@@ -47,13 +48,14 @@ bool EE_CAMERA_RT_TRACE_SURFACE_SER(const RayDesc ray, const bool shader_executi
 }
 
 public void EE_CAMERA_RT_TRACE_SURFACE(const float3 origin, const float3 direction, const float min_distance,
-                                       const bool shader_execution_reordering, inout uint seed,
+                                       const bool shader_execution_reordering, const bool is_inside, inout uint seed,
                                        inout CameraRayTracingPayload hit_value) {
   hit_value.seed = seed;
   RayDesc ray = {origin, min_distance, direction, EE_CAMERA_MAX_TRACE_DISTANCE};
-  if (EE_CAMERA_RT_TRACE_SURFACE_SER(ray, shader_execution_reordering, seed, hit_value)) {
+  if (EE_CAMERA_RT_TRACE_SURFACE_SER(ray, shader_execution_reordering, is_inside, seed, hit_value)) {
     return;
   }
-  TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray, hit_value);
+  TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+           EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray, hit_value);
   seed = hit_value.seed;
 }

@@ -31,7 +31,7 @@ public struct Camera {
   public uint auto_spp_min_samples;
   public uint auto_spp_max_samples;
   public float auto_spp_convergence_threshold;
-  public uint camera_block_reserved4;
+  public uint accumulate_samples;
   public uint ray_debug_view;
   public uint raster_lighting_flags;
   public uint ray_output_flags;

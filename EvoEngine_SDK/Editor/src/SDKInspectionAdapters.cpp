@@ -579,7 +579,9 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }
-    const char* sample_label = camera.camera_settings.auto_spp_enabled ? "Samples/frame" : "Samples";
+    const char* sample_label = camera.camera_settings.auto_spp_enabled && camera.camera_settings.accumulate_samples
+                                   ? "Samples/frame"
+                                   : "Samples";
     if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
@@ -598,7 +600,14 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if (camera.camera_settings.auto_spp_enabled) {
+    if (ImGui::Checkbox("Accumulate Samples", &camera.camera_settings.accumulate_samples)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("When disabled, each frame replaces previous radiance with fresh random samples.");
+    }
+    if (camera.camera_settings.auto_spp_enabled && camera.camera_settings.accumulate_samples) {
       if (ImGui::DragInt("Auto min SPP", &camera.camera_settings.auto_spp_min_samples, 1, 1, 4096)) {
         camera.camera_settings.auto_spp_min_samples = glm::max(camera.camera_settings.auto_spp_min_samples, 1);
         camera.camera_settings.auto_spp_max_samples =

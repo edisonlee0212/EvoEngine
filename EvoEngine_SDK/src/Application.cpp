@@ -215,6 +215,7 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "debug" << YAML::Value << ray_outputs.debug;
   out << YAML::EndMap;
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
+  out << YAML::Key << "accumulate_samples" << YAML::Value << camera.camera_settings.accumulate_samples;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
   out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value
@@ -286,6 +287,8 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
   }
   if (in["auto_spp_enabled"])
     camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
+  if (in["accumulate_samples"])
+    camera.camera_settings.accumulate_samples = in["accumulate_samples"].as<bool>();
   if (in["auto_spp_min_samples"])
     camera.camera_settings.auto_spp_min_samples = in["auto_spp_min_samples"].as<int>();
   if (in["auto_spp_max_samples"])

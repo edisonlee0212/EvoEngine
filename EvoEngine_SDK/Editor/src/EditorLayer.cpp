@@ -2539,6 +2539,7 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "ray_integrator" << YAML::Value << Camera::GetRayIntegratorName(settings.ray_integrator);
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
+  out << YAML::Key << "accumulate_samples" << YAML::Value << settings.accumulate_samples;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << settings.auto_spp_max_samples;
   out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value << settings.auto_spp_convergence_threshold;
@@ -2568,6 +2569,7 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }
   ReadYamlValue(in, "auto_spp_enabled", settings.auto_spp_enabled);
+  ReadYamlValue(in, "accumulate_samples", settings.accumulate_samples);
   ReadYamlValue(in, "auto_spp_min_samples", settings.auto_spp_min_samples);
   ReadYamlValue(in, "auto_spp_max_samples", settings.auto_spp_max_samples);
   ReadYamlValue(in, "auto_spp_convergence_threshold", settings.auto_spp_convergence_threshold);

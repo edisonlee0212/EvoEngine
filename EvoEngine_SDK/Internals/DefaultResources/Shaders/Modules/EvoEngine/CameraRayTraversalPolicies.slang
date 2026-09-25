@@ -10,8 +10,9 @@ public struct CameraRayTracingTraversalPolicy : ICameraRayTraversal {
   }
 
   [mutating] void traceSurface(const float3 origin, const float3 direction, const float min_distance,
+                               const bool is_inside,
                                inout uint seed, inout CameraRayTracingPayload payload) {
-    EE_CAMERA_RT_TRACE_SURFACE(origin, direction, min_distance, shader_execution_reordering, seed, payload);
+    EE_CAMERA_RT_TRACE_SURFACE(origin, direction, min_distance, shader_execution_reordering, is_inside, seed, payload);
   }
 
   [mutating] float3 shadowTransmission(const float3 origin, const float3 direction, const float max_distance,
@@ -25,8 +26,9 @@ public struct CameraRayQueryTraversalPolicy<let feature_mask : uint> : ICameraRa
   [mutating] void initialize(const bool shader_execution_reordering) {}
 
   [mutating] void traceSurface(const float3 origin, const float3 direction, const float min_distance,
+                               const bool is_inside,
                                inout uint seed, inout CameraRayTracingPayload payload) {
-    EE_CAMERA_RQ_TRACE_SURFACE<feature_mask>(origin, direction, min_distance, seed, payload);
+    EE_CAMERA_RQ_TRACE_SURFACE<feature_mask>(origin, direction, min_distance, is_inside, seed, payload);
   }
 
   [mutating] float3 shadowTransmission(const float3 origin, const float3 direction, const float max_distance,

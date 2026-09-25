@@ -561,7 +561,7 @@ void EE_GLTF_RT_EVALUATE_GGX_TRANSMISSION(inout GltfRayTracingBsdfEvaluateData d
       float3(dot(material.tangent, data.k2), dot(material.bitangent, data.k2), n_dot_k2), roughness);
   if (!thin_walled && backside) {
     const float tmp = k1_dot_h * ior.x - k2_dot_h * ior.y;
-    if (tmp <= EE_GLTF_RT_BSDF_EPSILON) {
+    if (abs(tmp) <= EE_GLTF_RT_BSDF_EPSILON) {
       return;
     }
     scattering_pdf *= k1_dot_h * k2_dot_h / max(n_dot_k1 * n_dot_h * tmp * tmp, EE_GLTF_RT_BSDF_EPSILON);
@@ -630,7 +630,7 @@ void EE_GLTF_RT_SAMPLE_GGX_TRANSMISSION(inout GltfRayTracingBsdfSampleData data,
   data.pdf = EE_GLTF_RT_HVD_GGX_EVAL(float2(1.0f) / roughness, local_half) * g1;
   if (!thin_walled && data.event_type == EE_GLTF_RT_BSDF_EVENT_GLOSSY_TRANSMISSION) {
     const float tmp = k_dot_h * ior.x - k2_dot_h * ior.y;
-    if (tmp <= EE_GLTF_RT_BSDF_EPSILON) {
+    if (abs(tmp) <= EE_GLTF_RT_BSDF_EPSILON) {
       data.k2 = float3(0.0f);
       data.pdf = 0.0f;
       data.bsdf_over_pdf = float3(0.0f);

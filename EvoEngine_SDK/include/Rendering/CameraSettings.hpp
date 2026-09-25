@@ -119,6 +119,8 @@ struct CameraSettings {
    * \brief Enables per-pixel adaptive ray tracing accumulation.
    */
   bool auto_spp_enabled = false;
+  /** @brief When disabled, each ray-camera frame replaces the previous radiance with fresh random samples. */
+  bool accumulate_samples = true;
   /**
    * \brief Minimum accumulated samples per pixel before convergence can stop a pixel.
    */

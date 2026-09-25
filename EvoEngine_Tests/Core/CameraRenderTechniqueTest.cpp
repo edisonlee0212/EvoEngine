@@ -208,7 +208,7 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_NE(cameras_header.find("uint camera_block_reserved1"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint camera_block_reserved2"), std::string::npos);
   EXPECT_NE(cameras_header.find("uint camera_block_reserved3"), std::string::npos);
-  EXPECT_NE(cameras_header.find("uint camera_block_reserved4"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint accumulate_samples"), std::string::npos);
   EXPECT_NE(cameras_header.find("EE_CAMERA_RAY_OUTPUT_DEBUG"), std::string::npos);
   EXPECT_LT(offsetof(CameraInfoBlock, previous_projection_view),
             offsetof(CameraInfoBlock, previous_inverse_projection));
@@ -222,9 +222,8 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_enabled), offsetof(CameraInfoBlock, auto_spp_min_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_min_samples), offsetof(CameraInfoBlock, auto_spp_max_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_max_samples), offsetof(CameraInfoBlock, auto_spp_convergence_threshold));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
-            offsetof(CameraInfoBlock, camera_block_reserved4));
-  EXPECT_LT(offsetof(CameraInfoBlock, camera_block_reserved4), offsetof(CameraInfoBlock, ray_debug_view));
+  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold), offsetof(CameraInfoBlock, accumulate_samples));
+  EXPECT_LT(offsetof(CameraInfoBlock, accumulate_samples), offsetof(CameraInfoBlock, ray_debug_view));
   EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
 }
 
@@ -247,6 +246,13 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
   EXPECT_NE(lighting.find("raster_lighting_flags & 1u"), std::string::npos);
   EXPECT_NE(camera_source.find("post_processing_stack->ambient_occlusion)"), std::string::npos);
   EXPECT_EQ(camera_source.find("AmbientOcclusion::Algorithm"), std::string::npos);
+}
+
+TEST(CameraRenderTechnique, AccumulationModeChangeInvalidatesCameraHistory) {
+  CameraInfoBlock accumulated;
+  CameraInfoBlock fresh_frame = accumulated;
+  fresh_frame.accumulate_samples = 0u;
+  EXPECT_TRUE(accumulated != fresh_frame);
 }
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
@@ -310,6 +316,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
     camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::SpecularF0;
     camera.camera_settings.auto_spp_enabled = true;
+    camera.camera_settings.accumulate_samples = false;
     camera.camera_settings.auto_spp_min_samples = 8;
     camera.camera_settings.auto_spp_max_samples = 64;
     camera.camera_settings.auto_spp_convergence_threshold = 0.025f;
@@ -331,6 +338,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
     EXPECT_EQ(restored.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
     EXPECT_TRUE(restored.camera_settings.auto_spp_enabled);
+    EXPECT_FALSE(restored.camera_settings.accumulate_samples);
     EXPECT_EQ(restored.camera_settings.auto_spp_min_samples, 8);
     EXPECT_EQ(restored.camera_settings.auto_spp_max_samples, 64);
     EXPECT_FLOAT_EQ(restored.camera_settings.auto_spp_convergence_threshold, 0.025f);

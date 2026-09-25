@@ -220,9 +220,13 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    push_constant.frame_id = parameters.camera->camera_settings.accumulate_samples
+                                 ? (history_resources.valid ? history_resources.frame_id : 0u)
+                                 : static_cast<uint32_t>(Platform::GetFrameCount());
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
-    push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
+    push_constant.total_samples = parameters.camera->camera_settings.accumulate_samples
+                                      ? push_constant.frame_id * push_constant.frame_samples
+                                      : 0u;
     push_constant.shader_execution_reordering =
         (!Platform::RayTracingLinearSweptSpheresEnabled() &&
          Camera::ResolveShaderExecutionReorderingEnabled(
@@ -315,6 +319,11 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
       output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirShiftBinding, parameters.shift_buffer);
       parameters.transient_resources->RetainBuffer(parameters.shift_buffer);
     }
+    if (parameters.generated_buffer) {
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirGeneratedBinding,
+                                                           parameters.generated_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.generated_buffer);
+    }
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -324,9 +333,13 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    push_constant.frame_id = parameters.camera->camera_settings.accumulate_samples
+                                 ? (history_resources.valid ? history_resources.frame_id : 0u)
+                                 : static_cast<uint32_t>(Platform::GetFrameCount());
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
-    push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
+    push_constant.total_samples = parameters.camera->camera_settings.accumulate_samples
+                                      ? push_constant.frame_id * push_constant.frame_samples
+                                      : 0u;
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);

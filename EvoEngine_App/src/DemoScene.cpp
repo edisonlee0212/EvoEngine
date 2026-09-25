@@ -2887,7 +2887,9 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       camera->camera_settings.fov = fov;
       camera->camera_settings.near_distance = near_distance;
       camera->camera_settings.far_distance = far_distance;
-      camera->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
+      camera->camera_settings.background_source = fixture_id == "restir-indirect-upward"
+                                                      ? Camera::BackgroundSource::ClearColor
+                                                      : Camera::BackgroundSource::Cubemap;
       camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
       camera->camera_settings.background_intensity = 1.0f;
       camera->camera_settings.sample_size = 1;
@@ -3046,16 +3048,27 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
                                    glm::vec3(0.85f), glm::vec3(1.0f), 0.0f, 1.0f);
     create_emitter("ReSTIR Mirror Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
   } else if (fixture_id == "restir-diffuse-visible" || fixture_id == "restir-diffuse-occluded" ||
-             fixture_id == "restir-roulette") {
+             fixture_id == "restir-roulette" || fixture_id == "restir-indirect" ||
+             fixture_id == "restir-indirect-upward") {
     CreateRenderingRegressionProbe(scene, root, "ReSTIR Diffuse Receiver", primitives.sphere,
                                    glm::vec3(0.0f, 0.85f, -2.4f), glm::vec3(0.85f), glm::vec3(0.75f, 0.6f, 0.45f), 0.9f,
                                    0.0f);
-    create_emitter("ReSTIR Diffuse Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+    if (fixture_id == "restir-indirect-upward") {
+      create_emitter("ReSTIR Upward Emitter", glm::vec3(0.8f, 0.025f, 0.8f), false, 0, false, true,
+                     kDdgiValidationEmitterRadiance * 4.0f);
+    } else {
+      create_emitter("ReSTIR Diffuse Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+    }
     if (fixture_id == "restir-diffuse-occluded") {
       CreateRenderingRegressionProbe(scene, root, "ReSTIR Occluder", primitives.cube, glm::vec3(0.0f, 1.9f, -2.4f),
                                      glm::vec3(0.5f, 0.06f, 0.5f), glm::vec3(0.25f), 0.9f, 0.0f);
     }
-    if (fixture_id == "restir-roulette") {
+    if (fixture_id == "restir-roulette" || fixture_id == "restir-indirect" || fixture_id == "restir-indirect-upward") {
+      if (fixture_id == "restir-indirect" || fixture_id == "restir-indirect-upward") {
+        CreateRenderingRegressionProbe(scene, root, "ReSTIR Indirect Baffle", primitives.cube,
+                                       glm::vec3(0.0f, 1.95f, -2.4f), glm::vec3(1.1f, 0.05f, 1.1f), glm::vec3(0.7f),
+                                       0.9f, 0.0f);
+      }
       CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Ceiling", primitives.cube,
                                      glm::vec3(0.0f, 2.6f, -2.4f), glm::vec3(2.2f, 0.05f, 2.0f), glm::vec3(0.78f), 0.9f,
                                      0.0f);
@@ -3068,7 +3081,8 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       const glm::vec3 roulette_camera_position(0.0f, 1.1f, 1.5f);
       const auto roulette_rotation = glm::quatLookAt(
           glm::normalize(glm::vec3(0.0f, 1.0f, -2.4f) - roulette_camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
-      configure_validation_camera(roulette_camera_position, roulette_rotation, 62.0f, 0.05f, 250.0f);
+      configure_validation_camera(roulette_camera_position, roulette_rotation,
+                                  fixture_id == "restir-indirect-upward" ? 36.0f : 62.0f, 0.05f, 250.0f);
       main_camera->camera_settings.bounce = 8;
       if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
         if (const auto scene_camera = editor_layer->GetSceneCamera()) {
@@ -3094,6 +3108,75 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     CreateRenderingRegressionProbe(scene, root, "ReSTIR Far Edge", primitives.cube, glm::vec3(0.5f, 0.75f, -3.0f),
                                    glm::vec3(0.48f, 0.75f, 0.28f), glm::vec3(0.12f, 0.2f, 0.7f), 0.8f, 0.0f);
     create_emitter("ReSTIR Edge Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-instanced") {
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    ConfigureMaterial(material, glm::vec3(0.75f, 0.6f, 0.45f), 0.8f, 0.0f);
+    const auto entity = scene->CreateEntity("ReSTIR Instanced Receivers");
+    const auto particles = scene->GetOrSetPrivateComponent<Particles>(entity).lock();
+    particles->mesh = primitives.sphere;
+    particles->material = material;
+    const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
+    std::vector<ParticleInfo> infos(2);
+    infos[0].instance_matrix.SetValue(glm::vec3(-0.85f, 0.85f, -2.4f), glm::vec3(0.0f), glm::vec3(0.65f));
+    infos[1].instance_matrix.SetValue(glm::vec3(0.85f, 0.85f, -2.4f), glm::vec3(0.0f), glm::vec3(0.65f));
+    particle_info_list->SetParticleInfos(infos);
+    particles->RecalculateBoundingBox();
+    scene->SetParent(entity, root);
+    create_emitter("ReSTIR Instanced Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-strands") {
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    ConfigureMaterial(material, glm::vec3(0.8f, 0.35f, 0.15f), 0.5f, 0.0f);
+    CreateStrandValidationRenderer(scene, root, "ReSTIR Strands",
+                                   CreateStrandValidationGeometry(58, glm::vec4(1.0f), 0.14f), material,
+                                   glm::vec3(0.0f, 0.9f, -2.4f), glm::vec3(1.0f), true);
+    create_emitter("ReSTIR Strand Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-unlit") {
+    const auto entity = CreateRenderingRegressionProbe(scene, root, "ReSTIR Unlit Receiver", primitives.sphere,
+                                                       glm::vec3(0.0f, 0.85f, -2.4f), glm::vec3(0.85f),
+                                                       glm::vec3(0.8f, 0.3f, 0.15f), 0.9f, 0.0f);
+    const auto material = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+    material->material_data.shade_material.unlit = 1;
+    material->MarkDirty();
+    create_emitter("ReSTIR Unlit Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
+  } else if (fixture_id == "restir-transmission-thin" || fixture_id == "restir-diffuse-transmission-thin") {
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    const bool diffuse = fixture_id == "restir-diffuse-transmission-thin";
+    ConfigureMaterial(material, glm::vec3(1.0f), diffuse ? 0.9f : 0.08f, 0.0f, 0.0f, diffuse ? 0.0f : 1.0f);
+    material->material_data.shade_material.diffuse_transmission_factor = diffuse ? 1.0f : 0.0f;
+    material->MarkDirty();
+    CreateRenderingRegressionMaterialQuadEntity(scene, root, "ReSTIR Thin Transmission",
+                                                CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f)}), material,
+                                                glm::vec3(0.0f, 1.0f, -1.7f), glm::vec3(0.0f), glm::vec3(1.2f));
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Transmission Backdrop", primitives.cube,
+                                   glm::vec3(0.0f, 1.0f, -3.0f), glm::vec3(1.1f, 1.0f, 0.05f),
+                                   glm::vec3(0.12f, 0.45f, 0.9f), 0.9f, 0.0f, 4.0f);
+  } else if (fixture_id == "restir-volume-absorption" || fixture_id == "restir-volume-scattering" ||
+             fixture_id == "restir-internal-reflection") {
+    const bool scattering = fixture_id == "restir-volume-scattering";
+    const bool internal_reflection = fixture_id == "restir-internal-reflection";
+    const auto entity = CreateRenderingRegressionProbe(
+        scene, root, "ReSTIR Absorbing Glass", internal_reflection ? primitives.cube : primitives.sphere,
+        glm::vec3(0.0f, 0.85f, -2.4f), internal_reflection ? glm::vec3(0.35f, 0.8f, 1.0f) : glm::vec3(0.8f),
+        glm::vec3(1.0f), 0.06f, 0.0f);
+    const auto material = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+    auto& shade = material->material_data.shade_material;
+    shade.transmission_factor = 1.0f;
+    shade.thickness_factor = 1.0f;
+    shade.ior = internal_reflection ? 2.0f : 1.5f;
+    shade.attenuation_color = scattering ? glm::vec3(0.3f) : glm::vec3(0.2f, 0.7f, 0.9f);
+    shade.attenuation_distance = 0.8f;
+    shade.multiscatter_color_factor = scattering ? glm::vec3(0.8f) : glm::vec3(0.0f);
+    shade.scatter_anisotropy = scattering ? 0.3f : 0.0f;
+    material->MarkDirty();
+    CreateRenderingRegressionProbe(scene, root, "ReSTIR Absorption Backdrop", primitives.cube,
+                                   glm::vec3(0.0f, 0.85f, -3.5f), glm::vec3(1.0f, 0.8f, 0.05f), glm::vec3(1.0f), 0.9f,
+                                   0.0f, 4.0f);
+    if (internal_reflection) {
+      const glm::vec3 camera_position(2.2f, 1.1f, 1.2f);
+      const auto camera_rotation =
+          glm::quatLookAt(glm::normalize(glm::vec3(0.0f, 0.85f, -2.4f) - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
+      configure_validation_camera(camera_position, camera_rotation, 48.0f, 0.05f, 250.0f);
+    }
   } else if (fixture_id == "alpha-tested") {
     create_emitter("DDGI Alpha Fixture Emitter", glm::vec3(0.8f, 0.02f, 0.8f), true);
     const auto blocker_mesh = CreateRenderingRegressionMaterialQuad(

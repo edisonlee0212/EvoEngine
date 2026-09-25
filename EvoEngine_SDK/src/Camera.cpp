@@ -131,6 +131,11 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
       byte_size += buffer->GetSize();
     }
   }
+  for (const auto& buffer : history.restir_generated_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
   return byte_size;
 }
 
@@ -492,6 +497,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (auto_spp_enabled != other.auto_spp_enabled)
     return true;
+  if (accumulate_samples != other.accumulate_samples)
+    return true;
   if (auto_spp_min_samples != other.auto_spp_min_samples)
     return true;
   if (auto_spp_max_samples != other.auto_spp_max_samples)
@@ -670,7 +677,8 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
   const auto auto_spp_max_samples =
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
-  camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled ? 1u : 0u;
+  camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled && camera_settings.accumulate_samples ? 1u : 0u;
+  camera_info_block.accumulate_samples = camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.auto_spp_min_samples = auto_spp_min_samples;
   camera_info_block.auto_spp_max_samples = auto_spp_max_samples;
   camera_info_block.auto_spp_convergence_threshold = glm::max(camera_settings.auto_spp_convergence_threshold, 0.0f);
@@ -1001,6 +1009,17 @@ bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& ca
   return true;
 }
 
+bool Camera::DownloadRestirPtGeneratedFrame(std::vector<RestirPtGeneratedPixel>& generated, glm::uvec2& extent) const {
+  const auto& history = ray_camera_history_;
+  const auto slot = history.restir_last_generated_slot;
+  if (!history.valid || slot >= history.restir_generated_buffers.size() || !history.restir_generated_buffers[slot]) {
+    return false;
+  }
+  extent = {history.extent.width, history.extent.height};
+  history.restir_generated_buffers[slot]->DownloadVector(generated, static_cast<size_t>(extent.x) * extent.y);
+  return true;
+}
+
 SampledImageResources Camera::GetGBufferBaseColorAoResources() const {
   return {g_buffer_base_color_ao_, g_buffer_base_color_ao_view_, g_buffer_sampler_};
 }
@@ -1091,6 +1110,7 @@ void Camera::InvalidateRayCameraHistory() {
     ray_camera_history_.frame_id = 0;
     ray_camera_history_.valid = false;
     ray_camera_history_.restir_last_shift_slot = UINT32_MAX;
+    ray_camera_history_.restir_last_generated_slot = UINT32_MAX;
     ++ray_camera_history_counters_.invalidation_count;
   }
 }
@@ -1135,6 +1155,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.frame_id = 0;
       history.valid = false;
       history.restir_last_shift_slot = UINT32_MAX;
+      history.restir_last_generated_slot = UINT32_MAX;
       ++ray_camera_history_counters_.invalidation_count;
     }
   }

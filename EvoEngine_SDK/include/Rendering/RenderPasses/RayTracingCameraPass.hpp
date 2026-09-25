@@ -51,6 +51,7 @@ class EVOENGINE_API RayQueryCameraPass final {
     bool commit_history = true;
     std::shared_ptr<Buffer> resolved_buffer;
     std::shared_ptr<Buffer> shift_buffer;
+    std::shared_ptr<Buffer> generated_buffer;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {},

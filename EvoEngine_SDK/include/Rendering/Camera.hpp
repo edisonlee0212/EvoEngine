@@ -39,6 +39,7 @@ inline constexpr uint32_t kRayCameraRestirCandidateBinding = kRayCameraOutputDes
 inline constexpr uint32_t kRayCameraRestirPrimarySurfaceBinding = kRayCameraRestirCandidateBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirResolvedBinding = kRayCameraRestirPrimarySurfaceBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirShiftBinding = kRayCameraRestirResolvedBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirGeneratedBinding = kRayCameraRestirShiftBinding + 1u;
 
 struct RayCameraOutputDescriptorSlot {
   std::shared_ptr<DescriptorSet> descriptor_set;
@@ -73,7 +74,9 @@ struct RayCameraHistoryResources {
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_generated_buffers;
   uint32_t restir_last_shift_slot = UINT32_MAX;
+  uint32_t restir_last_generated_slot = UINT32_MAX;
 };
 
 struct RayCameraHistoryStats {
@@ -138,7 +141,7 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t auto_spp_min_samples = 16;
   uint32_t auto_spp_max_samples = 256;
   float auto_spp_convergence_threshold = 0.01f;
-  uint32_t camera_block_reserved4 = 0;
+  uint32_t accumulate_samples = 1;
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
   uint32_t ray_output_flags = 0;
@@ -220,6 +223,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] static CameraRenderMode ResolveCameraRenderMode(CameraRenderMode requested_mode);
 
   CameraRenderMode camera_render_mode = CameraRenderMode::Rasterization;  ///< The current rendering mode.
+  bool restir_pt_profile_generated = false;
 
   /**
    * @brief Transits the GBuffer image layout.
@@ -375,6 +379,8 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] bool DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& candidates,
                                                   std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const;
+  [[nodiscard]] bool DownloadRestirPtGeneratedFrame(std::vector<RestirPtGeneratedPixel>& generated,
+                                                    glm::uvec2& extent) const;
   [[nodiscard]] SampledImageResources GetGBufferBaseColorAoResources() const;
   [[nodiscard]] SampledImageResources GetGBufferNormalRoughnessResources() const;
   [[nodiscard]] SampledImageResources GetGBufferPbrFlagsResources() const;

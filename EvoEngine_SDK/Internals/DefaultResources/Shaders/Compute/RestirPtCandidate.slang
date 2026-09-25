@@ -1,6 +1,12 @@
 #ifndef EE_GLTF_COMPILED_FEATURE_MASK
 #  define EE_GLTF_COMPILED_FEATURE_MASK 32767u
 #endif
+#ifndef EE_RESTIR_PT_PROFILE_GENERATED
+#  define EE_RESTIR_PT_PROFILE_GENERATED 0
+#endif
+#ifndef EE_RESTIR_PT_SINGLE_SAMPLE
+#  define EE_RESTIR_PT_SINGLE_SAMPLE 0
+#endif
 import EvoEngine.CameraRayIntegrator;
 import EvoEngine.CameraRayTraversalPolicies;
 
@@ -17,6 +23,8 @@ import EvoEngine.CameraRayTraversalPolicies;
     return;
   }
   EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
-                                          EE_GLTF_COMPILED_FEATURE_MASK>(pixel_coordinate, image_size,
+                                          EE_GLTF_COMPILED_FEATURE_MASK,
+                                          EE_RESTIR_PT_PROFILE_GENERATED != 0,
+                                          EE_RESTIR_PT_SINGLE_SAMPLE != 0>(pixel_coordinate, image_size,
                                                                           candidate_buffer, primary_surface_buffer);
 }

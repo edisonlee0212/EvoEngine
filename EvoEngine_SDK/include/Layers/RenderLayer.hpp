@@ -1078,8 +1078,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_candidate_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_single_sample_candidate_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_profile_candidate_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_profile_single_sample_candidate_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_resolve_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_profile_spatial_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_combine_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_resolve_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;

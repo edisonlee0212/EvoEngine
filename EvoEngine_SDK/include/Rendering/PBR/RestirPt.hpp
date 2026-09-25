@@ -13,6 +13,9 @@ enum class RestirPtPathType : uint32_t {
   NeeEmission = 4u,
   NeeEnvironment = 5u,
   PrimaryBackground = 6u,
+  NeePunctual = 7u,
+  Unlit = 8u,
+  VolumeScatterNee = 9u,
 };
 
 // Byte-addressed GPU layout; keep in sync with EvoEngine.RestirPt.
@@ -20,6 +23,7 @@ struct RestirPtPathReservoir {
   static constexpr uint32_t kVersion = 1u;
   static constexpr uint32_t kInvalidInstance = UINT32_MAX;
   static constexpr uint32_t kDeltaPrefix = 1u;
+  static constexpr uint32_t kProfileSourceReasonShift = 8u;
 
   uint32_t version = kVersion;
   uint32_t path_type = 0u;
@@ -78,5 +82,18 @@ struct RestirPtSpatialShift {
 };
 
 static_assert(sizeof(RestirPtSpatialShift) == 32u);
+
+struct RestirPtGeneratedEvent {
+  uint32_t key = 0u;
+  float target_density = 0.0f;
+};
+
+struct RestirPtGeneratedPixel {
+  static constexpr uint32_t kMaxEvents = 32u;
+  uint32_t count = 0u;
+  RestirPtGeneratedEvent events[kMaxEvents]{};
+};
+
+static_assert(sizeof(RestirPtGeneratedPixel) == 260u);
 
 }  // namespace evo_engine
