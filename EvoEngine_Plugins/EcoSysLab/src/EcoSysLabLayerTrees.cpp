@@ -489,6 +489,7 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   simulated_time_ = 0;
   auto_time_grow_ = false;
   auto_grow_target_time_ = 0.0f;
+  auto_iteration_grow_remaining_ = 0;
   on_auto_grow_finished_ = {};
   if (tree_entities) {
     for (const auto& i : *tree_entities) {

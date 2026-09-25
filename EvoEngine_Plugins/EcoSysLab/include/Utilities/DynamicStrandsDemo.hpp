@@ -27,6 +27,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Target growth time for tree-growth demos, in years.
   float target_growth_time = 0.f;
 
+  /// @brief Target growth iterations (Simulate steps). When > 0, used instead of @ref target_growth_time.
+  int target_growth_iterations = 0;
+
   /// @brief Reference to a temporary entity.
   EntityRef temp_entity1_ref;
 
@@ -71,6 +74,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
     SmallTrunk,       ///< Grow Oak_trunk (4 years) then run volumetric meshing.
     NormalTrunk,      ///< Grow Oak_trunk (8 years) then run volumetric meshing.
     StockyTrunk,      ///< Grow Oak_trunk_stocky (seed 42) then run volumetric meshing.
+    OakThickStump,    ///< Grow Oak (15 iterations, default seed); 100 end strands, alpha cutoffs 5, tension 1.
     LogCut,           ///< Volumetric log cut + board-style pivot break simulation.
     LogSpoon,         ///< Volumetric log spoon cut + board-style pivot break simulation.
     LogCutUprightBunny  ///< Upright half-length log + bunny boundary (bottom fixed, top rotates).
@@ -152,7 +156,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
   float automated_export_upper_snapshot_ = 10.f;
   float automated_export_stepsize_snapshot_ = 0.5f;
 
-  /// Start EcoSysLab auto-grow for @ref target_growth_time years (async; advances in EcoSysLabLayer::Update).
+  /// Start EcoSysLab auto-grow for @ref target_growth_iterations Simulate steps when > 0,
+  /// otherwise @ref target_growth_time years (async; advances in EcoSysLabLayer::Update).
   void BeginTreeAutoGrow();
   /// If auto-grow has finished, build strands/mesh and enter physics Simulation. Safe to call from OnInspect.
   void TryFinishTreeGrowthAndStartMeshing();

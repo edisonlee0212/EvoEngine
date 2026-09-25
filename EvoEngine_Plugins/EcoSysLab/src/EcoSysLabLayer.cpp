@@ -230,7 +230,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
         }
         ImGui::Text(("Simulated time: " + std::to_string(simulated_time_ / 365.f) + " years").c_str());
         ImGui::DragFloat("Target years", &auto_grow_extra_years_, 0.1f, simulated_time_ / 365.f, 999);
-        if (auto_time_grow_) {
+        if (IsAutoGrowing()) {
           if (ImGui::Button("Force stop")) {
             StopAutoGrow();
           }
@@ -787,20 +787,32 @@ void EcoSysLabLayer::StartAutoGrow(const float years) {
   if (years <= 0.f) {
     return;
   }
+  auto_iteration_grow_remaining_ = 0;
   auto_time_grow_ = true;
   auto_grow_target_time_ = simulated_time_ + years * 365.f;
   EVOENGINE_LOG("Tree auto-grow started: +" << years << " years (target age " << (auto_grow_target_time_ / 365.f)
                                             << " years).");
 }
 
+void EcoSysLabLayer::StartAutoGrowIterations(const int iterations) {
+  if (iterations <= 0) {
+    return;
+  }
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = simulated_time_;
+  auto_iteration_grow_remaining_ = iterations;
+  EVOENGINE_LOG("Tree auto-grow started: +" << iterations << " iterations.");
+}
+
 void EcoSysLabLayer::StopAutoGrow() {
   auto_time_grow_ = false;
   auto_grow_target_time_ = simulated_time_;
+  auto_iteration_grow_remaining_ = 0;
   on_auto_grow_finished_ = {};
 }
 
 bool EcoSysLabLayer::IsAutoGrowing() const {
-  return auto_time_grow_;
+  return auto_time_grow_ || auto_iteration_grow_remaining_ > 0;
 }
 
 void EcoSysLabLayer::SetOnAutoGrowFinished(std::function<void()> callback) {
@@ -819,11 +831,23 @@ void EcoSysLabLayer::Update() {
   DynamicSkeletonPhysics();
   DynamicStrandSimulation();
 
-  if (auto_time_grow_) {
+  const bool growing = auto_time_grow_ || auto_iteration_grow_remaining_ > 0;
+  if (growing) {
     Simulate();
-    if (auto_grow_target_time_ <= simulated_time_) {
+    if (auto_iteration_grow_remaining_ > 0) {
+      --auto_iteration_grow_remaining_;
+    }
+    const bool years_done = auto_time_grow_ && auto_grow_target_time_ <= simulated_time_;
+    const bool iterations_done = !auto_time_grow_ && auto_iteration_grow_remaining_ == 0;
+    if (years_done || iterations_done) {
       auto_time_grow_ = false;
-      EVOENGINE_LOG("Tree auto-grow finished at age " << (simulated_time_ / 365.f) << " years.");
+      auto_iteration_grow_remaining_ = 0;
+      if (years_done) {
+        EVOENGINE_LOG("Tree auto-grow finished at age " << (simulated_time_ / 365.f) << " years.");
+      } else {
+        EVOENGINE_LOG("Tree auto-grow finished after requested iterations (age " << (simulated_time_ / 365.f)
+                                                                                << " years).");
+      }
       if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
           tree_entities && !tree_entities->empty()) {
         for (const auto& tree_entity : *tree_entities) {

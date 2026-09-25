@@ -150,12 +150,19 @@ class EcoSysLabLayer : public ILayer {
   void StartAutoGrow(float years);
 
   /**
+   * @brief Start automatic tree growth for @p iterations Simulate() steps
+   *        (same unit as the "Grow 1 iteration" button in the Tree Simulation UI).
+   *        Mutually exclusive with year-based @ref StartAutoGrow.
+   */
+  void StartAutoGrowIterations(int iterations);
+
+  /**
    * @brief Stop automatic tree growth early (same as Force stop while growing).
    */
   void StopAutoGrow();
 
   /**
-   * @brief Whether automatic multi-year tree growth is currently in progress.
+   * @brief Whether automatic tree growth (years or iterations) is currently in progress.
    */
   [[nodiscard]] bool IsAutoGrowing() const;
 
@@ -409,6 +416,7 @@ class EcoSysLabLayer : public ILayer {
   bool auto_time_grow_ = false;                  ///< Automatic multi-year growth in progress.
   float auto_grow_target_time_ = 0.0f;           ///< Target simulated time (days) for auto-grow.
   float auto_grow_extra_years_ = 4.f;            ///< Default years requested from the Tree Simulation UI.
+  int auto_iteration_grow_remaining_ = 0;        ///< Remaining Simulate() steps for iteration auto-grow.
   std::function<void()> on_auto_grow_finished_;  ///< One-shot callback when auto-grow ends.
   std::vector<Fruit> fruits_;                    ///< Stores fruit entities.
   std::vector<Leaf> leaves_;                     ///< Stores leaf entities.

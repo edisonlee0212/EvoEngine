@@ -170,6 +170,13 @@ void ApplyStockyTrunkTreePreset(const std::shared_ptr<Tree>& tree) {
   values[3] = glm::vec2(-0.05f, 0.0f);
 }
 
+void ApplyOakThickStumpPreset(const std::shared_ptr<Tree>& tree) {
+  tree->strand_model_parameters.end_node_strands = 100;
+  DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff = 5.0;
+  DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff = 5.0;
+  DsKineticVoronoiMeshing::meshing_settings.spline_tension = 1.0f;
+}
+
 void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& physics_parameters) {
   physics_parameters.bundle_strength_factor = 1.0f;
   physics_parameters.crack_bd_shrinkage_offset = 0.0f;
@@ -223,8 +230,13 @@ void DynamicStrandsDemo::BeginTreeAutoGrow() {
   eco_sys_lab_layer->SetOnAutoGrowFinished([this]() {
     TryFinishTreeGrowthAndStartMeshing();
   });
-  eco_sys_lab_layer->StartAutoGrow(target_growth_time);
-  EVOENGINE_LOG("Demo: waiting for EcoSysLab tree auto-grow (" << target_growth_time << " years)...");
+  if (target_growth_iterations > 0) {
+    eco_sys_lab_layer->StartAutoGrowIterations(target_growth_iterations);
+    EVOENGINE_LOG("Demo: waiting for EcoSysLab tree auto-grow (" << target_growth_iterations << " iterations)...");
+  } else {
+    eco_sys_lab_layer->StartAutoGrow(target_growth_time);
+    EVOENGINE_LOG("Demo: waiting for EcoSysLab tree auto-grow (" << target_growth_time << " years)...");
+  }
 }
 
 void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
@@ -249,14 +261,18 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
     return;
   }
 
-  const float target_days = target_growth_time * 365.f;
-  if (eco_sys_lab_layer->GetSimulatedTime() + 1e-3f < target_days) {
-    EVOENGINE_ERROR("Tree auto-grow ended before reaching the target age ("
-                    << (eco_sys_lab_layer->GetSimulatedTime() / 365.f) << " / " << target_growth_time << " years).");
-    demo_type = DemoType::Empty;
-    demo_status = DemoStatus::Idle;
-    tree_auto_grow_started_ = false;
-    return;
+  if (target_growth_iterations > 0) {
+    // Iteration-based demos finish when StartAutoGrowIterations completes; year check does not apply.
+  } else {
+    const float target_days = target_growth_time * 365.f;
+    if (eco_sys_lab_layer->GetSimulatedTime() + 1e-3f < target_days) {
+      EVOENGINE_ERROR("Tree auto-grow ended before reaching the target age ("
+                      << (eco_sys_lab_layer->GetSimulatedTime() / 365.f) << " / " << target_growth_time << " years).");
+      demo_type = DemoType::Empty;
+      demo_status = DemoStatus::Idle;
+      tree_auto_grow_started_ = false;
+      return;
+    }
   }
 
   const auto scene = GetScene();
@@ -289,6 +305,14 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
     tree_dts->seed = 42;
     EVOENGINE_LOG("Stocky Trunk: tree growth finished (" << target_growth_time
                                                          << " years, seed 42). Building strands and meshing...");
+  } else if (demo_type == DemoType::OakThickStump) {
+    ApplyOakThickStumpPreset(tree);
+    ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+    tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+    tree_dts->initialize_parameters.min_segment_length = 0.005f;
+    tree_dts->initialize_parameters.max_segment_length = 0.01f;
+    EVOENGINE_LOG("Oak thick stump: tree growth finished (" << target_growth_iterations
+                                                           << " iterations). Building strands and meshing...");
   }
   ApplySegmentSubdivisionOverride(tree_dts->initialize_parameters);
   tree_dts->InitializeFromTree(tree, pending_meshing_buffer_description);
@@ -313,6 +337,8 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   simulated_time = 0.f;
   // target_factor0 = 1.f;
   target_factor1 = 1.f;
+  target_growth_time = 0.f;
+  target_growth_iterations = 0;
   automated_export_upper = 10.f;
   ResetAutomatedExportSchedule();
   DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.0004f;
@@ -426,11 +452,22 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (demo_type != DemoType::Empty) {
     ImGui::Text("Demo started");
     if (demo_status == DemoStatus::TreeGrowth) {
-      float grown_years = 0.f;
-      if (const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>()) {
-        grown_years = eco_sys_lab_layer->GetSimulatedTime() / 365.f;
+      if (target_growth_iterations > 0) {
+        int grown_iterations = 0;
+        if (const auto scene = GetScene()) {
+          const auto tree_entity = tree_entity_ref.Get();
+          if (scene->IsEntityValid(tree_entity) && scene->HasPrivateComponent<Tree>(tree_entity)) {
+            grown_iterations = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock()->shoot_model.CurrentIteration();
+          }
+        }
+        ImGui::Text("Tree growth: %d / %d iterations", grown_iterations, target_growth_iterations);
+      } else {
+        float grown_years = 0.f;
+        if (const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>()) {
+          grown_years = eco_sys_lab_layer->GetSimulatedTime() / 365.f;
+        }
+        ImGui::Text("Tree growth: %.2f / %.2f years", grown_years, target_growth_time);
       }
-      ImGui::Text("Tree growth: %.2f / %.2f years", grown_years, target_growth_time);
       // Safety poll if Playing Update is off and the finish callback was missed.
       TryFinishTreeGrowthAndStartMeshing();
     } else {
@@ -1648,6 +1685,38 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           "Grow Oak_trunk_stocky for 6 years with seed 42: thicker root, milder skeleton bends, "
           "fewer strands / weaker packing for a less round cross-section, then volumetric mesh.");
     }
+
+    if (ImGui::Button("Oak thick stump")) {
+      ResetEnvironment(editor_layer);
+      demo_type = DemoType::OakThickStump;
+      demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Oak thick stump";
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
+      const auto tree_entity = scene->CreateEntity("Tree");
+      tree_entity_ref = tree_entity;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      scene->SetDataComponent(tree_entity, tree_initial_pose);
+      target_growth_time = 0.f;
+      target_growth_iterations = 15;
+      tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Basic/Oak.tree");
+      ApplyOakThickStumpPreset(tree);
+      ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+      const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      tree_dts->enable_physics = false;
+      tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      tree_dts->initialize_parameters.min_segment_length = 0.005f;
+      tree_dts->initialize_parameters.max_segment_length = 0.01f;
+      EVOENGINE_LOG("Oak thick stump: growing Oak for " << target_growth_iterations << " iterations...");
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Grow Oak for 15 iterations (default seed): 100 end strands/branch, alpha cutoffs 5, "
+          "strand tension 1, then volumetric mesh.");
+    }
     ImGui::TreePop();
   }
 
@@ -1875,7 +1944,8 @@ void DynamicStrandsDemo::Update() {
     }
     case DemoType::SmallTrunk:
     case DemoType::NormalTrunk:
-    case DemoType::StockyTrunk: {
+    case DemoType::StockyTrunk:
+    case DemoType::OakThickStump: {
       const auto tree_entity = tree_entity_ref.Get();
       if (scene->IsEntityValid(tree_entity)) {
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
@@ -1988,6 +2058,8 @@ const char* DynamicStrandsDemo::DemoTypeExportFolderName(const DemoType type) {
       return "Normal Trunk";
     case DemoType::StockyTrunk:
       return "Stocky Trunk";
+    case DemoType::OakThickStump:
+      return "Oak thick stump";
     case DemoType::LogCut:
       return "Log cut";
     case DemoType::LogSpoon:
@@ -2007,6 +2079,7 @@ std::shared_ptr<DynamicTreeStrands> DynamicStrandsDemo::GetActiveDynamicTreeStra
     case DemoType::SmallTrunk:
     case DemoType::NormalTrunk:
     case DemoType::StockyTrunk:
+    case DemoType::OakThickStump:
     case DemoType::TrunkStrength:
     case DemoType::Wind:
     case DemoType::TreeCollision:
