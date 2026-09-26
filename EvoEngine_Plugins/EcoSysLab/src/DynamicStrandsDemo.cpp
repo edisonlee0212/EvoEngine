@@ -440,6 +440,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::SetTooltip(
         "When exporting OBJs, write one object (o) per segment meshlet instead of a single combined object.");
   }
+  ImGui::Checkbox("Separate bark OBJ group", &MeshletObjExport::separate_bark_obj_group);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "On combined GPU mesh OBJ export, write bark faces as object `bark` and remaining faces as `interior` "
+        "(helps isolate bark lighting in Blender). Ignored when Per-meshlet objects is on.");
+  }
   if (automated_export) {
     ImGui::DragFloat("Export lower bound", &automated_export_lower, 0.01f, 0.f, 1.0e6f);
     ImGui::DragFloat("Export upper bound", &automated_export_upper, 0.01f, 0.f, 1.0e6f);

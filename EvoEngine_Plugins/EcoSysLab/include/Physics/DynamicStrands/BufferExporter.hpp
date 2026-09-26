@@ -35,6 +35,8 @@ class MeshletObjExport {
   static bool enable_smoothing;
   /// When true, OBJ export writes one `o` object per segment meshlet (grouped by @c segment_index).
   static bool per_meshlet_objects;
+  /// When true (default), combined OBJ export writes bark faces as object `bark` and the rest as `interior`.
+  static bool separate_bark_obj_group;
 
   /// Color / highlight source for visualization OBJ materials (Visualization Segment/Strand color).
   enum class VisualizationColorMode {

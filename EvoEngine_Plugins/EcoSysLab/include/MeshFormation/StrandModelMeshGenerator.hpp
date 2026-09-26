@@ -71,6 +71,51 @@ struct StrandModelMeshGeneratorSettings {
  * @brief Class responsible for generating a mesh from a strand model.
  */
 class StrandModelMeshGenerator {
+ public:
+  /**
+   * @brief Performs mesh smoothing on the generated mesh (neighbor-average Laplacian).
+   * @param vertices The vertex list of the mesh.
+   * @param indices The index list of the mesh.
+   * @param lock_ground_plane When true (marching-cubes default), vertices with y <= 0.001 keep their y.
+   * @param factor Blend toward the neighbor average in [0, 1] (1 = full Laplacian step).
+   */
+  static void MeshSmoothing(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices,
+                            bool lock_ground_plane = true, float factor = 1.0f);
+
+  /**
+   * @brief Performs mesh smoothing using index pairs.
+   * @param vertices The vertex list of the mesh.
+   * @param indices The index pairs representing connectivity.
+   * @param lock_ground_plane When true (marching-cubes default), vertices with y <= 0.001 keep their y.
+   * @param factor Blend toward the neighbor average in [0, 1] (1 = full Laplacian step).
+   */
+  static void MeshSmoothing(std::vector<Vertex>& vertices, std::vector<std::pair<unsigned int, unsigned int>>& indices,
+                            bool lock_ground_plane = true, float factor = 1.0f);
+
+  /**
+   * @brief Generates a mesh from a strand model using the specified settings.
+   * @param strand_model The input strand model.
+   * @param vertices Output vector storing the generated vertices.
+   * @param indices Output vector storing the generated indices.
+   * @param settings Configuration settings for mesh generation.
+   */
+  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
+                       std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
+
+  /**
+   * @brief Generates a mesh including texture coordinates for the strand model.
+   * @param strand_model The input strand model.
+   * @param vertices Output vector storing the generated vertices.
+   * @param tex_coords Output vector storing the generated texture coordinates.
+   * @param index_pairs Output vector storing connectivity as indexed pairs.
+   * @param settings Configuration settings for mesh generation.
+   */
+  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
+                       std::vector<glm::vec2>& tex_coords,
+                       std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
+                       const StrandModelMeshGeneratorSettings& settings);
+
+ private:
   /**
    * @brief Generates a cylindrical mesh from the given strand model.
    * @param strand_model The input strand model.
@@ -80,20 +125,6 @@ class StrandModelMeshGenerator {
    */
   static void CylindricalMeshing(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                                  std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
-
-  /**
-   * @brief Performs mesh smoothing on the generated mesh.
-   * @param vertices The vertex list of the mesh.
-   * @param indices The index list of the mesh.
-   */
-  static void MeshSmoothing(std::vector<Vertex>& vertices, std::vector<unsigned int>& indices);
-
-  /**
-   * @brief Performs mesh smoothing using index pairs.
-   * @param vertices The vertex list of the mesh.
-   * @param indices The index pairs representing connectivity.
-   */
-  static void MeshSmoothing(std::vector<Vertex>& vertices, std::vector<std::pair<unsigned int, unsigned int>>& indices);
 
   /**
    * @brief Calculates normals for the given vertex and index data.
@@ -118,29 +149,5 @@ class StrandModelMeshGenerator {
    */
   static void CalculateUv(const StrandModel& strand_model, std::vector<Vertex>& vertices,
                           const StrandModelMeshGeneratorSettings& settings);
-
- public:
-  /**
-   * @brief Generates a mesh from a strand model using the specified settings.
-   * @param strand_model The input strand model.
-   * @param vertices Output vector storing the generated vertices.
-   * @param indices Output vector storing the generated indices.
-   * @param settings Configuration settings for mesh generation.
-   */
-  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                       std::vector<unsigned int>& indices, const StrandModelMeshGeneratorSettings& settings);
-
-  /**
-   * @brief Generates a mesh including texture coordinates for the strand model.
-   * @param strand_model The input strand model.
-   * @param vertices Output vector storing the generated vertices.
-   * @param tex_coords Output vector storing the generated texture coordinates.
-   * @param index_pairs Output vector storing connectivity as indexed pairs.
-   * @param settings Configuration settings for mesh generation.
-   */
-  static void Generate(const StrandModel& strand_model, std::vector<Vertex>& vertices,
-                       std::vector<glm::vec2>& tex_coords,
-                       std::vector<std::pair<unsigned int, unsigned int>>& index_pairs,
-                       const StrandModelMeshGeneratorSettings& settings);
 };
 }  // namespace eco_sys_lab_plugin

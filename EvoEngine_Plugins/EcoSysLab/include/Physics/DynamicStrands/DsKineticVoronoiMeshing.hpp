@@ -80,8 +80,13 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through
     /// knots).
     float spline_tension = 0.5f;
-    /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
-    double alpha_cutoff = 10.0;
+  /// Laplacian smoothing iterations on welded bark triangles before GPU upload (0 = disabled).
+  /// Reuses @ref StrandModelMeshGenerator::MeshSmoothing (no ground-plane lock).
+  int bark_smooth_iterations = 0;
+  /// Per-iteration blend toward the neighbor average: 0 = no move, 1 = full Laplacian step.
+  float bark_smooth_strength = 0.5f;
+  /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
+  double alpha_cutoff = 10.0;
     /// Cross-branch alpha cutoff (@ref TreeMesher::Settings::branch_alpha_cutoff). Disabled when equal to alpha_cutoff.
     double branch_alpha_cutoff = 10.0;
     /// Extra sections above floor(t)+1 when classifying same-branch membership for branch_alpha_cutoff (0 = default).
@@ -120,15 +125,17 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     unsigned int vertex_index1;
     unsigned int vertex_index2;
     int neighbor_segment_index;
-    // TODO: perhaps split these off into separate buffers with indices
-    glm::vec4 normal[3];   // 4th dimension is padding
-    glm::vec4 normal0[3];  // 4th dimension is padding
-    glm::vec4 uv[3];       // 4th dimension is padding
+    // Per triangle corner (not per shared vertex). Keep layout in sync with KineticVoronoiMeshing.glsl.
+    glm::vec4 normal[3];   // current / skinned
+    glm::vec4 normal0[3];  // rest pose (prediction source)
+    glm::vec4 uv[3];
     int segment_pair_index;
     int padding0;
     int padding1;
     int padding2;
   };
+  static_assert(sizeof(GpuSegmentMeshletTriangle) == 176,
+                "GpuSegmentMeshletTriangle must match GLSL SegmentMeshletTriangle std430 size");
 
   struct SegmentMeshletPushConstant {
     union Index1 {
@@ -174,6 +181,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::vector<kinDS::VoronoiMesh> segment_meshlets_;
   /// Neighbor indices matching @ref segment_meshlets_ before intersection.
   std::vector<std::vector<int>> meshing_neighbor_indices_;
+  /// Welded bark-only debug mesh after smooth + seam normal average (GPU/world frame). Empty until first populate.
+  kinDS::VoronoiMesh bark_debug_mesh_{};
+  bool has_bark_debug_mesh_ = false;
   /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
   GlobalTransform meshlets_root_transform_{};
   /// Cached from @ref InitData; used when rebuilding pair rest state after intersection compact.

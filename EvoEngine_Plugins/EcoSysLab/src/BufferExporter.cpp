@@ -714,6 +714,7 @@ void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mes
 
 bool MeshletObjExport::enable_smoothing = false;
 bool MeshletObjExport::per_meshlet_objects = false;
+bool MeshletObjExport::separate_bark_obj_group = true;
 MeshletObjExport::VisualizationColorMode MeshletObjExport::visualization_color_mode =
     MeshletObjExport::VisualizationColorMode::Segments;
 MeshletObjExport::VisualizationObjectGrouping MeshletObjExport::visualization_object_grouping =
@@ -930,9 +931,18 @@ kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
     const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
     const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
     mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, material_id);
+    // One normal per triangle corner (not per shared vertex). Matches GpuSegmentMeshletTriangle::normal[3].
     for (int i = 0; i < 3; ++i) {
       mesh.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
     }
+  }
+
+  if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
+      mesh.getNormals().size() != mesh.getTriangles().size()) {
+    throw std::runtime_error("MeshletObjExport::ToVoronoiMesh: expected PerTriangleCorner normals with one entry "
+                             "per corner; normals=" +
+                             std::to_string(mesh.getNormals().size()) + ", corners=" +
+                             std::to_string(mesh.getTriangles().size()));
   }
 
   return mesh;
@@ -1111,12 +1121,37 @@ void MeshletObjExport::ExportObj(const std::filesystem::path& path,
   }
 
   const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
+  size_t bark_triangle_count = 0;
+  const bool write_bark_group = separate_bark_obj_group && !neighbor_connectivity_debug;
+  if (write_bark_group) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> bark_triangles;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> interior_triangles;
+    bark_triangles.reserve(export_triangles.size());
+    interior_triangles.reserve(export_triangles.size());
+    for (const auto& triangle : export_triangles) {
+      if (triangle.neighbor_segment_index == -2) {
+        bark_triangles.push_back(triangle);
+      } else {
+        interior_triangles.push_back(triangle);
+      }
+    }
+    bark_triangle_count = bark_triangles.size();
+    export_triangles = std::move(bark_triangles);
+    export_triangles.insert(export_triangles.end(),
+                            std::make_move_iterator(interior_triangles.begin()),
+                            std::make_move_iterator(interior_triangles.end()));
+  }
+
   kinDS::VoronoiMesh mesh =
       ToVoronoiMesh(export_vertices, export_triangles, fracture_distance, neighbor_connectivity_debug, segment_pairs);
+  if (write_bark_group) {
+    mesh.setGroupOffsets({0, bark_triangle_count});
+    mesh.setGroupNames({"bark", "interior"});
+  }
   kinDS::ObjWriteOptions options;
   options.uv_height_factor = uv_height_factor;
   options.uv_circum_factor = uv_circum_factor;
-  options.write_obj_groups = false;
+  options.write_obj_groups = write_bark_group;
   options.gpu_attributes = BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
   WriteExportedMesh(path, std::move(mesh), options, neighbor_connectivity_debug);
 }

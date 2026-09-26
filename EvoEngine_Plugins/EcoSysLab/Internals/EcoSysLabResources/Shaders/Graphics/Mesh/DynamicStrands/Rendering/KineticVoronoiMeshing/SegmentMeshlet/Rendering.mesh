@@ -97,8 +97,9 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
 
   vec3 pos = segment_meshlet_vertex.x - fracture_distance * segment_meshlet_vertex.shift;
   ms_v_out[vertex_index].FragPos = pos;
-  // this is certainly incorrect, but somehow the lighting computation expects the x-coordinate to be inverted
-  ms_v_out[vertex_index].Normal = vec3(-vertex_normal.x, vertex_normal.y, vertex_normal.z);
+  // Geometric normal from GPU (PerTriangleCorner). A previous X flip matched an outdated OBJ convention;
+  // keep shading aligned with stored / exported normals.
+  ms_v_out[vertex_index].Normal = vertex_normal;
   ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);  // TODO
 
   if (is_bark) {
