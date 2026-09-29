@@ -46,6 +46,7 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
   // initialize_parameters.min_segment_length = 0.005f;
   // initialize_parameters.max_segment_length = 0.01f;
 
+  dynamic_strands->EnsureMeshingAlgorithms(initialize_parameters.meshing_type);
   dynamic_strands->InitializeData(random_engine, initialize_parameters, strand_model.strand_model_skeleton,
                                   strand_model_strand_group, randomly_subdivided_strand_group,
                                   uniformly_subdivided_strand_group);
@@ -163,6 +164,35 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   ImGui::SameLine();
   ImGui::RadioButton("Alpha Shape Meshing", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
                      static_cast<int>(MeshingType::AlphaShape));
+  ImGui::SameLine();
+  ImGui::RadioButton("Both", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
+                     static_cast<int>(MeshingType::Both));
+  const bool show_kinetic_settings = initialize_parameters.meshing_type == MeshingType::KineticVoronoi ||
+                                     initialize_parameters.meshing_type == MeshingType::Both;
+  const bool show_alpha_settings = initialize_parameters.meshing_type == MeshingType::AlphaShape ||
+                                   initialize_parameters.meshing_type == MeshingType::Both;
+  if (show_kinetic_settings) {
+    if (ImGui::TreeNodeEx("Kinetic Voronoi settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (auto* kinetic_voronoi = dynamic_strands->GetKineticVoronoiMeshing()) {
+        kinetic_voronoi->OnInspect(editor_layer);
+      } else {
+        ImGui::TextDisabled("Re-initialize / re-subdivide to activate Kinetic Voronoi meshing.");
+        // Static settings remain editable so the next init picks them up.
+        DsKineticVoronoiMeshing::InspectSharedMeshingSettings(editor_layer);
+      }
+      ImGui::TreePop();
+    }
+  }
+  if (show_alpha_settings) {
+    if (ImGui::TreeNodeEx("Alpha Shape settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (auto* alpha_shape = dynamic_strands->GetAlphaShapeMeshing()) {
+        alpha_shape->OnInspect(editor_layer);
+      } else {
+        ImGui::TextDisabled("Re-initialize / re-subdivide to activate Alpha Shape meshing.");
+      }
+      ImGui::TreePop();
+    }
+  }
   ImGui::Checkbox("Fixed seed", &fixed_subdivision_seed);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
@@ -288,7 +318,9 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::Text((std::string("Segment count: ") + std::to_string(dynamic_strands->segments.size())).c_str());
     ImGui::Text((std::string("Segment pair count: ") + std::to_string(dynamic_strands->segment_pairs.size())).c_str());
     if (ImGui::TreeNode("Meshing")) {
-      dynamic_strands->meshing->Stats(editor_layer);
+      dynamic_strands->ForEachMeshing([&](DsMeshing& m) {
+        m.Stats(editor_layer);
+      });
       ImGui::TreePop();
     }
     ImGui::TreePop();
@@ -348,8 +380,6 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     dynamic_strands->Upload();
     EVOENGINE_LOG("Uploaded data from GPU")
   }
-
-  dynamic_strands->meshing->OnInspect(editor_layer);
 
   return false;
 }

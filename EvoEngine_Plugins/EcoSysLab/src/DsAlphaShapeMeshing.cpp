@@ -542,12 +542,11 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Clear() {
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  // TODO: tie to alpha shape meshing only
-  // TODO: use a different descriptor set for meshing
+  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–11 so both can be live.
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      8, device_uniform_particles_buffer, 0);
+      10, device_uniform_particles_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      9, device_delaunay_tetrahedrons_buffer, 0);
+      11, device_delaunay_tetrahedrons_buffer, 0);
 }
 
 bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {

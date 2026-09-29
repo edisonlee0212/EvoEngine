@@ -5,7 +5,7 @@
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
 
-enum class MeshingType { AlphaShape, KineticVoronoi };
+enum class MeshingType { AlphaShape, KineticVoronoi, Both };
 
 /**
  * \brief Parameters used during the initialization of the dynamic strand model.

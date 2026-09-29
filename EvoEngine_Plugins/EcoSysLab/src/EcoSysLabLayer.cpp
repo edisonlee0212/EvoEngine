@@ -483,6 +483,25 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
 
   ImGui::Checkbox("Rendering", &dynamic_strands_settings_.enable_rendering);
   if (ImGui::TreeNode("Rendering settings")) {
+    enum class ActiveMeshVisualization : int { Kinetic = 0, Alpha = 1 };
+    static int active_mesh_visualization = static_cast<int>(ActiveMeshVisualization::Kinetic);
+    ImGui::TextUnformatted("Active mesh visualization");
+    bool visualization_changed = false;
+    visualization_changed |=
+        ImGui::RadioButton("Kinetic Voronoi", &active_mesh_visualization, static_cast<int>(ActiveMeshVisualization::Kinetic));
+    ImGui::SameLine();
+    visualization_changed |=
+        ImGui::RadioButton("Alpha Shape", &active_mesh_visualization, static_cast<int>(ActiveMeshVisualization::Alpha));
+    if (visualization_changed) {
+      const bool show_kinetic = active_mesh_visualization == static_cast<int>(ActiveMeshVisualization::Kinetic);
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.enabled = show_kinetic;
+      DsAlphaShapeMeshing::render_settings.branches_render_parameters.enabled = !show_kinetic;
+      DsAlphaShapeMeshing::render_settings.small_segments_render_parameters.enabled = !show_kinetic;
+      DsAlphaShapeMeshing::render_settings.small_segments_visualization_render_parameters.enabled = !show_kinetic;
+      if (show_kinetic) {
+        DsAlphaShapeMeshing::render_settings.visualization_rendering = false;
+      }
+    }
     if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {
       DsAlphaShapeMeshing::OnInspectRenderSettings(editor_layer);
       ImGui::TreePop();

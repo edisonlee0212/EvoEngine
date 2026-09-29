@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <vector>
 #include "DynamicStrands.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -133,6 +134,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Current status of the demo simulation.
   DemoStatus demo_status = DemoStatus::Idle;
 
+  /// Folder name under PhysicsDemoExports for the current @ref demo_type.
+  [[nodiscard]] static const char* DemoTypeExportFolderName(DemoType type);
+
   /**
    * @brief Inspects and modifies properties of the demo in the editor interface.
    * @param editor_layer Shared pointer to the editor layer for UI rendering.
@@ -167,14 +171,17 @@ class DynamicStrandsDemo : public IPrivateComponent {
   void AdvanceAutomatedExportScheduleFrom(float current_time);
   void SnapshotAutomatedExportSettings();
   [[nodiscard]] bool AutomatedExportSettingsChanged() const;
-  /// Folder name under PhysicsDemoExports for the current @ref demo_type.
-  [[nodiscard]] static const char* DemoTypeExportFolderName(DemoType type);
-  /// DynamicTreeStrands that owns the active simulation mesh (owner or tree entity).
+  /// DynamicTreeStrands on the PhysicsDemo owner (including TreeDescriptor demos).
   [[nodiscard]] std::shared_ptr<DynamicTreeStrands> GetActiveDynamicTreeStrands();
   /// If due, download meshlets and write OBJs for all scheduled times <= @p time.
   void TryAutomatedExportsUpTo(float time);
   void ApplySegmentSubdivisionOverride(DynamicStrandsInitializeParameters& initialize_parameters) const;
   void RunLogExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
   void RunBoardExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
+
+  /// Pending alpha (= cutoff^2) values for Small Trunk parameter sweep (empty when inactive).
+  std::vector<double> small_trunk_alpha_sweep_;
+  /// After tree growth, mesh once per pending alpha (forces remesh so statistics are written).
+  void RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tree>& tree, const std::shared_ptr<DynamicTreeStrands>& dts);
 };
 }  // namespace eco_sys_lab_plugin

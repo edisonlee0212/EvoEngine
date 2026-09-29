@@ -68,7 +68,9 @@ class MeshletObjExport {
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, float fracture_distance = 0.0f,
       bool neighbor_connectivity_debug = false,
-      const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {});
+      const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
+      const std::vector<std::string>& vertex_metadata = {},
+      const std::vector<std::string>& face_metadata = {});
 
   static kinDS::ObjExportGpuAttributes BuildGpuAttributes(
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
@@ -95,7 +97,9 @@ class MeshletObjExport {
                         const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor = 1.0,
                         double uv_circum_factor = 1.0, float fracture_distance = 0.0f,
                         const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
-                        const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {});
+                        const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {},
+                        const std::vector<std::string>& vertex_metadata = {},
+                        const std::vector<std::string>& face_metadata = {});
 
   static void ExportObjCombined(const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
                                 const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor = 1.0,

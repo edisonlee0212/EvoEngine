@@ -171,7 +171,9 @@ void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
           auto scene = dts->GetScene();
           auto owner = dts->GetOwner();
 
-          dts->dynamic_strands->meshing->RegisterRenderInstances(handle, scene, owner);
+          dts->dynamic_strands->ForEachMeshing([&](DsMeshing& m) {
+            m.RegisterRenderInstances(handle, scene, owner);
+          });
 
           dts->RegisterFoliageRenderInstance(dynamic_strands_settings_.foliage_render_parameters);
 

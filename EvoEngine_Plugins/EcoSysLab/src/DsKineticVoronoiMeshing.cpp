@@ -6,13 +6,14 @@
 #include <cstdint>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
-#include <glm/gtx/norm.hpp>            // for length2()
-#include <exception>
-#include <functional>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/norm.hpp>  // for length2()
 #include <iomanip>
 #include <limits>
 #include <numeric>
@@ -29,10 +30,9 @@
 #include "ComputePipeline.hpp"
 #include "DsConstraints.hpp"
 #include "DsIntersectionBoundaryMesh.hpp"
-#include "StrandModelMeshGenerator.hpp"
-#include "Vertex.hpp"
 #include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "MeshRenderer.hpp"
@@ -40,7 +40,9 @@
 #include "ProgressBar.hpp"
 #include "ProjectManager.hpp"
 #include "Shader.hpp"
+#include "StrandModelMeshGenerator.hpp"
 #include "Transform.hpp"
+#include "Vertex.hpp"
 #include "kinDS/kinDS/KineticDelaunay.hpp"
 #include "kinDS/kinDS/MeshIntersection.hpp"
 #include "kinDS/kinDS/ObjExporter.hpp"
@@ -48,7 +50,6 @@
 #include "kinDS/kinDS/SegmentBuilder.hpp"
 #include "kinDS/kinDS/Statistics.hpp"
 #include "kinDS/kinDS/StrandTree.hpp"
-#include <glm/gtc/matrix_transform.hpp>
 
 using namespace eco_sys_lab_plugin;
 
@@ -223,9 +224,26 @@ bool ArePhysicsSegmentsConnected(const int segment_a, const int segment_b,
   return false;
 }
 
-/// Average bark corner normals at vertices shared across neighboring segment meshlets.
-/// Uses the same shared-vertex identification as OBJ export smoothing (exact position + intact
-/// segment-pair / strand links). Runs on CPU meshlets before GPU upload.
+/// True when a bark face is a Delaunay triangle-cap fan (light_blue / pending-split fallback material).
+bool IsTriangleCapBarkFace(const kinDS::VoronoiMesh& mesh, size_t triangle_index) {
+  const auto& material_ids = mesh.getMaterialIDs();
+  if (triangle_index >= material_ids.size()) {
+    return false;
+  }
+  const int material_id = material_ids[triangle_index];
+  const auto& names = mesh.getMaterialNames();
+  if (material_id >= 0 && static_cast<size_t>(material_id) < names.size()) {
+    return names[static_cast<size_t>(material_id)] == "light_blue";
+  }
+  return material_id == kinDS::SegmentBuilder::PendingSplitFallbackMeshletMaterialId;
+}
+
+/// Average bark corner normals at vertices shared across neighboring segment meshlets, and at
+/// multi-face vertices within a single meshlet (bark often comes from several glued intersection pieces).
+/// Uses exact position + intact segment-pair / strand links for cross-segment groups. Triangle-cap
+/// (light_blue) corners on boundary verts (shared with regular bark) contribute to the average and
+/// receive it; cap-only interior corners are left alone here and filled by barycentric interpolation.
+/// Runs on CPU meshlets before GPU upload.
 void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
                                   const std::vector<std::vector<int>>& meshing_neighbor_indices,
                                   const std::vector<uint8_t>& meshlet_has_bark,
@@ -237,6 +255,7 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
     size_t meshlet_id = 0;
     size_t triangle_index = 0;
     int corner = 0;
+    bool from_triangle_cap = false;
   };
 
   // One entry per (meshlet, local vertex) that participates in at least one bark corner.
@@ -246,6 +265,8 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
     int physics_segment = -1;
     ExactPositionKey position{};
     std::vector<BarkCornerRef> corners;
+    bool on_regular_bark = false;
+    bool on_triangle_cap = false;
   };
 
   size_t bark_meshlet_count = 0;
@@ -278,10 +299,9 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
     if (meshlet_id >= meshing_neighbor_indices.size()) {
       continue;
     }
-    const int physics_segment =
-        meshlet_id < meshing_to_physics_segment_indices.size()
-            ? static_cast<int>(meshing_to_physics_segment_indices[meshlet_id])
-            : -1;
+    const int physics_segment = meshlet_id < meshing_to_physics_segment_indices.size()
+                                    ? static_cast<int>(meshing_to_physics_segment_indices[meshlet_id])
+                                    : -1;
     if (physics_segment < 0) {
       continue;
     }
@@ -294,6 +314,7 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
       if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
         continue;
       }
+      const bool is_cap = IsTriangleCapBarkFace(mesh, tri);
       for (int corner = 0; corner < 3; ++corner) {
         const size_t local_vertex = triangles[3 * tri + static_cast<size_t>(corner)];
         if (local_vertex >= vertices.size()) {
@@ -307,13 +328,27 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
           bv.local_vertex = local_vertex;
           bv.physics_segment = physics_segment;
           bv.position = ExactPositionKey::From(vertices[local_vertex]);
-          bv.corners.push_back(BarkCornerRef{meshlet_id, tri, corner});
+          bv.corners.push_back(BarkCornerRef{meshlet_id, tri, corner, is_cap});
+          bv.on_regular_bark = !is_cap;
+          bv.on_triangle_cap = is_cap;
           bark_vertex_index.emplace(key, bark_vertices.size());
           bark_vertices.push_back(std::move(bv));
         } else {
-          bark_vertices[it->second].corners.push_back(BarkCornerRef{meshlet_id, tri, corner});
+          BarkVertex& bv = bark_vertices[it->second];
+          bv.corners.push_back(BarkCornerRef{meshlet_id, tri, corner, is_cap});
+          bv.on_regular_bark = bv.on_regular_bark || !is_cap;
+          bv.on_triangle_cap = bv.on_triangle_cap || is_cap;
         }
       }
+    }
+  }
+
+  // Positions that appear on regular (non-cap) bark — used to spot cap-only interior verts.
+  std::unordered_set<ExactPositionKey, ExactPositionKeyHash> regular_bark_positions;
+  regular_bark_positions.reserve(bark_vertices.size());
+  for (const BarkVertex& bv : bark_vertices) {
+    if (bv.on_regular_bark) {
+      regular_bark_positions.insert(bv.position);
     }
   }
 
@@ -322,135 +357,697 @@ void AverageSharedBarkSeamNormals(std::vector<kinDS::VoronoiMesh>& meshes,
   size_t shared_seam_groups = 0;
   size_t corners_updated = 0;
   size_t corners_failed = 0;
+  size_t regular_source_corners = 0;
+  size_t cap_corners_overwritten = 0;
+  size_t cap_interior_corners_interpolated = 0;
 
-  if (bark_vertices.size() < 2) {
-    EVOENGINE_LOG("Bark seam normals: bark_meshlets=" << bark_meshlet_count << ", bark_vertices="
-                                                     << bark_vertices.size()
-                                                     << ", shared_bark_vertices=0 (nothing to average). segments="
-                                                     << segments.size() << ", pairs=" << segment_pairs.size());
-    return;
-  }
-
-  std::unordered_map<ExactPositionKey, std::vector<size_t>, ExactPositionKeyHash> groups_by_position;
-  groups_by_position.reserve(bark_vertices.size());
-  for (size_t i = 0; i < bark_vertices.size(); ++i) {
-    groups_by_position[bark_vertices[i].position].push_back(i);
-  }
-
-  for (auto& [position_key, member_indices] : groups_by_position) {
-    (void)position_key;
-    const size_t member_count = member_indices.size();
-    if (member_count < 2) {
-      continue;
-    }
-    ++co_located_position_groups;
-
-    BarkSeamUnionFind uf(member_count);
-    for (size_t i = 0; i < member_count; ++i) {
-      const int segment_i = bark_vertices[member_indices[i]].physics_segment;
-      for (size_t j = i + 1; j < member_count; ++j) {
-        const int segment_j = bark_vertices[member_indices[j]].physics_segment;
-        if (ArePhysicsSegmentsConnected(segment_i, segment_j, segments, segment_pairs, segment_data_list)) {
-          uf.Unite(i, j);
-        }
-      }
+  if (!bark_vertices.empty()) {
+    std::unordered_map<ExactPositionKey, std::vector<size_t>, ExactPositionKeyHash> groups_by_position;
+    groups_by_position.reserve(bark_vertices.size());
+    for (size_t i = 0; i < bark_vertices.size(); ++i) {
+      groups_by_position[bark_vertices[i].position].push_back(i);
     }
 
-    std::unordered_map<size_t, std::vector<size_t>> components;
-    components.reserve(member_count);
-    for (size_t i = 0; i < member_count; ++i) {
-      components[uf.Find(i)].push_back(member_indices[i]);
-    }
-
-    for (const auto& [root, component] : components) {
-      (void)root;
-      if (component.size() < 2) {
-        continue;
-      }
-
-      std::unordered_set<int> segment_indices;
-      std::unordered_set<size_t> meshlet_ids;
-      segment_indices.reserve(component.size());
-      meshlet_ids.reserve(component.size());
+    auto average_and_write_component = [&](const std::vector<size_t>& component) {
+      bool has_regular_source = false;
       for (const size_t bark_vertex_index : component) {
-        segment_indices.insert(bark_vertices[bark_vertex_index].physics_segment);
-        meshlet_ids.insert(bark_vertices[bark_vertex_index].meshlet_id);
+        has_regular_source = has_regular_source || bark_vertices[bark_vertex_index].on_regular_bark;
       }
-      // Require at least two segment meshlets so we only smooth true seams.
-      if (meshlet_ids.size() < 2 || segment_indices.size() < 2) {
-        continue;
+      // Cap-only coincidences (no regular bark) do not define a boundary seam average; interiors
+      // keep their face normals until the barycentric pass.
+      if (!has_regular_source) {
+        return;
       }
-
-      ++shared_seam_groups;
-      shared_bark_vertices += component.size();
 
       glm::dvec3 sum_normal(0.0);
       size_t corner_count = 0;
       for (const size_t bark_vertex_index : component) {
         for (const BarkCornerRef& ref : bark_vertices[bark_vertex_index].corners) {
+          // Boundary verts: include both regular bark and triangle-cap corners in the average.
           const size_t corner_index = 3 * ref.triangle_index + static_cast<size_t>(ref.corner);
           sum_normal += meshes[ref.meshlet_id].getNormals()[corner_index];
           ++corner_count;
+          ++regular_source_corners;
         }
       }
       if (corner_count == 0) {
-        continue;
+        return;
+      }
+      if (corner_count < 2) {
+        return;
       }
       const double length = glm::length(sum_normal);
       if (length <= 1.0e-16) {
-        continue;
+        return;
       }
       const glm::dvec3 averaged = sum_normal / length;
 
-      // Write the same averaged normal to every bark corner on every participating meshlet vertex.
+      ++shared_seam_groups;
+      shared_bark_vertices += component.size();
+
+      // Write the averaged normal to every bark face corner at these boundary verts (regular + cap).
+      // Cap-only interior verts are not in this component and keep their normals for interpolation.
       for (const size_t bark_vertex_index : component) {
         const BarkVertex& bark_vertex = bark_vertices[bark_vertex_index];
-        kinDS::VoronoiMesh& mesh = meshes[bark_vertex.meshlet_id];
-        for (const BarkCornerRef& ref : bark_vertex.corners) {
-          if (ref.meshlet_id != bark_vertex.meshlet_id) {
-            ++corners_failed;
-            continue;
-          }
-          const size_t corner_index = 3 * ref.triangle_index + static_cast<size_t>(ref.corner);
-          if (corner_index >= mesh.getNormals().size()) {
-            ++corners_failed;
-            continue;
-          }
-          // Confirm this corner still references the same local vertex.
-          if (corner_index >= mesh.getTriangles().size() ||
-              mesh.getTriangles()[corner_index] != bark_vertex.local_vertex) {
-            ++corners_failed;
-            continue;
-          }
-          mesh.setNormal(averaged, corner_index);
-          ++corners_updated;
+        if (bark_vertex.meshlet_id >= meshes.size() || bark_vertex.meshlet_id >= meshing_neighbor_indices.size()) {
+          ++corners_failed;
+          continue;
         }
+        kinDS::VoronoiMesh& mesh = meshes[bark_vertex.meshlet_id];
+        const auto& face_neighbors = meshing_neighbor_indices[bark_vertex.meshlet_id];
+        const auto& triangles = mesh.getTriangles();
+        if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
+            mesh.getNormals().size() != triangles.size()) {
+          ++corners_failed;
+          continue;
+        }
+        const size_t tri_count = mesh.getTriangleCount();
+        for (size_t tri = 0; tri < tri_count; ++tri) {
+          if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
+            continue;
+          }
+          const bool is_cap = IsTriangleCapBarkFace(mesh, tri);
+          for (int corner = 0; corner < 3; ++corner) {
+            const size_t corner_index = 3 * tri + static_cast<size_t>(corner);
+            if (triangles[corner_index] != bark_vertex.local_vertex) {
+              continue;
+            }
+            if (corner_index >= mesh.getNormals().size()) {
+              ++corners_failed;
+              continue;
+            }
+            mesh.setNormal(averaged, corner_index);
+            ++corners_updated;
+            if (is_cap) {
+              ++cap_corners_overwritten;
+            }
+          }
+        }
+      }
+    };
+
+    for (auto& [position_key, member_indices] : groups_by_position) {
+      (void)position_key;
+      const size_t member_count = member_indices.size();
+      if (member_count == 0) {
+        continue;
+      }
+      ++co_located_position_groups;
+
+      // Single (meshlet, local vertex) with multiple bark faces — common after gluing several
+      // intersection pieces into one segment meshlet. No cross-segment requirement.
+      if (member_count == 1) {
+        average_and_write_component(member_indices);
+        continue;
+      }
+
+      BarkSeamUnionFind uf(member_count);
+      for (size_t i = 0; i < member_count; ++i) {
+        const int segment_i = bark_vertices[member_indices[i]].physics_segment;
+        for (size_t j = i + 1; j < member_count; ++j) {
+          const int segment_j = bark_vertices[member_indices[j]].physics_segment;
+          // Same meshlet/segment: always unite (intra-meshlet welded verts).
+          // Distinct segments: unite only when physics connectivity is intact.
+          if (segment_i == segment_j ||
+              ArePhysicsSegmentsConnected(segment_i, segment_j, segments, segment_pairs, segment_data_list)) {
+            uf.Unite(i, j);
+          }
+        }
+      }
+
+      std::unordered_map<size_t, std::vector<size_t>> components;
+      components.reserve(member_count);
+      for (size_t i = 0; i < member_count; ++i) {
+        components[uf.Find(i)].push_back(member_indices[i]);
+      }
+
+      for (const auto& [root, component] : components) {
+        (void)root;
+        average_and_write_component(component);
+      }
+    }
+  }
+
+  // Cap-only interior corners: barycentric blend of the triangle's three corner normals after seam writes.
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    if (meshlet_id >= meshlet_has_bark.size() || !meshlet_has_bark[meshlet_id]) {
+      continue;
+    }
+    if (meshlet_id >= meshing_neighbor_indices.size()) {
+      continue;
+    }
+    kinDS::VoronoiMesh& mesh = meshes[meshlet_id];
+    if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
+        mesh.getNormals().size() != mesh.getTriangles().size()) {
+      continue;
+    }
+    const auto& face_neighbors = meshing_neighbor_indices[meshlet_id];
+    const auto& triangles = mesh.getTriangles();
+    const auto& vertices = mesh.getVertices();
+    const size_t tri_count = mesh.getTriangleCount();
+    for (size_t tri = 0; tri < tri_count; ++tri) {
+      if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
+        continue;
+      }
+      if (!IsTriangleCapBarkFace(mesh, tri)) {
+        continue;
+      }
+
+      size_t corner_vids[3];
+      glm::dvec3 corner_normals[3];
+      bool corner_is_interior[3] = {false, false, false};
+      bool any_interior = false;
+      bool valid = true;
+      for (int corner = 0; corner < 3; ++corner) {
+        const size_t corner_index = 3 * tri + static_cast<size_t>(corner);
+        const size_t local_vertex = triangles[corner_index];
+        if (local_vertex >= vertices.size()) {
+          valid = false;
+          break;
+        }
+        corner_vids[corner] = local_vertex;
+        corner_normals[corner] = mesh.getNormals()[corner_index];
+        const ExactPositionKey pos = ExactPositionKey::From(vertices[local_vertex]);
+        // Interior to the cap: not shared with any regular bark face (even on another meshlet).
+        corner_is_interior[corner] = regular_bark_positions.find(pos) == regular_bark_positions.end();
+        any_interior = any_interior || corner_is_interior[corner];
+      }
+      if (!valid || !any_interior) {
+        continue;
+      }
+
+      const glm::dvec3& p0 = vertices[corner_vids[0]];
+      const glm::dvec3& p1 = vertices[corner_vids[1]];
+      const glm::dvec3& p2 = vertices[corner_vids[2]];
+      const glm::dvec3 e1 = p1 - p0;
+      const glm::dvec3 e2 = p2 - p0;
+      const double area2 = glm::length(glm::cross(e1, e2));
+      if (area2 <= 1.0e-16) {
+        continue;
+      }
+
+      // Control normals: rim (shared with regular bark) keep post-average values. Interior control
+      // slots temporarily use the average of rim controls so a barycentric eval at an interior
+      // corner mixes the updated rim normals instead of returning the stale face normal.
+      glm::dvec3 rim_sum(0.0);
+      size_t rim_count = 0;
+      for (int corner = 0; corner < 3; ++corner) {
+        if (!corner_is_interior[corner]) {
+          rim_sum += corner_normals[corner];
+          ++rim_count;
+        }
+      }
+      glm::dvec3 face_n = glm::cross(e1, e2);
+      const double face_len = glm::length(face_n);
+      if (face_len > 1.0e-16) {
+        face_n /= face_len;
+      } else {
+        face_n = glm::dvec3(0.0, 1.0, 0.0);
+      }
+      const glm::dvec3 rim_avg = rim_count > 0 ? (rim_sum / static_cast<double>(rim_count)) : face_n;
+
+      glm::dvec3 control[3];
+      for (int corner = 0; corner < 3; ++corner) {
+        control[corner] = corner_is_interior[corner] ? rim_avg : corner_normals[corner];
+      }
+
+      for (int corner = 0; corner < 3; ++corner) {
+        if (!corner_is_interior[corner]) {
+          continue;
+        }
+        const glm::dvec3& pi = vertices[corner_vids[corner]];
+        // Areal barycentric weights of pi in triangle (p0,p1,p2).
+        const double w0 = glm::length(glm::cross(p1 - pi, p2 - pi)) / area2;
+        const double w1 = glm::length(glm::cross(p2 - pi, p0 - pi)) / area2;
+        const double w2 = glm::length(glm::cross(p0 - pi, p1 - pi)) / area2;
+        glm::dvec3 blended = w0 * control[0] + w1 * control[1] + w2 * control[2];
+        const double blended_len = glm::length(blended);
+        if (blended_len > 1.0e-16) {
+          blended /= blended_len;
+        } else {
+          blended = face_n;
+        }
+        mesh.setNormal(blended, 3 * tri + static_cast<size_t>(corner));
+        ++cap_interior_corners_interpolated;
       }
     }
   }
 
   EVOENGINE_LOG("Bark seam normals: bark_meshlets="
                 << bark_meshlet_count << ", bark_vertices=" << bark_vertices.size()
-                << ", co_located_groups=" << co_located_position_groups
-                << ", shared_seam_groups=" << shared_seam_groups
+                << ", co_located_groups=" << co_located_position_groups << ", shared_seam_groups=" << shared_seam_groups
                 << ", shared_bark_vertices=" << shared_bark_vertices << ", corners_updated=" << corners_updated
-                << ", corners_failed=" << corners_failed << ", segments=" << segments.size()
-                << ", pairs=" << segment_pairs.size());
+                << ", corners_failed=" << corners_failed << ", regular_source_corners=" << regular_source_corners
+                << ", cap_corners_overwritten=" << cap_corners_overwritten
+                << ", cap_interior_corners_interpolated=" << cap_interior_corners_interpolated
+                << ", segments=" << segments.size() << ", pairs=" << segment_pairs.size());
+}
+
+/// Reduce stretch on Delaunay triangle-cap bark UVs (light_blue): among each cap triangle's three
+/// corners, the median-circumference vertex gets height += 1 (per-corner, so regular bark is unchanged).
+/// Cap-only interior corners then get areal barycentric blends of those (adjusted) corner UVs.
+void FixTriangleCapBarkUVs(std::vector<kinDS::VoronoiMesh>& meshes,
+                           const std::vector<std::vector<int>>& meshing_neighbor_indices,
+                           const std::vector<uint8_t>& meshlet_has_bark) {
+  // Positions on regular (non-cap) bark — rim vs interior classification, same as normals.
+  std::unordered_set<ExactPositionKey, ExactPositionKeyHash> regular_bark_positions;
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    if (meshlet_id >= meshlet_has_bark.size() || !meshlet_has_bark[meshlet_id]) {
+      continue;
+    }
+    if (meshlet_id >= meshing_neighbor_indices.size()) {
+      continue;
+    }
+    const auto& mesh = meshes[meshlet_id];
+    const auto& face_neighbors = meshing_neighbor_indices[meshlet_id];
+    const auto& triangles = mesh.getTriangles();
+    const auto& vertices = mesh.getVertices();
+    const size_t tri_count = mesh.getTriangleCount();
+    for (size_t tri = 0; tri < tri_count; ++tri) {
+      if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
+        continue;
+      }
+      if (IsTriangleCapBarkFace(mesh, tri)) {
+        continue;
+      }
+      for (int corner = 0; corner < 3; ++corner) {
+        const size_t local_vertex = triangles[3 * tri + static_cast<size_t>(corner)];
+        if (local_vertex < vertices.size()) {
+          regular_bark_positions.insert(ExactPositionKey::From(vertices[local_vertex]));
+        }
+      }
+    }
+  }
+
+  size_t cap_triangles_adjusted = 0;
+  size_t middle_height_bumps = 0;
+  size_t interior_uvs_interpolated = 0;
+  size_t corners_failed = 0;
+
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    if (meshlet_id >= meshlet_has_bark.size() || !meshlet_has_bark[meshlet_id]) {
+      continue;
+    }
+    if (meshlet_id >= meshing_neighbor_indices.size()) {
+      continue;
+    }
+    kinDS::VoronoiMesh& mesh = meshes[meshlet_id];
+    const auto& face_neighbors = meshing_neighbor_indices[meshlet_id];
+    const auto& triangles = mesh.getTriangles();
+    const auto& vertices = mesh.getVertices();
+    const size_t tri_count = mesh.getTriangleCount();
+    for (size_t tri = 0; tri < tri_count; ++tri) {
+      if (tri >= face_neighbors.size() || face_neighbors[tri] != -2) {
+        continue;
+      }
+      if (!IsTriangleCapBarkFace(mesh, tri)) {
+        continue;
+      }
+
+      size_t corner_vids[3];
+      glm::dvec3 corner_uvs[3];
+      bool corner_is_interior[3] = {false, false, false};
+      bool valid = true;
+      for (int corner = 0; corner < 3; ++corner) {
+        const size_t corner_index = 3 * tri + static_cast<size_t>(corner);
+        if (!mesh.hasValidUVIndex(corner_index)) {
+          valid = false;
+          break;
+        }
+        const size_t local_vertex = triangles[corner_index];
+        if (local_vertex >= vertices.size()) {
+          valid = false;
+          break;
+        }
+        corner_vids[corner] = local_vertex;
+        corner_uvs[corner] = mesh.getUV(corner_index);
+        const ExactPositionKey pos = ExactPositionKey::From(vertices[local_vertex]);
+        corner_is_interior[corner] = regular_bark_positions.find(pos) == regular_bark_positions.end();
+      }
+      if (!valid) {
+        ++corners_failed;
+        continue;
+      }
+
+      // Median circumference among the three corners (UV.x = circum, UV.y = height).
+      int middle = 0;
+      const double c0 = corner_uvs[0].x;
+      const double c1 = corner_uvs[1].x;
+      const double c2 = corner_uvs[2].x;
+      if ((c0 <= c1 && c0 >= c2) || (c0 >= c1 && c0 <= c2)) {
+        middle = 0;
+      } else if ((c1 <= c0 && c1 >= c2) || (c1 >= c0 && c1 <= c2)) {
+        middle = 1;
+      } else {
+        middle = 2;
+      }
+      corner_uvs[middle].y += 1.0;
+      ++middle_height_bumps;
+
+      const glm::dvec3& p0 = vertices[corner_vids[0]];
+      const glm::dvec3& p1 = vertices[corner_vids[1]];
+      const glm::dvec3& p2 = vertices[corner_vids[2]];
+      const glm::dvec3 e1 = p1 - p0;
+      const glm::dvec3 e2 = p2 - p0;
+      const double area2 = glm::length(glm::cross(e1, e2));
+
+      for (int corner = 0; corner < 3; ++corner) {
+        const size_t corner_index = 3 * tri + static_cast<size_t>(corner);
+        if (!corner_is_interior[corner]) {
+          // Rim (and the middle-circum vertex): write adjusted corner UV on this cap face only.
+          mesh.setUV(corner_uvs[corner], corner_index);
+          continue;
+        }
+        if (area2 <= 1.0e-16) {
+          mesh.setUV(corner_uvs[corner], corner_index);
+          continue;
+        }
+        const glm::dvec3& pi = vertices[corner_vids[corner]];
+        const double w0 = glm::length(glm::cross(p1 - pi, p2 - pi)) / area2;
+        const double w1 = glm::length(glm::cross(p2 - pi, p0 - pi)) / area2;
+        const double w2 = glm::length(glm::cross(p0 - pi, p1 - pi)) / area2;
+        mesh.setUV(w0 * corner_uvs[0] + w1 * corner_uvs[1] + w2 * corner_uvs[2], corner_index);
+        ++interior_uvs_interpolated;
+      }
+      ++cap_triangles_adjusted;
+    }
+  }
+
+  EVOENGINE_LOG("Triangle-cap bark UVs: cap_tris_adjusted="
+                << cap_triangles_adjusted << ", middle_height_bumps=" << middle_height_bumps
+                << ", interior_uvs_interpolated=" << interior_uvs_interpolated
+                << ", corners_failed=" << corners_failed);
+}
+
+/// Optional 1->4 bark subdivision during prepare: each bark triangle (neighbor == -2) is replaced by
+/// four children using edge midpoints. Runs whenever enabled, including when bark smooth iterations
+/// are 0. Every bark edge midpoint is also inserted into all adjacent non-bark triangles that still
+/// own that undirected edge (typically one interior face on the same meshlet; at segment interfaces,
+/// also the neighboring meshlet's interior face).
+///
+/// Acceleration: one pass builds a geometric edge -> incident-face map (and per-meshlet position ->
+/// vertex maps). Propagation then touches only the 0-2 non-bark faces stored for each bark edge
+/// instead of scanning every triangle in every meshlet.
+void SubdivideBarkTrianglesOnce(std::vector<kinDS::VoronoiMesh>& meshes,
+                                std::vector<std::vector<int>>& meshing_neighbor_indices) {
+  if (meshes.empty() || meshing_neighbor_indices.size() != meshes.size()) {
+    return;
+  }
+
+  struct BarkFace {
+    size_t meshlet_id = 0;
+    size_t tri = 0;
+    size_t v[3] = {};
+  };
+  struct FaceEdgeRef {
+    size_t meshlet_id = 0;
+    size_t tri = 0;
+    size_t v0 = 0;
+    size_t v1 = 0;
+    bool is_bark = false;
+  };
+  struct EdgeKey {
+    ExactPositionKey a{};
+    ExactPositionKey b{};
+    bool operator==(const EdgeKey& o) const {
+      return a == o.a && b == o.b;
+    }
+  };
+  struct EdgeKeyHash {
+    size_t operator()(const EdgeKey& e) const {
+      ExactPositionKeyHash h;
+      size_t r = h(e.a);
+      r ^= h(e.b) + 0x9e3779b97f4a7c15ull + (r << 6) + (r >> 2);
+      return r;
+    }
+  };
+  auto make_edge_key = [](const ExactPositionKey& p0, const ExactPositionKey& p1) -> EdgeKey {
+    if (p0.x < p1.x || (p0.x == p1.x && (p0.y < p1.y || (p0.y == p1.y && p0.z < p1.z)))) {
+      return EdgeKey{p0, p1};
+    }
+    return EdgeKey{p1, p0};
+  };
+
+  std::vector<BarkFace> bark_faces;
+  std::unordered_map<EdgeKey, glm::dvec3, EdgeKeyHash> bark_edge_midpoints;
+  std::unordered_map<EdgeKey, std::vector<FaceEdgeRef>, EdgeKeyHash> edge_to_faces;
+  bark_faces.reserve(1024);
+  bark_edge_midpoints.reserve(2048);
+  edge_to_faces.reserve(4096);
+
+  // Per-meshlet position -> local vertex (kept up to date while creating midpoints).
+  std::vector<std::unordered_map<ExactPositionKey, size_t, ExactPositionKeyHash>> pos_to_vid(meshes.size());
+
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    const auto& neighbors = meshing_neighbor_indices[meshlet_id];
+    const auto& mesh = meshes[meshlet_id];
+    const auto& tris = mesh.getTriangles();
+    const auto& verts = mesh.getVertices();
+    auto& pos_map = pos_to_vid[meshlet_id];
+    pos_map.reserve(verts.size() * 2);
+    for (size_t vi = 0; vi < verts.size(); ++vi) {
+      pos_map.emplace(ExactPositionKey::From(verts[vi]), vi);
+    }
+
+    const size_t tri_count = mesh.getTriangleCount();
+    for (size_t tri = 0; tri < tri_count; ++tri) {
+      const bool is_bark = tri < neighbors.size() && neighbors[tri] == -2;
+      size_t corner[3];
+      bool valid = true;
+      for (int c = 0; c < 3; ++c) {
+        corner[c] = tris[3 * tri + static_cast<size_t>(c)];
+        if (corner[c] >= verts.size()) {
+          valid = false;
+          break;
+        }
+      }
+      if (!valid) {
+        continue;
+      }
+      if (is_bark) {
+        BarkFace face;
+        face.meshlet_id = meshlet_id;
+        face.tri = tri;
+        face.v[0] = corner[0];
+        face.v[1] = corner[1];
+        face.v[2] = corner[2];
+        bark_faces.push_back(face);
+      }
+      for (int e = 0; e < 3; ++e) {
+        const size_t a = corner[e];
+        const size_t b = corner[(e + 1) % 3];
+        const EdgeKey key = make_edge_key(ExactPositionKey::From(verts[a]), ExactPositionKey::From(verts[b]));
+        edge_to_faces[key].push_back(FaceEdgeRef{meshlet_id, tri, a, b, is_bark});
+        if (is_bark) {
+          bark_edge_midpoints.emplace(key, 0.5 * (verts[a] + verts[b]));
+        }
+      }
+    }
+  }
+
+  if (bark_faces.empty() || bark_edge_midpoints.empty()) {
+    return;
+  }
+
+  // Propagate each bark-edge midpoint only to the non-bark faces already indexed on that edge.
+  size_t propagated_splits = 0;
+  for (const auto& [edge, midpoint] : bark_edge_midpoints) {
+    const auto it = edge_to_faces.find(edge);
+    if (it == edge_to_faces.end()) {
+      continue;
+    }
+    for (const FaceEdgeRef& ref : it->second) {
+      if (ref.is_bark) {
+        continue;
+      }
+      auto& mesh = meshes[ref.meshlet_id];
+      auto& neighbors = meshing_neighbor_indices[ref.meshlet_id];
+      const size_t c0 = mesh.triangleCornerIndex(ref.tri, ref.v0);
+      const size_t c1 = mesh.triangleCornerIndex(ref.tri, ref.v1);
+      if (c0 == static_cast<size_t>(-1) || c1 == static_cast<size_t>(-1)) {
+        continue;  // edge already gone (face split by another bark edge)
+      }
+      const int neighbor_tag = (ref.tri < neighbors.size()) ? neighbors[ref.tri] : -1;
+      const auto [new_vid, new_tri] = mesh.splitTriangle(c0, c1, midpoint, "{}");
+      if (new_vid == static_cast<size_t>(-1) || new_tri == static_cast<size_t>(-1)) {
+        continue;
+      }
+      pos_to_vid[ref.meshlet_id].emplace(ExactPositionKey::From(midpoint), new_vid);
+      if (neighbors.size() < mesh.getTriangleCount()) {
+        neighbors.resize(mesh.getTriangleCount(), -1);
+      }
+      if (new_tri < neighbors.size()) {
+        neighbors[new_tri] = neighbor_tag;
+      }
+      ++propagated_splits;
+    }
+  }
+
+  auto get_or_create_midpoint = [&](size_t meshlet_id, size_t va, size_t vb,
+                                   const glm::dvec3& midpoint) -> size_t {
+    auto& mesh = meshes[meshlet_id];
+    auto& pos_map = pos_to_vid[meshlet_id];
+    const ExactPositionKey mid_key = ExactPositionKey::From(midpoint);
+    if (const auto found = pos_map.find(mid_key); found != pos_map.end()) {
+      return found->second;
+    }
+    const size_t mid = mesh.addVertex(midpoint, "{}");
+    pos_map.emplace(mid_key, mid);
+    const double t0 = mesh.vertexKineticTime(va);
+    const double t1 = mesh.vertexKineticTime(vb);
+    if (std::isfinite(t0) && std::isfinite(t1)) {
+      mesh.setVertexKineticTime(mid, 0.5 * (t0 + t1));
+    }
+    if (const auto uv0 = mesh.vertexSemanticUv(va); uv0.has_value()) {
+      if (const auto uv1 = mesh.vertexSemanticUv(vb); uv1.has_value()) {
+        mesh.setVertexSemanticUv(mid, 0.5 * (uv0.value() + uv1.value()));
+      }
+    }
+    if (mesh.isVertexFlexible(va) || mesh.isVertexFlexible(vb)) {
+      mesh.setVertexFlexible(mid, true);
+    }
+    return mid;
+  };
+
+  // 1->4 rewrite each original bark face.
+  size_t subdivided = 0;
+  for (const BarkFace& face : bark_faces) {
+    auto& mesh = meshes[face.meshlet_id];
+    auto& neighbors = meshing_neighbor_indices[face.meshlet_id];
+    auto& tris = mesh.getTriangles();
+    const auto& verts = mesh.getVertices();
+    if (3 * face.tri + 2 >= tris.size()) {
+      continue;
+    }
+    if (tris[3 * face.tri] != face.v[0] || tris[3 * face.tri + 1] != face.v[1] ||
+        tris[3 * face.tri + 2] != face.v[2]) {
+      continue;
+    }
+    if (face.v[0] >= verts.size() || face.v[1] >= verts.size() || face.v[2] >= verts.size()) {
+      continue;
+    }
+
+    const size_t va = face.v[0];
+    const size_t vb = face.v[1];
+    const size_t vc = face.v[2];
+    const glm::dvec3 mid_ab = 0.5 * (verts[va] + verts[vb]);
+    const glm::dvec3 mid_bc = 0.5 * (verts[vb] + verts[vc]);
+    const glm::dvec3 mid_ca = 0.5 * (verts[vc] + verts[va]);
+    const size_t m_ab = get_or_create_midpoint(face.meshlet_id, va, vb, mid_ab);
+    const size_t m_bc = get_or_create_midpoint(face.meshlet_id, vb, vc, mid_bc);
+    const size_t m_ca = get_or_create_midpoint(face.meshlet_id, vc, va, mid_ca);
+
+    const int material_id =
+        (face.tri < mesh.getMaterialIDs().size()) ? mesh.getMaterialIDs()[face.tri] : -1;
+    const std::string face_meta =
+        (mesh.storeMetadata() && face.tri < mesh.getFaceMetadata().size()) ? mesh.getFaceMetadata()[face.tri]
+                                                                          : std::string("{}");
+
+    size_t uv_a = std::numeric_limits<size_t>::max();
+    size_t uv_b = std::numeric_limits<size_t>::max();
+    size_t uv_c = std::numeric_limits<size_t>::max();
+    size_t uv_ab = std::numeric_limits<size_t>::max();
+    size_t uv_bc = std::numeric_limits<size_t>::max();
+    size_t uv_ca = std::numeric_limits<size_t>::max();
+    auto& uv_indices = mesh.getUVIndices();
+    const bool has_uvs = uv_indices.size() == tris.size();
+    if (has_uvs) {
+      uv_a = uv_indices[3 * face.tri];
+      uv_b = uv_indices[3 * face.tri + 1];
+      uv_c = uv_indices[3 * face.tri + 2];
+      const auto& uvs = mesh.getUVs();
+      auto mid_uv = [&](size_t i0, size_t i1) -> size_t {
+        if (i0 >= uvs.size() || i1 >= uvs.size()) {
+          return std::numeric_limits<size_t>::max();
+        }
+        return mesh.addUV(0.5 * (uvs[i0] + uvs[i1]));
+      };
+      uv_ab = mid_uv(uv_a, uv_b);
+      uv_bc = mid_uv(uv_b, uv_c);
+      uv_ca = mid_uv(uv_c, uv_a);
+    }
+
+    tris[3 * face.tri] = va;
+    tris[3 * face.tri + 1] = m_ab;
+    tris[3 * face.tri + 2] = m_ca;
+    if (has_uvs) {
+      uv_indices[3 * face.tri] = uv_a;
+      uv_indices[3 * face.tri + 1] = uv_ab;
+      uv_indices[3 * face.tri + 2] = uv_ca;
+    }
+
+    const size_t t_b = mesh.addTriangle(m_ab, vb, m_bc, uv_ab, uv_b, uv_bc, material_id, face_meta);
+    const size_t t_c = mesh.addTriangle(m_ca, m_bc, vc, uv_ca, uv_bc, uv_c, material_id, face_meta);
+    const size_t t_m = mesh.addTriangle(m_ab, m_bc, m_ca, uv_ab, uv_bc, uv_ca, material_id, face_meta);
+
+    if (neighbors.size() < mesh.getTriangleCount()) {
+      neighbors.resize(mesh.getTriangleCount(), -1);
+    }
+    neighbors[face.tri] = -2;
+    if (t_b < neighbors.size()) {
+      neighbors[t_b] = -2;
+    }
+    if (t_c < neighbors.size()) {
+      neighbors[t_c] = -2;
+    }
+    if (t_m < neighbors.size()) {
+      neighbors[t_m] = -2;
+    }
+    ++subdivided;
+  }
+
+  for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
+    meshes[meshlet_id].mergeDuplicateVertices(0.0);
+    if (meshing_neighbor_indices[meshlet_id].size() != meshes[meshlet_id].getTriangleCount()) {
+      meshing_neighbor_indices[meshlet_id].resize(meshes[meshlet_id].getTriangleCount(), -1);
+    }
+    if (meshes[meshlet_id].getNormalMode() != kinDS::NormalMode::NoNormals) {
+      meshes[meshlet_id].computeNormals(meshes[meshlet_id].getNormalMode());
+    }
+  }
+
+  if (subdivided > 0) {
+    EVOENGINE_LOG("Bark subdivision: 1->4 split " << subdivided << " bark triangle(s), propagated "
+                                                 << propagated_splits << " interior edge split(s) across "
+                                                 << meshes.size() << " meshlet(s).");
+  }
+}
+
+/// Lift circumferential UV.x into a chart continuous with @p reference (period 1.0 wrap from
+/// @c adjustedBoundaryTriangleUvs). Height (y) and z are unchanged.
+glm::dvec3 LiftBarkUvCircumContinuity(const glm::dvec3& uv, const glm::dvec3& reference,
+                                      const double period = 1.0) {
+  glm::dvec3 lifted = uv;
+  if (period > 0.0 && std::isfinite(uv.x) && std::isfinite(reference.x)) {
+    lifted.x = uv.x - std::round((uv.x - reference.x) / period) * period;
+  }
+  return lifted;
+}
+
+/// Re-unwrap already-smoothed bark triangle UVs so corners spanning the cut stay locally continuous
+/// (same rule as kinDS::adjustedBoundaryTriangleUvs on raw angles, with period 1.0).
+void UnwrapBarkTriangleCornerUvs(glm::dvec3& u, glm::dvec3& v, glm::dvec3& w) {
+  const double base = u.x;
+  v.x -= std::round(v.x - base);
+  w.x -= std::round(w.x - base);
 }
 
 /// Collect bark triangles across meshlets, Laplacian-smooth with
 /// @ref StrandModelMeshGenerator::MeshSmoothing (no ground lock), then write positions back to every
 /// meshlet vertex that shares that position (interior faces sharing verts move with bark).
+/// Optionally co-smooth bark corner UVs with the same iterations/strength (wrap-aware circum lift).
 ///
 /// Hole / open-boundary notes (same as marching-cubes MeshSmoothing):
 /// - Connectivity is undirected 1-ring from bark triangles only; hole rims remain valid if degree >= 1.
+/// Uniform Laplacian on the welded bark surface (neighbor == -2 faces).
+/// Exact-position welding across meshlets; interior vertices that share those positions move with bark.
 /// - Boundary vertices are pulled toward remaining neighbors (rim tends to shrink; holes are not filled).
 /// - Degree-0 vertices keep their position (no divide-by-zero).
 /// - Unwelded near-duplicates across meshlets will not connect — exact position welding is required.
 void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
                              const std::vector<std::vector<int>>& meshing_neighbor_indices,
-                             const std::vector<uint8_t>& meshlet_has_bark, const int iterations,
-                             const float strength) {
+                             const std::vector<uint8_t>& meshlet_has_bark, const int iterations, const float strength,
+                             const bool lock_boundary, const bool smooth_uvs) {
   if (iterations <= 0 || meshes.empty() || strength <= 0.0f) {
     return;
   }
@@ -459,12 +1056,24 @@ void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
     size_t meshlet_id = 0;
     size_t local_vertex = 0;
   };
+  struct BarkFaceRef {
+    size_t meshlet_id = 0;
+    size_t tri = 0;
+    unsigned corner_unified[3] = {0, 0, 0};
+    bool has_uvs = false;
+  };
 
   std::vector<glm::dvec3> unified_positions;
   std::vector<std::vector<MeshletVertexRef>> refs_by_unified;
   std::unordered_map<ExactPositionKey, unsigned, ExactPositionKeyHash> position_to_unified;
   std::vector<unsigned> bark_indices;
+  std::vector<BarkFaceRef> bark_faces;
   std::vector<uint8_t> meshlet_touched(meshes.size(), 0);
+
+  // Per-unified-vertex UV accumulation (wrap-lifted to the first corner that seeds each vertex).
+  std::vector<glm::dvec3> unified_uv_sum;
+  std::vector<glm::dvec3> unified_uv_seed;
+  std::vector<int> unified_uv_count;
 
   size_t bark_triangle_count = 0;
   for (size_t meshlet_id = 0; meshlet_id < meshes.size(); ++meshlet_id) {
@@ -499,6 +1108,9 @@ void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
           position_to_unified.emplace(key, unified);
           unified_positions.push_back(vertices[local_vertex]);
           refs_by_unified.push_back({MeshletVertexRef{meshlet_id, local_vertex}});
+          unified_uv_sum.emplace_back(0.0);
+          unified_uv_seed.emplace_back(0.0);
+          unified_uv_count.push_back(0);
           corner_unified[corner] = unified;
         } else {
           corner_unified[corner] = it->second;
@@ -521,12 +1133,83 @@ void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
       bark_indices.push_back(corner_unified[0]);
       bark_indices.push_back(corner_unified[1]);
       bark_indices.push_back(corner_unified[2]);
+
+      BarkFaceRef face;
+      face.meshlet_id = meshlet_id;
+      face.tri = tri;
+      face.corner_unified[0] = corner_unified[0];
+      face.corner_unified[1] = corner_unified[1];
+      face.corner_unified[2] = corner_unified[2];
+      face.has_uvs = mesh.hasValidUVIndex(3 * tri) && mesh.hasValidUVIndex(3 * tri + 1) &&
+                     mesh.hasValidUVIndex(3 * tri + 2);
+      if (face.has_uvs && smooth_uvs) {
+        for (int corner = 0; corner < 3; ++corner) {
+          const unsigned unified = corner_unified[corner];
+          const glm::dvec3 corner_uv = mesh.getUV(3 * tri + static_cast<size_t>(corner));
+          if (unified_uv_count[unified] == 0) {
+            unified_uv_seed[unified] = corner_uv;
+            unified_uv_sum[unified] = corner_uv;
+            unified_uv_count[unified] = 1;
+          } else {
+            unified_uv_sum[unified] += LiftBarkUvCircumContinuity(corner_uv, unified_uv_seed[unified]);
+            ++unified_uv_count[unified];
+          }
+        }
+      }
+      bark_faces.push_back(face);
     }
   }
 
   if (unified_positions.empty() || bark_indices.size() < 3) {
     EVOENGINE_LOG("Bark mesh smooth: no bark triangles to smooth.");
     return;
+  }
+
+  // Bark-manifold boundary: undirected edges that appear in exactly one bark triangle.
+  std::vector<uint8_t> is_boundary_vertex(unified_positions.size(), 0);
+  size_t boundary_vertex_count = 0;
+  if (lock_boundary) {
+    struct UndirectedEdge {
+      unsigned a = 0;
+      unsigned b = 0;
+      bool operator==(const UndirectedEdge& o) const {
+        return a == o.a && b == o.b;
+      }
+    };
+    struct UndirectedEdgeHash {
+      size_t operator()(const UndirectedEdge& e) const {
+        size_t h = static_cast<size_t>(e.a);
+        h ^= static_cast<size_t>(e.b) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+        return h;
+      }
+    };
+    std::unordered_map<UndirectedEdge, int, UndirectedEdgeHash> edge_face_count;
+    edge_face_count.reserve(bark_indices.size());
+    for (size_t i = 0; i + 2 < bark_indices.size(); i += 3) {
+      const unsigned c0 = bark_indices[i];
+      const unsigned c1 = bark_indices[i + 1];
+      const unsigned c2 = bark_indices[i + 2];
+      auto add_edge = [&](unsigned u, unsigned v) {
+        if (u > v) {
+          std::swap(u, v);
+        }
+        ++edge_face_count[UndirectedEdge{u, v}];
+      };
+      add_edge(c0, c1);
+      add_edge(c1, c2);
+      add_edge(c2, c0);
+    }
+    for (const auto& [edge, count] : edge_face_count) {
+      if (count != 1) {
+        continue;
+      }
+      for (const unsigned vid : {edge.a, edge.b}) {
+        if (vid < is_boundary_vertex.size() && !is_boundary_vertex[vid]) {
+          is_boundary_vertex[vid] = 1;
+          ++boundary_vertex_count;
+        }
+      }
+    }
   }
 
   // Also register any non-bark meshlet vertices that share a welded bark position so interior
@@ -557,20 +1240,131 @@ void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
   for (size_t i = 0; i < unified_positions.size(); ++i) {
     smooth_vertices[i].position = glm::vec3(unified_positions[i]);
   }
+  std::vector<glm::vec3> locked_positions;
+  if (lock_boundary) {
+    locked_positions.resize(smooth_vertices.size());
+    for (size_t i = 0; i < smooth_vertices.size(); ++i) {
+      locked_positions[i] = smooth_vertices[i].position;
+    }
+  }
+
+  std::vector<glm::dvec3> smooth_uvs_attr(unified_positions.size(), glm::dvec3(0.0));
+  std::vector<uint8_t> has_smooth_uv(unified_positions.size(), 0);
+  std::vector<glm::dvec3> locked_uvs;
+  std::vector<std::vector<unsigned>> uv_connectivity;
+  if (smooth_uvs) {
+    for (size_t i = 0; i < unified_positions.size(); ++i) {
+      if (unified_uv_count[i] > 0) {
+        smooth_uvs_attr[i] = unified_uv_sum[i] / static_cast<double>(unified_uv_count[i]);
+        has_smooth_uv[i] = 1;
+      }
+    }
+    if (lock_boundary) {
+      locked_uvs = smooth_uvs_attr;
+    }
+    // Same undirected 1-ring as MeshSmoothing (built once for UV iterations).
+    uv_connectivity.resize(unified_positions.size());
+    for (size_t i = 0; i + 2 < bark_indices.size(); i += 3) {
+      const unsigned a = bark_indices[i];
+      const unsigned b = bark_indices[i + 1];
+      const unsigned c = bark_indices[i + 2];
+      auto link = [&](unsigned from, unsigned to) {
+        auto& n = uv_connectivity[from];
+        for (const unsigned existing : n) {
+          if (existing == to) {
+            return;
+          }
+        }
+        n.push_back(to);
+      };
+      link(a, b);
+      link(a, c);
+      link(b, a);
+      link(b, c);
+      link(c, a);
+      link(c, b);
+    }
+  }
 
   const float blend = glm::clamp(strength, 0.0f, 1.0f);
   for (int iter = 0; iter < iterations; ++iter) {
     StrandModelMeshGenerator::MeshSmoothing(smooth_vertices, bark_indices, /*lock_ground_plane=*/false, blend);
+    if (lock_boundary) {
+      for (size_t i = 0; i < smooth_vertices.size(); ++i) {
+        if (is_boundary_vertex[i]) {
+          smooth_vertices[i].position = locked_positions[i];
+        }
+      }
+    }
+
+    if (smooth_uvs) {
+      std::vector<glm::dvec3> new_uvs = smooth_uvs_attr;
+      for (size_t i = 0; i < smooth_uvs_attr.size(); ++i) {
+        if (!has_smooth_uv[i] || uv_connectivity[i].empty()) {
+          continue;
+        }
+        if (lock_boundary && is_boundary_vertex[i]) {
+          continue;
+        }
+        glm::dvec3 sum(0.0);
+        int count = 0;
+        for (const unsigned neighbor : uv_connectivity[i]) {
+          if (!has_smooth_uv[neighbor]) {
+            continue;
+          }
+          sum += LiftBarkUvCircumContinuity(smooth_uvs_attr[neighbor], smooth_uvs_attr[i]);
+          ++count;
+        }
+        if (count > 0) {
+          const glm::dvec3 avg = sum / static_cast<double>(count);
+          new_uvs[i] = glm::mix(smooth_uvs_attr[i], avg, static_cast<double>(blend));
+        }
+      }
+      for (size_t i = 0; i < smooth_uvs_attr.size(); ++i) {
+        if (lock_boundary && is_boundary_vertex[i]) {
+          smooth_uvs_attr[i] = locked_uvs[i];
+        } else if (has_smooth_uv[i]) {
+          smooth_uvs_attr[i] = new_uvs[i];
+        }
+      }
+    }
   }
 
   size_t meshlet_vertices_updated = 0;
+  size_t locked_skips = 0;
   for (size_t unified = 0; unified < smooth_vertices.size(); ++unified) {
+    if (lock_boundary && is_boundary_vertex[unified]) {
+      ++locked_skips;
+      continue;  // leave original meshlet positions unchanged
+    }
     const glm::dvec3 new_pos(smooth_vertices[unified].position.x, smooth_vertices[unified].position.y,
                              smooth_vertices[unified].position.z);
     for (const MeshletVertexRef& ref : refs_by_unified[unified]) {
       meshes[ref.meshlet_id].replaceVertex(ref.local_vertex, new_pos);
       meshlet_touched[ref.meshlet_id] = 1;
       ++meshlet_vertices_updated;
+    }
+  }
+
+  size_t bark_uv_faces_written = 0;
+  if (smooth_uvs) {
+    for (const BarkFaceRef& face : bark_faces) {
+      if (!face.has_uvs) {
+        continue;
+      }
+      if (!has_smooth_uv[face.corner_unified[0]] || !has_smooth_uv[face.corner_unified[1]] ||
+          !has_smooth_uv[face.corner_unified[2]]) {
+        continue;
+      }
+      glm::dvec3 u = smooth_uvs_attr[face.corner_unified[0]];
+      glm::dvec3 v = smooth_uvs_attr[face.corner_unified[1]];
+      glm::dvec3 w = smooth_uvs_attr[face.corner_unified[2]];
+      UnwrapBarkTriangleCornerUvs(u, v, w);
+      auto& mesh = meshes[face.meshlet_id];
+      mesh.setUV(u, 3 * face.tri);
+      mesh.setUV(v, 3 * face.tri + 1);
+      mesh.setUV(w, 3 * face.tri + 2);
+      ++bark_uv_faces_written;
     }
   }
 
@@ -586,11 +1380,14 @@ void SmoothBarkMeshPositions(std::vector<kinDS::VoronoiMesh>& meshes,
     ++meshlets_recomputed;
   }
 
-  EVOENGINE_LOG("Bark mesh smooth: iterations=" << iterations << ", strength=" << blend
-                                               << ", bark_tris=" << bark_triangle_count
-                                               << ", welded_verts=" << unified_positions.size()
-                                               << ", meshlet_vert_writes=" << meshlet_vertices_updated
-                                               << ", meshlets_recomputed_normals=" << meshlets_recomputed);
+  EVOENGINE_LOG("Bark mesh smooth: iterations=" << iterations << ", strength=" << blend << ", bark_tris="
+                                                << bark_triangle_count << ", welded_verts=" << unified_positions.size()
+                                                << ", boundary_locked=" << (lock_boundary ? boundary_vertex_count : 0)
+                                                << ", locked_skips=" << locked_skips
+                                                << ", smooth_uvs=" << (smooth_uvs ? 1 : 0)
+                                                << ", uv_faces_written=" << bark_uv_faces_written
+                                                << ", meshlet_vert_writes=" << meshlet_vertices_updated
+                                                << ", meshlets_recomputed_normals=" << meshlets_recomputed);
 }
 
 /// Build a welded bark-only mesh (positions + per-corner normals) in @p root_transform / GPU frame.
@@ -641,16 +1438,14 @@ kinDS::VoronoiMesh BuildBarkDebugMesh(const std::vector<kinDS::VoronoiMesh>& mes
         const ExactPositionKey key = ExactPositionKey::From(glm::dvec3(world_pos.x, world_pos.y, world_pos.z));
         auto it = position_to_vertex.find(key);
         if (it == position_to_vertex.end()) {
-          corner_vids[corner] =
-              bark_mesh.addVertex(glm::dvec3(world_pos.x, world_pos.y, world_pos.z));
+          corner_vids[corner] = bark_mesh.addVertex(glm::dvec3(world_pos.x, world_pos.y, world_pos.z));
           position_to_vertex.emplace(key, corner_vids[corner]);
         } else {
           corner_vids[corner] = it->second;
         }
 
         const glm::dvec3 local_n = mesh.getNormals()[corner_index];
-        const glm::vec3 world_n =
-            root_transform.TransformVector(glm::vec3(local_n.x, local_n.y, local_n.z));
+        const glm::vec3 world_n = root_transform.TransformVector(glm::vec3(local_n.x, local_n.y, local_n.z));
         corner_normals[corner] = glm::dvec3(world_n.x, world_n.y, world_n.z);
         const double n_len = glm::length(corner_normals[corner]);
         if (n_len > 1.0e-16) {
@@ -664,8 +1459,8 @@ kinDS::VoronoiMesh BuildBarkDebugMesh(const std::vector<kinDS::VoronoiMesh>& mes
       if (!valid) {
         continue;
       }
-      bark_mesh.addTriangle(corner_vids[0], corner_vids[1], corner_vids[2], corner_uvs[0], corner_uvs[1],
-                            corner_uvs[2], /*material_id=*/0);
+      bark_mesh.addTriangle(corner_vids[0], corner_vids[1], corner_vids[2], corner_uvs[0], corner_uvs[1], corner_uvs[2],
+                            /*material_id=*/0);
       bark_mesh.addNormal(corner_normals[0]);
       bark_mesh.addNormal(corner_normals[1]);
       bark_mesh.addNormal(corner_normals[2]);
@@ -694,9 +1489,9 @@ void CopySegmentPairMaterialProperties(DynamicStrands::GpuSegmentPair& dst, cons
 }
 
 void InitializeCompactedSegmentPair(DynamicStrands::GpuSegmentPair& pair, DynamicStrands::GpuSegment& segment0,
-  DynamicStrands::GpuSegment& segment1, const bool direct_connection,
-  const DynamicStrandsInitializeParameters& initialize_parameters,
-  const DynamicStrands::GpuSegmentPair* material_template = nullptr) {
+                                    DynamicStrands::GpuSegment& segment1, const bool direct_connection,
+                                    const DynamicStrandsInitializeParameters& initialize_parameters,
+                                    const DynamicStrands::GpuSegmentPair* material_template = nullptr) {
   const glm::vec3 segment0_center = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
   const glm::vec3 segment1_center = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
   pair.segment0_offset = glm::vec4(glm::inverse(segment1.q) * (segment0_center - segment1_center), 0.0f);
@@ -718,8 +1513,8 @@ void InitializeCompactedSegmentPair(DynamicStrands::GpuSegmentPair& pair, Dynami
   }
 
   const float root_distance = (segment0.particle0.root_distance + segment0.particle1.root_distance +
-                                segment1.particle0.root_distance + segment1.particle1.root_distance) *
-                               0.25f;
+                               segment1.particle0.root_distance + segment1.particle1.root_distance) *
+                              0.25f;
   const float distance_to_boundary = (segment0.boundary_distance + segment1.boundary_distance) * 0.5f;
 
   BiologicalPropertiesGraph::Input biological_properties_input;
@@ -734,8 +1529,8 @@ void InitializeCompactedSegmentPair(DynamicStrands::GpuSegmentPair& pair, Dynami
   const float trunk_strength_factor =
       initialize_parameters.trunk_additional_strength
           ? ActivationFunction::Sigmoid(biological_properties.trunk_additional_strength_factor, 0.f,
-                                        biological_properties.trunk_offset, 1.f / biological_properties.trunk_transition,
-                                        root_distance)
+                                        biological_properties.trunk_offset,
+                                        1.f / biological_properties.trunk_transition, root_distance)
           : 0.f;
 
   ModulusGraph::Input modulus_graph_input;
@@ -773,36 +1568,34 @@ void InitializeCompactedSegmentPair(DynamicStrands::GpuSegmentPair& pair, Dynami
 
   const glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_graph_input);
   const float max_bending_strain = glm::max(
-      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(bending_strength.x, bending_strength.y,
-                                                                    initialize_parameters.sapwood_offset,
-                                                                    1.f / initialize_parameters.wood_transition,
-                                                                    distance_to_boundary));
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(
+                                          bending_strength.x, bending_strength.y, initialize_parameters.sapwood_offset,
+                                          1.f / initialize_parameters.wood_transition, distance_to_boundary));
   const glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_graph_input);
-  const float max_twisting_strain = glm::max(
-      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(twisting_strength.x, twisting_strength.y,
-                                                                    initialize_parameters.sapwood_offset,
-                                                                    1.f / initialize_parameters.wood_transition,
-                                                                    distance_to_boundary));
+  const float max_twisting_strain =
+      glm::max(0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(twisting_strength.x, twisting_strength.y,
+                                                                           initialize_parameters.sapwood_offset,
+                                                                           1.f / initialize_parameters.wood_transition,
+                                                                           distance_to_boundary));
   const glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_graph_input);
   const float max_bundle_strain = glm::max(
-      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(bundle_strength.x, bundle_strength.y,
-                                                                    initialize_parameters.sapwood_offset,
-                                                                    1.f / initialize_parameters.wood_transition,
-                                                                    distance_to_boundary));
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(
+                                          bundle_strength.x, bundle_strength.y, initialize_parameters.sapwood_offset,
+                                          1.f / initialize_parameters.wood_transition, distance_to_boundary));
   const glm::vec2 connectivity_strength =
       initialize_parameters.strength_graph.GetConnectivityStrength(strength_graph_input);
-  const float max_connectivity_strain = glm::max(
-      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(connectivity_strength.x, connectivity_strength.y,
-                                                                    initialize_parameters.sapwood_offset,
-                                                                    1.f / initialize_parameters.wood_transition,
-                                                                    distance_to_boundary));
+  const float max_connectivity_strain =
+      glm::max(0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(
+                                                   connectivity_strength.x, connectivity_strength.y,
+                                                   initialize_parameters.sapwood_offset,
+                                                   1.f / initialize_parameters.wood_transition, distance_to_boundary));
   pair.max_bending_twist_bundle_strain = pair.bending_twist_bundle_strain_limit =
       glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);
   pair.max_connectivity_strain = pair.connectivity_strain_limit = max_connectivity_strain;
 }
 
 void RecountSegmentPairHandles(std::vector<DynamicStrands::GpuSegment>& segments,
-  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+                               std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   for (auto& segment : segments) {
     segment.pairs_count = 0;
   }
@@ -931,8 +1724,7 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
     const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
-    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id,
-    const bool include_alpha_cutoff = true) {
+    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id, const bool include_alpha_cutoff = true) {
   const auto mix_settings = [include_alpha_cutoff](Fnv64& hash) {
     hash.MixCString("DsKineticVoronoiMeshing.v1");
     hash.MixPod(kMeshingBufferVersion);
@@ -944,13 +1736,24 @@ MeshingInputHashStats ComputeMeshingInputHashStats(
     if (DsKineticVoronoiMeshing::meshing_settings.bark_smooth_iterations != 0) {
       hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.bark_smooth_iterations);
       hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.bark_smooth_strength);
+      // Default lock_boundary=true: omit from hash when true so legacy caches still hit.
+      if (!DsKineticVoronoiMeshing::meshing_settings.bark_smooth_lock_boundary) {
+        hash.MixPod(static_cast<uint8_t>(0));
+      }
+      // Default bark_smooth_uvs=true: omit from hash when true so default caches still hit.
+      if (!DsKineticVoronoiMeshing::meshing_settings.bark_smooth_uvs) {
+        hash.MixPod(static_cast<uint8_t>(0));
+      }
+    }
+    if (DsKineticVoronoiMeshing::meshing_settings.bark_subdivide) {
+      hash.MixPod(static_cast<uint8_t>(1));
     }
     // alpha_cutoff was added later; omit for legacy hashes so default-cutoff caches still hit.
     if (include_alpha_cutoff) {
       hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff);
       // branch_alpha_cutoff only affects the key when it differs from alpha_cutoff (feature enabled).
-      if (DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff
-          != DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff) {
+      if (DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff !=
+          DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff) {
         hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff);
       }
       // look_ahead only affects the key when non-zero (default preserves legacy hashes).
@@ -1192,8 +1995,8 @@ bool TryMigrateMeshingBufferCacheFiles(const std::filesystem::path& legacy_bin, 
     } else {
       std::filesystem::rename(legacy_yml, new_yml, ec);
       if (ec) {
-        EVOENGINE_WARNING("Renamed meshing .bin but failed to rename .yml " << legacy_yml.string() << " -> "
-                                                                           << new_yml.string() << ": " << ec.message());
+        EVOENGINE_WARNING("Renamed meshing .bin but failed to rename .yml "
+                          << legacy_yml.string() << " -> " << new_yml.string() << ": " << ec.message());
       }
     }
   }
@@ -1686,8 +2489,7 @@ kinDS::VoronoiMesh BuildProfilePlanesDebugMesh(const kinDS::StrandTree& tree, in
   const auto& support_points = tree.getSupportPoints();
   const auto& transforms = tree.getTransformsByHeightAndBranch();
   const auto& strands_by_branch_id = tree.getStrandsByBranchId();
-  const size_t subdiv =
-      static_cast<size_t>(std::max(1, uniform_subdivision));
+  const size_t subdiv = static_cast<size_t>(std::max(1, uniform_subdivision));
 
   size_t plane_count = 0;
   for (size_t height = 0; height < transforms.size(); ++height) {
@@ -2877,11 +3679,12 @@ bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
     if (!strand_tree) {
       return false;
     }
-    tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [](size_t count, std::function<void(size_t)> func) {
-      Jobs::RunParallelFor(count, [&](size_t i) {
-        func(i);
-      });
-    });
+    tree_mesher_ =
+        std::make_shared<kinDS::TreeMesher>(*strand_tree, [](size_t count, std::function<void(size_t)> func) {
+          Jobs::RunParallelFor(count, [&](size_t i) {
+            func(i);
+          });
+        });
     tree_mesher_->getSettings().transform_mesh_at_construction = true;
     tree_mesher_->getSettings().mesh_cap_at_start = true;
   }
@@ -2933,42 +3736,52 @@ bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
 
   std::vector<size_t> global_to_local(segment_meshlet_vertices.size(), static_cast<size_t>(-1));
   std::vector<std::vector<glm::dvec3>> corner_normals(segment_meshlets_.size());
+  const bool restore_metadata = meshing_settings.store_mesh_metadata &&
+                                segment_meshlet_vertex_metadata.size() == segment_meshlet_vertices.size() &&
+                                segment_meshlet_face_metadata.size() == segment_meshlet_triangles.size();
   for (auto& mesh : segment_meshlets_) {
-    mesh.setStoreMetadata(false);
+    mesh.setStoreMetadata(restore_metadata);
   }
 
   for (size_t vertex_index = 0; vertex_index < segment_meshlet_vertices.size(); ++vertex_index) {
-    const int meshlet_id = meshlet_index_for_physics(static_cast<int>(segment_meshlet_vertices[vertex_index].segment_index));
+    const int meshlet_id =
+        meshlet_index_for_physics(static_cast<int>(segment_meshlet_vertices[vertex_index].segment_index));
     if (meshlet_id < 0 || static_cast<size_t>(meshlet_id) >= segment_meshlets_.size()) {
       continue;
     }
     const glm::vec3 local = inv_root.TransformPoint(segment_meshlet_vertices[vertex_index].x0);
+    const std::string& vertex_meta = restore_metadata ? segment_meshlet_vertex_metadata[vertex_index] : std::string{};
     global_to_local[vertex_index] = segment_meshlets_[static_cast<size_t>(meshlet_id)].addVertex(
-        glm::dvec3(local.x, local.y, local.z));
+        glm::dvec3(local.x, local.y, local.z), vertex_meta);
   }
 
+  size_t triangle_index = 0;
   for (const auto& triangle : segment_meshlet_triangles) {
     if (triangle.vertex_index0 >= segment_meshlet_vertices.size() ||
         triangle.vertex_index1 >= segment_meshlet_vertices.size() ||
         triangle.vertex_index2 >= segment_meshlet_vertices.size()) {
+      ++triangle_index;
       continue;
     }
     const int meshlet_id =
         meshlet_index_for_physics(static_cast<int>(segment_meshlet_vertices[triangle.vertex_index0].segment_index));
     if (meshlet_id < 0 || static_cast<size_t>(meshlet_id) >= segment_meshlets_.size()) {
+      ++triangle_index;
       continue;
     }
     const size_t i0 = global_to_local[triangle.vertex_index0];
     const size_t i1 = global_to_local[triangle.vertex_index1];
     const size_t i2 = global_to_local[triangle.vertex_index2];
     if (i0 == static_cast<size_t>(-1) || i1 == static_cast<size_t>(-1) || i2 == static_cast<size_t>(-1)) {
+      ++triangle_index;
       continue;
     }
     auto& mesh = segment_meshlets_[static_cast<size_t>(meshlet_id)];
     const size_t uv0 = mesh.addUV(glm::dvec3(triangle.uv[0].x, triangle.uv[0].y, triangle.uv[0].z));
     const size_t uv1 = mesh.addUV(glm::dvec3(triangle.uv[1].x, triangle.uv[1].y, triangle.uv[1].z));
     const size_t uv2 = mesh.addUV(glm::dvec3(triangle.uv[2].x, triangle.uv[2].y, triangle.uv[2].z));
-    mesh.addTriangle(i0, i1, i2, uv0, uv1, uv2);
+    const std::string& face_meta = restore_metadata ? segment_meshlet_face_metadata[triangle_index] : std::string{};
+    mesh.addTriangle(i0, i1, i2, uv0, uv1, uv2, -1, face_meta);
     auto& normals = corner_normals[static_cast<size_t>(meshlet_id)];
     for (int corner = 0; corner < 3; ++corner) {
       const glm::vec3 local_n = inv_root.TransformVector(glm::vec3(triangle.normal[corner]));
@@ -2976,6 +3789,7 @@ bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
     }
     const int neighbor = meshlet_index_for_physics(triangle.neighbor_segment_index);
     meshing_neighbor_indices_[static_cast<size_t>(meshlet_id)].push_back(neighbor);
+    ++triangle_index;
   }
 
   for (size_t meshlet_id = 0; meshlet_id < segment_meshlets_.size(); ++meshlet_id) {
@@ -3012,7 +3826,7 @@ bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
 }
 
 DsKineticVoronoiMeshing::OwnerMeshing DsKineticVoronoiMeshing::FindForEntity(const std::shared_ptr<Scene>& scene,
-                                                                            const Entity& entity) {
+                                                                             const Entity& entity) {
   OwnerMeshing result;
   if (!scene || !scene->IsEntityValid(entity)) {
     return result;
@@ -3024,19 +3838,18 @@ DsKineticVoronoiMeshing::OwnerMeshing DsKineticVoronoiMeshing::FindForEntity(con
       return found;
     }
     const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(candidate).lock();
-    if (!dts || !dts->dynamic_strands || !dts->dynamic_strands->meshing) {
+    if (!dts || !dts->dynamic_strands || !dts->dynamic_strands->GetKineticVoronoiMeshing()) {
       return found;
     }
-    found.meshing = dynamic_cast<DsKineticVoronoiMeshing*>(dts->dynamic_strands->meshing.get());
+    found.meshing = dts->dynamic_strands->GetKineticVoronoiMeshing();
     if (found.meshing) {
       found.dts_owner = candidate;
     }
     return found;
   };
 
-  // Prefer a meshed KineticVoronoi DTS. PhysicsDemo trunk experiments mesh a Tree child while the
-  // Intersection Meshes group is usually parented under the (empty) PhysicsDemo owner — skipping
-  // empty ancestors avoids the false "No meshlets available" disable.
+  // Prefer a meshed KineticVoronoi DTS. TreeDescriptor demos mesh into PhysicsDemo's DTS; still
+  // walk ancestors / scene owners so Intersection Meshes parented under related entities resolve.
   OwnerMeshing first_ancestor;
   Entity current = entity;
   while (scene->IsEntityValid(current)) {
@@ -3222,11 +4035,12 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
   if (!apply_to_simulation) {
-    PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
-                              tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
-                              tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+    PrepareAndPopulateGpuMeshletBuffers(
+        tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+        tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+        tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
     EVOENGINE_LOG("Intersection complete (export-only). " << segment_meshlet_vertices.size() << " vertices, "
-                << segment_meshlet_triangles.size() << " triangles.");
+                                                          << segment_meshlet_triangles.size() << " triangles.");
     return true;
   }
 
@@ -3235,9 +4049,10 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
     SplitIntersectingMeshletsByConnectedComponents(truncate_result.intersecting_meshlet_indices);
   }
 
-  PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
-                            tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
-                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  PrepareAndPopulateGpuMeshletBuffers(
+      tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+      tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+      tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
   CompactSurvivingPhysicsSegments(truncate_result.outside_meshlet_indices,
                                   /*rebuild_pairs=*/!meshing_settings.recompute_segment_pairs);
@@ -3247,9 +4062,10 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
     // Rebuild GPU meshlets so segment_pair_index matches the recomputed pairs.
     segment_meshlet_vertices.clear();
     segment_meshlet_triangles.clear();
-    PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
-                              tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
-                              tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+    PrepareAndPopulateGpuMeshletBuffers(
+        tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+        tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+        tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   }
   Upload();  // remapped / rebuilt meshlet segment / neighbor / pair indices
   UploadPhysicsSegmentsAndPairs();
@@ -3280,9 +4096,9 @@ bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
 
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
-  PopulateGpuMeshletBuffers(segment_meshlets_, strand_tree->getPhysicsStrandToSegmentIndices(),
-                            tree_mesher_->getMeshingStrandToSegmentIndices(), meshing_neighbor_indices_,
-                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  PrepareAndPopulateGpuMeshletBuffers(segment_meshlets_, strand_tree->getPhysicsStrandToSegmentIndices(),
+                                      tree_mesher_->getMeshingStrandToSegmentIndices(), meshing_neighbor_indices_,
+                                      tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
   UpdateBindings();
   EVOENGINE_LOG("Reset meshlets to GPU (pristine visuals for remaining physics segments; "
@@ -3433,8 +4249,8 @@ void FitSegmentLengthToMeshOnParentAxis(DynamicStrands::GpuSegment& segment, con
   float t_min = std::numeric_limits<float>::max();
   float t_max = std::numeric_limits<float>::lowest();
   for (const auto& v : mesh.getVertices()) {
-    const glm::vec3 world = root_transform.TransformPoint(glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y),
-                                                                   static_cast<float>(v.z)));
+    const glm::vec3 world = root_transform.TransformPoint(
+        glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)));
     const float t = glm::dot(world - p0, axis);
     t_min = std::min(t_min, t);
     t_max = std::max(t_max, t);
@@ -3461,8 +4277,8 @@ float MeshAxialCenterOnParentAxis(const kinDS::VoronoiMesh& mesh, const glm::vec
   }
   double sum = 0.0;
   for (const auto& v : mesh.getVertices()) {
-    const glm::vec3 world = root_transform.TransformPoint(glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y),
-                                                                   static_cast<float>(v.z)));
+    const glm::vec3 world = root_transform.TransformPoint(
+        glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y), static_cast<float>(v.z)));
     sum += static_cast<double>(glm::dot(world - p0, axis));
   }
   return static_cast<float>(sum / static_cast<double>(mesh.getVertexCount()));
@@ -3666,10 +4482,12 @@ size_t DsKineticVoronoiMeshing::SplitIntersectingMeshletsByConnectedComponents(
         if (face * 3 + 2 >= other_tris.size()) {
           continue;
         }
-        const QuantizedEdge e0 = MakeQuantizedEdge(other_verts[other_tris[face * 3]], other_verts[other_tris[face * 3 + 1]]);
+        const QuantizedEdge e0 =
+            MakeQuantizedEdge(other_verts[other_tris[face * 3]], other_verts[other_tris[face * 3 + 1]]);
         const QuantizedEdge e1 =
             MakeQuantizedEdge(other_verts[other_tris[face * 3 + 1]], other_verts[other_tris[face * 3 + 2]]);
-        const QuantizedEdge e2 = MakeQuantizedEdge(other_verts[other_tris[face * 3 + 2]], other_verts[other_tris[face * 3]]);
+        const QuantizedEdge e2 =
+            MakeQuantizedEdge(other_verts[other_tris[face * 3 + 2]], other_verts[other_tris[face * 3]]);
 
         int best_ci = 0;
         int best_hits = -1;
@@ -3966,8 +4784,8 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
         vertical.segment0_handle = below;
         vertical.segment1_handle = above;
         InitializeCompactedSegmentPair(vertical, new_segments[static_cast<size_t>(below)],
-                                       new_segments[static_cast<size_t>(above)], direct_connection, initialize_parameters_,
-                                       material_template);
+                                       new_segments[static_cast<size_t>(above)], direct_connection,
+                                       initialize_parameters_, material_template);
         const int pair_handle = static_cast<int>(ordered_pairs.size());
         ordered_pairs.push_back(vertical);
         new_segment_data[static_cast<size_t>(below)].pair_handles[1] = pair_handle;
@@ -4031,8 +4849,8 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
         continue;
       }
       InitializeCompactedSegmentPair(pair, new_segments[static_cast<size_t>(pair.segment0_handle)],
-                                     new_segments[static_cast<size_t>(pair.segment1_handle)], false, initialize_parameters_,
-                                     nullptr);
+                                     new_segments[static_cast<size_t>(pair.segment1_handle)], false,
+                                     initialize_parameters_, nullptr);
     }
 
     RecountSegmentPairHandles(new_segments, new_segment_data);
@@ -4301,7 +5119,60 @@ void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tre
                 << segment_pairs.size() << ").");
 }
 
-void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
+void DsKineticVoronoiMeshing::WriteMeshingFailureStatistics(const std::string& failure_message) {
+  if (!meshing_settings.collect_meshing_statistics) {
+    return;
+  }
+
+  const double cutoff = meshing_settings.alpha_cutoff;
+  const double alpha = cutoff * cutoff;
+
+  std::string experiment_tag = meshing_settings.meshing_statistics_experiment_name;
+  if (experiment_tag.empty()) {
+    experiment_tag = "Unknown";
+    if (const auto scene = Application::GetActiveScene()) {
+      if (const auto* demo_owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicStrandsDemo>()) {
+        for (const Entity& entity : *demo_owners) {
+          if (const auto demo = scene->GetOrSetPrivateComponent<DynamicStrandsDemo>(entity).lock()) {
+            experiment_tag = DynamicStrandsDemo::DemoTypeExportFolderName(demo->demo_type);
+            break;
+          }
+        }
+      }
+    }
+  }
+  std::replace(experiment_tag.begin(), experiment_tag.end(), ' ', '_');
+  for (char& c : experiment_tag) {
+    if (c == '+' || c == '/' || c == '\\' || c == ':') {
+      c = '_';
+    }
+  }
+
+  // Prefer whatever stats were collected before the failure (still on the current tree_mesher_).
+  if (tree_mesher_) {
+    if (kinDS::Statistics* stats = tree_mesher_->getMeshingStatistics()) {
+      if (!stats->empty() || !stats->eventList().empty()) {
+        stats->setTotalsAlpha(alpha);
+        stats->setTotalsFailure(failure_message);
+        stats->setFilenameExperimentTag(experiment_tag);
+        tree_mesher_->writeCollectedMeshingStatistics();
+        meshing_settings.meshing_statistics_experiment_name.clear();
+        return;
+      }
+    }
+  }
+
+  // No collected events — still emit a total-only failure CSV with the same naming scheme.
+  kinDS::Statistics failure_stats;
+  failure_stats.setTotalsAlpha(alpha);
+  failure_stats.setTotalsFailure(failure_message);
+  failure_stats.setFilenameExperimentTag(std::move(experiment_tag));
+  failure_stats.writeCsv(tree_mesher_ ? tree_mesher_->getSettings().meshing_statistics_csv_path
+                                      : std::filesystem::path("meshing_statistics.csv"));
+  meshing_settings.meshing_statistics_experiment_name.clear();
+}
+
+bool DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     const std::vector<std::vector<glm::dvec2>>& support_points,
     std::vector<std::vector<double>>& subdivisions_by_strand,
     std::vector<std::vector<int>>& physics_strand_to_segment_indices,
@@ -4309,6 +5180,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     const std::vector<std::vector<size_t>>& branch_indices,
     std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id, const float min_segment_length,
     const float max_segment_length) {
+  last_meshing_succeeded_ = false;
   std::vector<float> bottom_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
   std::vector<float> top_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
 
@@ -4346,6 +5218,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   const auto previous_tree_mesher = tree_mesher_;
   const auto previous_vertices = segment_meshlet_vertices;
   const auto previous_triangles = segment_meshlet_triangles;
+  const auto previous_vertex_metadata = segment_meshlet_vertex_metadata;
+  const auto previous_face_metadata = segment_meshlet_face_metadata;
   const auto previous_meshlets = segment_meshlets_;
   const auto previous_neighbors = meshing_neighbor_indices_;
   const auto previous_boundary_distances = boundary_distances_by_vertex;
@@ -4376,6 +5250,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     tree_mesher_ = previous_tree_mesher;
     segment_meshlet_vertices = previous_vertices;
     segment_meshlet_triangles = previous_triangles;
+    segment_meshlet_vertex_metadata = previous_vertex_metadata;
+    segment_meshlet_face_metadata = previous_face_metadata;
     segment_meshlets_ = previous_meshlets;
     meshing_neighbor_indices_ = previous_neighbors;
     boundary_distances_by_vertex = previous_boundary_distances;
@@ -4401,20 +5277,24 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
 
     if (meshing_settings.dry_run_strand_tree_only) {
       EVOENGINE_LOG("Dry run: strand tree prepared, skipping meshing algorithm.");
-      return;
+      last_meshing_succeeded_ = true;
+      return true;
     }
 
-    tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
-      Jobs::RunParallelFor(count, [&](size_t i) {
-        func(i);
-      });
-    });
+    tree_mesher_ =
+        std::make_shared<kinDS::TreeMesher>(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
+          Jobs::RunParallelFor(count, [&](size_t i) {
+            func(i);
+          });
+        });
     tree_mesher_->getSettings().transform_mesh_at_construction = true;
     tree_mesher_->getSettings().mesh_cap_at_start = true;
     tree_mesher_->getSettings().alpha_cutoff = meshing_settings.alpha_cutoff;
     tree_mesher_->getSettings().branch_alpha_cutoff = meshing_settings.branch_alpha_cutoff;
     tree_mesher_->getSettings().look_ahead = meshing_settings.look_ahead;
     tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
+    // Defer CSV write until after T-junction closure so totals can include meshlet tri/vert counts.
+    tree_mesher_->getSettings().defer_meshing_statistics_write = meshing_settings.collect_meshing_statistics;
     tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
     tree_mesher_->getSettings().export_separate_contributor_objects =
         meshing_settings.export_separate_contributor_objects;
@@ -4561,14 +5441,18 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       RecomputeSegmentPairs(*tree_mesher_);
     }
 
-    // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed,
-    // repaired bark neighbor tags from materials, or recomputed pairs after a cache hit.
+    // Prepare CPU meshlets (T-junctions + bark) before GPU upload / buffer save so the cached
+    // CPU meshlets match the GPU buffers.
     if (!loaded_from_cache || meshing_settings.recompute_segment_pairs || rebuild_gpu_from_meshlets) {
+      PrepareSegmentMeshletsForGpu(segment_meshlets_, meshing_neighbor_indices_, meshing_to_physics_segment_indices,
+                                   root_transform);
+      tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+
       segment_meshlet_vertices.clear();
       segment_meshlet_triangles.clear();
-      PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), physics_strand_to_segment_indices,
-                                meshing_strand_to_segment_indices, tree_mesher_->getMeshingNeighborIndices(),
-                                meshing_to_physics_segment_indices, root_transform);
+      PopulateGpuMeshletBuffers(segment_meshlets_, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
+                                meshing_neighbor_indices_, meshing_to_physics_segment_indices, root_transform);
     }
 
     if (!loaded_from_cache) {
@@ -4605,38 +5489,103 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     } catch (...) {
       EVOENGINE_WARNING("Meshing succeeded but debug mesh export failed with an unknown error.");
     }
+    last_meshing_succeeded_ = true;
+    return true;
   } catch (const std::exception& exception) {
     EVOENGINE_ERROR("Kinetic Voronoi meshing failed: " << exception.what()
                                                        << "; cancelling update, previous mesh buffers kept.");
+    WriteMeshingFailureStatistics(exception.what());
     restore_previous_meshing_state();
+    last_meshing_succeeded_ = false;
+    return false;
   } catch (...) {
-    EVOENGINE_ERROR("Kinetic Voronoi meshing failed with an unknown error; cancelling update, previous mesh buffers "
-                    "kept.");
+    EVOENGINE_ERROR(
+        "Kinetic Voronoi meshing failed with an unknown error; cancelling update, previous mesh buffers "
+        "kept.");
+    WriteMeshingFailureStatistics("unknown error");
     restore_previous_meshing_state();
+    last_meshing_succeeded_ = false;
+    return false;
   }
 }
 
+void DsKineticVoronoiMeshing::PrepareSegmentMeshletsForGpu(
+    std::vector<kinDS::VoronoiMesh>& meshes, std::vector<std::vector<int>>& meshing_neighbor_indices,
+    const std::vector<size_t>& meshing_to_physics_segment_indices, const GlobalTransform& root_transform) {
+  // Glue / extraction can leave T-junctions across and inside segment meshlets; close them before bark.
+  kinDS::closeCrossMeshletTJunctions(meshes, meshing_neighbor_indices);
+  kinDS::closeIntraMeshletTJunctions(meshes, meshing_neighbor_indices);
+
+  // Write deferred meshing statistics with mesh counts taken after T-junction fixes (before bark edits).
+  if (meshing_settings.collect_meshing_statistics && tree_mesher_) {
+    if (kinDS::Statistics* stats = tree_mesher_->getMeshingStatistics()) {
+      if (!stats->empty() || !stats->eventList().empty()) {
+        size_t triangle_count = 0;
+        size_t vertex_count = 0;
+        for (const kinDS::VoronoiMesh& mesh : meshes) {
+          triangle_count += mesh.getTriangleCount();
+          vertex_count += mesh.getVertexCount();
+        }
+        const double cutoff = meshing_settings.alpha_cutoff;
+        stats->setTotalsAlpha(cutoff * cutoff);
+        stats->setTotalsMeshCounts(triangle_count, vertex_count);
+
+        std::string experiment_tag = meshing_settings.meshing_statistics_experiment_name;
+        if (experiment_tag.empty()) {
+          experiment_tag = "Unknown";
+          if (const auto scene = Application::GetActiveScene()) {
+            if (const auto* demo_owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicStrandsDemo>()) {
+              for (const Entity& entity : *demo_owners) {
+                if (const auto demo = scene->GetOrSetPrivateComponent<DynamicStrandsDemo>(entity).lock()) {
+                  experiment_tag = DynamicStrandsDemo::DemoTypeExportFolderName(demo->demo_type);
+                  break;
+                }
+              }
+            }
+          }
+        }
+        std::replace(experiment_tag.begin(), experiment_tag.end(), ' ', '_');
+        for (char& c : experiment_tag) {
+          if (c == '+' || c == '/' || c == '\\' || c == ':') {
+            c = '_';
+          }
+        }
+        stats->setFilenameExperimentTag(std::move(experiment_tag));
+        tree_mesher_->writeCollectedMeshingStatistics();
+        meshing_settings.meshing_statistics_experiment_name.clear();
+      }
+    }
+  }
+
+  if (meshing_settings.bark_subdivide) {
+    SubdivideBarkTrianglesOnce(meshes, meshing_neighbor_indices);
+  }
+
+  const std::vector<uint8_t> meshlet_has_bark = BuildMeshletHasBarkFlags(meshing_neighbor_indices);
+  SmoothBarkMeshPositions(meshes, meshing_neighbor_indices, meshlet_has_bark, meshing_settings.bark_smooth_iterations,
+                          meshing_settings.bark_smooth_strength, meshing_settings.bark_smooth_lock_boundary,
+                          meshing_settings.bark_smooth_uvs);
+  AverageSharedBarkSeamNormals(meshes, meshing_neighbor_indices, meshlet_has_bark, meshing_to_physics_segment_indices,
+                               dynamic_strands->segments, dynamic_strands->segment_pairs,
+                               dynamic_strands->segment_data_list);
+  FixTriangleCapBarkUVs(meshes, meshing_neighbor_indices, meshlet_has_bark);
+  bark_debug_mesh_ = BuildBarkDebugMesh(meshes, meshing_neighbor_indices, meshlet_has_bark, root_transform);
+  has_bark_debug_mesh_ = bark_debug_mesh_.getTriangleCount() > 0;
+}
+
 void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
-    std::vector<kinDS::VoronoiMesh>& meshes,
+    const std::vector<kinDS::VoronoiMesh>& meshes,
     const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
     const std::vector<std::vector<int>>& meshing_neighbor_indices,
     const std::vector<size_t>& meshing_to_physics_segment_indices, const GlobalTransform& root_transform) {
-  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = dynamic_strands->segment_data_list;
-  std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
-
-  // Smooth bark seams on CPU meshlets before the first GPU upload of this extraction.
-  const std::vector<uint8_t> meshlet_has_bark = BuildMeshletHasBarkFlags(meshing_neighbor_indices);
-  SmoothBarkMeshPositions(meshes, meshing_neighbor_indices, meshlet_has_bark,
-                          meshing_settings.bark_smooth_iterations, meshing_settings.bark_smooth_strength);
-  AverageSharedBarkSeamNormals(meshes, meshing_neighbor_indices, meshlet_has_bark,
-                               meshing_to_physics_segment_indices, dynamic_strands->segments, segment_pairs,
-                               segment_data_list);
-  bark_debug_mesh_ = BuildBarkDebugMesh(meshes, meshing_neighbor_indices, meshlet_has_bark, root_transform);
-  has_bark_debug_mesh_ = bark_debug_mesh_.getTriangleCount() > 0;
-  // Keep the member cache aligned with the meshlets that were just smoothed and uploaded.
-  if (&meshes != &segment_meshlets_) {
-    segment_meshlets_ = meshes;
+  // CPU-only metadata parallel to the GPU buffers (never uploaded).
+  segment_meshlet_vertex_metadata.clear();
+  segment_meshlet_face_metadata.clear();
+  const bool keep_metadata = meshing_settings.store_mesh_metadata;
+  if (keep_metadata) {
+    segment_meshlet_vertex_metadata.reserve(segment_meshlet_vertices.capacity());
+    segment_meshlet_face_metadata.reserve(segment_meshlet_triangles.capacity());
   }
 
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
@@ -4653,24 +5602,29 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
 
       if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
           mesh.getNormals().size() != mesh.getTriangles().size()) {
-        EVOENGINE_ERROR("PopulateGpuMeshletBuffers: meshlet " << meshing_segment_id
-                                                              << " is not PerTriangleCorner (normals="
-                                                              << mesh.getNormals().size() << ", corners="
-                                                              << mesh.getTriangles().size()
-                                                              << "); refusing to upload conflated indices.");
+        EVOENGINE_ERROR("PopulateGpuMeshletBuffers: meshlet "
+                        << meshing_segment_id << " is not PerTriangleCorner (normals=" << mesh.getNormals().size()
+                        << ", corners=" << mesh.getTriangles().size() << "); refusing to upload conflated indices.");
         continue;
       }
 
       const size_t vertex_offset = segment_meshlet_vertices.size();
-      for (const auto& v : mesh.getVertices()) {
+      const auto& mesh_vertex_metadata = mesh.getVertexMetadata();
+      for (size_t local_vi = 0; local_vi < mesh.getVertices().size(); ++local_vi) {
+        const auto& v = mesh.getVertices()[local_vi];
         GpuSegmentMeshletVertex vertex;
         vertex.x0 = root_transform.TransformPoint(glm::vec3(v[0], v[1], v[2]));
         vertex.x = vertex.x0;
         vertex.segment_index = physics_segment_id;
         segment_meshlet_vertices.push_back(vertex);
+        if (keep_metadata) {
+          segment_meshlet_vertex_metadata.push_back(
+              local_vi < mesh_vertex_metadata.size() ? mesh_vertex_metadata[local_vi] : std::string("{}"));
+        }
       }
 
       const auto& triangles = mesh.getTriangles();
+      const auto& mesh_face_metadata = mesh.getFaceMetadata();
       for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
         GpuSegmentMeshletTriangle triangle;
         triangle.vertex_index0 = static_cast<unsigned int>(triangles[triangle_vertex_index] + vertex_offset);
@@ -4693,8 +5647,7 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
           // Corner index into PerTriangleCorner normals — never triangles[corner] (vertex id).
           const size_t corner_index = triangle_vertex_index + j;
           const glm::dvec3 local_n = mesh.getNormals()[corner_index];
-          glm::vec3 world_n =
-              root_transform.TransformVector(glm::vec3(local_n.x, local_n.y, local_n.z));
+          glm::vec3 world_n = root_transform.TransformVector(glm::vec3(local_n.x, local_n.y, local_n.z));
           const float n_len = glm::length(world_n);
           if (n_len > 1.0e-16f) {
             world_n /= n_len;
@@ -4711,16 +5664,16 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
 
         triangle.segment_pair_index = -1;
         if (triangle.neighbor_segment_index >= 0) {
-          for (int pair_handle : segment_data_list[physics_segment_id].pair_handles) {
+          for (int pair_handle : dynamic_strands->segment_data_list[physics_segment_id].pair_handles) {
             if (pair_handle == -1) {
               continue;
             }
-            if (segment_pairs[pair_handle].segment0_handle != physics_segment_id &&
-                segment_pairs[pair_handle].segment1_handle != physics_segment_id) {
+            if (dynamic_strands->segment_pairs[pair_handle].segment0_handle != physics_segment_id &&
+                dynamic_strands->segment_pairs[pair_handle].segment1_handle != physics_segment_id) {
               EVOENGINE_ERROR("Segment pair incorrectly referenced!");
             }
-            if (segment_pairs[pair_handle].segment0_handle == triangle.neighbor_segment_index ||
-                segment_pairs[pair_handle].segment1_handle == triangle.neighbor_segment_index) {
+            if (dynamic_strands->segment_pairs[pair_handle].segment0_handle == triangle.neighbor_segment_index ||
+                dynamic_strands->segment_pairs[pair_handle].segment1_handle == triangle.neighbor_segment_index) {
               triangle.segment_pair_index = static_cast<int>(pair_handle);
               break;
             }
@@ -4728,9 +5681,30 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
         }
 
         segment_meshlet_triangles.push_back(triangle);
+        if (keep_metadata) {
+          const size_t face_index = triangle_vertex_index / 3;
+          segment_meshlet_face_metadata.push_back(
+              face_index < mesh_face_metadata.size() ? mesh_face_metadata[face_index] : std::string("{}"));
+        }
       }
     }
   }
+}
+
+void DsKineticVoronoiMeshing::PrepareAndPopulateGpuMeshletBuffers(
+    std::vector<kinDS::VoronoiMesh>& meshes, const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+    const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
+    std::vector<std::vector<int>>& meshing_neighbor_indices,
+    const std::vector<size_t>& meshing_to_physics_segment_indices, const GlobalTransform& root_transform) {
+  PrepareSegmentMeshletsForGpu(meshes, meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
+  if (&meshes != &segment_meshlets_) {
+    segment_meshlets_ = meshes;
+  }
+  if (&meshing_neighbor_indices != &meshing_neighbor_indices_) {
+    meshing_neighbor_indices_ = meshing_neighbor_indices;
+  }
+  PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
+                            meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
 }
 
 // DsKineticVoronoiMeshing implementation
@@ -5201,6 +6175,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Download() {
     device_segment_meshlet_triangles_buffer->DownloadVector(segment_meshlet_triangles,
                                                             segment_meshlet_triangles.size());
   }
+  // Metadata is CPU-only (never on GPU). The parallel caches filled at populate stay valid across download
+  // as long as topology is unchanged; export/rebuild reattaches them to the downloaded geometry.
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Upload() {
@@ -5213,6 +6189,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Upload() {
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
+  segment_meshlet_vertex_metadata.clear();
+  segment_meshlet_face_metadata.clear();
   segment_meshlets_.clear();
   meshing_neighbor_indices_.clear();
   bark_debug_mesh_ = kinDS::VoronoiMesh{};
@@ -5231,7 +6209,9 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
       9, device_segment_meshlet_triangles_buffer, 0);
 }
 
-bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InspectSharedMeshingSettings(
+    const std::shared_ptr<EditorLayer>& editor_layer) {
+  (void)editor_layer;
   ImGui::Checkbox("Dry run (strand tree only)", &meshing_settings.dry_run_strand_tree_only);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Prepare the strand tree during initialization but skip the meshing algorithm.");
@@ -5256,9 +6236,11 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   ImGui::Checkbox("Collect meshing statistics", &meshing_settings.collect_meshing_statistics);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Enable kinDS runtime/event statistics collection and CSV export after meshing "
-        "(filename includes a timestamp so previous runs are kept). Also writes a per-mesh intersection "
-        "CSV for Intersect and for Intersect and export all on an Intersection Meshes group.");
+        "Enable kinDS runtime/event statistics CSV and a companion event-list CSV after meshing "
+        "(filenames include a timestamp so previous runs are kept). The event list has one row per "
+        "kinetic event including whether each radius event used a boundary-transition shift. "
+        "Also writes a per-mesh intersection CSV for Intersect and for Intersect and export all on an "
+        "Intersection Meshes group.");
   }
   ImGui::Checkbox("Debug export meshes", &meshing_settings.debug_export_meshes);
   if (ImGui::IsItemHovered()) {
@@ -5297,6 +6279,14 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "Laplacian smooth welded bark triangles (same method as marching-cubes MeshSmoothing, without ground "
         "lock). Interior faces that share bark vertices move with them. 0 = off. Affects meshing buffer hash.");
   }
+  ImGui::Checkbox("Subdivide bark", &meshing_settings.bark_subdivide);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "1→4-subdivide each bark triangle via edge midpoints during prepare (independent of bark smooth "
+        "iterations — still runs when smooth is 0). Each bark edge split is propagated to adjacent "
+        "interior faces (same meshlet, and the neighboring meshlet at segment interfaces). Affects "
+        "meshing buffer hash when enabled.");
+  }
   if (ImGui::DragFloat("Bark smooth strength", &meshing_settings.bark_smooth_strength, 0.01f, 0.0f, 1.0f)) {
     meshing_settings.bark_smooth_strength = glm::clamp(meshing_settings.bark_smooth_strength, 0.0f, 1.0f);
   }
@@ -5304,6 +6294,20 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip(
         "Per-iteration blend toward the neighbor average. 0 = no move, 1 = full Laplacian step (previous behavior). "
         "Try ~0.2–0.5 if one iteration is too strong. Affects meshing buffer hash when iterations > 0.");
+  }
+  ImGui::Checkbox("Lock bark boundary", &meshing_settings.bark_smooth_lock_boundary);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Keep vertices on the bark manifold boundary fixed during Laplacian smooth (edges that belong to only one "
+        "bark triangle). Prevents bark edges from pulling inward. Affects meshing buffer hash when iterations > 0 "
+        "and this is unchecked.");
+  }
+  ImGui::Checkbox("Smooth bark UVs", &meshing_settings.bark_smooth_uvs);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Co-smooth bark corner UVs with the same iterations and strength as positions. Circumferential wrap "
+        "discontinuities are lifted into a continuous chart before averaging, then each bark triangle is "
+        "re-unwrapped. Affects meshing buffer hash when iterations > 0 and this is unchecked.");
   }
   {
     float alpha_cutoff = static_cast<float>(meshing_settings.alpha_cutoff);
@@ -5339,6 +6343,45 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     }
   }
 
+  ImGui::DragFloat("UV height factor", &render_settings.segment_meshlet_render_parameters.uv_height_factor, 0.001f,
+                   0.001f, 1.0f);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Scales bark UV height (kinetic time / along-strand). Used for viewport shading and OBJ export.");
+  }
+  ImGui::DragFloat("UV circum factor", &render_settings.segment_meshlet_render_parameters.uv_circum_factor, 1.0f, 1.0f,
+                   50.0f, "%.0f");
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Scales bark UV circumference (polar angle). Used for viewport shading and OBJ export.");
+  }
+
+  ImGui::Checkbox("Fix missing meshlets after intersection",
+                  &meshing_settings.intersection_boundary_fix_missing_meshes);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Attempt to repair empty meshlets after boundary intersection using neighbor triangles.");
+  }
+  ImGui::Checkbox("Keep original meshlet on intersection failure",
+                  &meshing_settings.intersection_keep_original_on_failure);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "If intersection fails (e.g. non-manifold), keep the uncut meshlet. Disable to replace it with an empty mesh.");
+  }
+  ImGui::Checkbox("Prefer meshlet UVs on intersection seam", &meshing_settings.intersection_prefer_meshlet_uv_on_seam);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Vertices lying on the original meshlet surface receive segment-meshlet UVs at the clip seam, even on "
+        "boundary-origin faces.");
+  }
+  ImGui::Checkbox("Interior UVs on clip-boundary faces", &meshing_settings.intersection_boundary_faces_interior_uv);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Faces originating from the clip boundary use interior-style (a,b,h) UVs. Bark polar distance is treated as "
+        "r=1 when converting.");
+  }
+}
+
+bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  InspectSharedMeshingSettings(editor_layer);
+
   // --- Helpers used by Add / Save / Load / Export all ---
   // Returns the DynamicTreeStrands owner entity for this meshing instance.
   const auto find_owner_entity = [&]() -> Entity {
@@ -5353,7 +6396,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     Entity this_owner{};
     for (const auto& e : *dts_owners) {
       const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(e).lock();
-      if (dts && dts->dynamic_strands && dts->dynamic_strands->meshing.get() == this) {
+      if (dts && dts->dynamic_strands && dts->dynamic_strands->GetKineticVoronoiMeshing() == this) {
         return e;
       }
     }
@@ -5440,30 +6483,6 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "Requires a completed meshing run.");
   }
 
-  ImGui::Checkbox("Fix missing meshlets after intersection",
-                  &meshing_settings.intersection_boundary_fix_missing_meshes);
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("Attempt to repair empty meshlets after boundary intersection using neighbor triangles.");
-  }
-  ImGui::Checkbox("Keep original meshlet on intersection failure",
-                  &meshing_settings.intersection_keep_original_on_failure);
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "If intersection fails (e.g. non-manifold), keep the uncut meshlet. Disable to replace it with an empty mesh.");
-  }
-  ImGui::Checkbox("Prefer meshlet UVs on intersection seam", &meshing_settings.intersection_prefer_meshlet_uv_on_seam);
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Vertices lying on the original meshlet surface receive segment-meshlet UVs at the clip seam, even on "
-        "boundary-origin faces.");
-  }
-  ImGui::Checkbox("Interior UVs on clip-boundary faces", &meshing_settings.intersection_boundary_faces_interior_uv);
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip(
-        "Faces originating from the clip boundary use interior-style (a,b,h) UVs. Bark polar distance is treated as "
-        "r=1 when converting.");
-  }
-
   FileUtils::SaveFile(
       "Download and export PLY", "PLY", {".ply"},
       [&](const std::filesystem::path& path) {
@@ -5489,24 +6508,24 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       [&](const std::filesystem::path& path) {
         dynamic_strands->Download();
         EVOENGINE_LOG("Downloaded data from GPU");
-        MeshletObjExport::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles,
-                                    dynamic_strands->segments,
-                                    render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                    render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                                    render_settings.segment_meshlet_render_parameters.fracture_distance,
-                                    dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
+        MeshletObjExport::ExportObj(
+            path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
+            render_settings.segment_meshlet_render_parameters.uv_height_factor,
+            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+            render_settings.segment_meshlet_render_parameters.fracture_distance, dynamic_strands->segment_pairs,
+            dynamic_strands->segment_data_list, segment_meshlet_vertex_metadata, segment_meshlet_face_metadata);
       },
       false);
   ImGui::SameLine();
   FileUtils::SaveFile(
       "Export OBJ", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
-        MeshletObjExport::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles,
-                                    dynamic_strands->segments,
-                                    render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                    render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                                    render_settings.segment_meshlet_render_parameters.fracture_distance,
-                                    dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
+        MeshletObjExport::ExportObj(
+            path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
+            render_settings.segment_meshlet_render_parameters.uv_height_factor,
+            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+            render_settings.segment_meshlet_render_parameters.fracture_distance, dynamic_strands->segment_pairs,
+            dynamic_strands->segment_data_list, segment_meshlet_vertex_metadata, segment_meshlet_face_metadata);
       },
       false);
   ImGui::SameLine();
@@ -5521,8 +6540,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
             return;
           }
           kinDS::ObjExporter::writeMesh(planes_mesh, path, 1.0, 1.0, {}, /*include_metadata=*/true);
-          EVOENGINE_LOG("Exported profile-plane debug mesh (" +
-                        std::to_string(planes_mesh.getTriangles().size() / 3) + " triangles) to " + path.string());
+          EVOENGINE_LOG("Exported profile-plane debug mesh (" + std::to_string(planes_mesh.getTriangles().size() / 3) +
+                        " triangles) to " + path.string());
         },
         false);
     if (ImGui::IsItemHovered()) {
@@ -5617,8 +6636,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   }
   ImGui::Checkbox("Per-meshlet objects", &MeshletObjExport::per_meshlet_objects);
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("When enabled, OBJ export writes one object (o) per segment meshlet instead of a single combined "
-                      "object.");
+    ImGui::SetTooltip(
+        "When enabled, OBJ export writes one object (o) per segment meshlet instead of a single combined "
+        "object.");
   }
   ImGui::Checkbox("Separate bark OBJ group", &MeshletObjExport::separate_bark_obj_group);
   if (ImGui::IsItemHovered()) {
@@ -5667,7 +6687,8 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
           "magenta = <-2 (out of range).");
     }
 
-    ImGui::Checkbox("Debug neighbor connectivity", &render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity);
+    ImGui::Checkbox("Debug neighbor connectivity",
+                    &render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity);
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Color meshlet faces by lateral-neighbor state (viewport + OBJ export): grey = never had a neighbor or "

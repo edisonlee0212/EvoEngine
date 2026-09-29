@@ -88,8 +88,8 @@ bool AreSegmentsStillConnected(const int segment_a, const int segment_b,
     return true;
   }
   if (segment_a < 0 || segment_b < 0 || static_cast<size_t>(segment_a) >= segment_data_list.size() ||
-      static_cast<size_t>(segment_b) >= segment_data_list.size() ||
-      static_cast<size_t>(segment_a) >= segments.size() || static_cast<size_t>(segment_b) >= segments.size()) {
+      static_cast<size_t>(segment_b) >= segment_data_list.size() || static_cast<size_t>(segment_a) >= segments.size() ||
+      static_cast<size_t>(segment_b) >= segments.size()) {
     return false;
   }
 
@@ -125,8 +125,7 @@ struct SegmentPairSheetKey {
   int segment_pair_index = -1;
 
   bool operator==(const SegmentPairSheetKey& other) const {
-    return owner_segment_index == other.owner_segment_index &&
-           segment_pair_index == other.segment_pair_index;
+    return owner_segment_index == other.owner_segment_index && segment_pair_index == other.segment_pair_index;
   }
 };
 
@@ -240,12 +239,11 @@ struct SmoothingPropagationStats {
       return;
     }
     std::cout << "ApplySmoothing propagation: " << sheet_fit_count << " sheet fit(s), " << sheets_skipped_no_matched
-              << " sheet(s) skipped (no matched control points), " << fallback_count
-              << " fallback (translation-only), " << similarity_count << " similarity fit(s), "
-              << identity_rotation_scale_count << " with identity rotation and scale=1";
+              << " sheet(s) skipped (no matched control points), " << fallback_count << " fallback (translation-only), "
+              << similarity_count << " similarity fit(s), " << identity_rotation_scale_count
+              << " with identity rotation and scale=1";
     if (similarity_count > 0) {
-      std::cout << " (" << similarity_identity_rotation_scale_count
-                << " of similarity fits are numerically identity)";
+      std::cout << " (" << similarity_identity_rotation_scale_count << " of similarity fits are numerically identity)";
     }
     std::cout << ", " << unmatched_vertices_updated << " unmatched vertex update(s)";
     if (sheet_fit_count > 0) {
@@ -253,8 +251,9 @@ struct SmoothingPropagationStats {
                 << sheets_with_at_least_4_matched << " sheet(s) with >= 4 matched point(s)";
     }
     std::cout << std::endl;
-    std::cout << "  segment-pair sheets: " << segment_pair_sheet_count << ", unmatched segment sheets: "
-              << unmatched_segment_sheet_count << ", segment-pair triangles=" << segment_pair_triangle_count
+    std::cout << "  segment-pair sheets: " << segment_pair_sheet_count
+              << ", unmatched segment sheets: " << unmatched_segment_sheet_count
+              << ", segment-pair triangles=" << segment_pair_triangle_count
               << ", vertices=" << segment_pair_vertex_count << " (matched=" << segment_pair_matched_vertex_count
               << ", unmatched=" << segment_pair_unmatched_vertex_count << ")" << std::endl;
     if (fallback_count > 0) {
@@ -277,9 +276,10 @@ struct SmoothingPropagationStats {
     return true;
   }
 
-  static bool IsNearIdentityRotationAndScale(const SimilarityTransform3D& transform, const float rotation_epsilon = 1e-4f,
-                                             const float scale_epsilon = 1e-4f) {
-    return std::abs(transform.scale - 1.f) <= scale_epsilon && IsNearIdentityRotation(transform.rotation, rotation_epsilon);
+  static bool IsNearIdentityRotationAndScale(const SimilarityTransform3D& transform,
+                                             const float rotation_epsilon = 1e-4f, const float scale_epsilon = 1e-4f) {
+    return std::abs(transform.scale - 1.f) <= scale_epsilon &&
+           IsNearIdentityRotation(transform.rotation, rotation_epsilon);
   }
 };
 
@@ -515,10 +515,9 @@ std::unordered_set<size_t> CollectMatchedVertices(const std::unordered_set<size_
   return matched_vertices;
 }
 
-std::optional<SimilarityFitResult> FitSheetTransform(const std::unordered_set<size_t>& matched_vertices,
-                                                     const std::vector<glm::vec3>& x_before,
-                                                     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-                                                     SmoothingPropagationStats& stats) {
+std::optional<SimilarityFitResult> FitSheetTransform(
+    const std::unordered_set<size_t>& matched_vertices, const std::vector<glm::vec3>& x_before,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, SmoothingPropagationStats& stats) {
   if (matched_vertices.empty()) {
     ++stats.sheets_skipped_no_matched;
     return std::nullopt;
@@ -546,10 +545,11 @@ size_t ApplyTransformToUnmatchedVertices(std::vector<DsKineticVoronoiMeshing::Gp
   return updated_count;
 }
 
-size_t ApplyNearestTransformToUnmatchedVertices(
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, const std::vector<glm::vec3>& x_before,
-    const std::vector<uint8_t>& was_smoothed, const std::unordered_set<size_t>& vertex_indices,
-    const std::vector<SimilarityTransform3D>& transforms) {
+size_t ApplyNearestTransformToUnmatchedVertices(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                                const std::vector<glm::vec3>& x_before,
+                                                const std::vector<uint8_t>& was_smoothed,
+                                                const std::unordered_set<size_t>& vertex_indices,
+                                                const std::vector<SimilarityTransform3D>& transforms) {
   if (transforms.empty()) {
     return 0;
   }
@@ -578,8 +578,7 @@ size_t ApplyNearestTransformToUnmatchedVertices(
 }
 
 void PropagateSmoothingToUnmatchedVertices(
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-    const std::vector<glm::vec3>& x_before,
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, const std::vector<glm::vec3>& x_before,
     const std::vector<uint8_t>& was_smoothed,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
   SmoothingPropagationStats stats;
@@ -629,16 +628,15 @@ void PropagateSmoothingToUnmatchedVertices(
   for (const auto& [owner_segment_index, segment_vertices] : unmatched_segment_vertices) {
     ++stats.unmatched_segment_sheet_count;
 
-    std::vector<SimilarityTransform3D> transforms =
-        pair_sheet_transforms_by_owner[owner_segment_index];
+    std::vector<SimilarityTransform3D> transforms = pair_sheet_transforms_by_owner[owner_segment_index];
     const std::unordered_set<size_t> matched_vertices = CollectMatchedVertices(segment_vertices, was_smoothed);
     if (const std::optional<SimilarityFitResult> fit = FitSheetTransform(matched_vertices, x_before, vertices, stats);
         fit.has_value()) {
       transforms.push_back(fit->transform);
     }
 
-    stats.unmatched_vertices_updated += ApplyNearestTransformToUnmatchedVertices(
-        vertices, x_before, was_smoothed, segment_vertices, transforms);
+    stats.unmatched_vertices_updated +=
+        ApplyNearestTransformToUnmatchedVertices(vertices, x_before, was_smoothed, segment_vertices, transforms);
   }
 
   stats.LogSummary();
@@ -661,8 +659,7 @@ int NeighborConnectivityMaterialId(const DsKineticVoronoiMeshing::GpuSegmentMesh
   if (triangle.neighbor_segment_index == -1 || triangle.neighbor_segment_index == -3) {
     return kNeighborMatGrey;
   }
-  if (triangle.segment_pair_index < 0 ||
-      static_cast<size_t>(triangle.segment_pair_index) >= segment_pairs.size()) {
+  if (triangle.segment_pair_index < 0 || static_cast<size_t>(triangle.segment_pair_index) >= segment_pairs.size()) {
     return kNeighborMatRed;
   }
   const auto& pair = segment_pairs[static_cast<size_t>(triangle.segment_pair_index)];
@@ -702,6 +699,9 @@ void WriteNeighborConnectivityDebugMtl(const std::filesystem::path& mtl_path) {
 void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mesh, kinDS::ObjWriteOptions options,
                        const bool neighbor_connectivity_debug) {
   options.framework_compatible = !neighbor_connectivity_debug;
+  if (mesh.storeMetadata() && (!mesh.getVertexMetadata().empty() || !mesh.getFaceMetadata().empty())) {
+    options.include_metadata = true;
+  }
   kinDS::ObjExporter::writeMesh(mesh, path, options);
   if (neighbor_connectivity_debug) {
     std::filesystem::path mtl_path = path;
@@ -911,26 +911,34 @@ void PlyExporter::WriteFaces(std::ofstream& file,
 kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, const float fracture_distance,
-    const bool neighbor_connectivity_debug, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs) {
-  kinDS::VoronoiMesh mesh(neighbor_connectivity_debug ? std::vector<std::string>{"debug_grey", "debug_brown", "debug_red",
-                                                                                "debug_green"}
-                                                      : std::vector<std::string>{"bark", "interior"},
+    const bool neighbor_connectivity_debug, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+    const std::vector<std::string>& vertex_metadata, const std::vector<std::string>& face_metadata) {
+  kinDS::VoronoiMesh mesh(neighbor_connectivity_debug
+                              ? std::vector<std::string>{"debug_grey", "debug_brown", "debug_red", "debug_green"}
+                              : std::vector<std::string>{"bark", "interior"},
                           kinDS::PerTriangleCorner);
 
-  for (const auto& v : vertices) {
+  const bool keep_metadata = (!vertex_metadata.empty() || !face_metadata.empty()) &&
+                             (vertex_metadata.empty() || vertex_metadata.size() == vertices.size()) &&
+                             (face_metadata.empty() || face_metadata.size() == triangles.size());
+  mesh.setStoreMetadata(keep_metadata);
+
+  for (size_t vi = 0; vi < vertices.size(); ++vi) {
+    const auto& v = vertices[vi];
     const glm::vec3 p = v.x - fracture_distance * v.shift;
-    mesh.addVertex(glm::dvec3(p.x, p.y, p.z));
+    const std::string& meta = keep_metadata && vi < vertex_metadata.size() ? vertex_metadata[vi] : std::string{};
+    mesh.addVertex(glm::dvec3(p.x, p.y, p.z), meta);
   }
 
-  for (const auto& t : triangles) {
-    const int material_id =
-        neighbor_connectivity_debug
-            ? NeighborConnectivityMaterialId(t, segment_pairs)
-            : ((t.neighbor_segment_index == -2) ? 0 : 1);
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    const auto& t = triangles[ti];
+    const int material_id = neighbor_connectivity_debug ? NeighborConnectivityMaterialId(t, segment_pairs)
+                                                        : ((t.neighbor_segment_index == -2) ? 0 : 1);
     const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
     const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
     const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
-    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, material_id);
+    const std::string& face_meta = keep_metadata && ti < face_metadata.size() ? face_metadata[ti] : std::string{};
+    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, material_id, face_meta);
     // One normal per triangle corner (not per shared vertex). Matches GpuSegmentMeshletTriangle::normal[3].
     for (int i = 0; i < 3; ++i) {
       mesh.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
@@ -939,10 +947,10 @@ kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
 
   if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
       mesh.getNormals().size() != mesh.getTriangles().size()) {
-    throw std::runtime_error("MeshletObjExport::ToVoronoiMesh: expected PerTriangleCorner normals with one entry "
-                             "per corner; normals=" +
-                             std::to_string(mesh.getNormals().size()) + ", corners=" +
-                             std::to_string(mesh.getTriangles().size()));
+    throw std::runtime_error(
+        "MeshletObjExport::ToVoronoiMesh: expected PerTriangleCorner normals with one entry "
+        "per corner; normals=" +
+        std::to_string(mesh.getNormals().size()) + ", corners=" + std::to_string(mesh.getTriangles().size()));
   }
 
   return mesh;
@@ -1033,12 +1041,11 @@ void MeshletObjExport::AppendGpuAttributes(kinDS::ObjExportGpuAttributes& dst,
   append(dst.has_neighbor, src.has_neighbor);
 }
 
-void MeshletObjExport::ApplySmoothing(
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
-    const std::vector<DynamicStrands::GpuSegment>& segments,
-    const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
-    const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+void MeshletObjExport::ApplySmoothing(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                      std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+                                      const std::vector<DynamicStrands::GpuSegment>& segments,
+                                      const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                                      const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   if (vertices.size() < 2) {
     return;
   }
@@ -1106,7 +1113,9 @@ void MeshletObjExport::ExportObj(const std::filesystem::path& path,
                                  const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor,
                                  double uv_circum_factor, float fracture_distance,
                                  const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
-                                 const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+                                 const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list,
+                                 const std::vector<std::string>& vertex_metadata,
+                                 const std::vector<std::string>& face_metadata) {
   std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = vertices;
   std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = triangles;
   if (enable_smoothing) {
@@ -1123,27 +1132,47 @@ void MeshletObjExport::ExportObj(const std::filesystem::path& path,
   const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
   size_t bark_triangle_count = 0;
   const bool write_bark_group = separate_bark_obj_group && !neighbor_connectivity_debug;
+  std::vector<std::string> export_face_metadata = face_metadata;
   if (write_bark_group) {
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> bark_triangles;
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> interior_triangles;
+    std::vector<std::string> bark_face_metadata;
+    std::vector<std::string> interior_face_metadata;
     bark_triangles.reserve(export_triangles.size());
     interior_triangles.reserve(export_triangles.size());
-    for (const auto& triangle : export_triangles) {
+    const bool reorder_face_metadata = export_face_metadata.size() == export_triangles.size();
+    if (reorder_face_metadata) {
+      bark_face_metadata.reserve(export_triangles.size());
+      interior_face_metadata.reserve(export_triangles.size());
+    }
+    for (size_t ti = 0; ti < export_triangles.size(); ++ti) {
+      const auto& triangle = export_triangles[ti];
       if (triangle.neighbor_segment_index == -2) {
         bark_triangles.push_back(triangle);
+        if (reorder_face_metadata) {
+          bark_face_metadata.push_back(export_face_metadata[ti]);
+        }
       } else {
         interior_triangles.push_back(triangle);
+        if (reorder_face_metadata) {
+          interior_face_metadata.push_back(export_face_metadata[ti]);
+        }
       }
     }
     bark_triangle_count = bark_triangles.size();
     export_triangles = std::move(bark_triangles);
-    export_triangles.insert(export_triangles.end(),
-                            std::make_move_iterator(interior_triangles.begin()),
+    export_triangles.insert(export_triangles.end(), std::make_move_iterator(interior_triangles.begin()),
                             std::make_move_iterator(interior_triangles.end()));
+    if (reorder_face_metadata) {
+      export_face_metadata = std::move(bark_face_metadata);
+      export_face_metadata.insert(export_face_metadata.end(), std::make_move_iterator(interior_face_metadata.begin()),
+                                  std::make_move_iterator(interior_face_metadata.end()));
+    }
   }
 
   kinDS::VoronoiMesh mesh =
-      ToVoronoiMesh(export_vertices, export_triangles, fracture_distance, neighbor_connectivity_debug, segment_pairs);
+      ToVoronoiMesh(export_vertices, export_triangles, fracture_distance, neighbor_connectivity_debug, segment_pairs,
+                    vertex_metadata, export_face_metadata);
   if (write_bark_group) {
     mesh.setGroupOffsets({0, bark_triangle_count});
     mesh.setGroupNames({"bark", "interior"});
@@ -1161,8 +1190,8 @@ void MeshletObjExport::ExportObjCombined(const std::filesystem::path& path, cons
                                          double uv_height_factor, double uv_circum_factor, float fracture_distance,
                                          const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
                                          const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
-  WriteCombinedMeshGroups(path, groups, segments, uv_height_factor, uv_circum_factor, fracture_distance,
-                          segment_pairs, segment_data_list, true);
+  WriteCombinedMeshGroups(path, groups, segments, uv_height_factor, uv_circum_factor, fracture_distance, segment_pairs,
+                          segment_data_list, true);
 }
 
 namespace {
@@ -1268,8 +1297,7 @@ std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsForVisualization(
   }
   std::sort(group_ids.begin(), group_ids.end());
 
-  const char* id_prefix =
-      color_source == VisualizationColorSource::StrandColor ? "strand_" : "segment_";
+  const char* id_prefix = color_source == VisualizationColorSource::StrandColor ? "strand_" : "segment_";
 
   std::vector<MeshletObjExport::MeshGroup> groups;
   groups.reserve(group_ids.size());
@@ -1521,7 +1549,8 @@ void MeshletObjExport::ExportVisualizationObjCombined(
     }
 
     const std::string prefix = group.name.empty() ? std::string() : (group.name + "_");
-    auto subdivided = BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source, prefix);
+    auto subdivided =
+        BuildMeshGroupsForVisualization(export_vertices, export_triangles, segments, color_source, prefix);
     for (auto& part : subdivided) {
       export_groups.push_back(std::move(part));
     }

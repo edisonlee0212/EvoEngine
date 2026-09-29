@@ -12,8 +12,9 @@
 using namespace eco_sys_lab_plugin;
 
 void DynamicStrands::InitializeMesh(const DynamicStrandsInitializeParameters& initialize_parameters) {
-  // InitMeshingAlgorithm(initialize_parameters.meshing_type);
-  meshing->InitializationGraphicsPipeline(initialize_parameters);
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitializationGraphicsPipeline(initialize_parameters);
+  });
 }
 
 void DynamicStrands::InitializeData(std::mt19937& random_engine,
@@ -570,8 +571,11 @@ void DynamicStrands::InitializeData(std::mt19937& random_engine,
     nodes[i].prev_handle = skeleton_nodes[i].GetParentHandle();
   }
 
-  meshing->InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
-                    randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+  // Kinetic first so optional pair recompute finishes before Alpha consumes pairs.
+  ForEachMeshing([&](DsMeshing& m) {
+    m.InitData(initialize_parameters, strand_model_skeleton, strand_model_strand_group,
+               randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
+  });
 
   // compute pair properties after meshing in case we recomputed them
   EVOENGINE_LOG("Computing pair properties...");

@@ -36,6 +36,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   void UpdateBindings() const override;
   bool OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) override;
+  /// Shared Kinetic Voronoi meshing/render scalars (usable before a meshing instance exists).
+  static void InspectSharedMeshingSettings(const std::shared_ptr<EditorLayer>& editor_layer);
   void Stats(const std::shared_ptr<EditorLayer>& editor_layer) override;
   static void OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer);
   void RegisterRenderInstances(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene, Entity& owner) override;
@@ -49,7 +51,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool enabled = true;
     enum ColorMode { Standard = 0, Normals = 1, UVs = 2, Pair = 3, NeighborConnectivity = 4, NeighborTags = 5 };
     int color_mode = 0;
-    float uv_height_factor = 0.02f;
+    float uv_height_factor = 0.1f;
     float uv_circum_factor = 2.0f;
     float fracture_distance = 0.0004f;
     /// When true, override color mode with neighbor-connectivity debug colors (grey / brown / red / green).
@@ -69,7 +71,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool override_meshing_buffer = false;
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
-    /// When true, kinDS collects runtime/event statistics and writes CSV after meshing.
+    /// When true, kinDS collects runtime/event statistics and writes CSV after meshing
+    /// (plus a companion event-list CSV with per-event rows, including radius shift).
     bool collect_meshing_statistics = true;
     /// When true, export meshlets/combined OBJ after meshing for debugging.
     bool debug_export_meshes = false;
@@ -79,14 +82,24 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool store_mesh_metadata = false;
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through
     /// knots).
-    float spline_tension = 0.5f;
-  /// Laplacian smoothing iterations on welded bark triangles before GPU upload (0 = disabled).
-  /// Reuses @ref StrandModelMeshGenerator::MeshSmoothing (no ground-plane lock).
-  int bark_smooth_iterations = 0;
-  /// Per-iteration blend toward the neighbor average: 0 = no move, 1 = full Laplacian step.
-  float bark_smooth_strength = 0.5f;
-  /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
-  double alpha_cutoff = 10.0;
+    float spline_tension = 1.0f;
+    /// Laplacian smoothing iterations on welded bark triangles before GPU upload (0 = disabled).
+    /// Reuses @ref StrandModelMeshGenerator::MeshSmoothing (no ground-plane lock).
+    int bark_smooth_iterations = 1;
+    /// Per-iteration blend toward the neighbor average: 0 = no move, 1 = full Laplacian step.
+    float bark_smooth_strength = 0.5f;
+    /// When true, vertices on the bark manifold boundary (edges with only one bark triangle) keep
+    /// their position during Laplacian smooth.
+    bool bark_smooth_lock_boundary = true;
+    /// When true, co-smooth bark corner UVs with the same iterations/strength as positions (wrap-aware
+    /// circumferential lift so seam discontinuities do not poison the average).
+    bool bark_smooth_uvs = true;
+    /// When true, 1→4-subdivide every bark triangle (edge midpoints) during prepare.
+    /// Runs even when @ref bark_smooth_iterations is 0. Each bark edge split is also applied to
+    /// adjacent non-bark faces (same meshlet interior, and the neighbor meshlet at segment interfaces).
+    bool bark_subdivide = false;
+    /// Alpha / radius cutoff for kinDS inside-outside classification (@ref TreeMesher::Settings::alpha_cutoff).
+    double alpha_cutoff = 10.0;
     /// Cross-branch alpha cutoff (@ref TreeMesher::Settings::branch_alpha_cutoff). Disabled when equal to alpha_cutoff.
     double branch_alpha_cutoff = 10.0;
     /// Extra sections above floor(t)+1 when classifying same-branch membership for branch_alpha_cutoff (0 = default).
@@ -98,6 +111,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool intersection_boundary_apply_inverse_root_transform = true;
     /// Free-form note stored in mesh buffer YML metadata (not used for cache hashing).
     std::string meshing_buffer_description = "created manually through DynamicTreeStrands";
+    /// When non-empty, used as the meshing-statistics CSV experiment tag (spaces → underscores at write).
+    /// When empty, the active DynamicStrandsDemo type name is used instead.
+    std::string meshing_statistics_experiment_name;
     /// When true, attempt to repair empty meshlets after boundary intersection (@ref TreeMesher::fixFailedSegments).
     bool intersection_boundary_fix_missing_meshes = false;
     /// When true, failed intersections keep the uncut meshlet; when false, replace with an empty mesh.
@@ -169,7 +185,15 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_visualization_render_pipeline{};
 
   std::vector<GpuSegmentMeshletVertex> segment_meshlet_vertices;
+  /// True after the last @ref RunMeshingAlgorithm completed without catching a failure.
+  bool last_meshing_succeeded_ = true;
   std::vector<GpuSegmentMeshletTriangle> segment_meshlet_triangles;
+  /// CPU-only JSON metadata parallel to @ref segment_meshlet_vertices / @ref segment_meshlet_triangles.
+  /// Filled during @ref PopulateGpuMeshletBuffers when @ref MeshingSettings::store_mesh_metadata is true;
+  /// kept in lockstep with @ref segment_meshlet_vertices / @ref segment_meshlet_triangles for OBJ export.
+  /// never uploaded to the GPU. Reattached when rebuilding/exporting meshes after download.
+  std::vector<std::string> segment_meshlet_vertex_metadata;
+  std::vector<std::string> segment_meshlet_face_metadata;
 
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
@@ -177,11 +201,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
   std::shared_ptr<kinDS::TreeMesher> tree_mesher_;
-  /// Pristine meshlets from the last meshing run (before any boundary intersection).
+  /// Pristine meshlets from the last meshing run (after T-junction/bark prepare, before intersection).
   std::vector<kinDS::VoronoiMesh> segment_meshlets_;
   /// Neighbor indices matching @ref segment_meshlets_ before intersection.
   std::vector<std::vector<int>> meshing_neighbor_indices_;
-  /// Welded bark-only debug mesh after smooth + seam normal average (GPU/world frame). Empty until first populate.
+  /// Welded bark-only debug mesh after @ref PrepareSegmentMeshletsForGpu. Empty until first prepare.
   kinDS::VoronoiMesh bark_debug_mesh_{};
   bool has_bark_debug_mesh_ = false;
   /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
@@ -278,15 +302,33 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   size_t SplitIntersectingMeshletsByConnectedComponents(const std::vector<size_t>& intersecting_meshing_indices);
   /// After @ref RecomputeSegmentPairs: refresh strand prev/next/begin/end and initialize pair materials.
   void FinalizeStrandConnectivityAndPairMaterials();
-  /// Upload CPU segment meshlets to GPU buffers. Averages shared bark seam normals on @p meshes first.
-  void PopulateGpuMeshletBuffers(std::vector<kinDS::VoronoiMesh>& meshes,
+
+  /// Close T-junctions (cross- and intra-meshlet), then bark smooth / seam normals / cap UVs.
+  /// Mutates @p meshes and @p meshing_neighbor_indices in place and rebuilds @ref bark_debug_mesh_.
+  void PrepareSegmentMeshletsForGpu(std::vector<kinDS::VoronoiMesh>& meshes,
+                                    std::vector<std::vector<int>>& meshing_neighbor_indices,
+                                    const std::vector<size_t>& meshing_to_physics_segment_indices,
+                                    const GlobalTransform& root_transform);
+
+  /// Upload already-prepared CPU segment meshlets into GPU vertex/triangle buffers (no geometry edits).
+  void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
                                  const std::vector<std::vector<int>>& meshing_neighbor_indices,
                                  const std::vector<size_t>& meshing_to_physics_segment_indices,
                                  const GlobalTransform& root_transform);
 
-  void RunMeshingAlgorithm(const std::vector<std::vector<glm::dvec2>>& support_points,
+  /// @ref PrepareSegmentMeshletsForGpu then sync members and @ref PopulateGpuMeshletBuffers.
+  void PrepareAndPopulateGpuMeshletBuffers(std::vector<kinDS::VoronoiMesh>& meshes,
+                                           const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+                                           const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
+                                           std::vector<std::vector<int>>& meshing_neighbor_indices,
+                                           const std::vector<size_t>& meshing_to_physics_segment_indices,
+                                           const GlobalTransform& root_transform);
+
+  /// Returns false if meshing threw; previous mesh buffers are restored and a failure statistics
+  /// CSV is written when collection is enabled.
+  bool RunMeshingAlgorithm(const std::vector<std::vector<glm::dvec2>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
                            std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                            const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
@@ -294,5 +336,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
                            const std::vector<std::vector<size_t>>& branch_indices,
                            std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id,
                            float min_segment_length, float max_segment_length);
+
+  /// Write a statistics CSV with @c failure filled (and alpha from current cutoff) before restoring state.
+  void WriteMeshingFailureStatistics(const std::string& failure_message);
 };
 }  // namespace eco_sys_lab_plugin

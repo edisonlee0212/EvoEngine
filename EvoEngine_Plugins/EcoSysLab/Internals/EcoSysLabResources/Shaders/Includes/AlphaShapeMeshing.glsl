@@ -44,10 +44,10 @@ struct DelaunayTetrahedron {
   int padding2;
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 8) buffer UNIFORM_PARTICLES_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 10) buffer UNIFORM_PARTICLES_BLOCK {
   UniformParticle uniform_particles[];
 };
 
-layout(std430, set = DYNAMIC_STRANDS_SET, binding = 9) buffer DELAUNAY_TETRAHEDRON_BLOCK {
+layout(std430, set = DYNAMIC_STRANDS_SET, binding = 11) buffer DELAUNAY_TETRAHEDRON_BLOCK {
   DelaunayTetrahedron delaunay_tetrahedrons[];
 };
