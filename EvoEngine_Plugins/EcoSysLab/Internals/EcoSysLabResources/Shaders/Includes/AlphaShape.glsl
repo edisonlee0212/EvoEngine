@@ -284,6 +284,30 @@ vec3 ComputeTetTriangleNormal(in DelaunayTetrahedron tet, uint triangle_index) {
                                uniform_particles[tet.indices[lookup[triangle[2]]]].position_t.xyz);
 }
 
+// kinDS SegmentBuilder::interiorMeshUv (profile centroid at origin; relative distance from boundary_distance fallback).
+vec2 AlphaInteriorDiskUv(in UniformParticle uniform_particle, float texture_diameter) {
+  float relative_distance = 1.0 - clamp(uniform_particle.boundary_distance, 0.0, 1.0);
+  vec2 profile = uniform_particle.profile_position;
+  float angle = atan(-profile.y, -profile.x);
+  float radial_scale = texture_diameter * relative_distance * 0.5;
+  return vec2(0.5 + radial_scale * cos(angle), 0.5 + radial_scale * sin(angle));
+}
+
+vec2 AlphaBarkPolarUv(in UniformParticle uniform_particle, float u_multiplier, float v_multiplier,
+                      int use_polar_coordinates_for_uv) {
+  if (use_polar_coordinates_for_uv == 1) {
+    float tex_x = mod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
+    if (tex_x > 1.f) {
+      tex_x = 2.f - tex_x;
+    }
+    float tex_y = float(uniform_particle.segment_index) * v_multiplier;
+    return vec2(tex_x, tex_y);
+  }
+  float tex_x = (uniform_particle.initial_position.y + uniform_particle.initial_position.z) * u_multiplier;
+  float tex_y = uniform_particle.initial_position.x * v_multiplier;
+  return vec2(tex_x, tex_y);
+}
+
 bool IsDegenerateTriangle(in vec3 v0, in vec3 v1, in vec3 v2, float epsilon) {
   // Compute the edges of the triangle
   vec3 edge1 = v1 - v0;

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "DsAlphaShapeMeshing.hpp"
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 namespace eco_sys_lab_plugin {
 /**
@@ -58,5 +61,20 @@ class DsAlphaShapeUtils {
    */
   static std::vector<std::map<int, std::vector<size_t>>> ComputeBundleMaps(
       std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& uniform_particles);
+
+  static uint64_t ProfileBundleKey(int segment_index, int node_index);
+
+  /// Cross-section boundary polygon per (segment_index, node_index) bundle, built from near-bark uniform particles.
+  static std::unordered_map<uint64_t, std::vector<glm::dvec2>> BuildProfileBundleBoundaryPolygons(
+      const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& uniform_particles);
+
+  /// Kinetic-style relative distance from bundle center to profile boundary (ray cast). NaN if unavailable.
+  static double RelativeDistanceFromProfileCenter(const std::vector<glm::dvec2>& boundary_polygon,
+                                                  const glm::dvec2& centroid, const glm::dvec2& profile_position);
+
+  /// Framework/OBJ UV (xyz): bark uses polar xy + height in z; interior uses disk xy + height in z.
+  static glm::dvec3 ComputeAlphaTetCornerUv(const DsAlphaShapeMeshing::GpuUniformParticle& particle, bool is_bark_face,
+                                            const std::vector<glm::dvec2>* boundary_polygon, float u_multiplier,
+                                            float v_multiplier, float texture_diameter, bool use_polar_coordinates);
 };
 }  // namespace eco_sys_lab_plugin

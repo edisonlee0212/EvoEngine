@@ -1,6 +1,9 @@
 #pragma once
 #include "DsMeshing.hpp"
 #include "RenderParameters.hpp"
+#include <cstdint>
+#include <unordered_map>
+#include <vector>
 
 #ifdef USE_CGAL
 #  include <CGAL/Delaunay_triangulation_3.h>
@@ -147,6 +150,17 @@ class DsAlphaShapeMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
 
+  /// Profile-space bark boundary per bundle; used for interior UV ray tests (CPU export + pre-upload prep).
+  std::unordered_map<uint64_t, std::vector<glm::dvec2>> profile_bundle_boundary_polygons_;
+
+  /// Rest-pose tet volumes captured after GPU Interior/BarkFlag init (parallel to @ref delaunay_tetrahedrons).
+  std::vector<double> initial_tet_volumes_;
+  double initial_tet_cumulative_volume_ = 0.0;
+  bool has_initial_tet_volumes_ = false;
+
+  /// Snapshot current CPU tet volumes (rest `initial_position`) as the baseline for volume-change heatmaps.
+  void CaptureInitialTetrahedronVolumes();
+
   Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
   Handle small_segments_rendering_instance_handle;  ///< Handle for small segment rendering instance.
 
@@ -160,6 +174,8 @@ class DsAlphaShapeMeshing : public DsMeshing {
   void ComputeDelaunayPerBundle(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false);
   void ComputeDelaunay(std::vector<GpuDelaunayTetrahedron>& tetrahedrons, bool use_cgal = false,
                        size_t min_bundle_size = 3);
+
+  void BuildProfileBundleBoundaryPolygons();
 
   // registration
 

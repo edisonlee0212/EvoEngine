@@ -1,13 +1,19 @@
 #include "BufferExporter.hpp"
+#include "DsAlphaShapeUtils.hpp"
+#include "DsAlphaShapeVolumeUtils.hpp"
+#include "DsKineticVoronoiVolumeUtils.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -1558,4 +1564,574 @@ void MeshletObjExport::ExportVisualizationObjCombined(
 
   WriteSolidColoredVisualizationGroups(path, export_groups, segments, color_source, per_face_colors, uv_height_factor,
                                        uv_circum_factor, fracture_distance);
+}
+
+bool AlphaShapeTetObjExport::separate_tet_objects = false;
+bool AlphaShapeTetObjExport::separate_bark_obj_group = true;
+bool AlphaShapeTetObjExport::surface_only = false;
+bool AlphaShapeTetObjExport::use_current_position = true;
+
+namespace {
+
+// Matches AlphaShape.glsl: lookup[] + triangles[] face winding.
+constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+bool AlphaTetAlive(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet) {
+  return tet.inside == 1;
+}
+
+bool AlphaFaceIsBoundary(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet, const int face_index,
+                         const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons) {
+  const int render_flag = tet.render_neighbor[face_index];
+  if (render_flag == 1) {
+    return true;
+  }
+  if (render_flag == 0) {
+    return false;
+  }
+  // Not filtered yet (still -1): match TriangleFiltering.comp boundary rule.
+  const int neighbor = tet.neighbor_tet_ids[face_index];
+  if (neighbor < 0 || static_cast<size_t>(neighbor) >= tetrahedrons.size()) {
+    return true;
+  }
+  return tetrahedrons[static_cast<size_t>(neighbor)].inside != 1;
+}
+
+bool AlphaFaceIsBark(const DsAlphaShapeMeshing::GpuDelaunayTetrahedron& tet, const int face_index,
+                     const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons) {
+  if (tet.is_bark[face_index] == 1) {
+    return true;
+  }
+  if (tet.is_bark[face_index] == 0) {
+    return false;
+  }
+  // BarkFlag.comp not run yet: treat alpha-shape boundary faces as bark.
+  return AlphaFaceIsBoundary(tet, face_index, tetrahedrons);
+}
+
+const std::vector<glm::dvec2>* LookupBundleBoundaryPolygon(
+    const std::unordered_map<uint64_t, std::vector<glm::dvec2>>& boundaries,
+    const DsAlphaShapeMeshing::GpuUniformParticle& particle) {
+  const uint64_t key =
+      DsAlphaShapeUtils::ProfileBundleKey(particle.segment_index, particle.node_index);
+  const auto found = boundaries.find(key);
+  if (found == boundaries.end()) {
+    return nullptr;
+  }
+  return &found->second;
+}
+
+}  // namespace
+
+void AlphaShapeTetObjExport::ExportObj(
+    const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::unordered_map<uint64_t, std::vector<glm::dvec2>>* profile_bundle_boundary_polygons) {
+  const auto& branch_rp = DsAlphaShapeMeshing::render_settings.branches_render_parameters;
+  const float u_multiplier = branch_rp.u_multiplier;
+  const float v_multiplier = branch_rp.v_multiplier;
+  const float texture_diameter = branch_rp.texture_diameter;
+  const bool use_polar = branch_rp.use_polar_coordinates_for_uv;
+
+  std::unordered_map<uint64_t, std::vector<glm::dvec2>> owned_boundaries;
+  const std::unordered_map<uint64_t, std::vector<glm::dvec2>>* boundaries = profile_bundle_boundary_polygons;
+  if (boundaries == nullptr || boundaries->empty()) {
+    owned_boundaries = DsAlphaShapeUtils::BuildProfileBundleBoundaryPolygons(particles);
+    boundaries = &owned_boundaries;
+  }
+
+  const auto corner_uv = [&](const DsAlphaShapeMeshing::GpuUniformParticle& particle, const bool is_bark_face) {
+    const std::vector<glm::dvec2>* polygon = LookupBundleBoundaryPolygon(*boundaries, particle);
+    return DsAlphaShapeUtils::ComputeAlphaTetCornerUv(particle, is_bark_face, polygon, u_multiplier, v_multiplier,
+                                                      texture_diameter, use_polar);
+  };
+
+  struct PendingFace {
+    int particle_indices[3] = {-1, -1, -1};
+    int tet_id = -1;
+    int face_index = -1;
+    bool is_bark = false;
+  };
+  std::vector<PendingFace> pending_faces;
+  pending_faces.reserve(tetrahedrons.size() * 4);
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    const auto& tet = tetrahedrons[tet_id];
+    if (!AlphaTetAlive(tet)) {
+      continue;
+    }
+    for (int face_index = 0; face_index < 4; ++face_index) {
+      if (surface_only && !AlphaFaceIsBoundary(tet, face_index, tetrahedrons)) {
+        continue;
+      }
+      PendingFace face;
+      face.tet_id = static_cast<int>(tet_id);
+      face.face_index = face_index;
+      face.is_bark = AlphaFaceIsBark(tet, face_index, tetrahedrons);
+      for (int c = 0; c < 3; ++c) {
+        const int local = kAlphaFaceLookup[face_index * 3 + c];
+        face.particle_indices[c] = tet.indices[local];
+      }
+      pending_faces.push_back(face);
+    }
+  }
+
+  if (pending_faces.empty()) {
+    throw std::runtime_error(
+        "AlphaShapeTetObjExport: no alive Alpha tetrahedra (inside==1) with faces to export. "
+        "Run Alpha Shape meshing / filtering first, then Download.");
+  }
+
+  size_t bark_face_count = 0;
+  if (separate_bark_obj_group) {
+    // Prefer bark faces first so group offsets match Kinetic meshlet export.
+    std::stable_partition(pending_faces.begin(), pending_faces.end(), [](const PendingFace& f) {
+      return f.is_bark;
+    });
+    bark_face_count =
+        static_cast<size_t>(std::count_if(pending_faces.begin(), pending_faces.end(), [](const PendingFace& f) {
+          return f.is_bark;
+        }));
+  }
+
+  std::vector<int> used_particle_indices;
+  used_particle_indices.reserve(particles.size());
+  std::unordered_map<int, size_t> particle_to_vertex;
+  particle_to_vertex.reserve(particles.size());
+
+  const auto ensure_vertex = [&](const int particle_index) -> size_t {
+    if (particle_index < 0 || static_cast<size_t>(particle_index) >= particles.size()) {
+      throw std::runtime_error("AlphaShapeTetObjExport: particle index out of range");
+    }
+    const auto found = particle_to_vertex.find(particle_index);
+    if (found != particle_to_vertex.end()) {
+      return found->second;
+    }
+    const size_t vertex_index = used_particle_indices.size();
+    particle_to_vertex.emplace(particle_index, vertex_index);
+    used_particle_indices.push_back(particle_index);
+    return vertex_index;
+  };
+
+  for (const PendingFace& face : pending_faces) {
+    for (int c = 0; c < 3; ++c) {
+      ensure_vertex(face.particle_indices[c]);
+    }
+  }
+
+  kinDS::VoronoiMesh mesh(std::vector<std::string>{"bark", "interior"}, kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+
+  for (const int particle_index : used_particle_indices) {
+    const auto& p = particles[static_cast<size_t>(particle_index)];
+    const glm::vec3& pos = use_current_position ? p.position : p.initial_position;
+    mesh.addVertex(glm::dvec3(pos.x, pos.y, pos.z));
+  }
+
+  for (const PendingFace& face : pending_faces) {
+    const size_t v0 = particle_to_vertex.at(face.particle_indices[0]);
+    const size_t v1 = particle_to_vertex.at(face.particle_indices[1]);
+    const size_t v2 = particle_to_vertex.at(face.particle_indices[2]);
+    const auto& p0 = particles[static_cast<size_t>(face.particle_indices[0])];
+    const auto& p1 = particles[static_cast<size_t>(face.particle_indices[1])];
+    const auto& p2 = particles[static_cast<size_t>(face.particle_indices[2])];
+
+    const glm::dvec3 uv0 = corner_uv(p0, face.is_bark);
+    const glm::dvec3 uv1 = corner_uv(p1, face.is_bark);
+    const glm::dvec3 uv2 = corner_uv(p2, face.is_bark);
+    const size_t uv_i0 = mesh.addUV(uv0);
+    const size_t uv_i1 = mesh.addUV(uv1);
+    const size_t uv_i2 = mesh.addUV(uv2);
+
+    const int material_id = face.is_bark ? 0 : 1;
+    mesh.addTriangle(v0, v1, v2, uv_i0, uv_i1, uv_i2, material_id);
+
+    const glm::vec3& a = use_current_position ? p0.position : p0.initial_position;
+    const glm::vec3& b = use_current_position ? p1.position : p1.initial_position;
+    const glm::vec3& c = use_current_position ? p2.position : p2.initial_position;
+    glm::dvec3 geometric_normal = glm::cross(glm::dvec3(b - a), glm::dvec3(c - a));
+    const double geo_len = glm::length(geometric_normal);
+    if (geo_len > 1e-12) {
+      geometric_normal /= geo_len;
+    } else {
+      geometric_normal = glm::dvec3(0.0, 1.0, 0.0);
+    }
+    // Prefer per-particle normals when available; fall back to face normal.
+    auto corner_normal = [&](const DsAlphaShapeMeshing::GpuUniformParticle& p) {
+      glm::dvec3 n(p.normal.x, p.normal.y, p.normal.z);
+      const double len = glm::length(n);
+      if (len > 1e-6) {
+        return n / len;
+      }
+      return geometric_normal;
+    };
+    mesh.addNormal(corner_normal(p0));
+    mesh.addNormal(corner_normal(p1));
+    mesh.addNormal(corner_normal(p2));
+  }
+
+  if (separate_bark_obj_group) {
+    mesh.setGroupOffsets({0, bark_face_count});
+    mesh.setGroupNames({"bark", "interior"});
+  } else if (separate_tet_objects) {
+    std::vector<size_t> offsets;
+    std::vector<std::string> names;
+    offsets.reserve(pending_faces.size() + 1);
+    names.reserve(pending_faces.size());
+    int current_tet = std::numeric_limits<int>::min();
+    for (size_t i = 0; i < pending_faces.size(); ++i) {
+      if (pending_faces[i].tet_id != current_tet) {
+        current_tet = pending_faces[i].tet_id;
+        offsets.push_back(i);
+        names.push_back("alpha_tet_" + std::to_string(current_tet));
+      }
+    }
+    mesh.setGroupOffsets(offsets);
+    mesh.setGroupNames(names);
+  } else {
+    mesh.setGroupOffsets({0});
+    mesh.setGroupNames({surface_only ? "alpha_surface" : "alpha_tetrahedra"});
+  }
+
+  kinDS::ObjExportGpuAttributes attrs;
+  const size_t vertex_count = used_particle_indices.size();
+  attrs.color.resize(vertex_count);
+  attrs.boundary_distance.resize(vertex_count);
+  attrs.profile_position.resize(vertex_count);
+  attrs.profile_polar_coordinate.resize(vertex_count);
+  attrs.HC.assign(vertex_count, 0.0);
+  attrs.HL.assign(vertex_count, 0.0);
+  attrs.RW.assign(vertex_count, 0.0);
+  attrs.RB.assign(vertex_count, 0.0);
+  attrs.moisture.assign(vertex_count, 0.0);
+  attrs.position0.resize(vertex_count);
+  attrs.direction0.resize(vertex_count);
+  attrs.root_distance.assign(vertex_count, 0.0);
+  attrs.uv_3.resize(vertex_count);
+  attrs.has_neighbor.resize(pending_faces.size());
+
+  for (size_t i = 0; i < vertex_count; ++i) {
+    const auto& p = particles[static_cast<size_t>(used_particle_indices[i])];
+    attrs.color[i] = glm::dvec4(p.override_color.x, p.override_color.y, p.override_color.z, p.override_color.w);
+    // Distance from bark / to the profile boundary (GPU uniform particle field).
+    attrs.boundary_distance[i] = static_cast<double>(p.distance_to_boundary);
+    attrs.profile_position[i] = glm::dvec2(p.profile_position.x, p.profile_position.y);
+    attrs.profile_polar_coordinate[i] = glm::dvec2(p.profile_polar_coordinate.x, p.profile_polar_coordinate.y);
+    attrs.position0[i] = glm::dvec3(p.initial_position.x, p.initial_position.y, p.initial_position.z);
+    glm::dvec3 tangent(p.tangent.x, p.tangent.y, p.tangent.z);
+    const double tangent_len = glm::length(tangent);
+    attrs.direction0[i] = tangent_len > 1e-6 ? (tangent / tangent_len) : glm::dvec3(0.0, 1.0, 0.0);
+    attrs.root_distance[i] = static_cast<double>(p.t);
+    attrs.uv_3[i] = corner_uv(p, p.is_bark != 0).z;
+  }
+  for (size_t i = 0; i < pending_faces.size(); ++i) {
+    const auto& face = pending_faces[i];
+    const auto& tet = tetrahedrons[static_cast<size_t>(face.tet_id)];
+    const int neighbor = tet.neighbor_tet_ids[face.face_index];
+    attrs.has_neighbor[i] = neighbor >= 0 && static_cast<size_t>(neighbor) < tetrahedrons.size() &&
+                            AlphaTetAlive(tetrahedrons[static_cast<size_t>(neighbor)]);
+  }
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = true;
+  // UVs already include render u/v multipliers; avoid double-scaling in the exporter.
+  options.uv_height_factor = 1.0;
+  options.uv_circum_factor = 1.0;
+  options.write_obj_groups = true;
+  options.gpu_attributes = std::move(attrs);
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+}
+
+double VolumeChangeHeatmapExport::max_abs_percent = 30.0;
+
+namespace {
+
+constexpr double kVolumeChangeEpsilon = 1e-18;
+
+double VolumePercentChange(const double initial_volume, const double current_volume) {
+  if (initial_volume > kVolumeChangeEpsilon) {
+    return 100.0 * (current_volume - initial_volume) / initial_volume;
+  }
+  if (current_volume > kVolumeChangeEpsilon) {
+    return VolumeChangeHeatmapExport::max_abs_percent;
+  }
+  return 0.0;
+}
+
+void AccumulateVolumeChangeStats(VolumeChangeHeatmapExport::ChangeStats& stats, const unsigned int id,
+                                 const double initial_volume, const double current_volume) {
+  const double percent = VolumePercentChange(initial_volume, current_volume);
+  if (!stats.has_max || percent > stats.max_percent) {
+    stats.has_max = true;
+    stats.max_percent = percent;
+    stats.max_id = id;
+  }
+  // Min among elements that did not collapse to zero volume.
+  if (current_volume > kVolumeChangeEpsilon) {
+    if (!stats.has_min || percent < stats.min_percent) {
+      stats.has_min = true;
+      stats.min_percent = percent;
+      stats.min_id = id;
+    }
+  }
+}
+
+}  // namespace
+
+glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent) {
+  const double clamp_abs = std::max(1e-6, max_abs_percent);
+  const double t = glm::clamp(percent / clamp_abs, -1.0, 1.0);
+  const glm::dvec3 white(1.0, 1.0, 1.0);
+  if (t >= 0.0) {
+    return glm::mix(white, glm::dvec3(0.15, 0.35, 1.0), t);
+  }
+  return glm::mix(white, glm::dvec3(1.0, 0.12, 0.12), -t);
+}
+
+void VolumeChangeHeatmapExport::LogStats(const std::string& label, const ChangeStats& stats) {
+  std::ostringstream oss;
+  oss << std::setprecision(6);
+  oss << label << ": cumulative volume " << stats.initial_cumulative << " -> " << stats.current_cumulative
+      << " (delta=" << stats.cumulative_delta;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    oss << ", " << stats.cumulative_percent << "%";
+  }
+  oss << ")";
+  if (stats.has_max) {
+    oss << "; max " << stats.max_percent << "% (id=" << stats.max_id << ")";
+  }
+  if (stats.has_min) {
+    oss << "; min " << stats.min_percent << "% among non-zero (id=" << stats.min_id << ")";
+  }
+  EVOENGINE_LOG(oss.str());
+}
+
+void VolumeChangeHeatmapExport::ExportKineticMeshlets(
+    const std::filesystem::path& path,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, const double initial_cumulative,
+    ChangeStats* stats_out) {
+  if (vertices.empty() || triangles.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Kinetic meshlet buffers empty");
+  }
+  if (initial_volumes_by_segment.empty()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: no initial meshlet volumes captured. Remesh first so a baseline exists.");
+  }
+
+  const auto current = DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(vertices, triangles, true);
+  std::unordered_map<unsigned int, double> current_by_segment;
+  current_by_segment.reserve(current.meshlets.size());
+  for (const auto& entry : current.meshlets) {
+    current_by_segment[entry.segment_index] = entry.volume;
+  }
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current.cumulative_volume;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  std::unordered_map<unsigned int, double> percent_by_segment;
+  percent_by_segment.reserve(initial_volumes_by_segment.size() + current_by_segment.size());
+  for (const auto& [segment_index, initial_volume] : initial_volumes_by_segment) {
+    const double current_volume =
+        current_by_segment.count(segment_index) ? current_by_segment.at(segment_index) : 0.0;
+    const double percent = VolumePercentChange(initial_volume, current_volume);
+    percent_by_segment[segment_index] = percent;
+    AccumulateVolumeChangeStats(stats, segment_index, initial_volume, current_volume);
+  }
+  for (const auto& [segment_index, current_volume] : current_by_segment) {
+    if (initial_volumes_by_segment.count(segment_index)) {
+      continue;
+    }
+    const double percent = VolumePercentChange(0.0, current_volume);
+    percent_by_segment[segment_index] = percent;
+    AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
+  }
+
+  SolidColorPalette palette;
+  std::vector<int> face_material_ids(triangles.size(), 0);
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
+    const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
+    const glm::dvec3 rgb = ColorFromPercent(percent);
+    const glm::vec4 color(static_cast<float>(rgb.x), static_cast<float>(rgb.y), static_cast<float>(rgb.z), 1.0f);
+    face_material_ids[ti] = palette.IdForColor(color);
+  }
+
+  kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+  for (const auto& v : vertices) {
+    mesh.addVertex(glm::dvec3(v.x.x, v.x.y, v.x.z));
+  }
+  for (size_t ti = 0; ti < triangles.size(); ++ti) {
+    const auto& t = triangles[ti];
+    const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
+    const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
+    const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
+    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, face_material_ids[ti]);
+    for (int i = 0; i < 3; ++i) {
+      mesh.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
+    }
+  }
+  mesh.setGroupOffsets({0});
+  mesh.setGroupNames({"volume_change_heatmap"});
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = false;
+  options.write_obj_groups = true;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+
+  LogStats("Kinetic volume change heatmap", stats);
+  if (stats_out) {
+    *stats_out = stats;
+  }
+}
+
+void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
+    const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::vector<double>& initial_tet_volumes, const double initial_cumulative, const bool use_current_position,
+    ChangeStats* stats_out) {
+  if (particles.empty() || tetrahedrons.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
+  }
+  if (initial_tet_volumes.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial tet volume count mismatches tetrahedra. Re-initialize Alpha meshing.");
+  }
+
+  const auto current =
+      DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(particles, tetrahedrons, use_current_position);
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current.cumulative_volume;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  std::vector<double> percent_by_tet(tetrahedrons.size(), 0.0);
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    const double initial_volume = initial_tet_volumes[tet_id];
+    const double current_volume = current.per_tet_volume[tet_id];
+    percent_by_tet[tet_id] = VolumePercentChange(initial_volume, current_volume);
+    if (initial_volume > kVolumeChangeEpsilon || current_volume > kVolumeChangeEpsilon) {
+      AccumulateVolumeChangeStats(stats, static_cast<unsigned int>(tet_id), initial_volume, current_volume);
+    }
+  }
+
+  // Matches AlphaShape.glsl lookup for face winding.
+  constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
+
+  SolidColorPalette palette;
+  struct HeatFace {
+    size_t v0 = 0;
+    size_t v1 = 0;
+    size_t v2 = 0;
+    int material_id = 0;
+    glm::dvec3 n0{0.0};
+    glm::dvec3 n1{0.0};
+    glm::dvec3 n2{0.0};
+  };
+  std::vector<HeatFace> faces;
+  faces.reserve(tetrahedrons.size() * 4);
+
+  std::unordered_map<int, size_t> particle_to_vertex;
+  std::vector<int> used_particles;
+  used_particles.reserve(particles.size());
+  const auto ensure_vertex = [&](const int particle_index) -> size_t {
+    const auto found = particle_to_vertex.find(particle_index);
+    if (found != particle_to_vertex.end()) {
+      return found->second;
+    }
+    const size_t index = used_particles.size();
+    particle_to_vertex.emplace(particle_index, index);
+    used_particles.push_back(particle_index);
+    return index;
+  };
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    const auto& tet = tetrahedrons[tet_id];
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tet) && initial_tet_volumes[tet_id] <= kVolumeChangeEpsilon) {
+      continue;
+    }
+    bool indices_valid = true;
+    for (int c = 0; c < 4; ++c) {
+      if (tet.indices[c] < 0 || static_cast<size_t>(tet.indices[c]) >= particles.size()) {
+        indices_valid = false;
+        break;
+      }
+    }
+    if (!indices_valid) {
+      continue;
+    }
+
+    const glm::dvec3 rgb = ColorFromPercent(percent_by_tet[tet_id]);
+    const glm::vec4 color(static_cast<float>(rgb.x), static_cast<float>(rgb.y), static_cast<float>(rgb.z), 1.0f);
+    const int material_id = palette.IdForColor(color);
+
+    for (int face_index = 0; face_index < 4; ++face_index) {
+      // Export all four faces of alive-or-was-alive tets so volume loss is still visible as colored shells.
+      HeatFace face;
+      face.material_id = material_id;
+      const int i0 = tet.indices[kAlphaFaceLookup[face_index * 3 + 0]];
+      const int i1 = tet.indices[kAlphaFaceLookup[face_index * 3 + 1]];
+      const int i2 = tet.indices[kAlphaFaceLookup[face_index * 3 + 2]];
+      face.v0 = ensure_vertex(i0);
+      face.v1 = ensure_vertex(i1);
+      face.v2 = ensure_vertex(i2);
+      const auto& p0 = particles[static_cast<size_t>(i0)];
+      const auto& p1 = particles[static_cast<size_t>(i1)];
+      const auto& p2 = particles[static_cast<size_t>(i2)];
+      const glm::vec3& a = use_current_position ? p0.position : p0.initial_position;
+      const glm::vec3& b = use_current_position ? p1.position : p1.initial_position;
+      const glm::vec3& c = use_current_position ? p2.position : p2.initial_position;
+      glm::dvec3 n = glm::cross(glm::dvec3(b - a), glm::dvec3(c - a));
+      const double len = glm::length(n);
+      n = len > 1e-12 ? n / len : glm::dvec3(0.0, 1.0, 0.0);
+      face.n0 = face.n1 = face.n2 = n;
+      faces.push_back(face);
+    }
+  }
+
+  if (used_particles.empty() || faces.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: no Alpha faces to export for heatmap");
+  }
+
+  kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
+  mesh.setStoreMetadata(false);
+  for (const int particle_index : used_particles) {
+    const auto& p = particles[static_cast<size_t>(particle_index)];
+    const glm::vec3& pos = use_current_position ? p.position : p.initial_position;
+    mesh.addVertex(glm::dvec3(pos.x, pos.y, pos.z));
+  }
+  for (const HeatFace& face : faces) {
+    const size_t uv0 = mesh.addUV(glm::dvec3(0.0));
+    const size_t uv1 = mesh.addUV(glm::dvec3(0.0));
+    const size_t uv2 = mesh.addUV(glm::dvec3(0.0));
+    mesh.addTriangle(face.v0, face.v1, face.v2, uv0, uv1, uv2, face.material_id);
+    mesh.addNormal(face.n0);
+    mesh.addNormal(face.n1);
+    mesh.addNormal(face.n2);
+  }
+  mesh.setGroupOffsets({0});
+  mesh.setGroupNames({"volume_change_heatmap"});
+
+  kinDS::ObjWriteOptions options;
+  options.framework_compatible = false;
+  options.write_obj_groups = true;
+  options.material_kd_colors = palette.Kd();
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+
+  LogStats("Alpha volume change heatmap", stats);
+  if (stats_out) {
+    *stats_out = stats;
+  }
 }

@@ -31,6 +31,7 @@
 #include "DsConstraints.hpp"
 #include "DsIntersectionBoundaryMesh.hpp"
 #include "DsIntersectionBoundaryMeshGroup.hpp"
+#include "DsKineticVoronoiVolumeUtils.hpp"
 #include "DynamicStrands.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsInitializationParameters.hpp"
@@ -5490,6 +5491,7 @@ bool DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       EVOENGINE_WARNING("Meshing succeeded but debug mesh export failed with an unknown error.");
     }
     last_meshing_succeeded_ = true;
+    CaptureInitialMeshletVolumes();
     return true;
   } catch (const std::exception& exception) {
     EVOENGINE_ERROR("Kinetic Voronoi meshing failed: " << exception.what()
@@ -6199,6 +6201,29 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   strand_tree.reset();
   tree_mesher_.reset();
   meshlets_root_transform_ = {};
+  initial_meshlet_volumes_by_segment_.clear();
+  initial_meshlet_cumulative_volume_ = 0.0;
+  has_initial_meshlet_volumes_ = false;
+}
+
+void DsKineticVoronoiMeshing::CaptureInitialMeshletVolumes() {
+  initial_meshlet_volumes_by_segment_.clear();
+  initial_meshlet_cumulative_volume_ = 0.0;
+  has_initial_meshlet_volumes_ = false;
+  if (segment_meshlet_vertices.empty() || segment_meshlet_triangles.empty()) {
+    return;
+  }
+  // Rest pose (`x0`) at the end of meshing / cache load — before intersection / physics deformation.
+  const auto volumes =
+      DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(segment_meshlet_vertices, segment_meshlet_triangles, false);
+  initial_meshlet_volumes_by_segment_.reserve(volumes.meshlets.size());
+  for (const auto& entry : volumes.meshlets) {
+    initial_meshlet_volumes_by_segment_[entry.segment_index] = entry.volume;
+  }
+  initial_meshlet_cumulative_volume_ = volumes.cumulative_volume;
+  has_initial_meshlet_volumes_ = true;
+  EVOENGINE_LOG("Captured initial Kinetic meshlet volumes: " << volumes.meshlets.size() << " meshlets, cumulative="
+                                                             << initial_meshlet_cumulative_volume_);
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
@@ -6484,7 +6509,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   }
 
   FileUtils::SaveFile(
-      "Download and export PLY", "PLY", {".ply"},
+      "Download and export Kinetic meshlets (PLY)", "PLY", {".ply"},
       [&](const std::filesystem::path& path) {
         dynamic_strands->Download();
         EVOENGINE_LOG("Downloaded data from GPU");
@@ -6495,7 +6520,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
   ImGui::SameLine();
   FileUtils::SaveFile(
-      "Export PLY", "PLY", {".ply"},
+      "Export Kinetic meshlets (PLY)", "PLY", {".ply"},
       [&](const std::filesystem::path& path) {
         PlyExporter::ExportAscii(path, segment_meshlet_vertices, segment_meshlet_triangles,
                                  render_settings.segment_meshlet_render_parameters.uv_height_factor,
@@ -6504,7 +6529,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
 
   FileUtils::SaveFile(
-      "Download and export OBJ", "OBJ", {".obj"},
+      "Download and export Kinetic meshlets (OBJ)", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
         dynamic_strands->Download();
         EVOENGINE_LOG("Downloaded data from GPU");
@@ -6518,7 +6543,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
   ImGui::SameLine();
   FileUtils::SaveFile(
-      "Export OBJ", "OBJ", {".obj"},
+      "Export Kinetic meshlets (OBJ)", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
         MeshletObjExport::ExportObj(
             path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
@@ -6528,6 +6553,31 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
             dynamic_strands->segment_data_list, segment_meshlet_vertex_metadata, segment_meshlet_face_metadata);
       },
       false);
+  ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Export volume change heatmap (OBJ)", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        if (!has_initial_meshlet_volumes_) {
+          EVOENGINE_ERROR(
+              "Volume change heatmap: no initial meshlet volumes. Complete Kinetic meshing first.");
+          return;
+        }
+        try {
+          dynamic_strands->Download();
+          VolumeChangeHeatmapExport::ExportKineticMeshlets(path, segment_meshlet_vertices, segment_meshlet_triangles,
+                                                           initial_meshlet_volumes_by_segment_,
+                                                           initial_meshlet_cumulative_volume_);
+          EVOENGINE_LOG("Exported Kinetic volume change heatmap to " + path.string());
+        } catch (const std::exception& e) {
+          EVOENGINE_ERROR(std::string("Volume change heatmap export failed: ") + e.what());
+        }
+      },
+      false);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Per-meshlet %% volume change vs rest-pose baseline at meshing time. "
+        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials).");
+  }
   ImGui::SameLine();
   if (strand_tree) {
     FileUtils::SaveFile(

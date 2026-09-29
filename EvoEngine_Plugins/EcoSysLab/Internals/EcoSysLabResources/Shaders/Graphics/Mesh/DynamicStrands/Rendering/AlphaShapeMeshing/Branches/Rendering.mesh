@@ -89,17 +89,11 @@ void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in UniformPar
   ms_v_out[vertex_index].Normal = vertex_normal;
   ms_v_out[vertex_index].Tangent = uniform_particle.tangent.xyz;
 
-  if (use_polar_coordinates_for_uv == 1) {
-    float tex_x = mod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
-    if (tex_x > 1.f) {
-      tex_x = 2.f - tex_x;
-    }
-    float tex_y = float(uniform_particle.segment_index) * v_multiplier;
-    ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
+  if (is_bark != 0) {
+    ms_v_out[vertex_index].TexCoord =
+        AlphaBarkPolarUv(uniform_particle, u_multiplier, v_multiplier, use_polar_coordinates_for_uv);
   } else {
-    float tex_x = (uniform_particle.initial_position.y + uniform_particle.initial_position.z) * u_multiplier;
-    float tex_y = uniform_particle.initial_position.x * v_multiplier;
-    ms_v_out[vertex_index].TexCoord = vec2(tex_x, tex_y);
+    ms_v_out[vertex_index].TexCoord = AlphaInteriorDiskUv(uniform_particle, texture_diameter);
   }
 
   vec4 color = vec4(0, 0, 0, 0);

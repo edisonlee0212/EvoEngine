@@ -179,9 +179,11 @@ class DynamicStrandsDemo : public IPrivateComponent {
   void RunLogExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
   void RunBoardExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
 
-  /// Pending alpha (= cutoff^2) values for Small Trunk parameter sweep (empty when inactive).
-  std::vector<double> small_trunk_alpha_sweep_;
+  /// Pending alpha (= cutoff^2) values for a parameter sweep after tree growth (empty when inactive).
+  std::vector<double> alpha_sweep_;
+  /// Filename / folder tag for the active sweep (e.g. "Small_Trunk", "Oak_thick_stump").
+  std::string alpha_sweep_experiment_name_;
   /// After tree growth, mesh once per pending alpha (forces remesh so statistics are written).
-  void RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tree>& tree, const std::shared_ptr<DynamicTreeStrands>& dts);
+  void RunAlphaSweepMeshing(const std::shared_ptr<Tree>& tree, const std::shared_ptr<DynamicTreeStrands>& dts);
 };
 }  // namespace eco_sys_lab_plugin

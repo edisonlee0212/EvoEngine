@@ -1,9 +1,12 @@
 #include "DsAlphaShapeMeshing.hpp"
+#include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
 #include "DsAlphaShapeUtils.hpp"
+#include "DsAlphaShapeVolumeUtils.hpp"
 #include "DynamicStrands.hpp"
 #include "Platform/Platform.hpp"
 #include "Shader.hpp"
+#include "Utilities.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -273,6 +276,12 @@ void DsAlphaShapeMeshing::InitData(const DynamicStrandsInitializeParameters& ini
   } else {
     ComputeDelaunayPerBundle(delaunay_tetrahedrons, initialize_parameters.use_cgal);
   }
+
+  BuildProfileBundleBoundaryPolygons();
+}
+
+void DsAlphaShapeMeshing::BuildProfileBundleBoundaryPolygons() {
+  profile_bundle_boundary_polygons_ = DsAlphaShapeUtils::BuildProfileBundleBoundaryPolygons(uniform_particles);
 }
 
 void DsAlphaShapeMeshing::InitBuffer(VkBufferCreateInfo& buffer_create_info,
@@ -390,6 +399,10 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     vkCmdDispatch(vk_command_buffer, uniform_particles_group_size, 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });
+
+  // Pull GPU `inside` flags back and snapshot rest-pose tet volumes as the heatmap baseline.
+  Download();
+  CaptureInitialTetrahedronVolumes();
 }
 
 struct TetrahedronFilteringPushConstant {
@@ -529,6 +542,9 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Download() {
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::Upload() {
+  if (profile_bundle_boundary_polygons_.empty() && !uniform_particles.empty()) {
+    BuildProfileBundleBoundaryPolygons();
+  }
   device_uniform_particles_buffer->UploadVector(uniform_particles);
   device_uniform_particles_buffer->SetDebugName("Uniform Particles Buffer");
   device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
@@ -538,6 +554,26 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Upload() {
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::Clear() {
   uniform_particles.clear();
   delaunay_tetrahedrons.clear();
+  profile_bundle_boundary_polygons_.clear();
+  initial_tet_volumes_.clear();
+  initial_tet_cumulative_volume_ = 0.0;
+  has_initial_tet_volumes_ = false;
+}
+
+void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
+  initial_tet_volumes_.clear();
+  initial_tet_cumulative_volume_ = 0.0;
+  has_initial_tet_volumes_ = false;
+  if (uniform_particles.empty() || delaunay_tetrahedrons.empty()) {
+    return;
+  }
+  const auto volumes =
+      DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(uniform_particles, delaunay_tetrahedrons, false);
+  initial_tet_volumes_ = volumes.per_tet_volume;
+  initial_tet_cumulative_volume_ = volumes.cumulative_volume;
+  has_initial_tet_volumes_ = true;
+  EVOENGINE_LOG("Captured initial Alpha tet volumes: alive=" << volumes.alive_count
+                                                             << ", cumulative=" << initial_tet_cumulative_volume_);
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
@@ -550,11 +586,93 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  ImGui::SeparatorText("Alpha Shape tetrahedra export");
+  ImGui::Checkbox("Separate bark / interior OBJ groups", &AlphaShapeTetObjExport::separate_bark_obj_group);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Writes `o bark` then `o interior` with matching usemtl (from tet.is_bark[]).");
+  }
+  ImGui::Checkbox("Separate OBJ object per tetrahedron", &AlphaShapeTetObjExport::separate_tet_objects);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Only used when bark/interior grouping is off. Writes one `o alpha_tet_<id>` group per alive tetrahedron.");
+  }
+  ImGui::Checkbox("Surface faces only", &AlphaShapeTetObjExport::surface_only);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, only boundary triangles are written (render_neighbor==1 / missing or dead neighbor). "
+        "When disabled, all four faces of each alive tetrahedron are exported.");
+  }
+  ImGui::Checkbox("Use current particle positions", &AlphaShapeTetObjExport::use_current_position);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("On: deformed/current `position`. Off: rest `initial_position`.");
+  }
+
+  FileUtils::SaveFile(
+      "Download and export Alpha tetrahedra (OBJ)", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        if (dynamic_strands) {
+          dynamic_strands->Download();
+        } else {
+          Download();
+        }
+        EVOENGINE_LOG("Downloaded GPU data for Alpha tetrahedra export");
+        try {
+          AlphaShapeTetObjExport::ExportObj(path, uniform_particles, delaunay_tetrahedrons,
+                                            &profile_bundle_boundary_polygons_);
+          EVOENGINE_LOG("Exported Alpha Shape tetrahedra OBJ to " + path.string());
+        } catch (const std::exception& e) {
+          EVOENGINE_ERROR(std::string("Alpha tetrahedra OBJ export failed: ") + e.what());
+        }
+      },
+      false);
+  ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Export Alpha tetrahedra (OBJ)", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        try {
+          AlphaShapeTetObjExport::ExportObj(path, uniform_particles, delaunay_tetrahedrons,
+                                            &profile_bundle_boundary_polygons_);
+          EVOENGINE_LOG("Exported Alpha Shape tetrahedra OBJ to " + path.string());
+        } catch (const std::exception& e) {
+          EVOENGINE_ERROR(std::string("Alpha tetrahedra OBJ export failed: ") + e.what());
+        }
+      },
+      false);
+
+  FileUtils::SaveFile(
+      "Export volume change heatmap (OBJ)", "OBJ", {".obj"},
+      [&](const std::filesystem::path& path) {
+        if (!has_initial_tet_volumes_) {
+          EVOENGINE_ERROR(
+              "Volume change heatmap: no initial tet volumes. Re-initialize Alpha Shape meshing first.");
+          return;
+        }
+        try {
+          if (dynamic_strands) {
+            dynamic_strands->Download();
+          } else {
+            Download();
+          }
+          VolumeChangeHeatmapExport::ExportAlphaTetrahedra(path, uniform_particles, delaunay_tetrahedrons,
+                                                           initial_tet_volumes_, initial_tet_cumulative_volume_,
+                                                           AlphaShapeTetObjExport::use_current_position);
+          EVOENGINE_LOG("Exported Alpha volume change heatmap to " + path.string());
+        } catch (const std::exception& e) {
+          EVOENGINE_ERROR(std::string("Volume change heatmap export failed: ") + e.what());
+        }
+      },
+      false);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Per-tet %% volume change vs baseline after GPU Interior init. "
+        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials).");
+  }
+
   return false;
 }
 void DsAlphaShapeMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Text((std::string("Uniform particles count: ") + std::to_string(uniform_particles.size())).c_str());
-  ImGui::Text((std::string("Meshlet count: ") + std::to_string(delaunay_tetrahedrons.size())).c_str());
+  ImGui::Text((std::string("Tetrahedron count: ") + std::to_string(delaunay_tetrahedrons.size())).c_str());
 }
 
 void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {

@@ -33,6 +33,8 @@ struct BranchesRenderParameters {
 
   float u_multiplier = 1;
   float v_multiplier = 0.025;
+  /// Delaunay disk diameter for interior UVs (kinDS SegmentBuilder default).
+  float texture_diameter = 0.9f;
   float degen_triangle_threshold_logairthmic = 5.0f;
   float global_extrusion_distance = 0.002f;
   float break_threshold = 0.01f;

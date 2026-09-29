@@ -81,6 +81,9 @@ bool BranchesRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& edi
   if (ImGui::DragFloat("V-coordinate multiplier", &v_multiplier, 0.001f, 0.0f, 100.0f))
     changed = true;
 
+  if (ImGui::DragFloat("Interior texture diameter", &texture_diameter, 0.01f, 0.1f, 2.0f))
+    changed = true;
+
   if (ImGui::Checkbox("Persistent damage", &persistent_damage)) {
     changed = true;
   }
@@ -113,6 +116,7 @@ struct BranchesRenderPushConstant {
   int snow_material_index = 0;
   float global_extrusion_distance = 0.0f;
   float break_threshold = 0.01f;
+  float texture_diameter = 0.9f;
   int use_polar_coordinates_for_uv = 1;
   int bark_material_index = 0;
 };
@@ -358,6 +362,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   render_push_constant.snow_material_index = snow_material_index;
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   render_push_constant.break_threshold = render_parameters.break_threshold;
+  render_push_constant.texture_diameter = render_parameters.texture_diameter;
   render_push_constant.use_polar_coordinates_for_uv = render_parameters.use_polar_coordinates_for_uv ? 1 : 0;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);

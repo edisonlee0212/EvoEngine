@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <fstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include "DsAlphaShapeMeshing.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicStrands.hpp"
 #include "kinDS/kinDS/ObjExporter.hpp"
@@ -129,6 +132,68 @@ class MeshletObjExport {
                                              float fracture_distance = 0.0f,
                                              const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {},
                                              const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = {});
+};
+
+/**
+ * \brief Export Alpha Shape Delaunay tetrahedra to OBJ after a GPU download.
+ * Alive tets only (@c inside == 1). Faces follow the GPU lookup table in AlphaShape.glsl.
+ * Writes bark/interior materials + UVs via kinDS::ObjExporter, plus a GPU-attribute JSON sidecar.
+ */
+class AlphaShapeTetObjExport {
+ public:
+  /// When true (and @ref separate_bark_obj_group is false), write one @c o object per alive tetrahedron.
+  static bool separate_tet_objects;
+  /// When true (default), write OBJ groups @c bark then @c interior (Kinetic meshlet style).
+  static bool separate_bark_obj_group;
+  /// When true, only export boundary faces (@c render_neighbor == 1, else neighbor missing/dead).
+  static bool surface_only;
+  /// When true, use particle @c position; otherwise @c initial_position.
+  static bool use_current_position;
+
+  static void ExportObj(
+      const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+      const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+      const std::unordered_map<uint64_t, std::vector<glm::dvec2>>* profile_bundle_boundary_polygons = nullptr);
+};
+
+/**
+ * \brief Volume-change heatmap OBJ: materials encode % volume change vs a captured baseline.
+ * White at 0%, red for losses, blue for gains; display clamps to @ref max_abs_percent (default ±30%).
+ */
+class VolumeChangeHeatmapExport {
+ public:
+  /// Display clamp for material colors (± percent). Stored baseline comparisons are unclamped for logging.
+  static double max_abs_percent;
+
+  struct ChangeStats {
+    double initial_cumulative = 0.0;
+    double current_cumulative = 0.0;
+    double cumulative_delta = 0.0;
+    double cumulative_percent = 0.0;
+    double max_percent = 0.0;   ///< Largest gain (or least negative).
+    double min_percent = 0.0;   ///< Largest loss among elements with current volume > 0.
+    bool has_max = false;
+    bool has_min = false;
+    unsigned int max_id = 0;
+    unsigned int min_id = 0;
+  };
+
+  static glm::dvec3 ColorFromPercent(double percent);
+
+  static void LogStats(const std::string& label, const ChangeStats& stats);
+
+  static void ExportKineticMeshlets(
+      const std::filesystem::path& path,
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+      const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, double initial_cumulative,
+      ChangeStats* stats_out = nullptr);
+
+  static void ExportAlphaTetrahedra(const std::filesystem::path& path,
+                                    const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+                                    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+                                    const std::vector<double>& initial_tet_volumes, double initial_cumulative,
+                                    bool use_current_position = true, ChangeStats* stats_out = nullptr);
 };
 
 }  // namespace eco_sys_lab_plugin

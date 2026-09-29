@@ -307,8 +307,7 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
   if (demo_type == DemoType::SmallTrunk || demo_type == DemoType::NormalTrunk) {
     ApplyOakTrunkFullProcessTreePreset(tree);
     ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
-    dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-    dts->initialize_parameters.min_segment_length = 0.005f;
+        dts->initialize_parameters.min_segment_length = 0.005f;
     dts->initialize_parameters.max_segment_length = 0.01f;
     const char* name = demo_type == DemoType::SmallTrunk ? "Small Trunk" : "Normal Trunk";
     EVOENGINE_LOG(name << ": tree growth finished (" << target_growth_time
@@ -316,8 +315,7 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
   } else if (demo_type == DemoType::StockyTrunk) {
     ApplyStockyTrunkTreePreset(tree);
     ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
-    dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-    dts->initialize_parameters.min_segment_length = 0.005f;
+        dts->initialize_parameters.min_segment_length = 0.005f;
     dts->initialize_parameters.max_segment_length = 0.01f;
     dts->seed = 42;
     EVOENGINE_LOG("Stocky Trunk: tree growth finished (" << target_growth_time
@@ -325,15 +323,14 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
   } else if (demo_type == DemoType::OakThickStump) {
     ApplyOakThickStumpPreset(tree);
     ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
-    dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-    dts->initialize_parameters.min_segment_length = 0.005f;
+        dts->initialize_parameters.min_segment_length = 0.005f;
     dts->initialize_parameters.max_segment_length = 0.01f;
     EVOENGINE_LOG("Oak thick stump: tree growth finished (" << target_growth_iterations
                                                            << " iterations). Building strands and meshing...");
   }
   ApplySegmentSubdivisionOverride(dts->initialize_parameters);
-  if (demo_type == DemoType::SmallTrunk && !small_trunk_alpha_sweep_.empty()) {
-    RunSmallTrunkAlphaSweepMeshing(tree, dts);
+  if (!alpha_sweep_.empty()) {
+    RunAlphaSweepMeshing(tree, dts);
   } else {
     dts->InitializeFromTree(tree, pending_meshing_buffer_description);
     pending_meshing_buffer_description.clear();
@@ -344,12 +341,25 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
   ResetAutomatedExportSchedule();
 }
 
-void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tree>& tree,
-                                                        const std::shared_ptr<DynamicTreeStrands>& dts) {
-  if (!tree || !dts || small_trunk_alpha_sweep_.empty()) {
-    small_trunk_alpha_sweep_.clear();
+void DynamicStrandsDemo::RunAlphaSweepMeshing(const std::shared_ptr<Tree>& tree,
+                                              const std::shared_ptr<DynamicTreeStrands>& dts) {
+  if (!tree || !dts || alpha_sweep_.empty()) {
+    alpha_sweep_.clear();
+    alpha_sweep_experiment_name_.clear();
     return;
   }
+
+  std::string experiment_tag = alpha_sweep_experiment_name_.empty() ? "Alpha_sweep" : alpha_sweep_experiment_name_;
+  std::replace(experiment_tag.begin(), experiment_tag.end(), ' ', '_');
+  for (char& c : experiment_tag) {
+    if (c == '+' || c == '/' || c == '\\' || c == ':') {
+      c = '_';
+    }
+  }
+  std::string experiment_folder_name = experiment_tag;
+  std::replace(experiment_folder_name.begin(), experiment_folder_name.end(), '_', ' ');
+  experiment_folder_name += " alpha sweep";
+  const std::string log_prefix = experiment_folder_name;
 
   const bool previous_override = DsKineticVoronoiMeshing::meshing_settings.override_meshing_buffer;
   const double previous_alpha_cutoff = DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff;
@@ -357,27 +367,28 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
   // Force remesh for each alpha so deferred statistics CSVs are written (cache hits skip collection).
   DsKineticVoronoiMeshing::meshing_settings.override_meshing_buffer = true;
 
-  const std::string base_description = pending_meshing_buffer_description.empty()
-                                           ? "created from DynamicStrandsDemo scripted experiment: Small Trunk alpha sweep"
-                                           : pending_meshing_buffer_description;
+  const std::string base_description =
+      pending_meshing_buffer_description.empty()
+          ? ("created from DynamicStrandsDemo scripted experiment: " + experiment_folder_name)
+          : pending_meshing_buffer_description;
   pending_meshing_buffer_description.clear();
 
   const auto project_path = ProjectManager::GetProjectPath();
   std::filesystem::path export_folder;
   if (!project_path.empty()) {
-    export_folder = project_path.parent_path() / "PhysicsDemoExports" / "Small Trunk alpha sweep" /
-                    MakeAutomatedExportTimestamp();
+    export_folder =
+        project_path.parent_path() / "PhysicsDemoExports" / experiment_folder_name / MakeAutomatedExportTimestamp();
     std::error_code ec;
     std::filesystem::create_directories(export_folder, ec);
     if (ec) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: failed to create export folder " << export_folder.string() << " ("
-                                                                                 << ec.message() << ").");
+      EVOENGINE_ERROR(log_prefix << ": failed to create export folder " << export_folder.string() << " ("
+                                 << ec.message() << ").");
       export_folder.clear();
     } else {
-      EVOENGINE_LOG("Small Trunk alpha sweep: export folder " << export_folder.string());
+      EVOENGINE_LOG(log_prefix << ": export folder " << export_folder.string());
     }
   } else {
-    EVOENGINE_ERROR("Small Trunk alpha sweep: project path is empty; mesh OBJ export skipped.");
+    EVOENGINE_ERROR(log_prefix << ": project path is empty; mesh OBJ export skipped.");
   }
 
   struct SweepTotalsRow {
@@ -395,7 +406,115 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
     std::string failure;
   };
   std::vector<SweepTotalsRow> summary_rows;
-  summary_rows.reserve(small_trunk_alpha_sweep_.size());
+  summary_rows.reserve(alpha_sweep_.size());
+
+  const std::filesystem::path partial_summary_path =
+      std::filesystem::path("meshing_statistics_" + experiment_tag + "_alpha_sweep_summary_partial.csv");
+  const std::filesystem::path export_summary_path =
+      export_folder.empty() ? std::filesystem::path{} : (export_folder / "meshing_statistics_summary.csv");
+
+  auto write_summary_header = [](std::ostream& out) {
+    out << "alpha,cutoff,succeeded,section_count,runtime_s,strand_count,branch_count,segment_count";
+    for (size_t e = 0; e < kinDS::kineticEventTypeCount; ++e) {
+      out << ',' << kinDS::kineticEventTypeName(static_cast<kinDS::KineticEventType>(e));
+    }
+    out << ",alpha_recorded,triangle_count,vertex_count,failure\n";
+  };
+
+  auto write_summary_row = [](std::ostream& out, const SweepTotalsRow& row) {
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
+    auto write_optional_size = [&](const std::optional<size_t>& value) {
+      if (value.has_value()) {
+        out << value.value();
+      }
+    };
+    auto write_optional_double = [&](const std::optional<double>& value) {
+      if (value.has_value()) {
+        out << value.value();
+      }
+    };
+    auto write_csv_string = [&](const std::string& value) {
+      out << '"';
+      for (const char c : value) {
+        if (c == '"') {
+          out << "\"\"";
+        } else {
+          out << c;
+        }
+      }
+      out << '"';
+    };
+    out << row.alpha << ',' << row.cutoff << ',' << (row.succeeded ? 1 : 0) << ',' << row.section_count << ','
+        << row.runtime_s << ',';
+    write_optional_size(row.strand_count);
+    out << ',';
+    write_optional_size(row.branch_count);
+    out << ',';
+    if (row.strand_count.has_value()) {
+      const size_t subdivision = row.event_counts[static_cast<size_t>(kinDS::KineticEventType::Subdivision)];
+      out << (row.strand_count.value() + subdivision);
+    }
+    for (size_t e = 0; e < kinDS::kineticEventTypeCount; ++e) {
+      out << ',' << row.event_counts[e];
+    }
+    out << ',';
+    write_optional_double(row.alpha_recorded);
+    out << ',';
+    write_optional_size(row.triangle_count);
+    out << ',';
+    write_optional_size(row.vertex_count);
+    out << ',';
+    if (!row.failure.empty()) {
+      write_csv_string(row.failure);
+    }
+    out << '\n';
+  };
+
+  auto write_full_summary_csv = [&](const std::filesystem::path& path) {
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out) {
+      EVOENGINE_ERROR(log_prefix << ": failed to write summary CSV " << path.string());
+      return;
+    }
+    write_summary_header(out);
+    for (const SweepTotalsRow& row : summary_rows) {
+      write_summary_row(out, row);
+    }
+    out.flush();
+    EVOENGINE_LOG(log_prefix << ": wrote summary CSV " << path.string() << " (" << summary_rows.size()
+                             << " alpha row(s)).");
+  };
+
+  // Truncate and write header up front; append + flush after each alpha so a crash keeps completed rows.
+  std::ofstream partial_summary_out(partial_summary_path, std::ios::out | std::ios::trunc);
+  std::ofstream export_summary_out;
+  if (!partial_summary_out) {
+    EVOENGINE_ERROR(log_prefix << ": failed to open incremental summary CSV " << partial_summary_path.string());
+  } else {
+    write_summary_header(partial_summary_out);
+    partial_summary_out.flush();
+    EVOENGINE_LOG(log_prefix << ": incremental summary CSV " << partial_summary_path.string());
+  }
+  if (!export_summary_path.empty()) {
+    export_summary_out.open(export_summary_path, std::ios::out | std::ios::trunc);
+    if (!export_summary_out) {
+      EVOENGINE_ERROR(log_prefix << ": failed to open incremental summary CSV " << export_summary_path.string());
+    } else {
+      write_summary_header(export_summary_out);
+      export_summary_out.flush();
+    }
+  }
+
+  auto flush_summary_row = [&](const SweepTotalsRow& row) {
+    if (partial_summary_out) {
+      write_summary_row(partial_summary_out, row);
+      partial_summary_out.flush();
+    }
+    if (export_summary_out) {
+      write_summary_row(export_summary_out, row);
+      export_summary_out.flush();
+    }
+  };
 
   auto append_failure_summary = [&](const double alpha, const double cutoff, const std::string& failure) {
     SweepTotalsRow row;
@@ -404,6 +523,7 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
     row.succeeded = false;
     row.alpha_recorded = alpha;
     row.failure = failure;
+    flush_summary_row(row);
     summary_rows.push_back(std::move(row));
   };
 
@@ -434,28 +554,29 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
       row.triangle_count = dskvm.segment_meshlet_triangles.size();
       row.vertex_count = dskvm.segment_meshlet_vertices.size();
     }
+    flush_summary_row(row);
     summary_rows.push_back(std::move(row));
   };
 
-  for (size_t i = 0; i < small_trunk_alpha_sweep_.size(); ++i) {
-    const double alpha = small_trunk_alpha_sweep_[i];
+  for (size_t i = 0; i < alpha_sweep_.size(); ++i) {
+    const double alpha = alpha_sweep_[i];
     const double cutoff = std::sqrt(alpha);
     const int alpha_i = static_cast<int>(std::lround(alpha));
     DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff = cutoff;
     DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff = cutoff;
     DsKineticVoronoiMeshing::meshing_settings.meshing_statistics_experiment_name =
-        "Small_Trunk_alpha_" + std::to_string(alpha_i);
+        experiment_tag + "_alpha_" + std::to_string(alpha_i);
 
     const std::string description =
         base_description + " (alpha=" + std::to_string(alpha_i) + ", cutoff=" + std::to_string(cutoff) + ")";
-    EVOENGINE_LOG("Small Trunk alpha sweep: meshing " << (i + 1) << "/" << small_trunk_alpha_sweep_.size()
-                                                      << " (alpha=" << alpha << ", cutoff=" << cutoff << ")...");
+    EVOENGINE_LOG(log_prefix << ": meshing " << (i + 1) << "/" << alpha_sweep_.size() << " (alpha=" << alpha
+                             << ", cutoff=" << cutoff << ")...");
 
     try {
       dts->InitializeFromTree(tree, description);
     } catch (const std::exception& ex) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: InitializeFromTree threw for alpha=" << alpha << ": " << ex.what()
-                                                                                    << "; continuing.");
+      EVOENGINE_ERROR(log_prefix << ": InitializeFromTree threw for alpha=" << alpha << ": " << ex.what()
+                                 << "; continuing.");
       if (auto* dskvm = dts->dynamic_strands ? dts->dynamic_strands->GetKineticVoronoiMeshing() : nullptr) {
         if (!DsKineticVoronoiMeshing::meshing_settings.meshing_statistics_experiment_name.empty()) {
           dskvm->WriteMeshingFailureStatistics(ex.what());
@@ -467,7 +588,7 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
 
     auto* dskvm = dts->dynamic_strands ? dts->dynamic_strands->GetKineticVoronoiMeshing() : nullptr;
     if (!dskvm || !dskvm->last_meshing_succeeded_) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: meshing failed for alpha=" << alpha << "; continuing with next alpha.");
+      EVOENGINE_ERROR(log_prefix << ": meshing failed for alpha=" << alpha << "; continuing with next alpha.");
       if (dskvm && !DsKineticVoronoiMeshing::meshing_settings.meshing_statistics_experiment_name.empty()) {
         dskvm->WriteMeshingFailureStatistics("meshing failed");
       }
@@ -478,8 +599,8 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
     append_success_summary(alpha, cutoff, *dskvm);
 
     if (dskvm->segment_meshlet_vertices.empty() || dskvm->segment_meshlet_triangles.empty()) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: meshlet buffers empty after success for alpha=" << alpha
-                                                                                               << "; skipping OBJ export.");
+      EVOENGINE_ERROR(log_prefix << ": meshlet buffers empty after success for alpha=" << alpha
+                                 << "; skipping OBJ export.");
       continue;
     }
     if (export_folder.empty()) {
@@ -496,75 +617,28 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
           DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance,
           dts->dynamic_strands->segment_pairs, dts->dynamic_strands->segment_data_list,
           dskvm->segment_meshlet_vertex_metadata, dskvm->segment_meshlet_face_metadata);
-      EVOENGINE_LOG("Small Trunk alpha sweep: wrote " << path.string());
+      EVOENGINE_LOG(log_prefix << ": wrote " << path.string());
     } catch (const std::exception& ex) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: OBJ export failed for alpha=" << alpha << ": " << ex.what());
+      EVOENGINE_ERROR(log_prefix << ": OBJ export failed for alpha=" << alpha << ": " << ex.what());
     }
   }
 
-  auto write_summary_csv = [&](const std::filesystem::path& path) {
-    std::ofstream out(path);
-    if (!out) {
-      EVOENGINE_ERROR("Small Trunk alpha sweep: failed to write summary CSV " << path.string());
-      return;
-    }
-    out << "alpha,cutoff,succeeded,section_count,runtime_s,strand_count,branch_count";
-    for (size_t e = 0; e < kinDS::kineticEventTypeCount; ++e) {
-      out << ',' << kinDS::kineticEventTypeName(static_cast<kinDS::KineticEventType>(e));
-    }
-    out << ",alpha_recorded,triangle_count,vertex_count,failure\n";
-    out << std::setprecision(std::numeric_limits<double>::max_digits10);
-    auto write_optional_size = [&](const std::optional<size_t>& value) {
-      if (value.has_value()) {
-        out << value.value();
-      }
-    };
-    auto write_optional_double = [&](const std::optional<double>& value) {
-      if (value.has_value()) {
-        out << value.value();
-      }
-    };
-    auto write_csv_string = [&](const std::string& value) {
-      out << '"';
-      for (const char c : value) {
-        if (c == '"') {
-          out << "\"\"";
-        } else {
-          out << c;
-        }
-      }
-      out << '"';
-    };
-    for (const SweepTotalsRow& row : summary_rows) {
-      out << row.alpha << ',' << row.cutoff << ',' << (row.succeeded ? 1 : 0) << ',' << row.section_count << ','
-          << row.runtime_s << ',';
-      write_optional_size(row.strand_count);
-      out << ',';
-      write_optional_size(row.branch_count);
-      for (size_t e = 0; e < kinDS::kineticEventTypeCount; ++e) {
-        out << ',' << row.event_counts[e];
-      }
-      out << ',';
-      write_optional_double(row.alpha_recorded);
-      out << ',';
-      write_optional_size(row.triangle_count);
-      out << ',';
-      write_optional_size(row.vertex_count);
-      out << ',';
-      if (!row.failure.empty()) {
-        write_csv_string(row.failure);
-      }
-      out << '\n';
-    }
-    EVOENGINE_LOG("Small Trunk alpha sweep: wrote summary CSV " << path.string() << " (" << summary_rows.size()
-                                                                << " alpha row(s)).");
-  };
+  if (partial_summary_out) {
+    partial_summary_out.flush();
+    partial_summary_out.close();
+  }
+  if (export_summary_out) {
+    export_summary_out.flush();
+    export_summary_out.close();
+  }
 
   if (!summary_rows.empty()) {
     const std::string stamp = MakeAutomatedExportTimestamp();
-    write_summary_csv(std::filesystem::path("meshing_statistics_Small_Trunk_alpha_sweep_summary_" + stamp + ".csv"));
-    if (!export_folder.empty()) {
-      write_summary_csv(export_folder / "meshing_statistics_summary.csv");
+    write_full_summary_csv(
+        std::filesystem::path("meshing_statistics_" + experiment_tag + "_alpha_sweep_summary_" + stamp + ".csv"));
+    if (!export_summary_path.empty()) {
+      // Re-write export folder copy once more so it matches the final stamped CSV.
+      write_full_summary_csv(export_summary_path);
     }
   }
 
@@ -572,18 +646,26 @@ void DynamicStrandsDemo::RunSmallTrunkAlphaSweepMeshing(const std::shared_ptr<Tr
   DsKineticVoronoiMeshing::meshing_settings.alpha_cutoff = previous_alpha_cutoff;
   DsKineticVoronoiMeshing::meshing_settings.branch_alpha_cutoff = previous_branch_alpha_cutoff;
   DsKineticVoronoiMeshing::meshing_settings.meshing_statistics_experiment_name.clear();
-  small_trunk_alpha_sweep_.clear();
-  EVOENGINE_LOG("Small Trunk alpha sweep: finished all alpha values.");
+  alpha_sweep_.clear();
+  alpha_sweep_experiment_name_.clear();
+  EVOENGINE_LOG(log_prefix << ": finished all alpha values.");
 }
 
 void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   const auto children = scene->GetChildren(owner);
+
+  // Preserve meshing mode across DTS recreate (e.g. Both) so PhysicsDemo experiments do not reset it.
+  MeshingType preserved_meshing_type = MeshingType::KineticVoronoi;
   if (scene->HasPrivateComponent<DynamicTreeStrands>(owner)) {
+    if (const auto existing_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock()) {
+      preserved_meshing_type = existing_dts->initialize_parameters.meshing_type;
+    }
     scene->RemovePrivateComponent<DynamicTreeStrands>(owner);
   }
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
+  dts->initialize_parameters.meshing_type = preserved_meshing_type;
   ResetPhysicsDemoHeight(scene, owner, dts);
 
   target_simulation_time = 100.f;
@@ -643,7 +725,8 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   eco_sys_lab_layer->ResetAllTrees(tree_entities);
   tree_auto_grow_started_ = false;
   pending_meshing_buffer_description.clear();
-  small_trunk_alpha_sweep_.clear();
+  alpha_sweep_.clear();
+  alpha_sweep_experiment_name_.clear();
   physics_parameters.enable_structural_damage = true;
   physics_parameters.enable_segment_compression_disconnection = true;
   physics_parameters.segment_velocity_damping = 1.f;
@@ -1722,8 +1805,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
       dts->initialize_parameters.min_segment_length = 0.02f;
       dts->initialize_parameters.max_segment_length = 0.04f;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-      SetupVolumetricLogExperimentHeight(scene, owner, dts);
+            SetupVolumetricLogExperimentHeight(scene, owner, dts);
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log cut";
@@ -1766,8 +1848,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
       dts->initialize_parameters.min_segment_length = 0.02f;
       dts->initialize_parameters.max_segment_length = 0.04f;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-      SetupVolumetricLogExperimentHeight(scene, owner, dts);
+            SetupVolumetricLogExperimentHeight(scene, owner, dts);
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log Spoon";
@@ -1822,8 +1903,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
       dts->initialize_parameters.min_segment_length = 0.02f;
       dts->initialize_parameters.max_segment_length = 0.04f;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-
+      
       // Rotate owner so the log's local +X rod axis becomes world +Y (upright).
       GlobalTransform owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
       owner_gt.SetEulerRotation(glm::radians(glm::vec3(0.f, 0.f, 90.f)));
@@ -1868,8 +1948,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ApplyOakTrunkFullProcessTreePreset(tree);
       ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
       dts->enable_physics = false;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-      dts->initialize_parameters.min_segment_length = 0.005f;
+            dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.max_segment_length = 0.01f;
       EVOENGINE_LOG("Small Trunk: growing Oak_trunk for " << target_growth_time << " years...");
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
@@ -1887,7 +1966,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       demo_type = DemoType::SmallTrunk;
       demo_status = DemoStatus::TreeGrowth;
       // Largest alpha first: small α (tight cutoff) is more failure-prone.
-      small_trunk_alpha_sweep_ = {2500.0, 900.0, 400.0, 100.0, 25.0, 9.0, 4.0, 1.0};
+      alpha_sweep_ = {2500.0, 900.0, 400.0, 100.0, 25.0, 9.0, 4.0, 1.0};
+      alpha_sweep_experiment_name_ = "Small_Trunk";
       pending_meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Small Trunk alpha sweep";
       DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
@@ -1901,12 +1981,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ApplyOakTrunkFullProcessTreePreset(tree);
       ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
       dts->enable_physics = false;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
       dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.max_segment_length = 0.01f;
       EVOENGINE_LOG("Small Trunk alpha sweep: growing Oak_trunk for "
                     << target_growth_time << " years, then meshing alphas "
-                    << "1,4,9,25,100,400,900,2500 (cutoff = sqrt(alpha))...");
+                    << "2500,900,400,100,25,9,4,1 (cutoff = sqrt(alpha))...");
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
       BeginTreeAutoGrow();
@@ -1914,7 +1993,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Same growth as Small Trunk, then remesh for alpha = cutoff^2 in "
-          "{1,4,9,25,100,400,900,2500}. Forces remesh each time, writes meshing statistics "
+          "{2500,900,400,100,25,9,4,1}. Forces remesh each time, writes meshing statistics "
           "as Small_Trunk_alpha_<N>, exports meshlets_alpha_<N>.obj under PhysicsDemoExports, "
           "and continues to the next alpha if meshing fails (failure logged in the stats CSV).");
     }
@@ -1935,8 +2014,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ApplyOakTrunkFullProcessTreePreset(tree);
       ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
       dts->enable_physics = false;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-      dts->initialize_parameters.min_segment_length = 0.005f;
+            dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.max_segment_length = 0.01f;
       EVOENGINE_LOG("Normal Trunk: growing Oak_trunk for " << target_growth_time << " years...");
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
@@ -1968,8 +2046,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
       dts->enable_physics = false;
       dts->seed = 42;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-      dts->initialize_parameters.min_segment_length = 0.005f;
+            dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.max_segment_length = 0.01f;
       EVOENGINE_LOG("Stocky Trunk: growing Oak_trunk_stocky for " << target_growth_time
                                                                   << " years (seed 42)...");
@@ -2001,7 +2078,6 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ApplyOakThickStumpPreset(tree);
       ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
       dts->enable_physics = false;
-      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
       dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.max_segment_length = 0.01f;
       EVOENGINE_LOG("Oak thick stump: growing Oak for " << target_growth_iterations << " iterations...");
@@ -2013,6 +2089,44 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ImGui::SetTooltip(
           "Grow Oak for 15 iterations (default seed): 100 end strands/branch, alpha cutoffs 5, "
           "strand tension 1, then volumetric mesh.");
+    }
+
+    if (ImGui::Button("Oak thick stump alpha sweep")) {
+      ResetEnvironment(editor_layer);
+      demo_type = DemoType::OakThickStump;
+      demo_status = DemoStatus::TreeGrowth;
+      // Largest alpha first: small α (tight cutoff) is more failure-prone.
+      alpha_sweep_ = {2500.0, 900.0, 400.0, 100.0, 25.0, 9.0, 4.0, 1.0};
+      alpha_sweep_experiment_name_ = "Oak_thick_stump";
+      pending_meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Oak thick stump alpha sweep";
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
+      const auto tree_entity = scene->CreateEntity("Tree");
+      tree_entity_ref = tree_entity;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      scene->SetDataComponent(owner, tree_initial_pose);
+      scene->SetDataComponent(tree_entity, tree_initial_pose);
+      target_growth_time = 0.f;
+      target_growth_iterations = 15;
+      tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Basic/Oak.tree");
+      ApplyOakThickStumpPreset(tree);
+      ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+      dts->enable_physics = false;
+      dts->initialize_parameters.min_segment_length = 0.005f;
+      dts->initialize_parameters.max_segment_length = 0.01f;
+      EVOENGINE_LOG("Oak thick stump alpha sweep: growing Oak for "
+                    << target_growth_iterations << " iterations, then meshing alphas "
+                    << "2500,900,400,100,25,9,4,1 (cutoff = sqrt(alpha))...");
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Same growth as Oak thick stump, then remesh for alpha = cutoff^2 in "
+          "{2500,900,400,100,25,9,4,1}. Forces remesh each time, writes meshing statistics "
+          "as Oak_thick_stump_alpha_<N>, exports meshlets_alpha_<N>.obj under PhysicsDemoExports, "
+          "and continues to the next alpha if meshing fails (failure logged in the stats CSV).");
     }
     ImGui::TreePop();
   }

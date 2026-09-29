@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <unordered_map>
 #include "DsMeshing.hpp"
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "Entity.hpp"
@@ -212,6 +213,14 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   GlobalTransform meshlets_root_transform_{};
   /// Cached from @ref InitData; used when rebuilding pair rest state after intersection compact.
   DynamicStrandsInitializeParameters initialize_parameters_{};
+
+  /// Rest-pose meshlet volumes captured at the end of a successful meshing run (keyed by physics segment).
+  std::unordered_map<unsigned int, double> initial_meshlet_volumes_by_segment_;
+  double initial_meshlet_cumulative_volume_ = 0.0;
+  bool has_initial_meshlet_volumes_ = false;
+
+  /// Snapshot current CPU meshlet volumes (rest `x0`) as the baseline for volume-change heatmaps.
+  void CaptureInitialMeshletVolumes();
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
