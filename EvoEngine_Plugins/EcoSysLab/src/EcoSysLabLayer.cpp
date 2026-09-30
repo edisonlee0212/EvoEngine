@@ -473,6 +473,9 @@ void EcoSysLabLayer::OnInspectDynamicStrandsSettings(const std::shared_ptr<Edito
   }
 
   ImGui::Checkbox("Physics", &dynamic_strands_settings_.enable_physics);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Toggle with Space while the Scene view is focused.");
+  }
   if (!dynamic_strands_settings_.enable_physics && ImGui::Button("Physics step")) {
     dynamic_strands_settings_.remaining_step++;
   }

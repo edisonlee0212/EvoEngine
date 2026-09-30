@@ -3,6 +3,7 @@
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicStrands.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "EcoSysLabPaths.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "Transform.hpp"
@@ -148,7 +149,7 @@ bool DsIntersectionBoundaryMesh::OnInspect(const std::shared_ptr<EditorLayer>& e
               name = "entity_" + std::to_string(owner.GetIndex());
             }
             std::filesystem::path stats_base = path_.empty()
-                                                   ? std::filesystem::path(name + "_intersection_stats.csv")
+                                                   ? EcoSysLabMetadataPath(name + "_intersection_stats.csv")
                                                    : path_.parent_path() / (name + "_intersection_stats.csv");
             DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(stats_base,
                                                                     {{std::move(name), intersection_stats}});

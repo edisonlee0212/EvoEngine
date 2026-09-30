@@ -75,8 +75,12 @@ class DynamicStrandsDemo : public IPrivateComponent {
     SmallTrunk,       ///< Grow Oak_trunk (4 years) then run volumetric meshing.
     NormalTrunk,      ///< Grow Oak_trunk (8 years) then run volumetric meshing.
     StockyTrunk,      ///< Grow Oak_trunk_stocky (seed 42) then run volumetric meshing.
-    OakThickStump,    ///< Grow Oak (15 iterations, default seed); 100 end strands, alpha cutoffs 5, tension 1.
-    LogCut,           ///< Volumetric log cut + board-style pivot break simulation.
+    OakThickStump,      ///< Grow Oak (15 iterations, default seed); 100 end strands, alpha cutoffs 5, tension 1.
+    OakThickStump200,   ///< Same as OakThickStump but 200 end strands/branch.
+    OakFourYearSparse,  ///< Grow Oak for 4 years; 4 end strands/branch, alpha cutoffs 5, tension 1.
+    OakSixYearSparse,   ///< Grow Oak for 6 years; 4 end strands/branch, alpha cutoffs 5, tension 1.
+    OakEightYearSparse, ///< Grow Oak for 8 years; 4 end strands/branch, alpha cutoffs 5, tension 1.
+    LogCut,             ///< Volumetric log cut + board-style pivot break simulation.
     LogSpoon,         ///< Volumetric log spoon cut + board-style pivot break simulation.
     LogCutUprightBunny  ///< Upright half-length log + bunny boundary (bottom fixed, top rotates).
   };

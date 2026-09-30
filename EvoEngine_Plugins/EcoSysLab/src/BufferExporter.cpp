@@ -1879,6 +1879,19 @@ void AccumulateVolumeChangeStats(VolumeChangeHeatmapExport::ChangeStats& stats, 
 /// Material palette keyed by rounded % volume change; MTL names encode that percentage.
 class PercentHeatmapPalette {
  public:
+  static std::string FormatPercentToken(const double percent) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1);
+    if (percent > 0.0) {
+      oss << "pct_+" << percent;
+    } else if (percent < 0.0) {
+      oss << "pct_" << percent;
+    } else {
+      oss << "pct_0.0";
+    }
+    return oss.str();
+  }
+
   int IdForPercent(const double percent) {
     // Coalesce near-identical values (0.1% bins) so MTL size stays manageable.
     const long long key = static_cast<long long>(std::llround(percent * 10.0));
@@ -1889,7 +1902,7 @@ class PercentHeatmapPalette {
     const double rounded = static_cast<double>(key) / 10.0;
     const size_t index = names_.size();
     index_by_tenths_.emplace(key, index);
-    names_.push_back(FormatPercentMaterialName(rounded));
+    names_.push_back(FormatPercentToken(rounded));
     const glm::dvec3 rgb = VolumeChangeHeatmapExport::ColorFromPercent(rounded);
     kd_.push_back(rgb);
     return static_cast<int>(index);
@@ -1903,23 +1916,16 @@ class PercentHeatmapPalette {
   }
 
  private:
-  static std::string FormatPercentMaterialName(const double percent) {
-    std::ostringstream oss;
-    oss << std::fixed << std::setprecision(1);
-    if (percent > 0.0) {
-      oss << "pct_+" << percent;
-    } else if (percent < 0.0) {
-      oss << "pct_" << percent;
-    } else {
-      oss << "pct_0.0";
-    }
-    return oss.str();
-  }
-
   std::unordered_map<long long, size_t> index_by_tenths_;
   std::vector<std::string> names_;
   std::vector<glm::dvec3> kd_;
 };
+
+std::string FormatMeshletHeatmapObjectName(const unsigned int segment_index, const double percent) {
+  const long long key = static_cast<long long>(std::llround(percent * 10.0));
+  const double rounded = static_cast<double>(key) / 10.0;
+  return "meshlet_" + std::to_string(segment_index) + "_" + PercentHeatmapPalette::FormatPercentToken(rounded);
+}
 
 }  // namespace
 
@@ -1999,11 +2005,46 @@ void VolumeChangeHeatmapExport::ExportKineticMeshlets(
   }
 
   PercentHeatmapPalette palette;
-  std::vector<int> face_material_ids(triangles.size(), 0);
+  std::unordered_map<unsigned int, std::vector<size_t>> triangle_indices_by_segment;
+  triangle_indices_by_segment.reserve(triangles.size() / 4 + 1);
   for (size_t ti = 0; ti < triangles.size(); ++ti) {
     const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
+    triangle_indices_by_segment[segment_index].push_back(ti);
+  }
+
+  std::vector<unsigned int> segment_order;
+  segment_order.reserve(triangle_indices_by_segment.size());
+  for (const auto& [segment_index, _] : triangle_indices_by_segment) {
+    segment_order.push_back(segment_index);
+  }
+  std::sort(segment_order.begin(), segment_order.end());
+
+  const bool write_per_meshlet = MeshletObjExport::per_meshlet_objects;
+  std::vector<size_t> export_triangle_order;
+  export_triangle_order.reserve(triangles.size());
+  std::vector<size_t> group_offsets;
+  std::vector<std::string> group_names;
+  if (write_per_meshlet) {
+    group_offsets.reserve(segment_order.size());
+    group_names.reserve(segment_order.size());
+  }
+
+  for (const unsigned int segment_index : segment_order) {
+    if (write_per_meshlet) {
+      group_offsets.push_back(export_triangle_order.size());
+      const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
+      group_names.push_back(FormatMeshletHeatmapObjectName(segment_index, percent));
+    }
+    const auto& tri_indices = triangle_indices_by_segment[segment_index];
+    export_triangle_order.insert(export_triangle_order.end(), tri_indices.begin(), tri_indices.end());
+  }
+
+  std::vector<int> face_material_ids(export_triangle_order.size(), 0);
+  for (size_t i = 0; i < export_triangle_order.size(); ++i) {
+    const size_t ti = export_triangle_order[i];
+    const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
     const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
-    face_material_ids[ti] = palette.IdForPercent(percent);
+    face_material_ids[i] = palette.IdForPercent(percent);
   }
 
   kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
@@ -2011,18 +2052,24 @@ void VolumeChangeHeatmapExport::ExportKineticMeshlets(
   for (const auto& v : vertices) {
     mesh.addVertex(glm::dvec3(v.x.x, v.x.y, v.x.z));
   }
-  for (size_t ti = 0; ti < triangles.size(); ++ti) {
-    const auto& t = triangles[ti];
+  for (size_t i = 0; i < export_triangle_order.size(); ++i) {
+    const auto& t = triangles[export_triangle_order[i]];
     const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
     const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
     const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
-    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, face_material_ids[ti]);
-    for (int i = 0; i < 3; ++i) {
-      mesh.addNormal(glm::dvec3(t.normal[i].x, t.normal[i].y, t.normal[i].z));
+    mesh.addTriangle(t.vertex_index0, t.vertex_index1, t.vertex_index2, uv0, uv1, uv2, face_material_ids[i]);
+    for (int c = 0; c < 3; ++c) {
+      mesh.addNormal(glm::dvec3(t.normal[c].x, t.normal[c].y, t.normal[c].z));
     }
   }
-  mesh.setGroupOffsets({0});
-  mesh.setGroupNames({"volume_change_heatmap"});
+
+  if (write_per_meshlet) {
+    mesh.setGroupOffsets(group_offsets);
+    mesh.setGroupNames(group_names);
+  } else {
+    mesh.setGroupOffsets({0});
+    mesh.setGroupNames({"volume_change_heatmap"});
+  }
 
   kinDS::ObjWriteOptions options;
   options.framework_compatible = false;

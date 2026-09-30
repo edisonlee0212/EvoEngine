@@ -1,10 +1,28 @@
 #include "VolumeMeasureGpu.hpp"
 
 #include "Console.hpp"
+#include "EcoSysLabPaths.hpp"
 
+#include <chrono>
+#include <ctime>
 #include <iomanip>
+#include <sstream>
 
 namespace eco_sys_lab_plugin {
+
+std::filesystem::path MakeTimestampedVolumeMeasureCsvPath(const std::string& stem) {
+  const auto now = std::chrono::system_clock::now();
+  const std::time_t time = std::chrono::system_clock::to_time_t(now);
+  std::tm local_tm{};
+#ifdef _WIN32
+  localtime_s(&local_tm, &time);
+#else
+  localtime_r(&time, &local_tm);
+#endif
+  std::ostringstream name;
+  name << stem << '_' << std::put_time(&local_tm, "%Y%m%d_%H%M%S") << ".csv";
+  return EcoSysLabMetadataPath(name.str());
+}
 
 bool VolumeMeasureCsvLogger::Open(const std::filesystem::path& path, const std::string& label) {
   Close();

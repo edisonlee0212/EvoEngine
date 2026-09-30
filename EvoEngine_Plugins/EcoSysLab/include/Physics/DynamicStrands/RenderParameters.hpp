@@ -26,7 +26,8 @@ struct BranchesRenderParameters {
     InitUp,
     Axis,
     InitAxis,
-    InitAngle
+    InitAngle,
+    VolumeChangeHeatmap
   };
 
   VertexColors vertex_colors = Default;

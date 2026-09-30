@@ -555,7 +555,7 @@ class DynamicStrands {
                  const DynamicStrandsInitializeParameters& initialize_parameters,
                  const DynamicStrandsVisualizationParameters& visualization_parameters) const;
   void Physics(const PhysicsParameters& physics_parameters, const std::function<void()>& pre_step_action);
-  void RenderCompute() const;
+  void RenderCompute(bool physics_simulation_active) const;
   static void BuildFoliageRenderingPipelines();
   static void BuildSegmentPairsRenderingPipeline();
 

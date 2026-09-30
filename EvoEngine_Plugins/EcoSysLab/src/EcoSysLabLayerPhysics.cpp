@@ -32,7 +32,9 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       dts->InteractionStep();
     });
-    if (dynamic_strands_settings_.enable_physics || dynamic_strands_settings_.remaining_step > 0) {
+    const bool physics_frame_allowed =
+        dynamic_strands_settings_.enable_physics || dynamic_strands_settings_.remaining_step > 0;
+    if (physics_frame_allowed) {
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled() && dts->enable_physics)
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
@@ -40,9 +42,14 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
       if (dynamic_strands_settings_.remaining_step > 0)
         dynamic_strands_settings_.remaining_step--;
     }
+    // Gate volume measure on application Play/Step (not the Physics checkbox). Demos often leave
+    // dts->enable_physics false and drive PhysicsStep from private-component Update while Playing.
+    const auto app_status = Application::GetApplicationStatus();
+    const bool physics_simulation_active = app_status == Application::ExecutionStatus::Playing ||
+                                           app_status == Application::ExecutionStatus::Step;
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
-        dts->dynamic_strands->RenderCompute();
+        dts->dynamic_strands->RenderCompute(physics_simulation_active);
       }
     });
   }

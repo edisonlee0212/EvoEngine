@@ -28,33 +28,18 @@ bool BranchesRenderParameters::OnInspect(const std::shared_ptr<EditorLayer>& edi
   if (ImGui::Checkbox("Use cubic Hermite spline", &use_cubic_hermite_spline))
     changed = true;
 
-  if (ImGui::TreeNodeEx("Use normal attribute for debugging")) {
-    if (ImGui::RadioButton("Disabled", (int*)&vertex_colors, Default))
-      changed = true;
-    if (ImGui::RadioButton("Absolute Normals", (int*)&vertex_colors, Normals))
-      changed = true;
-    if (ImGui::RadioButton("Tangents", (int*)&vertex_colors, Tangents))
-      changed = true;
-    if (ImGui::RadioButton("Groups", (int*)&vertex_colors, Groups))
-      changed = true;
-    if (ImGui::RadioButton("Degree", (int*)&vertex_colors, Degree))
-      changed = true;
-    if (ImGui::RadioButton("Bark", (int*)&vertex_colors, Bark))
-      changed = true;
-    if (ImGui::RadioButton("Normal Quaternion", (int*)&vertex_colors, NormalQuaternion))
-      changed = true;
-    if (ImGui::RadioButton("Up", (int*)&vertex_colors, Up))
-      changed = true;
-    if (ImGui::RadioButton("Initial Up", (int*)&vertex_colors, InitUp))
-      changed = true;
-    if (ImGui::RadioButton("Axis", (int*)&vertex_colors, Axis))
-      changed = true;
-    if (ImGui::RadioButton("Initial Axis", (int*)&vertex_colors, InitAxis))
-      changed = true;
-    if (ImGui::RadioButton("Initial Angle", (int*)&vertex_colors, InitAngle))
-      changed = true;
-
-    ImGui::TreePop();
+  int color_mode = static_cast<int>(vertex_colors);
+  if (ImGui::Combo("Color mode",
+                   {"Disabled", "Absolute Normals", "Tangents", "Groups", "Degree", "Bark", "Normal Quaternion", "Up",
+                    "Initial Up", "Axis", "Initial Axis", "Initial Angle", "Volume change heatmap"},
+                   color_mode)) {
+    vertex_colors = static_cast<VertexColors>(color_mode);
+    changed = true;
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Volume change heatmap: white = 0%%, red = loss, blue = gain (clamped to +-30%%). "
+        "Requires remesh so an initial volume baseline exists; updates only while the application is Playing.");
   }
 
   if (ImGui::Checkbox("Use polar coordinates for UV", &use_polar_coordinates_for_uv)) {

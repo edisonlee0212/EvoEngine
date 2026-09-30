@@ -15,6 +15,9 @@ struct GpuVolumeMeasureResult {
   uint32_t padding0 = 0;
 };
 
+/// e.g. `Metadata/kinetic_volume_measure_20260930_112345.csv`
+std::filesystem::path MakeTimestampedVolumeMeasureCsvPath(const std::string& stem);
+
 /// Appends one row: frame, absolute cumulative, percent of initial.
 class VolumeMeasureCsvLogger {
  public:

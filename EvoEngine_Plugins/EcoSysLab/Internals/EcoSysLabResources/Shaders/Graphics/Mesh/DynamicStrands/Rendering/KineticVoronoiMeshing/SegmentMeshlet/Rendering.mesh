@@ -12,6 +12,8 @@
 
 #include "KineticVoronoiMeshing.glsl"
 #include "Math.glsl"
+#include "VolumeMeasure.glsl"
+#include "KineticVoronoiVolumeMeasure.glsl"
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
 const float PI = 3.1415926535897932384626433832795;
@@ -168,6 +170,14 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
     }
     case COLOR_UVS: {
       vec4 color = vec4(uv_coords, 0.0, 1.0);
+      if (selection_overlay.a > 0.0) {
+        color.rgb = mix(color.rgb, selection_overlay.rgb, selection_overlay.a);
+      }
+      ms_v_out[vertex_index].Color = color;
+      break;
+    }
+    case COLOR_VOLUME_CHANGE_HEATMAP: {
+      vec4 color = vec4(KineticSegmentVolumeChangeHeatmapColor(segment_meshlet_vertex.segment_index), 1.0);
       if (selection_overlay.a > 0.0) {
         color.rgb = mix(color.rgb, selection_overlay.rgb, selection_overlay.a);
       }

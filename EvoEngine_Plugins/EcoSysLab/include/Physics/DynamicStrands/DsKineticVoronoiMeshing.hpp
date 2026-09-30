@@ -29,7 +29,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) override;
 
   void BuildRenderComputePipelines() override;
-  void RenderCompute() const override;
+  void RenderCompute(bool physics_simulation_active) const override;
   void BuildRenderingPipelines() override;
 
   void Download() override;
@@ -51,7 +51,15 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct SegmentMeshletsRenderParameters {
     // TODO
     bool enabled = true;
-    enum ColorMode { Standard = 0, Normals = 1, UVs = 2, Pair = 3, NeighborConnectivity = 4, NeighborTags = 5 };
+    enum ColorMode {
+      Standard = 0,
+      Normals = 1,
+      UVs = 2,
+      Pair = 3,
+      NeighborConnectivity = 4,
+      NeighborTags = 5,
+      VolumeChangeHeatmap = 6
+    };
     int color_mode = 0;
     float uv_height_factor = 0.1f;
     float uv_circum_factor = 2.0f;
@@ -204,6 +212,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
   std::shared_ptr<Buffer> device_segment_signed_volumes_buffer;
+  std::shared_ptr<Buffer> device_segment_initial_volumes_buffer;
   std::vector<std::shared_ptr<Buffer>> device_volume_result_buffers;
 
   std::vector<float> boundary_distances_by_vertex;

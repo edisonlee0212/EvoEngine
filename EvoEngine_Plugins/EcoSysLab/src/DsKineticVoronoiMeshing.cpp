@@ -28,6 +28,7 @@
 #include <vector>
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
+#include "EcoSysLabPaths.hpp"
 #include "DsConstraints.hpp"
 #include "DsIntersectionBoundaryMesh.hpp"
 #include "DsIntersectionBoundaryMeshGroup.hpp"
@@ -3688,6 +3689,7 @@ bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
         });
     tree_mesher_->getSettings().transform_mesh_at_construction = true;
     tree_mesher_->getSettings().mesh_cap_at_start = true;
+    tree_mesher_->getSettings().meshing_statistics_csv_path = EcoSysLabMetadataPath("meshing_statistics.csv");
   }
 
   GlobalTransform inv_root;
@@ -5169,7 +5171,7 @@ void DsKineticVoronoiMeshing::WriteMeshingFailureStatistics(const std::string& f
   failure_stats.setTotalsFailure(failure_message);
   failure_stats.setFilenameExperimentTag(std::move(experiment_tag));
   failure_stats.writeCsv(tree_mesher_ ? tree_mesher_->getSettings().meshing_statistics_csv_path
-                                      : std::filesystem::path("meshing_statistics.csv"));
+                                      : EcoSysLabMetadataPath("meshing_statistics.csv"));
   meshing_settings.meshing_statistics_experiment_name.clear();
 }
 
@@ -5296,6 +5298,7 @@ bool DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
     // Defer CSV write until after T-junction closure so totals can include meshlet tri/vert counts.
     tree_mesher_->getSettings().defer_meshing_statistics_write = meshing_settings.collect_meshing_statistics;
+    tree_mesher_->getSettings().meshing_statistics_csv_path = EcoSysLabMetadataPath("meshing_statistics.csv");
     tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
     tree_mesher_->getSettings().export_separate_contributor_objects =
         meshing_settings.export_separate_contributor_objects;
@@ -5727,6 +5730,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitBuffer(
   device_segment_meshlet_vertices_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_signed_volumes_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_initial_volumes_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_volume_result_buffers.clear();
   const auto frames = Platform::GetMaxFramesInFlight();
@@ -6168,14 +6173,21 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::BuildRenderComputePipelines() 
   volume_finalize_pipeline->Initialize();
 }
 
-void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
+void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute(const bool physics_simulation_active) const {
   if (dynamic_strands->segments.empty())
     return;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const bool volume_heatmap_active =
+      render_settings.segment_meshlet_render_parameters.color_mode ==
+      SegmentMeshletsRenderParameters::VolumeChangeHeatmap;
+  const bool run_volume_measure =
+      physics_simulation_active && (render_settings.enable_volume_measure || volume_heatmap_active);
 
-  if (render_settings.enable_volume_measure) {
-    ReadbackVolumeMeasureToCsv();
+  if (run_volume_measure) {
+    if (render_settings.enable_volume_measure) {
+      ReadbackVolumeMeasureToCsv();
+    }
     if (!device_volume_result_buffers.empty()) {
       GpuVolumeMeasureResult reset{};
       reset.cumulative_volume = 0.0f;
@@ -6211,7 +6223,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
                   1);
     Platform::EverythingBarrier(vk_command_buffer);
 
-    if (render_settings.enable_volume_measure) {
+    if (run_volume_measure) {
       DispatchVolumeMeasure(vk_command_buffer);
     }
   });
@@ -6238,6 +6250,27 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Upload() {
   device_segment_meshlet_vertices_buffer->SetDebugName("Segment Meshlet Vertices Buffer");
   device_segment_meshlet_triangles_buffer->UploadVector(segment_meshlet_triangles);
   device_segment_meshlet_triangles_buffer->SetDebugName("Segment Meshlet Triangles Buffer");
+
+  if (dynamic_strands) {
+    const size_t segment_count = std::max<size_t>(1, dynamic_strands->segments.size());
+    std::vector<float> initials(segment_count, 0.0f);
+    if (has_initial_meshlet_volumes_) {
+      for (const auto& [segment_index, volume] : initial_meshlet_volumes_by_segment_) {
+        if (segment_index < initials.size()) {
+          initials[segment_index] = static_cast<float>(volume);
+        }
+      }
+    }
+    if (device_segment_signed_volumes_buffer) {
+      // Mirror baseline into the "current" buffer until a measure pass overwrites it.
+      device_segment_signed_volumes_buffer->UploadVector(initials);
+      device_segment_signed_volumes_buffer->SetDebugName("Kinetic Segment Signed Volumes");
+    }
+    if (device_segment_initial_volumes_buffer) {
+      device_segment_initial_volumes_buffer->UploadVector(initials);
+      device_segment_initial_volumes_buffer->SetDebugName("Kinetic Segment Initial Volumes");
+    }
+  }
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
@@ -6280,9 +6313,25 @@ void DsKineticVoronoiMeshing::CaptureInitialMeshletVolumes() {
                                                              << initial_meshlet_cumulative_volume_);
 
   if (device_segment_signed_volumes_buffer && dynamic_strands) {
-    std::vector<float> zeros(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
-    device_segment_signed_volumes_buffer->UploadVector(zeros);
+    // Keep current == initial at capture so heatmap is white before the first measure pass.
+    std::vector<float> initials(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
+    for (const auto& [segment_index, volume] : initial_meshlet_volumes_by_segment_) {
+      if (segment_index < initials.size()) {
+        initials[segment_index] = static_cast<float>(volume);
+      }
+    }
+    device_segment_signed_volumes_buffer->UploadVector(initials);
     device_segment_signed_volumes_buffer->SetDebugName("Kinetic Segment Signed Volumes");
+  }
+  if (device_segment_initial_volumes_buffer && dynamic_strands) {
+    std::vector<float> initials(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
+    for (const auto& [segment_index, volume] : initial_meshlet_volumes_by_segment_) {
+      if (segment_index < initials.size()) {
+        initials[segment_index] = static_cast<float>(volume);
+      }
+    }
+    device_segment_initial_volumes_buffer->UploadVector(initials);
+    device_segment_initial_volumes_buffer->SetDebugName("Kinetic Segment Initial Volumes");
   }
 }
 
@@ -6300,6 +6349,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
     const auto& result_buffer =
         device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(15, result_buffer, 0);
+  }
+  if (device_segment_initial_volumes_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        18, device_segment_initial_volumes_buffer, 0);
   }
 }
 
@@ -6351,7 +6404,7 @@ void DsKineticVoronoiMeshing::ReadbackVolumeMeasureToCsv() const {
     return;
   }
   if (!volume_measure_csv_.IsOpen()) {
-    volume_measure_csv_.Open(std::filesystem::path("kinetic_volume_measure.csv"), "kinetic");
+    volume_measure_csv_.Open(MakeTimestampedVolumeMeasureCsvPath("kinetic_volume_measure"), "kinetic");
   }
   const auto max_frames = static_cast<uint32_t>(device_volume_result_buffers.size());
   if (volume_measure_frame_counter_ < max_frames) {
@@ -6397,7 +6450,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InspectSharedMeshingSettings(
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Enable kinDS runtime/event statistics CSV and a companion event-list CSV after meshing "
-        "(filenames include a timestamp so previous runs are kept). The event list has one row per "
+        "(written under the project Metadata/ folder; filenames include a timestamp so previous runs are kept). "
+        "The event list has one row per "
         "kinetic event including whether each radius event used a boundary-transition shift. "
         "Also writes a per-mesh intersection CSV for Intersect and for Intersect and export all on an "
         "Intersection Meshes group.");
@@ -6711,7 +6765,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Per-meshlet %% volume change vs rest-pose baseline at meshing time. "
-        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials).");
+        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials). "
+        "Respects Per-meshlet objects (object names include meshlet id and %% change).");
   }
   ImGui::SameLine();
   if (strand_tree) {
@@ -6862,20 +6917,25 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
   ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Each frame: compute cumulative meshlet volume on GPU and append absolute + %% of initial to "
-        "kinetic_volume_measure.csv (closed-meshlet divergence).");
+        "While the application is Playing: compute cumulative meshlet volume on GPU and append absolute + %% of "
+        "initial to Metadata/kinetic_volume_measure_<timestamp>.csv (closed-meshlet divergence). Paused/stopped skips "
+        "measure and CSV.");
   }
   if (render_settings.segment_meshlet_render_parameters.enabled) {
     if (ImGui::Button("Rebuild segment meshlet pipelines")) {
       BuildSegmentMeshletsRenderingPipelines();
     }
 
-    ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags"},
+    ImGui::Combo("Color mode",
+                 {"Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags",
+                  "Volume change heatmap"},
                  render_settings.segment_meshlet_render_parameters.color_mode);
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Neighbor tags: brown = -2 (bark), blue = -1 (interior/open), green = >=0 (lateral), "
-          "magenta = <-2 (out of range).");
+          "magenta = <-2 (out of range).\n"
+          "Volume change heatmap: white = 0%%, red = loss, blue = gain (clamped to +-30%%); "
+          "updates only while the application is Playing.");
     }
 
     ImGui::Checkbox("Debug neighbor connectivity",

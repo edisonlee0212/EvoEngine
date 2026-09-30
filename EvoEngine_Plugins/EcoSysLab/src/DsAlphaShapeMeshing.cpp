@@ -289,6 +289,8 @@ void DsAlphaShapeMeshing::InitBuffer(VkBufferCreateInfo& buffer_create_info,
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_near_degenerate_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_tet_current_volumes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_tet_initial_volumes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_volume_result_buffers.clear();
   const auto frames = Platform::GetMaxFramesInFlight();
   device_volume_result_buffers.reserve(frames);
@@ -493,18 +495,23 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   volume_measure_pipeline->Initialize();
 }
 
-void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
+void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute(const bool physics_simulation_active) const {
   if (dynamic_strands->segments.empty())
     return;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const float snow_factor = 100.f;
   const float snow_deduction = 0.1f;
+  const bool volume_heatmap_active =
+      render_settings.branches_render_parameters.vertex_colors == BranchesRenderParameters::VolumeChangeHeatmap;
+  const bool run_volume_measure =
+      physics_simulation_active && (render_settings.enable_volume_measure || volume_heatmap_active);
 
-  if (render_settings.enable_volume_measure) {
-    ReadbackVolumeMeasureToCsv();
+  if (run_volume_measure) {
+    if (render_settings.enable_volume_measure) {
+      ReadbackVolumeMeasureToCsv();
+    }
     if (!device_volume_result_buffers.empty()) {
-      const auto current_frame_index = Platform::GetCurrentFrameIndex();
       GpuVolumeMeasureResult reset{};
       reset.cumulative_volume = 0.0f;
       reset.initial_cumulative_volume = static_cast<float>(initial_tet_cumulative_volume_);
@@ -558,7 +565,7 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
 
-    if (render_settings.enable_volume_measure) {
+    if (run_volume_measure) {
       DispatchVolumeMeasure(vk_command_buffer);
     }
   });
@@ -584,6 +591,23 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Upload() {
   device_uniform_particles_buffer->SetDebugName("Uniform Particles Buffer");
   device_delaunay_tetrahedrons_buffer->UploadVector(delaunay_tetrahedrons);
   device_delaunay_tetrahedrons_buffer->SetDebugName("Delaunay Tetrahedrons Buffer");
+
+  const size_t tet_count = std::max<size_t>(1, delaunay_tetrahedrons.size());
+  std::vector<float> initials(tet_count, 0.0f);
+  if (has_initial_tet_volumes_) {
+    for (size_t i = 0; i < initial_tet_volumes_.size() && i < initials.size(); ++i) {
+      initials[i] = static_cast<float>(initial_tet_volumes_[i]);
+    }
+  }
+  if (device_tet_initial_volumes_buffer) {
+    device_tet_initial_volumes_buffer->UploadVector(initials);
+    device_tet_initial_volumes_buffer->SetDebugName("Alpha Tet Initial Volumes");
+  }
+  if (device_tet_current_volumes_buffer) {
+    // Mirror baseline into current until a measure pass overwrites it (keeps heatmap white at rest).
+    device_tet_current_volumes_buffer->UploadVector(initials);
+    device_tet_current_volumes_buffer->SetDebugName("Alpha Tet Current Volumes");
+  }
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::Clear() {
@@ -628,7 +652,7 @@ void DsAlphaShapeMeshing::ReadbackVolumeMeasureToCsv() const {
     return;
   }
   if (!volume_measure_csv_.IsOpen()) {
-    volume_measure_csv_.Open(std::filesystem::path("alpha_volume_measure.csv"), "alpha");
+    volume_measure_csv_.Open(MakeTimestampedVolumeMeasureCsvPath("alpha_volume_measure"), "alpha");
   }
   // Read the oldest in-flight slot (about to be reused next after max frames).
   const auto max_frames = static_cast<uint32_t>(device_volume_result_buffers.size());
@@ -687,11 +711,25 @@ void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
   }
   device_near_degenerate_buffer->UploadVector(near_degen_u32);
   device_near_degenerate_buffer->SetDebugName("Alpha Near-Degenerate Flags");
+
+  if (device_tet_initial_volumes_buffer) {
+    std::vector<float> initials(std::max<size_t>(1, initial_tet_volumes_.size()), 0.0f);
+    for (size_t i = 0; i < initial_tet_volumes_.size(); ++i) {
+      initials[i] = static_cast<float>(initial_tet_volumes_[i]);
+    }
+    device_tet_initial_volumes_buffer->UploadVector(initials);
+    device_tet_initial_volumes_buffer->SetDebugName("Alpha Tet Initial Volumes");
+    if (device_tet_current_volumes_buffer) {
+      // Same baseline in current so heatmap is white before the first measure pass.
+      device_tet_current_volumes_buffer->UploadVector(initials);
+      device_tet_current_volumes_buffer->SetDebugName("Alpha Tet Current Volumes");
+    }
+  }
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–13 so both can be live.
+  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–13 + 16–17 so both can be live.
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       10, device_uniform_particles_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -704,6 +742,14 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
     const auto& result_buffer =
         device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(13, result_buffer, 0);
+  }
+  if (device_tet_current_volumes_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        16, device_tet_current_volumes_buffer, 0);
+  }
+  if (device_tet_initial_volumes_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        17, device_tet_initial_volumes_buffer, 0);
   }
 }
 
@@ -813,8 +859,8 @@ void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLa
   ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Each frame: compute cumulative tet volume on GPU and append absolute + %% of initial to "
-        "alpha_volume_measure.csv");
+        "While the application is Playing: compute cumulative tet volume on GPU and append absolute + %% of initial "
+        "to Metadata/alpha_volume_measure_<timestamp>.csv. Paused/stopped skips measure and CSV.");
   }
   ImGui::Checkbox("Render Visualization", &render_settings.visualization_rendering);
   if (render_settings.visualization_rendering) {

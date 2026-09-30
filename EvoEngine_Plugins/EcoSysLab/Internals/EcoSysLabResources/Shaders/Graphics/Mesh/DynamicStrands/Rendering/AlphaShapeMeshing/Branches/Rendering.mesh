@@ -12,6 +12,8 @@
 
 #define ALPHA_SHAPE_MESHING_SET 1
 #include "AlphaShapeMeshing.glsl"
+#include "VolumeMeasure.glsl"
+#include "AlphaShapeVolumeMeasure.glsl"
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -133,41 +135,43 @@ void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in UniformPar
 
   ms_v_out[vertex_index].Color = color;
 
-  if (vertex_colors == 0) {
-  } else if (vertex_colors == 1) {
+  if (vertex_colors == COLOR_DEFAULT) {
+  } else if (vertex_colors == COLOR_NORMALS) {
     ms_v_out[vertex_index].Color = vec4(vertex_normal, 0.0);
-  } else if (vertex_colors == 2) {
+  } else if (vertex_colors == COLOR_TANGENTS) {
     ms_v_out[vertex_index].Color = uniform_particle.tangent;
-  } else if (vertex_colors == 3) {
+  } else if (vertex_colors == COLOR_GROUPS) {
     ms_v_out[vertex_index].Color = vec4(PseudoRandomColor(segments[uniform_particle.segment_handle].group_index), 1.0);
-  } else if (vertex_colors == 4) {
+  } else if (vertex_colors == COLOR_DEGREE) {
     ms_v_out[vertex_index].Color =
         vec4(mod(floor(uniform_particle.normal_deg.w / 4.0f), 2.0f),
              mod(floor(uniform_particle.normal_deg.w / 2.0f), 2.0f), mod(uniform_particle.normal_deg.w, 2.0f), 1.0);
-  } else if (vertex_colors == 5) {
+  } else if (vertex_colors == COLOR_BARK) {
     ms_v_out[vertex_index].Color = vec4(1.0 - is_bark, 0.0, is_bark, 1.0);
-  } else if (vertex_colors == 6) {
+  } else if (vertex_colors == COLOR_NORMAL_QUATERNION) {
     ms_v_out[vertex_index].Color = 0.5 * (vec4(1, 1, 1, 1) + uniform_particle.normal_q);  // normal quaternion
-  } else if (vertex_colors == 7) {
+  } else if (vertex_colors == COLOR_UP) {
     Segment segment = segments[uniform_particle.segment_handle];
     ms_v_out[vertex_index].Color = vec4(abs(rotate_vec3(segment.q, vec3(0, 1, 0))), 1.0);  // up
-  } else if (vertex_colors == 8) {
+  } else if (vertex_colors == COLOR_INIT_UP) {
     Segment segment = segments[uniform_particle.segment_handle];
     ms_v_out[vertex_index].Color = vec4(abs(rotate_vec3(segment.q0, vec3(0, 1, 0))), 1.0);  // initial up
-  } else if (vertex_colors == 9) {
+  } else if (vertex_colors == COLOR_AXIS) {
     Segment segment = segments[uniform_particle.segment_handle];
     vec3 up = rotate_vec3(segment.q, vec3(0, 1, 0));
     ms_v_out[vertex_index].Color = vec4(abs(rotate_vec3(segment.q, vec3(0, 0, 1))), 1.0);  // axis
-  } else if (vertex_colors == 10) {
+  } else if (vertex_colors == COLOR_INIT_AXIS) {
     Segment segment = segments[uniform_particle.segment_handle];
     vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
     ms_v_out[vertex_index].Color = vec4(abs(rotate_vec3(segment.q0, vec3(0, 0, 1))), 1.0);  // initial axis
-  } else if (vertex_colors == 11) {
+  } else if (vertex_colors == COLOR_INIT_ANGLE) {
     Segment segment = segments[uniform_particle.segment_handle];
     vec3 up = rotate_vec3(segment.q0, vec3(0, 1, 0));
     // Compute the angle between the two vectors
     float angle = uniform_particle.normal_deg.w;
     ms_v_out[vertex_index].Color = vec4(angle / PI, -angle / PI, 0, 1.0);  // init angle
+  } else if (vertex_colors == COLOR_VOLUME_CHANGE_HEATMAP) {
+    ms_v_out[vertex_index].Color = vec4(AlphaTetVolumeChangeHeatmapColor(tet_id), 1.0);
   }
 
   gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);

@@ -34,6 +34,7 @@ void main() {
       break;
     }
     float volume = MeasureAlphaTetrahedronVolume(tet_id);
+    alpha_tet_current_volumes[tet_id] = volume;
     if (volume > 0.0) {
       atomicAdd(alpha_volume_result.cumulative_volume, volume);
     }

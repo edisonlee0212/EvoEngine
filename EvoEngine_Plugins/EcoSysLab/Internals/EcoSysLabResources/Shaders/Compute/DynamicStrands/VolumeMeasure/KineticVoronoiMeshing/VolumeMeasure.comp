@@ -40,7 +40,7 @@ void main() {
       continue;
     }
     if (signed_volume != 0.0) {
-      atomicAdd(kinetic_segment_signed_volumes[segment_index], signed_volume);
+      atomicAdd(kinetic_segment_volumes[segment_index], signed_volume);
     }
   }
 }

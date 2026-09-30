@@ -268,6 +268,20 @@ void EditorLayer::PreUpdate() {
       case Application::ExecutionStatus::OnDestroy:
         break;
     }
+    // P toggles Play/Pause (same as the toolbar play button). Skip while typing in text fields.
+    if (!ImGui::GetIO().WantTextInput && Input::GetKey(GLFW_KEY_P) == Input::KeyActionType::Press) {
+      switch (Application::GetApplicationStatus()) {
+        case Application::ExecutionStatus::Playing:
+          Application::Pause();
+          break;
+        case Application::ExecutionStatus::NotPlaying:
+        case Application::ExecutionStatus::Pause:
+          Application::Play();
+          break;
+        default:
+          break;
+      }
+    }
     ImGui::EndMainMenuBar();
   }
   ImGui::PopStyleVar(1);

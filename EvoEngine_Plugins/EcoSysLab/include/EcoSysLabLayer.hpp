@@ -288,7 +288,7 @@ class EcoSysLabLayer : public ILayer {
      */
     enum class OperatorMode { Drag, Saw, LineCut, PointCut, FungusInjection };
 
-    unsigned operator_mode = static_cast<unsigned>(OperatorMode::FungusInjection);  ///< Current operator mode.
+    unsigned operator_mode = static_cast<unsigned>(OperatorMode::Drag);  ///< Current operator mode.
 
     bool cut_bend_twist_bundle_only = false;  ///< Flag to restrict cutting to bend/twist bundles only.
     bool enable_visualization = true;         ///< Enables or disables strand visualization.

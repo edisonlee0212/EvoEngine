@@ -49,7 +49,7 @@ class DsAlphaShapeMeshing : public DsMeshing {
   void InitializationGraphicsPipeline(const DynamicStrandsInitializeParameters& initialize_parameters) override;
 
   void BuildRenderComputePipelines() override;
-  void RenderCompute() const override;
+  void RenderCompute(bool physics_simulation_active) const override;
   void BuildRenderingPipelines() override;
 
   void Download() override;
@@ -157,6 +157,8 @@ class DsAlphaShapeMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
   std::shared_ptr<Buffer> device_near_degenerate_buffer;
+  std::shared_ptr<Buffer> device_tet_current_volumes_buffer;
+  std::shared_ptr<Buffer> device_tet_initial_volumes_buffer;
   /// One result buffer per frames-in-flight slot (safe delayed readback).
   std::vector<std::shared_ptr<Buffer>> device_volume_result_buffers;
 
