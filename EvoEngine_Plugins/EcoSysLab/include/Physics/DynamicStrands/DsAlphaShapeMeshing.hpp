@@ -1,6 +1,8 @@
 #pragma once
+#pragma once
 #include "DsMeshing.hpp"
 #include "RenderParameters.hpp"
+#include "VolumeMeasureGpu.hpp"
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -76,6 +78,8 @@ class DsAlphaShapeMeshing : public DsMeshing {
     /// When false (e.g. Kinetic active in dual-mesh mode), skip splinter/strand registration without
     /// changing the user checkbox preferences for those features.
     bool secondary_rendering_allowed = true;
+    /// Per-frame GPU cumulative volume → CSV (absolute + %% of initial).
+    bool enable_volume_measure = false;
     DsAlphaShapeVisualizationParameters meshing_visualization_parameters;
   };
 
@@ -152,6 +156,11 @@ class DsAlphaShapeMeshing : public DsMeshing {
 
   std::shared_ptr<Buffer> device_uniform_particles_buffer;
   std::shared_ptr<Buffer> device_delaunay_tetrahedrons_buffer;
+  std::shared_ptr<Buffer> device_near_degenerate_buffer;
+  /// One result buffer per frames-in-flight slot (safe delayed readback).
+  std::vector<std::shared_ptr<Buffer>> device_volume_result_buffers;
+
+  inline static std::shared_ptr<ComputePipeline> volume_measure_pipeline{};
 
   /// Profile-space bark boundary per bundle; used for interior UV ray tests (CPU export + pre-upload prep).
   std::unordered_map<uint64_t, std::vector<glm::dvec2>> profile_bundle_boundary_polygons_;
@@ -165,6 +174,12 @@ class DsAlphaShapeMeshing : public DsMeshing {
 
   /// Snapshot rest-pose tet volumes and classify near-degenerate tets for later heatmap lookups.
   void CaptureInitialTetrahedronVolumes();
+
+  void DispatchVolumeMeasure(VkCommandBuffer vk_command_buffer) const;
+  void ReadbackVolumeMeasureToCsv() const;
+
+  mutable VolumeMeasureCsvLogger volume_measure_csv_{};
+  mutable uint32_t volume_measure_frame_counter_ = 0;
 
   Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.
   Handle small_segments_rendering_instance_handle;  ///< Handle for small segment rendering instance.

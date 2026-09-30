@@ -1,0 +1,46 @@
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_ARB_shading_language_include : enable
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_shader_atomic_float : require
+
+#define DYNAMIC_STRANDS_SET 0
+#include "DynamicStrands.glsl"
+#include "KineticVoronoiMeshing.glsl"
+#include "VolumeMeasure.glsl"
+#include "KineticVoronoiVolumeMeasure.glsl"
+
+const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
+const uint ITERATIONS_PER_TASK = ((COMPUTE_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+
+uint baseID = gl_WorkGroupID.x * COMPUTE_WORK_GROUP_INVOCATIONS;
+uint laneID = gl_LocalInvocationID.x;
+
+layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PUSH_CONSTANTS {
+  uint triangle_size;
+  uint segment_size;
+  uint frame_index;
+  int padding0;
+};
+
+// Accumulate signed divergence contributions into per-segment scratch.
+void main() {
+  [[unroll]]
+  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
+    uint local_index = laneID + i * WORKGROUP_SIZE;
+    uint tri_id = baseID + local_index;
+    if (tri_id >= triangle_size) {
+      break;
+    }
+    int segment_index = -1;
+    float signed_volume = MeasureKineticTriangleSignedVolume(tri_id, segment_index);
+    if (segment_index < 0 || uint(segment_index) >= segment_size) {
+      continue;
+    }
+    if (signed_volume != 0.0) {
+      atomicAdd(kinetic_segment_signed_volumes[segment_index], signed_volume);
+    }
+  }
+}

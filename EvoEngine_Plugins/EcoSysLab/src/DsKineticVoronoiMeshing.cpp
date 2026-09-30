@@ -5726,6 +5726,15 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitBuffer(
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_meshlet_vertices_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_signed_volumes_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_volume_result_buffers.clear();
+  const auto frames = Platform::GetMaxFramesInFlight();
+  device_volume_result_buffers.reserve(frames);
+  for (uint32_t i = 0; i < frames; ++i) {
+    device_volume_result_buffers.push_back(
+        std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+  }
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
@@ -6133,6 +6142,30 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::BuildRenderComputePipelines() 
   triangle_prediction_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
   branches_triangle_update_pipeline->Initialize();
+
+  volume_measure_pipeline = std::make_shared<ComputePipeline>();
+  volume_measure_pipeline->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeMeasure.comp");
+  volume_measure_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  auto& volume_measure_push = volume_measure_pipeline->push_constant_ranges.emplace_back();
+  volume_measure_push.size = sizeof(uint32_t) * 4;
+  volume_measure_push.offset = 0;
+  volume_measure_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  volume_measure_pipeline->Initialize();
+
+  volume_finalize_pipeline = std::make_shared<ComputePipeline>();
+  volume_finalize_pipeline->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeFinalize.comp");
+  volume_finalize_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  auto& volume_finalize_push = volume_finalize_pipeline->push_constant_ranges.emplace_back();
+  volume_finalize_push.size = sizeof(uint32_t) * 4;
+  volume_finalize_push.offset = 0;
+  volume_finalize_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  volume_finalize_pipeline->Initialize();
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
@@ -6140,6 +6173,21 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
     return;
   const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+
+  if (render_settings.enable_volume_measure) {
+    ReadbackVolumeMeasureToCsv();
+    if (!device_volume_result_buffers.empty()) {
+      GpuVolumeMeasureResult reset{};
+      reset.cumulative_volume = 0.0f;
+      reset.initial_cumulative_volume = static_cast<float>(initial_meshlet_cumulative_volume_);
+      reset.frame_index = volume_measure_frame_counter_;
+      device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()]->Upload(reset);
+    }
+    if (device_segment_signed_volumes_buffer && dynamic_strands) {
+      std::vector<float> zeros(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
+      device_segment_signed_volumes_buffer->UploadVector(zeros);
+    }
+  }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     // Vertices
@@ -6162,6 +6210,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute() const {
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1,
                   1);
     Platform::EverythingBarrier(vk_command_buffer);
+
+    if (render_settings.enable_volume_measure) {
+      DispatchVolumeMeasure(vk_command_buffer);
+    }
   });
 }
 
@@ -6204,6 +6256,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   initial_meshlet_volumes_by_segment_.clear();
   initial_meshlet_cumulative_volume_ = 0.0;
   has_initial_meshlet_volumes_ = false;
+  volume_measure_csv_.Close();
+  volume_measure_frame_counter_ = 0;
 }
 
 void DsKineticVoronoiMeshing::CaptureInitialMeshletVolumes() {
@@ -6224,6 +6278,12 @@ void DsKineticVoronoiMeshing::CaptureInitialMeshletVolumes() {
   has_initial_meshlet_volumes_ = true;
   EVOENGINE_LOG("Captured initial Kinetic meshlet volumes: " << volumes.meshlets.size() << " meshlets, cumulative="
                                                              << initial_meshlet_cumulative_volume_);
+
+  if (device_segment_signed_volumes_buffer && dynamic_strands) {
+    std::vector<float> zeros(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
+    device_segment_signed_volumes_buffer->UploadVector(zeros);
+    device_segment_signed_volumes_buffer->SetDebugName("Kinetic Segment Signed Volumes");
+  }
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
@@ -6232,6 +6292,81 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
       8, device_segment_meshlet_vertices_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       9, device_segment_meshlet_triangles_buffer, 0);
+  if (device_segment_signed_volumes_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        14, device_segment_signed_volumes_buffer, 0);
+  }
+  if (!device_volume_result_buffers.empty()) {
+    const auto& result_buffer =
+        device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(15, result_buffer, 0);
+  }
+}
+
+void DsKineticVoronoiMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_command_buffer) const {
+  if (!volume_measure_pipeline || !volume_measure_pipeline->Initialized() || !volume_finalize_pipeline ||
+      !volume_finalize_pipeline->Initialized() || segment_meshlet_triangles.empty() || !dynamic_strands) {
+    return;
+  }
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const uint32_t segment_size = static_cast<uint32_t>(std::max<size_t>(1, dynamic_strands->segments.size()));
+
+  struct MeasurePush {
+    uint32_t triangle_size = 0;
+    uint32_t segment_size = 0;
+    uint32_t frame_index = 0;
+    int padding0 = 0;
+  } measure_push{};
+  measure_push.triangle_size = static_cast<uint32_t>(segment_meshlet_triangles.size());
+  measure_push.segment_size = segment_size;
+  measure_push.frame_index = volume_measure_frame_counter_;
+
+  volume_measure_pipeline->Bind(vk_command_buffer);
+  volume_measure_pipeline->BindDescriptorSet(
+      vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->PushConstant(vk_command_buffer, 0, measure_push);
+  vkCmdDispatch(vk_command_buffer, Platform::DivUp(measure_push.triangle_size, work_group_invocations), 1, 1);
+  Platform::EverythingBarrier(vk_command_buffer);
+
+  struct FinalizePush {
+    uint32_t segment_size = 0;
+    uint32_t frame_index = 0;
+    int padding0 = 0;
+    int padding1 = 0;
+  } finalize_push{};
+  finalize_push.segment_size = segment_size;
+  finalize_push.frame_index = volume_measure_frame_counter_;
+
+  volume_finalize_pipeline->Bind(vk_command_buffer);
+  volume_finalize_pipeline->BindDescriptorSet(
+      vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_finalize_pipeline->PushConstant(vk_command_buffer, 0, finalize_push);
+  vkCmdDispatch(vk_command_buffer, Platform::DivUp(finalize_push.segment_size, work_group_invocations), 1, 1);
+  Platform::EverythingBarrier(vk_command_buffer);
+}
+
+void DsKineticVoronoiMeshing::ReadbackVolumeMeasureToCsv() const {
+  if (device_volume_result_buffers.empty()) {
+    return;
+  }
+  if (!volume_measure_csv_.IsOpen()) {
+    volume_measure_csv_.Open(std::filesystem::path("kinetic_volume_measure.csv"), "kinetic");
+  }
+  const auto max_frames = static_cast<uint32_t>(device_volume_result_buffers.size());
+  if (volume_measure_frame_counter_ < max_frames) {
+    ++volume_measure_frame_counter_;
+    return;
+  }
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto read_index = (current_frame_index + 1) % max_frames;
+  GpuVolumeMeasureResult result{};
+  device_volume_result_buffers[read_index]->Download(result);
+  volume_measure_csv_.Append(result.frame_index, static_cast<double>(result.cumulative_volume),
+                             initial_meshlet_cumulative_volume_ > 0.0
+                                 ? initial_meshlet_cumulative_volume_
+                                 : static_cast<double>(result.initial_cumulative_volume));
+  ++volume_measure_frame_counter_;
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InspectSharedMeshingSettings(
@@ -6724,6 +6859,12 @@ void DsKineticVoronoiMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_l
 
 void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Render Segment Meshlets", &render_settings.segment_meshlet_render_parameters.enabled);
+  ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Each frame: compute cumulative meshlet volume on GPU and append absolute + %% of initial to "
+        "kinetic_volume_measure.csv (closed-meshlet divergence).");
+  }
   if (render_settings.segment_meshlet_render_parameters.enabled) {
     if (ImGui::Button("Rebuild segment meshlet pipelines")) {
       BuildSegmentMeshletsRenderingPipelines();

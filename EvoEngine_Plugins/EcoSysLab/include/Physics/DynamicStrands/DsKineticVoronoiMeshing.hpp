@@ -5,6 +5,7 @@
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "Entity.hpp"
 #include "Transform.hpp"
+#include "VolumeMeasureGpu.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
 namespace kinDS {
@@ -62,6 +63,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct RenderSettings {
     // TODO: Add render settings specific to kinetic voronoi meshing
     SegmentMeshletsRenderParameters segment_meshlet_render_parameters;
+    /// Per-frame GPU cumulative meshlet volume → CSV (absolute + %% of initial).
+    bool enable_volume_measure = false;
   };
 
   struct MeshingSettings {
@@ -179,6 +182,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   // public:
   inline static std::shared_ptr<ComputePipeline> branches_vertex_update_pipeline{};
   inline static std::shared_ptr<ComputePipeline> branches_triangle_update_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> volume_measure_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> volume_finalize_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_spot_light_render_pipeline{};
@@ -198,6 +203,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
+  std::shared_ptr<Buffer> device_segment_signed_volumes_buffer;
+  std::vector<std::shared_ptr<Buffer>> device_volume_result_buffers;
 
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
@@ -221,6 +228,12 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   /// Snapshot current CPU meshlet volumes (rest `x0`) as the baseline for volume-change heatmaps.
   void CaptureInitialMeshletVolumes();
+
+  void DispatchVolumeMeasure(VkCommandBuffer vk_command_buffer) const;
+  void ReadbackVolumeMeasureToCsv() const;
+
+  mutable VolumeMeasureCsvLogger volume_measure_csv_{};
+  mutable uint32_t volume_measure_frame_counter_ = 0;
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,

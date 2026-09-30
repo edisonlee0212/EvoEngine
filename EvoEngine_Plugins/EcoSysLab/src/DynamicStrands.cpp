@@ -191,15 +191,17 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   InitMeshingAlgorithm(meshing_type);
 
   // Bindings 0–7: physics. 8–9: Kinetic meshlets. 10–11: Alpha particles/tets.
-  // Recreate if an older process-lifetime layout only had 0–9.
+  // 12–13: Alpha volume measure. 14–15: Kinetic volume measure.
+  // Recreate if an older process-lifetime layout is too small.
   static uint32_t strands_layout_binding_count = 0;
-  if (!strands_layout || strands_layout_binding_count < 12) {
+  constexpr uint32_t kStrandsLayoutBindingCount = 16;
+  if (!strands_layout || strands_layout_binding_count < kStrandsLayoutBindingCount) {
     strands_layout = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding <= 11; ++binding) {
+    for (uint32_t binding = 0; binding < kStrandsLayoutBindingCount; ++binding) {
       strands_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     }
     strands_layout->Initialize();
-    strands_layout_binding_count = 12;
+    strands_layout_binding_count = kStrandsLayoutBindingCount;
   }
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -623,18 +625,26 @@ void DynamicStrands::UpdateBindings() const {
                                                                               0);
   strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
 
-  // Keep unused meshing bindings valid for the extended layout (0–11).
+  // Keep unused meshing bindings valid for the extended layout (0–15).
   if (!kinetic_voronoi_meshing && device_meshing_binding_placeholder_buffer) {
     strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         8, device_meshing_binding_placeholder_buffer, 0);
     strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         9, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        14, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        15, device_meshing_binding_placeholder_buffer, 0);
   }
   if (!alpha_shape_meshing && device_meshing_binding_placeholder_buffer) {
     strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         10, device_meshing_binding_placeholder_buffer, 0);
     strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         11, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        12, device_meshing_binding_placeholder_buffer, 0);
+    strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        13, device_meshing_binding_placeholder_buffer, 0);
   }
 
   ForEachMeshing([](const DsMeshing& m) {

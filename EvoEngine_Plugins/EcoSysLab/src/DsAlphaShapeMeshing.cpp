@@ -288,6 +288,13 @@ void DsAlphaShapeMeshing::InitBuffer(VkBufferCreateInfo& buffer_create_info,
                                      VmaAllocationCreateInfo& buffer_vma_allocation_create_info) {
   device_uniform_particles_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_delaunay_tetrahedrons_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_near_degenerate_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_volume_result_buffers.clear();
+  const auto frames = Platform::GetMaxFramesInFlight();
+  device_volume_result_buffers.reserve(frames);
+  for (uint32_t i = 0; i < frames; ++i) {
+    device_volume_result_buffers.push_back(std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
+  }
 }
 
 void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
@@ -472,6 +479,18 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   triangle_filtering_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
   branches_triangle_filtering_pipeline->Initialize();
+
+  volume_measure_pipeline = std::make_shared<ComputePipeline>();
+  volume_measure_pipeline->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Compute/DynamicStrands/VolumeMeasure/AlphaShapeMeshing/VolumeMeasure.comp");
+  volume_measure_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  auto& volume_measure_push_constant_range = volume_measure_pipeline->push_constant_ranges.emplace_back();
+  volume_measure_push_constant_range.size = sizeof(uint32_t) * 4;
+  volume_measure_push_constant_range.offset = 0;
+  volume_measure_push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  volume_measure_pipeline->Initialize();
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
@@ -481,6 +500,18 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const float snow_factor = 100.f;
   const float snow_deduction = 0.1f;
+
+  if (render_settings.enable_volume_measure) {
+    ReadbackVolumeMeasureToCsv();
+    if (!device_volume_result_buffers.empty()) {
+      const auto current_frame_index = Platform::GetCurrentFrameIndex();
+      GpuVolumeMeasureResult reset{};
+      reset.cumulative_volume = 0.0f;
+      reset.initial_cumulative_volume = static_cast<float>(initial_tet_cumulative_volume_);
+      reset.frame_index = volume_measure_frame_counter_;
+      device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()]->Upload(reset);
+    }
+  }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     // Uniform Particles
@@ -526,6 +557,10 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::RenderCompute() const {
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(filtering_push_constant.tetrahedrons_size, work_group_invocations),
                   1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
+
+    if (render_settings.enable_volume_measure) {
+      DispatchVolumeMeasure(vk_command_buffer);
+    }
   });
 }
 
@@ -559,6 +594,57 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Clear() {
   initial_near_degenerate_tets_.clear();
   initial_tet_cumulative_volume_ = 0.0;
   has_initial_tet_volumes_ = false;
+  volume_measure_csv_.Close();
+  volume_measure_frame_counter_ = 0;
+}
+
+void DsAlphaShapeMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_command_buffer) const {
+  if (!volume_measure_pipeline || !volume_measure_pipeline->Initialized() || delaunay_tetrahedrons.empty() ||
+      device_volume_result_buffers.empty()) {
+    return;
+  }
+  const uint32_t work_group_invocations = Platform::Constants::compute_work_group_invocations;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+
+  struct VolumeMeasurePushConstant {
+    uint32_t tetrahedron_size = 0;
+    uint32_t frame_index = 0;
+    int padding0 = 0;
+    int padding1 = 0;
+  } push{};
+  push.tetrahedron_size = static_cast<uint32_t>(delaunay_tetrahedrons.size());
+  push.frame_index = volume_measure_frame_counter_;
+
+  volume_measure_pipeline->Bind(vk_command_buffer);
+  volume_measure_pipeline->BindDescriptorSet(
+      vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->PushConstant(vk_command_buffer, 0, push);
+  vkCmdDispatch(vk_command_buffer, Platform::DivUp(push.tetrahedron_size, work_group_invocations), 1, 1);
+  Platform::EverythingBarrier(vk_command_buffer);
+}
+
+void DsAlphaShapeMeshing::ReadbackVolumeMeasureToCsv() const {
+  if (device_volume_result_buffers.empty()) {
+    return;
+  }
+  if (!volume_measure_csv_.IsOpen()) {
+    volume_measure_csv_.Open(std::filesystem::path("alpha_volume_measure.csv"), "alpha");
+  }
+  // Read the oldest in-flight slot (about to be reused next after max frames).
+  const auto max_frames = static_cast<uint32_t>(device_volume_result_buffers.size());
+  if (volume_measure_frame_counter_ < max_frames) {
+    ++volume_measure_frame_counter_;
+    return;
+  }
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto read_index = (current_frame_index + 1) % max_frames;
+  GpuVolumeMeasureResult result{};
+  device_volume_result_buffers[read_index]->Download(result);
+  volume_measure_csv_.Append(result.frame_index, static_cast<double>(result.cumulative_volume),
+                             initial_tet_cumulative_volume_ > 0.0
+                                 ? initial_tet_cumulative_volume_
+                                 : static_cast<double>(result.initial_cumulative_volume));
+  ++volume_measure_frame_counter_;
 }
 
 void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
@@ -591,15 +677,34 @@ void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
   EVOENGINE_LOG("Captured initial Alpha tet volumes: alive=" << volumes.alive_count
                                                              << ", near-degenerate@init=" << degenerate_count
                                                              << ", cumulative=" << initial_tet_cumulative_volume_);
+
+  std::vector<uint32_t> near_degen_u32(initial_near_degenerate_tets_.size(), 0);
+  for (size_t i = 0; i < initial_near_degenerate_tets_.size(); ++i) {
+    near_degen_u32[i] = initial_near_degenerate_tets_[i] ? 1u : 0u;
+  }
+  if (near_degen_u32.empty()) {
+    near_degen_u32.push_back(0);
+  }
+  device_near_degenerate_buffer->UploadVector(near_degen_u32);
+  device_near_degenerate_buffer->SetDebugName("Alpha Near-Degenerate Flags");
 }
 
 void eco_sys_lab_plugin::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–11 so both can be live.
+  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–13 so both can be live.
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       10, device_uniform_particles_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       11, device_delaunay_tetrahedrons_buffer, 0);
+  if (device_near_degenerate_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        12, device_near_degenerate_buffer, 0);
+  }
+  if (!device_volume_result_buffers.empty()) {
+    const auto& result_buffer =
+        device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(13, result_buffer, 0);
+  }
 }
 
 bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -704,6 +809,12 @@ void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLa
       render_settings.branches_render_parameters.OnInspect(editor_layer);
       ImGui::TreePop();
     }
+  }
+  ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Each frame: compute cumulative tet volume on GPU and append absolute + %% of initial to "
+        "alpha_volume_measure.csv");
   }
   ImGui::Checkbox("Render Visualization", &render_settings.visualization_rendering);
   if (render_settings.visualization_rendering) {
