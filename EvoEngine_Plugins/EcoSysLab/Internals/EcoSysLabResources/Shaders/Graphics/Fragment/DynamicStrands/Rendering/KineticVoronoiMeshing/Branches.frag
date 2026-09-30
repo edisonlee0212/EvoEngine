@@ -53,7 +53,13 @@ void main() {
   outNormal.a = EE_INSTANCE_INDEX;
 
   if (color_mode == COLOR_STANDARD) {
-    outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
+    // Soft selection overlay: keep material albedo and tint toward selection color.
+    if (fs_in.Color.a > 0.0) {
+      vec3 tinted = mix(albedo.rgb, fs_in.Color.rgb, clamp(fs_in.Color.a, 0.0, 1.0));
+      outMaterial = vec4(tinted, instance.info_index + 2);
+    } else {
+      outMaterial = vec4(tex_coord.x, tex_coord.y, material_index, instance.info_index);
+    }
   } else {
     outMaterial = vec4(fs_in.Color.xyz, instance.info_index + 2);
   }

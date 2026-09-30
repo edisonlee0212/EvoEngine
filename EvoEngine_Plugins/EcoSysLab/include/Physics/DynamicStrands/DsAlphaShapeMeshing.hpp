@@ -73,6 +73,9 @@ class DsAlphaShapeMeshing : public DsMeshing {
     SmallSegmentsVisualizationRenderParameters
         small_segments_visualization_render_parameters{};  ///< Visualization settings for small segments.
     bool visualization_rendering = false;
+    /// When false (e.g. Kinetic active in dual-mesh mode), skip splinter/strand registration without
+    /// changing the user checkbox preferences for those features.
+    bool secondary_rendering_allowed = true;
     DsAlphaShapeVisualizationParameters meshing_visualization_parameters;
   };
 
@@ -155,10 +158,12 @@ class DsAlphaShapeMeshing : public DsMeshing {
 
   /// Rest-pose tet volumes captured after GPU Interior/BarkFlag init (parallel to @ref delaunay_tetrahedrons).
   std::vector<double> initial_tet_volumes_;
+  /// 1 = nearly degenerate at initialization (rest pose); omitted from heatmap / volume-change stats.
+  std::vector<uint8_t> initial_near_degenerate_tets_;
   double initial_tet_cumulative_volume_ = 0.0;
   bool has_initial_tet_volumes_ = false;
 
-  /// Snapshot current CPU tet volumes (rest `initial_position`) as the baseline for volume-change heatmaps.
+  /// Snapshot rest-pose tet volumes and classify near-degenerate tets for later heatmap lookups.
   void CaptureInitialTetrahedronVolumes();
 
   Handle mesh_wireframe_rendering_instance_handle;  ///< Handle for mesh wireframe rendering instance.

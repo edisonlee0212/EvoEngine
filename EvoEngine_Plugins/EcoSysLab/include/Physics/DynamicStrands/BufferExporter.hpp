@@ -157,8 +157,9 @@ class AlphaShapeTetObjExport {
 };
 
 /**
- * \brief Volume-change heatmap OBJ: materials encode % volume change vs a captured baseline.
- * White at 0%, red for losses, blue for gains; display clamps to @ref max_abs_percent (default ±30%).
+ * \brief Volume-change heatmap OBJ: materials are named by % volume change (e.g. @c pct_+12.3)
+ * and colored white at 0%, red for losses, blue for gains (display clamp @ref max_abs_percent).
+ * Alpha export includes only live tetrahedra that were not near-degenerate at initialization.
  */
 class VolumeChangeHeatmapExport {
  public:
@@ -192,8 +193,10 @@ class VolumeChangeHeatmapExport {
   static void ExportAlphaTetrahedra(const std::filesystem::path& path,
                                     const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
                                     const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
-                                    const std::vector<double>& initial_tet_volumes, double initial_cumulative,
-                                    bool use_current_position = true, ChangeStats* stats_out = nullptr);
+                                    const std::vector<double>& initial_tet_volumes,
+                                    const std::vector<uint8_t>& initial_near_degenerate_tets,
+                                    double initial_cumulative, bool use_current_position = true,
+                                    ChangeStats* stats_out = nullptr);
 };
 
 }  // namespace eco_sys_lab_plugin

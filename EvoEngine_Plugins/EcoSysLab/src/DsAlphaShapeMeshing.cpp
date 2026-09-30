@@ -556,23 +556,40 @@ void eco_sys_lab_plugin::DsAlphaShapeMeshing::Clear() {
   delaunay_tetrahedrons.clear();
   profile_bundle_boundary_polygons_.clear();
   initial_tet_volumes_.clear();
+  initial_near_degenerate_tets_.clear();
   initial_tet_cumulative_volume_ = 0.0;
   has_initial_tet_volumes_ = false;
 }
 
 void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
   initial_tet_volumes_.clear();
+  initial_near_degenerate_tets_.clear();
   initial_tet_cumulative_volume_ = 0.0;
   has_initial_tet_volumes_ = false;
   if (uniform_particles.empty() || delaunay_tetrahedrons.empty()) {
     return;
   }
-  const auto volumes =
+  // Measure all alive rest-pose volumes, then exclude tets that are already near-degenerate at init.
+  auto volumes =
       DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(uniform_particles, delaunay_tetrahedrons, false);
-  initial_tet_volumes_ = volumes.per_tet_volume;
-  initial_tet_cumulative_volume_ = volumes.cumulative_volume;
+  initial_near_degenerate_tets_ =
+      DsAlphaShapeVolumeUtils::ClassifyNearlyDegenerate(uniform_particles, delaunay_tetrahedrons, false);
+
+  size_t degenerate_count = 0;
+  double cumulative = 0.0;
+  for (size_t tet_id = 0; tet_id < volumes.per_tet_volume.size(); ++tet_id) {
+    if (tet_id < initial_near_degenerate_tets_.size() && initial_near_degenerate_tets_[tet_id]) {
+      volumes.per_tet_volume[tet_id] = 0.0;
+      ++degenerate_count;
+      continue;
+    }
+    cumulative += volumes.per_tet_volume[tet_id];
+  }
+  initial_tet_volumes_ = std::move(volumes.per_tet_volume);
+  initial_tet_cumulative_volume_ = cumulative;
   has_initial_tet_volumes_ = true;
   EVOENGINE_LOG("Captured initial Alpha tet volumes: alive=" << volumes.alive_count
+                                                             << ", near-degenerate@init=" << degenerate_count
                                                              << ", cumulative=" << initial_tet_cumulative_volume_);
 }
 
@@ -654,7 +671,8 @@ bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<Ed
             Download();
           }
           VolumeChangeHeatmapExport::ExportAlphaTetrahedra(path, uniform_particles, delaunay_tetrahedrons,
-                                                           initial_tet_volumes_, initial_tet_cumulative_volume_,
+                                                           initial_tet_volumes_, initial_near_degenerate_tets_,
+                                                           initial_tet_cumulative_volume_,
                                                            AlphaShapeTetObjExport::use_current_position);
           EVOENGINE_LOG("Exported Alpha volume change heatmap to " + path.string());
         } catch (const std::exception& e) {
@@ -665,6 +683,7 @@ bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<Ed
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Per-tet %% volume change vs baseline after GPU Interior init. "
+        "Omits tets near-degenerate at init; collapse during simulation is included. "
         "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials).");
   }
 
@@ -1238,6 +1257,9 @@ void DsAlphaShapeMeshing::RegisterRenderInstances(Handle& rendering_instance_han
   }
   if (render_settings.branches_render_parameters.wireframe) {
     RegisterBranchesWireframeRenderInstance(rendering_instance_handle, scene, owner);
+  }
+  if (!render_settings.secondary_rendering_allowed) {
+    return;
   }
   if (render_settings.visualization_rendering) {
     RegisterSmallSegmentsVisualizationRenderInstance(rendering_instance_handle, scene, owner);

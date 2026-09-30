@@ -1876,6 +1876,51 @@ void AccumulateVolumeChangeStats(VolumeChangeHeatmapExport::ChangeStats& stats, 
   }
 }
 
+/// Material palette keyed by rounded % volume change; MTL names encode that percentage.
+class PercentHeatmapPalette {
+ public:
+  int IdForPercent(const double percent) {
+    // Coalesce near-identical values (0.1% bins) so MTL size stays manageable.
+    const long long key = static_cast<long long>(std::llround(percent * 10.0));
+    const auto found = index_by_tenths_.find(key);
+    if (found != index_by_tenths_.end()) {
+      return static_cast<int>(found->second);
+    }
+    const double rounded = static_cast<double>(key) / 10.0;
+    const size_t index = names_.size();
+    index_by_tenths_.emplace(key, index);
+    names_.push_back(FormatPercentMaterialName(rounded));
+    const glm::dvec3 rgb = VolumeChangeHeatmapExport::ColorFromPercent(rounded);
+    kd_.push_back(rgb);
+    return static_cast<int>(index);
+  }
+
+  const std::vector<std::string>& Names() const {
+    return names_;
+  }
+  const std::vector<glm::dvec3>& Kd() const {
+    return kd_;
+  }
+
+ private:
+  static std::string FormatPercentMaterialName(const double percent) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1);
+    if (percent > 0.0) {
+      oss << "pct_+" << percent;
+    } else if (percent < 0.0) {
+      oss << "pct_" << percent;
+    } else {
+      oss << "pct_0.0";
+    }
+    return oss.str();
+  }
+
+  std::unordered_map<long long, size_t> index_by_tenths_;
+  std::vector<std::string> names_;
+  std::vector<glm::dvec3> kd_;
+};
+
 }  // namespace
 
 glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent) {
@@ -1953,14 +1998,12 @@ void VolumeChangeHeatmapExport::ExportKineticMeshlets(
     AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
   }
 
-  SolidColorPalette palette;
+  PercentHeatmapPalette palette;
   std::vector<int> face_material_ids(triangles.size(), 0);
   for (size_t ti = 0; ti < triangles.size(); ++ti) {
     const unsigned int segment_index = vertices[triangles[ti].vertex_index0].segment_index;
     const double percent = percent_by_segment.count(segment_index) ? percent_by_segment.at(segment_index) : 0.0;
-    const glm::dvec3 rgb = ColorFromPercent(percent);
-    const glm::vec4 color(static_cast<float>(rgb.x), static_cast<float>(rgb.y), static_cast<float>(rgb.z), 1.0f);
-    face_material_ids[ti] = palette.IdForColor(color);
+    face_material_ids[ti] = palette.IdForPercent(percent);
   }
 
   kinDS::VoronoiMesh mesh(palette.Names(), kinDS::PerTriangleCorner);
@@ -1996,8 +2039,8 @@ void VolumeChangeHeatmapExport::ExportKineticMeshlets(
 void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
     const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
     const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
-    const std::vector<double>& initial_tet_volumes, const double initial_cumulative, const bool use_current_position,
-    ChangeStats* stats_out) {
+    const std::vector<double>& initial_tet_volumes, const std::vector<uint8_t>& initial_near_degenerate_tets,
+    const double initial_cumulative, const bool use_current_position, ChangeStats* stats_out) {
   if (particles.empty() || tetrahedrons.empty()) {
     throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
   }
@@ -2005,13 +2048,32 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
     throw std::runtime_error(
         "VolumeChangeHeatmapExport: initial tet volume count mismatches tetrahedra. Re-initialize Alpha meshing.");
   }
+  if (initial_near_degenerate_tets.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial near-degenerate mask size mismatches tetrahedra. "
+        "Re-initialize Alpha meshing.");
+  }
 
   const auto current =
       DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(particles, tetrahedrons, use_current_position);
 
+  const auto was_near_degenerate_at_init = [&](const size_t tet_id) -> bool {
+    return initial_near_degenerate_tets[tet_id] != 0;
+  };
+
+  // Current cumulative excludes only tets that were near-degenerate at init; collapse during
+  // simulation of formerly valid tets is included (near-zero volume → large % loss).
+  double current_cumulative = 0.0;
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (was_near_degenerate_at_init(tet_id)) {
+      continue;
+    }
+    current_cumulative += current.per_tet_volume[tet_id];
+  }
+
   ChangeStats stats;
   stats.initial_cumulative = initial_cumulative;
-  stats.current_cumulative = current.cumulative_volume;
+  stats.current_cumulative = current_cumulative;
   stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
   if (stats.initial_cumulative > kVolumeChangeEpsilon) {
     stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
@@ -2019,6 +2081,12 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
 
   std::vector<double> percent_by_tet(tetrahedrons.size(), 0.0);
   for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (was_near_degenerate_at_init(tet_id)) {
+      continue;
+    }
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tetrahedrons[tet_id])) {
+      continue;
+    }
     const double initial_volume = initial_tet_volumes[tet_id];
     const double current_volume = current.per_tet_volume[tet_id];
     percent_by_tet[tet_id] = VolumePercentChange(initial_volume, current_volume);
@@ -2030,7 +2098,7 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
   // Matches AlphaShape.glsl lookup for face winding.
   constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
 
-  SolidColorPalette palette;
+  PercentHeatmapPalette palette;
   struct HeatFace {
     size_t v0 = 0;
     size_t v1 = 0;
@@ -2059,7 +2127,8 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
 
   for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
     const auto& tet = tetrahedrons[tet_id];
-    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tet) && initial_tet_volumes[tet_id] <= kVolumeChangeEpsilon) {
+    // Skip dead tets and those flagged near-degenerate at initialization.
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tet) || was_near_degenerate_at_init(tet_id)) {
       continue;
     }
     bool indices_valid = true;
@@ -2073,12 +2142,9 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
       continue;
     }
 
-    const glm::dvec3 rgb = ColorFromPercent(percent_by_tet[tet_id]);
-    const glm::vec4 color(static_cast<float>(rgb.x), static_cast<float>(rgb.y), static_cast<float>(rgb.z), 1.0f);
-    const int material_id = palette.IdForColor(color);
+    const int material_id = palette.IdForPercent(percent_by_tet[tet_id]);
 
     for (int face_index = 0; face_index < 4; ++face_index) {
-      // Export all four faces of alive-or-was-alive tets so volume loss is still visible as colored shells.
       HeatFace face;
       face.material_id = material_id;
       const int i0 = tet.indices[kAlphaFaceLookup[face_index * 3 + 0]];
