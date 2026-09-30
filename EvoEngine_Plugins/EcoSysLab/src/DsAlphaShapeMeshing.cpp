@@ -835,7 +835,8 @@ bool eco_sys_lab_plugin::DsAlphaShapeMeshing::OnInspect(const std::shared_ptr<Ed
     ImGui::SetTooltip(
         "Per-tet %% volume change vs baseline after GPU Interior init. "
         "Omits tets near-degenerate at init; collapse during simulation is included. "
-        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials).");
+        "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials). "
+        "For a shared Kinetic+Alpha color scale, use Export both volume change heatmaps under Both meshing.");
   }
 
   return false;

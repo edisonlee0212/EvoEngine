@@ -77,6 +77,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
     StockyTrunk,      ///< Grow Oak_trunk_stocky (seed 42) then run volumetric meshing.
     OakThickStump,      ///< Grow Oak (15 iterations, default seed); 100 end strands, alpha cutoffs 5, tension 1.
     OakThickStump200,   ///< Same as OakThickStump but 200 end strands/branch.
+    OakThickStump300,   ///< Same as OakThickStump but 300 end strands/branch.
+    OakThickStump400,   ///< Same as OakThickStump but 400 end strands/branch.
+    OakTwoYearSparse,   ///< Grow Oak for 2 years; 10 end strands/branch, alpha cutoffs 5, tension 1.
     OakFourYearSparse,  ///< Grow Oak for 4 years; 4 end strands/branch, alpha cutoffs 5, tension 1.
     OakSixYearSparse,   ///< Grow Oak for 6 years; 4 end strands/branch, alpha cutoffs 5, tension 1.
     OakEightYearSparse, ///< Grow Oak for 8 years; 4 end strands/branch, alpha cutoffs 5, tension 1.

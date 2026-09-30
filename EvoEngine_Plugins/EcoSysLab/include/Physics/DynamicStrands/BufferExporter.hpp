@@ -158,12 +158,14 @@ class AlphaShapeTetObjExport {
 
 /**
  * \brief Volume-change heatmap OBJ: materials are named by % volume change (e.g. @c pct_+12.3)
- * and colored white at 0%, red for losses, blue for gains (display clamp @ref max_abs_percent).
+ * and colored white at 0%, red for losses, blue for gains.
+ * Single-mesh exports clamp display colors to @ref max_abs_percent (±).
+ * Dual export uses @ref ColorScale so [min,0] and [0,max] are normalized independently (0% stays white).
  * Alpha export includes only live tetrahedra that were not near-degenerate at initialization.
  */
 class VolumeChangeHeatmapExport {
  public:
-  /// Display clamp for material colors (± percent). Stored baseline comparisons are unclamped for logging.
+  /// Display clamp for single-mesh material colors (± percent). Stored baseline comparisons are unclamped for logging.
   static double max_abs_percent;
 
   struct ChangeStats {
@@ -179,16 +181,39 @@ class VolumeChangeHeatmapExport {
     unsigned int min_id = 0;
   };
 
+  /// Asymmetric color extents: white at 0%, full red at @c min_percent, full blue at @c max_percent.
+  struct ColorScale {
+    double min_percent = -30.0;  ///< Most negative extent (≤ 0).
+    double max_percent = 30.0;   ///< Most positive extent (≥ 0).
+
+    static ColorScale Symmetric(double abs_percent);
+    /// Merge element min/max from one or more @ref ChangeStats (0 is always kept as the white pivot).
+    static ColorScale FromStats(const ChangeStats& a);
+    static ColorScale FromStats(const ChangeStats& a, const ChangeStats& b);
+  };
+
   static glm::dvec3 ColorFromPercent(double percent);
+  static glm::dvec3 ColorFromPercent(double percent, const ColorScale& scale);
 
   static void LogStats(const std::string& label, const ChangeStats& stats);
+
+  static ChangeStats ComputeKineticStats(
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+      const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, double initial_cumulative);
+
+  static ChangeStats ComputeAlphaStats(const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+                                       const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+                                       const std::vector<double>& initial_tet_volumes,
+                                       const std::vector<uint8_t>& initial_near_degenerate_tets,
+                                       double initial_cumulative, bool use_current_position = true);
 
   static void ExportKineticMeshlets(
       const std::filesystem::path& path,
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
       const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, double initial_cumulative,
-      ChangeStats* stats_out = nullptr);
+      ChangeStats* stats_out = nullptr, const ColorScale* color_scale = nullptr);
 
   static void ExportAlphaTetrahedra(const std::filesystem::path& path,
                                     const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
@@ -196,7 +221,18 @@ class VolumeChangeHeatmapExport {
                                     const std::vector<double>& initial_tet_volumes,
                                     const std::vector<uint8_t>& initial_near_degenerate_tets,
                                     double initial_cumulative, bool use_current_position = true,
-                                    ChangeStats* stats_out = nullptr);
+                                    ChangeStats* stats_out = nullptr, const ColorScale* color_scale = nullptr);
+
+  /// Download-ready CPU buffers: write Kinetic + Alpha heatmaps with a shared asymmetric color scale.
+  static void ExportBothWithSharedScale(
+      const std::filesystem::path& kinetic_path, const std::filesystem::path& alpha_path,
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& kinetic_vertices,
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& kinetic_triangles,
+      const std::unordered_map<unsigned int, double>& kinetic_initial_volumes, double kinetic_initial_cumulative,
+      const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& alpha_particles,
+      const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& alpha_tetrahedrons,
+      const std::vector<double>& alpha_initial_tet_volumes, const std::vector<uint8_t>& alpha_near_degenerate_tets,
+      double alpha_initial_cumulative, bool alpha_use_current_position = true);
 };
 
 }  // namespace eco_sys_lab_plugin

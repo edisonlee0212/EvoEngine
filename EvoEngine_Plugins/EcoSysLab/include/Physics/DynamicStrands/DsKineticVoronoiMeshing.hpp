@@ -71,8 +71,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct RenderSettings {
     // TODO: Add render settings specific to kinetic voronoi meshing
     SegmentMeshletsRenderParameters segment_meshlet_render_parameters;
-    /// Per-frame GPU cumulative meshlet volume → CSV (absolute + %% of initial).
+    /// While Playing: download meshlets, re-apply bark smooth, measure volume → CSV (absolute + %% of initial).
+    /// GPU skinned meshlet volume is nearly rigid; meaningful change appears only after bark smooth.
     bool enable_volume_measure = false;
+    /// Run download+smooth+measure every N physics frames (1 = every frame). Applies to CSV and heatmap uploads.
+    int volume_measure_interval_frames = 10;
   };
 
   struct MeshingSettings {
@@ -238,8 +241,16 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   /// Snapshot current CPU meshlet volumes (rest `x0`) as the baseline for volume-change heatmaps.
   void CaptureInitialMeshletVolumes();
 
+  /// Download GPU meshlets, copy CPU topology, sync current positions, re-apply bark smooth, and write
+  /// smoothed world-space positions into @p out_vertices (same layout as @ref segment_meshlet_vertices).
+  /// Returns false if CPU meshlets / strand maps are unavailable or layout mismatch.
+  bool BuildSmoothedCurrentMeshletVertices(std::vector<GpuSegmentMeshletVertex>& out_vertices);
+
   void DispatchVolumeMeasure(VkCommandBuffer vk_command_buffer) const;
+  /// Legacy GPU readback path (unused for Kinetic; volume is measured on CPU after download+smooth).
   void ReadbackVolumeMeasureToCsv() const;
+  /// Every @ref RenderSettings::volume_measure_interval_frames: download, bark-smooth, measure, CSV, heatmap upload.
+  void MaybeMeasureSmoothedVolumeCpu() const;
 
   mutable VolumeMeasureCsvLogger volume_measure_csv_{};
   mutable uint32_t volume_measure_frame_counter_ = 0;

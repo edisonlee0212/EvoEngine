@@ -1876,9 +1876,21 @@ void AccumulateVolumeChangeStats(VolumeChangeHeatmapExport::ChangeStats& stats, 
   }
 }
 
+void FoldStatsIntoColorScale(VolumeChangeHeatmapExport::ColorScale& scale, const VolumeChangeHeatmapExport::ChangeStats& stats) {
+  if (stats.has_min) {
+    scale.min_percent = std::min(scale.min_percent, stats.min_percent);
+  }
+  if (stats.has_max) {
+    scale.max_percent = std::max(scale.max_percent, stats.max_percent);
+  }
+}
+
 /// Material palette keyed by rounded % volume change; MTL names encode that percentage.
 class PercentHeatmapPalette {
  public:
+  explicit PercentHeatmapPalette(const VolumeChangeHeatmapExport::ColorScale& scale) : scale_(scale) {
+  }
+
   static std::string FormatPercentToken(const double percent) {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
@@ -1903,7 +1915,7 @@ class PercentHeatmapPalette {
     const size_t index = names_.size();
     index_by_tenths_.emplace(key, index);
     names_.push_back(FormatPercentToken(rounded));
-    const glm::dvec3 rgb = VolumeChangeHeatmapExport::ColorFromPercent(rounded);
+    const glm::dvec3 rgb = VolumeChangeHeatmapExport::ColorFromPercent(rounded, scale_);
     kd_.push_back(rgb);
     return static_cast<int>(index);
   }
@@ -1916,6 +1928,7 @@ class PercentHeatmapPalette {
   }
 
  private:
+  VolumeChangeHeatmapExport::ColorScale scale_;
   std::unordered_map<long long, size_t> index_by_tenths_;
   std::vector<std::string> names_;
   std::vector<glm::dvec3> kd_;
@@ -1927,16 +1940,65 @@ std::string FormatMeshletHeatmapObjectName(const unsigned int segment_index, con
   return "meshlet_" + std::to_string(segment_index) + "_" + PercentHeatmapPalette::FormatPercentToken(rounded);
 }
 
+VolumeChangeHeatmapExport::ColorScale ResolveColorScale(const VolumeChangeHeatmapExport::ColorScale* color_scale) {
+  if (color_scale) {
+    return *color_scale;
+  }
+  return VolumeChangeHeatmapExport::ColorScale::Symmetric(VolumeChangeHeatmapExport::max_abs_percent);
+}
+
 }  // namespace
 
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::Symmetric(const double abs_percent) {
+  const double extent = std::max(1e-6, std::abs(abs_percent));
+  return ColorScale{-extent, extent};
+}
+
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::FromStats(const ChangeStats& a) {
+  ColorScale scale{0.0, 0.0};
+  FoldStatsIntoColorScale(scale, a);
+  if (scale.min_percent > 0.0) {
+    scale.min_percent = 0.0;
+  }
+  if (scale.max_percent < 0.0) {
+    scale.max_percent = 0.0;
+  }
+  return scale;
+}
+
+VolumeChangeHeatmapExport::ColorScale VolumeChangeHeatmapExport::ColorScale::FromStats(const ChangeStats& a,
+                                                                                     const ChangeStats& b) {
+  ColorScale scale{0.0, 0.0};
+  FoldStatsIntoColorScale(scale, a);
+  FoldStatsIntoColorScale(scale, b);
+  if (scale.min_percent > 0.0) {
+    scale.min_percent = 0.0;
+  }
+  if (scale.max_percent < 0.0) {
+    scale.max_percent = 0.0;
+  }
+  return scale;
+}
+
 glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent) {
-  const double clamp_abs = std::max(1e-6, max_abs_percent);
-  const double t = glm::clamp(percent / clamp_abs, -1.0, 1.0);
+  return ColorFromPercent(percent, ColorScale::Symmetric(max_abs_percent));
+}
+
+glm::dvec3 VolumeChangeHeatmapExport::ColorFromPercent(const double percent, const ColorScale& scale) {
   const glm::dvec3 white(1.0, 1.0, 1.0);
-  if (t >= 0.0) {
+  if (percent >= 0.0) {
+    if (scale.max_percent <= 1e-12) {
+      return white;
+    }
+    const double t = glm::clamp(percent / scale.max_percent, 0.0, 1.0);
     return glm::mix(white, glm::dvec3(0.15, 0.35, 1.0), t);
   }
-  return glm::mix(white, glm::dvec3(1.0, 0.12, 0.12), -t);
+  if (scale.min_percent >= -1e-12) {
+    return white;
+  }
+  // Both percent and min_percent are negative → ratio in [0, 1].
+  const double t = glm::clamp(percent / scale.min_percent, 0.0, 1.0);
+  return glm::mix(white, glm::dvec3(1.0, 0.12, 0.12), t);
 }
 
 void VolumeChangeHeatmapExport::LogStats(const std::string& label, const ChangeStats& stats) {
@@ -1957,12 +2019,103 @@ void VolumeChangeHeatmapExport::LogStats(const std::string& label, const ChangeS
   EVOENGINE_LOG(oss.str());
 }
 
+VolumeChangeHeatmapExport::ChangeStats VolumeChangeHeatmapExport::ComputeKineticStats(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
+    const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, const double initial_cumulative) {
+  if (vertices.empty() || triangles.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Kinetic meshlet buffers empty");
+  }
+  if (initial_volumes_by_segment.empty()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: no initial meshlet volumes captured. Remesh first so a baseline exists.");
+  }
+
+  const auto current = DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(vertices, triangles, true);
+  std::unordered_map<unsigned int, double> current_by_segment;
+  current_by_segment.reserve(current.meshlets.size());
+  for (const auto& entry : current.meshlets) {
+    current_by_segment[entry.segment_index] = entry.volume;
+  }
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  stats.current_cumulative = current.cumulative_volume;
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  for (const auto& [segment_index, initial_volume] : initial_volumes_by_segment) {
+    const double current_volume =
+        current_by_segment.count(segment_index) ? current_by_segment.at(segment_index) : 0.0;
+    AccumulateVolumeChangeStats(stats, segment_index, initial_volume, current_volume);
+  }
+  for (const auto& [segment_index, current_volume] : current_by_segment) {
+    if (initial_volumes_by_segment.count(segment_index)) {
+      continue;
+    }
+    AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
+  }
+  return stats;
+}
+
+VolumeChangeHeatmapExport::ChangeStats VolumeChangeHeatmapExport::ComputeAlphaStats(
+    const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
+    const std::vector<double>& initial_tet_volumes, const std::vector<uint8_t>& initial_near_degenerate_tets,
+    const double initial_cumulative, const bool use_current_position) {
+  if (particles.empty() || tetrahedrons.empty()) {
+    throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
+  }
+  if (initial_tet_volumes.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial tet volume count mismatches tetrahedra. Re-initialize Alpha meshing.");
+  }
+  if (initial_near_degenerate_tets.size() != tetrahedrons.size()) {
+    throw std::runtime_error(
+        "VolumeChangeHeatmapExport: initial near-degenerate mask size mismatches tetrahedra. "
+        "Re-initialize Alpha meshing.");
+  }
+
+  const auto current =
+      DsAlphaShapeVolumeUtils::ComputeTetrahedronVolumes(particles, tetrahedrons, use_current_position);
+
+  ChangeStats stats;
+  stats.initial_cumulative = initial_cumulative;
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (initial_near_degenerate_tets[tet_id] != 0) {
+      continue;
+    }
+    stats.current_cumulative += current.per_tet_volume[tet_id];
+  }
+  stats.cumulative_delta = stats.current_cumulative - stats.initial_cumulative;
+  if (stats.initial_cumulative > kVolumeChangeEpsilon) {
+    stats.cumulative_percent = 100.0 * stats.cumulative_delta / stats.initial_cumulative;
+  }
+
+  for (size_t tet_id = 0; tet_id < tetrahedrons.size(); ++tet_id) {
+    if (initial_near_degenerate_tets[tet_id] != 0) {
+      continue;
+    }
+    if (!DsAlphaShapeVolumeUtils::IsTetrahedronAlive(tetrahedrons[tet_id])) {
+      continue;
+    }
+    const double initial_volume = initial_tet_volumes[tet_id];
+    const double current_volume = current.per_tet_volume[tet_id];
+    if (initial_volume > kVolumeChangeEpsilon || current_volume > kVolumeChangeEpsilon) {
+      AccumulateVolumeChangeStats(stats, static_cast<unsigned int>(tet_id), initial_volume, current_volume);
+    }
+  }
+  return stats;
+}
+
 void VolumeChangeHeatmapExport::ExportKineticMeshlets(
     const std::filesystem::path& path,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
     const std::unordered_map<unsigned int, double>& initial_volumes_by_segment, const double initial_cumulative,
-    ChangeStats* stats_out) {
+    ChangeStats* stats_out, const ColorScale* color_scale) {
   if (vertices.empty() || triangles.empty()) {
     throw std::runtime_error("VolumeChangeHeatmapExport: Kinetic meshlet buffers empty");
   }
@@ -2004,7 +2157,8 @@ void VolumeChangeHeatmapExport::ExportKineticMeshlets(
     AccumulateVolumeChangeStats(stats, segment_index, 0.0, current_volume);
   }
 
-  PercentHeatmapPalette palette;
+  const ColorScale scale = ResolveColorScale(color_scale);
+  PercentHeatmapPalette palette(scale);
   std::unordered_map<unsigned int, std::vector<size_t>> triangle_indices_by_segment;
   triangle_indices_by_segment.reserve(triangles.size() / 4 + 1);
   for (size_t ti = 0; ti < triangles.size(); ++ti) {
@@ -2087,7 +2241,8 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
     const std::filesystem::path& path, const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& particles,
     const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& tetrahedrons,
     const std::vector<double>& initial_tet_volumes, const std::vector<uint8_t>& initial_near_degenerate_tets,
-    const double initial_cumulative, const bool use_current_position, ChangeStats* stats_out) {
+    const double initial_cumulative, const bool use_current_position, ChangeStats* stats_out,
+    const ColorScale* color_scale) {
   if (particles.empty() || tetrahedrons.empty()) {
     throw std::runtime_error("VolumeChangeHeatmapExport: Alpha particle/tet buffers empty");
   }
@@ -2145,7 +2300,8 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
   // Matches AlphaShape.glsl lookup for face winding.
   constexpr int kAlphaFaceLookup[12] = {2, 1, 3, 0, 2, 3, 1, 0, 3, 0, 1, 2};
 
-  PercentHeatmapPalette palette;
+  const ColorScale scale = ResolveColorScale(color_scale);
+  PercentHeatmapPalette palette(scale);
   struct HeatFace {
     size_t v0 = 0;
     size_t v1 = 0;
@@ -2247,4 +2403,60 @@ void VolumeChangeHeatmapExport::ExportAlphaTetrahedra(
   if (stats_out) {
     *stats_out = stats;
   }
+}
+
+void VolumeChangeHeatmapExport::ExportBothWithSharedScale(
+    const std::filesystem::path& kinetic_path, const std::filesystem::path& alpha_path,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& kinetic_vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& kinetic_triangles,
+    const std::unordered_map<unsigned int, double>& kinetic_initial_volumes, const double kinetic_initial_cumulative,
+    const std::vector<DsAlphaShapeMeshing::GpuUniformParticle>& alpha_particles,
+    const std::vector<DsAlphaShapeMeshing::GpuDelaunayTetrahedron>& alpha_tetrahedrons,
+    const std::vector<double>& alpha_initial_tet_volumes, const std::vector<uint8_t>& alpha_near_degenerate_tets,
+    const double alpha_initial_cumulative, const bool alpha_use_current_position) {
+  const ChangeStats kinetic_stats =
+      ComputeKineticStats(kinetic_vertices, kinetic_triangles, kinetic_initial_volumes, kinetic_initial_cumulative);
+  const ChangeStats alpha_stats =
+      ComputeAlphaStats(alpha_particles, alpha_tetrahedrons, alpha_initial_tet_volumes, alpha_near_degenerate_tets,
+                        alpha_initial_cumulative, alpha_use_current_position);
+  const ColorScale scale = ColorScale::FromStats(kinetic_stats, alpha_stats);
+
+  {
+    std::ostringstream oss;
+    oss << std::setprecision(6);
+    oss << "Shared volume-change color scale: red at " << scale.min_percent << "%, white at 0%, blue at "
+        << scale.max_percent << "% "
+        << "(Kinetic min/max=";
+    if (kinetic_stats.has_min) {
+      oss << kinetic_stats.min_percent;
+    } else {
+      oss << "n/a";
+    }
+    oss << "/";
+    if (kinetic_stats.has_max) {
+      oss << kinetic_stats.max_percent;
+    } else {
+      oss << "n/a";
+    }
+    oss << "%, Alpha min/max=";
+    if (alpha_stats.has_min) {
+      oss << alpha_stats.min_percent;
+    } else {
+      oss << "n/a";
+    }
+    oss << "/";
+    if (alpha_stats.has_max) {
+      oss << alpha_stats.max_percent;
+    } else {
+      oss << "n/a";
+    }
+    oss << "%)";
+    EVOENGINE_LOG(oss.str());
+  }
+
+  ExportKineticMeshlets(kinetic_path, kinetic_vertices, kinetic_triangles, kinetic_initial_volumes,
+                        kinetic_initial_cumulative, nullptr, &scale);
+  ExportAlphaTetrahedra(alpha_path, alpha_particles, alpha_tetrahedrons, alpha_initial_tet_volumes,
+                        alpha_near_degenerate_tets, alpha_initial_cumulative, alpha_use_current_position, nullptr,
+                        &scale);
 }

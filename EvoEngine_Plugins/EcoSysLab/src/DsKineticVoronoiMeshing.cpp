@@ -6184,21 +6184,11 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute(const bool physi
   const bool run_volume_measure =
       physics_simulation_active && (render_settings.enable_volume_measure || volume_heatmap_active);
 
+  // Kinetic skinned meshlet volume is nearly rigid on the GPU; meaningful change is measured on CPU
+  // after download + bark smooth (throttled). Do this before recording this frame's skinning so Download
+  // sees the previous frame's completed vertex update.
   if (run_volume_measure) {
-    if (render_settings.enable_volume_measure) {
-      ReadbackVolumeMeasureToCsv();
-    }
-    if (!device_volume_result_buffers.empty()) {
-      GpuVolumeMeasureResult reset{};
-      reset.cumulative_volume = 0.0f;
-      reset.initial_cumulative_volume = static_cast<float>(initial_meshlet_cumulative_volume_);
-      reset.frame_index = volume_measure_frame_counter_;
-      device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()]->Upload(reset);
-    }
-    if (device_segment_signed_volumes_buffer && dynamic_strands) {
-      std::vector<float> zeros(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
-      device_segment_signed_volumes_buffer->UploadVector(zeros);
-    }
+    MaybeMeasureSmoothedVolumeCpu();
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -6222,10 +6212,6 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RenderCompute(const bool physi
     vkCmdDispatch(vk_command_buffer, Platform::DivUp(triangle_push_constant.triangle_count, work_group_invocations), 1,
                   1);
     Platform::EverythingBarrier(vk_command_buffer);
-
-    if (run_volume_measure) {
-      DispatchVolumeMeasure(vk_command_buffer);
-    }
   });
 }
 
@@ -6332,6 +6318,120 @@ void DsKineticVoronoiMeshing::CaptureInitialMeshletVolumes() {
     }
     device_segment_initial_volumes_buffer->UploadVector(initials);
     device_segment_initial_volumes_buffer->SetDebugName("Kinetic Segment Initial Volumes");
+  }
+}
+
+bool DsKineticVoronoiMeshing::BuildSmoothedCurrentMeshletVertices(
+    std::vector<GpuSegmentMeshletVertex>& out_vertices) {
+  out_vertices.clear();
+  if (segment_meshlet_vertices.empty() || segment_meshlet_triangles.empty()) {
+    return false;
+  }
+  if (!EnsureCpuMeshletsFromGpu() || segment_meshlets_.empty() || !strand_tree || !tree_mesher_) {
+    return false;
+  }
+
+  const auto& physics_strand_to_segment_indices = strand_tree->getPhysicsStrandToSegmentIndices();
+  const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
+  if (physics_strand_to_segment_indices.size() != meshing_strand_to_segment_indices.size()) {
+    EVOENGINE_ERROR("BuildSmoothedCurrentMeshletVertices: physics/meshing strand map size mismatch.");
+    return false;
+  }
+
+  // Working copy so rest-pose @ref segment_meshlets_ topology is not permanently deformed.
+  std::vector<kinDS::VoronoiMesh> working = segment_meshlets_;
+  GlobalTransform inv_root;
+  inv_root.value = glm::inverse(meshlets_root_transform_.value);
+
+  size_t gpu_vi = 0;
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+    if (meshing_strand_to_segment_indices[strand_id].size() != physics_strand_to_segment_indices[strand_id].size()) {
+      EVOENGINE_ERROR("BuildSmoothedCurrentMeshletVertices: strand " << strand_id << " segment count mismatch.");
+      return false;
+    }
+    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+      const size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      if (meshing_segment_id >= working.size()) {
+        EVOENGINE_ERROR("BuildSmoothedCurrentMeshletVertices: meshing segment id out of range.");
+        return false;
+      }
+      auto& mesh_vertices = working[meshing_segment_id].getVertices();
+      for (size_t local_vi = 0; local_vi < mesh_vertices.size(); ++local_vi) {
+        if (gpu_vi >= segment_meshlet_vertices.size()) {
+          EVOENGINE_ERROR("BuildSmoothedCurrentMeshletVertices: GPU vertex buffer shorter than CPU meshlets.");
+          return false;
+        }
+        const glm::vec3 world = segment_meshlet_vertices[gpu_vi].x;
+        const glm::vec3 local = inv_root.TransformPoint(world);
+        mesh_vertices[local_vi] = glm::dvec3(local.x, local.y, local.z);
+        ++gpu_vi;
+      }
+    }
+  }
+  if (gpu_vi != segment_meshlet_vertices.size()) {
+    EVOENGINE_ERROR("BuildSmoothedCurrentMeshletVertices: GPU vertex count ("
+                    << segment_meshlet_vertices.size() << ") != CPU meshlet vertices (" << gpu_vi << ").");
+    return false;
+  }
+
+  const std::vector<uint8_t> meshlet_has_bark = BuildMeshletHasBarkFlags(meshing_neighbor_indices_);
+  SmoothBarkMeshPositions(working, meshing_neighbor_indices_, meshlet_has_bark, meshing_settings.bark_smooth_iterations,
+                          meshing_settings.bark_smooth_strength, meshing_settings.bark_smooth_lock_boundary,
+                          meshing_settings.bark_smooth_uvs);
+
+  out_vertices = segment_meshlet_vertices;
+  gpu_vi = 0;
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
+      const size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
+      const auto& mesh_vertices = working[meshing_segment_id].getVertices();
+      for (size_t local_vi = 0; local_vi < mesh_vertices.size(); ++local_vi) {
+        const glm::dvec3& local = mesh_vertices[local_vi];
+        out_vertices[gpu_vi].x =
+            meshlets_root_transform_.TransformPoint(glm::vec3(local.x, local.y, local.z));
+        ++gpu_vi;
+      }
+    }
+  }
+  return true;
+}
+
+void DsKineticVoronoiMeshing::MaybeMeasureSmoothedVolumeCpu() const {
+  const int interval = glm::max(1, render_settings.volume_measure_interval_frames);
+  const uint32_t frame_index = volume_measure_frame_counter_;
+  ++volume_measure_frame_counter_;
+  if ((frame_index % static_cast<uint32_t>(interval)) != 0) {
+    return;
+  }
+
+  auto* self = const_cast<DsKineticVoronoiMeshing*>(this);
+  self->Download();
+
+  std::vector<GpuSegmentMeshletVertex> smoothed_vertices;
+  if (!self->BuildSmoothedCurrentMeshletVertices(smoothed_vertices)) {
+    EVOENGINE_WARNING("Kinetic volume measure: download+smooth failed; skipping frame " << frame_index);
+    return;
+  }
+
+  const auto volumes =
+      DsKineticVoronoiVolumeUtils::ComputeAllMeshletVolumes(smoothed_vertices, segment_meshlet_triangles, true);
+
+  if (render_settings.enable_volume_measure) {
+    if (!volume_measure_csv_.IsOpen()) {
+      volume_measure_csv_.Open(MakeTimestampedVolumeMeasureCsvPath("kinetic_volume_measure"), "kinetic");
+    }
+    volume_measure_csv_.Append(frame_index, volumes.cumulative_volume, initial_meshlet_cumulative_volume_);
+  }
+
+  if (device_segment_signed_volumes_buffer && dynamic_strands) {
+    std::vector<float> currents(std::max<size_t>(1, dynamic_strands->segments.size()), 0.0f);
+    for (const auto& entry : volumes.meshlets) {
+      if (entry.segment_index < currents.size()) {
+        currents[entry.segment_index] = static_cast<float>(entry.volume);
+      }
+    }
+    device_segment_signed_volumes_buffer->UploadVector(currents);
+    device_segment_signed_volumes_buffer->SetDebugName("Kinetic Segment Signed Volumes");
   }
 }
 
@@ -6753,7 +6853,12 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         }
         try {
           dynamic_strands->Download();
-          VolumeChangeHeatmapExport::ExportKineticMeshlets(path, segment_meshlet_vertices, segment_meshlet_triangles,
+          std::vector<GpuSegmentMeshletVertex> smoothed_vertices;
+          if (!BuildSmoothedCurrentMeshletVertices(smoothed_vertices)) {
+            EVOENGINE_ERROR("Volume change heatmap: download+bark-smooth failed.");
+            return;
+          }
+          VolumeChangeHeatmapExport::ExportKineticMeshlets(path, smoothed_vertices, segment_meshlet_triangles,
                                                            initial_meshlet_volumes_by_segment_,
                                                            initial_meshlet_cumulative_volume_);
           EVOENGINE_LOG("Exported Kinetic volume change heatmap to " + path.string());
@@ -6764,9 +6869,10 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Per-meshlet %% volume change vs rest-pose baseline at meshing time. "
+        "Per-meshlet %% volume change vs rest-pose baseline at meshing time, after download + bark smooth. "
         "White=0%%, red=loss, blue=gain (clamped to +-30%% for materials). "
-        "Respects Per-meshlet objects (object names include meshlet id and %% change).");
+        "Respects Per-meshlet objects (object names include meshlet id and %% change). "
+        "For a shared Kinetic+Alpha color scale, use Export both volume change heatmaps under Both meshing.");
   }
   ImGui::SameLine();
   if (strand_tree) {
@@ -6914,12 +7020,22 @@ void DsKineticVoronoiMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_l
 
 void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Render Segment Meshlets", &render_settings.segment_meshlet_render_parameters.enabled);
-  ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
+  ImGui::Checkbox("Volume measure → CSV (download+smooth)", &render_settings.enable_volume_measure);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "While the application is Playing: compute cumulative meshlet volume on GPU and append absolute + %% of "
-        "initial to Metadata/kinetic_volume_measure_<timestamp>.csv (closed-meshlet divergence). Paused/stopped skips "
-        "measure and CSV.");
+        "While Playing: every N frames, download meshlets, re-apply bark smooth, measure cumulative volume on CPU, "
+        "and append absolute + %% of initial to Metadata/kinetic_volume_measure_<timestamp>.csv. "
+        "GPU skinned volume is nearly rigid; this path captures bark-smooth volume change. "
+        "Paused/stopped skips measure and CSV.");
+  }
+  if (ImGui::DragInt("Volume measure interval (frames)", &render_settings.volume_measure_interval_frames, 1, 1,
+                     1000)) {
+    render_settings.volume_measure_interval_frames = glm::max(1, render_settings.volume_measure_interval_frames);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Download + bark smooth + CPU volume measure every N physics frames (default 10). "
+        "Also drives volume-change heatmap buffer uploads while that color mode is active.");
   }
   if (render_settings.segment_meshlet_render_parameters.enabled) {
     if (ImGui::Button("Rebuild segment meshlet pipelines")) {
@@ -6935,7 +7051,7 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
           "Neighbor tags: brown = -2 (bark), blue = -1 (interior/open), green = >=0 (lateral), "
           "magenta = <-2 (out of range).\n"
           "Volume change heatmap: white = 0%%, red = loss, blue = gain (clamped to +-30%%); "
-          "updates only while the application is Playing.");
+          "CPU volumes after download+smooth, updated every Volume measure interval frames while Playing.");
     }
 
     ImGui::Checkbox("Debug neighbor connectivity",

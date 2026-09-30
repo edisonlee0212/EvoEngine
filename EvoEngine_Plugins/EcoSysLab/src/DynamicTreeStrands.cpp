@@ -1,5 +1,6 @@
 #include "DynamicTreeStrands.hpp"
 #include "BasicBarkDescriptor.hpp"
+#include "BufferExporter.hpp"
 #include "DsAlphaShapeMeshing.hpp"
 #include "DsConstraints.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
@@ -8,6 +9,7 @@
 #include "DsPhysics.hpp"
 #include "DynamicStrands.hpp"
 #include "Tree.hpp"
+#include "Utilities.hpp"
 #include "VoronoiMeshGenerator.hpp"
 using namespace eco_sys_lab_plugin;
 
@@ -191,6 +193,56 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
         ImGui::TextDisabled("Re-initialize / re-subdivide to activate Alpha Shape meshing.");
       }
       ImGui::TreePop();
+    }
+  }
+  if (show_kinetic_settings && show_alpha_settings) {
+    if (dynamic_strands->GetKineticVoronoiMeshing() && dynamic_strands->GetAlphaShapeMeshing()) {
+      FileUtils::OpenFolder(
+          "Export both volume change heatmaps (shared color scale)...",
+          [this](const std::filesystem::path& folder) {
+            auto* kinetic = dynamic_strands ? dynamic_strands->GetKineticVoronoiMeshing() : nullptr;
+            auto* alpha = dynamic_strands ? dynamic_strands->GetAlphaShapeMeshing() : nullptr;
+            if (!kinetic || !alpha) {
+              EVOENGINE_ERROR("Shared heatmap export: Kinetic and Alpha meshing must both be active.");
+              return;
+            }
+            if (!kinetic->has_initial_meshlet_volumes_) {
+              EVOENGINE_ERROR(
+                  "Shared heatmap export: no Kinetic initial meshlet volumes. Complete Kinetic meshing first.");
+              return;
+            }
+            if (!alpha->has_initial_tet_volumes_) {
+              EVOENGINE_ERROR(
+                  "Shared heatmap export: no Alpha initial tet volumes. Re-initialize Alpha Shape meshing first.");
+              return;
+            }
+            try {
+              dynamic_strands->Download();
+              std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> smoothed_kinetic;
+              if (!kinetic->BuildSmoothedCurrentMeshletVertices(smoothed_kinetic)) {
+                EVOENGINE_ERROR("Shared heatmap export: Kinetic download+bark-smooth failed.");
+                return;
+              }
+              const auto kinetic_path = folder / "kinetic_volume_change_heatmap.obj";
+              const auto alpha_path = folder / "alpha_volume_change_heatmap.obj";
+              VolumeChangeHeatmapExport::ExportBothWithSharedScale(
+                  kinetic_path, alpha_path, smoothed_kinetic, kinetic->segment_meshlet_triangles,
+                  kinetic->initial_meshlet_volumes_by_segment_, kinetic->initial_meshlet_cumulative_volume_,
+                  alpha->uniform_particles, alpha->delaunay_tetrahedrons, alpha->initial_tet_volumes_,
+                  alpha->initial_near_degenerate_tets_, alpha->initial_tet_cumulative_volume_,
+                  AlphaShapeTetObjExport::use_current_position);
+              EVOENGINE_LOG("Exported shared-scale volume change heatmaps to " + folder.string());
+            } catch (const std::exception& e) {
+              EVOENGINE_ERROR(std::string("Shared volume change heatmap export failed: ") + e.what());
+            }
+          },
+          false);
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Downloads GPU state, re-applies Kinetic bark smooth, computes min/max %% change across Kinetic meshlets "
+            "and Alpha tets, then writes kinetic_volume_change_heatmap.obj and alpha_volume_change_heatmap.obj with a "
+            "shared asymmetric color scale: white at 0%%, red normalized on [min,0], blue on [0,max].");
+      }
     }
   }
   ImGui::Checkbox("Fixed seed", &fixed_subdivision_seed);
