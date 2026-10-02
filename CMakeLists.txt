@@ -24,6 +24,8 @@ option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine r
 option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build EvoEngine runtime package support and package targets." ON)
 option(EVOENGINE_WITH_EDITOR "Build editor tooling and inspection interfaces." ON)
 option(EVOENGINE_ENABLE_GRAPHICS_VALIDATION "Enable Vulkan validation in Debug and RelWithDebInfo builds." OFF)
+option(EVOENGINE_ENABLE_NRD "Build the optional NRD denoiser integration." OFF)
+set(EVOENGINE_NRD_SOURCE_DIR "" CACHE PATH "Path to a local NVIDIA NRD source checkout.")
 
 # ------------------------------------------------------------------
 # Build types
@@ -62,6 +64,18 @@ set(3RDPARTY_RUNTIME_LIBRARIES "")
 set(3RDPARTY_PDBS "")
 set(3RDPARTY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Extern/3rdParty)
 add_subdirectory(${3RDPARTY_DIR})
+
+if (EVOENGINE_ENABLE_NRD)
+	if (NOT EXISTS "${EVOENGINE_NRD_SOURCE_DIR}/Include/NRD.h")
+		message(FATAL_ERROR "EVOENGINE_ENABLE_NRD requires EVOENGINE_NRD_SOURCE_DIR pointing to an NRD source checkout.")
+	endif()
+	set(NRD_NRI ON CACHE BOOL "Build NRD's NRI integration" FORCE)
+	set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "" FORCE)
+	set(NRD_EMBEDS_DXIL_SHADERS OFF CACHE BOOL "" FORCE)
+	set(NRD_SUPPORTS_QUAD_INTRINSICS OFF CACHE BOOL "" FORCE)
+	add_subdirectory("${EVOENGINE_NRD_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/NRD")
+	get_target_property(EVOENGINE_NRI_SOURCE_DIR NRI SOURCE_DIR)
+endif()
 
 # ------------------------------------------------------------------
 # EvoEngine - SDK
@@ -151,6 +165,12 @@ endfunction()
 function(evoengine_install_runtime_resources dst_dir)
 	install(FILES "${CMAKE_SOURCE_DIR}/docs/licenses/Godot-MIT.txt"
 		DESTINATION "${dst_dir}/licenses")
+	if(EVOENGINE_ENABLE_NRD)
+		install(FILES "${EVOENGINE_NRD_SOURCE_DIR}/LICENSE.txt"
+			DESTINATION "${dst_dir}/licenses" RENAME "NVIDIA-NRD-LICENSE.txt")
+		install(FILES "${EVOENGINE_NRI_SOURCE_DIR}/LICENSE.txt"
+			DESTINATION "${dst_dir}/licenses" RENAME "NVIDIA-NRI-LICENSE.txt")
+	endif()
 	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/" DESTINATION "${dst_dir}")
 	if(EVOENGINE_WITH_EDITOR)
 		install(DIRECTORY "${EVOENGINE_SDK_DIR}/Editor/Internals/" DESTINATION "${dst_dir}")

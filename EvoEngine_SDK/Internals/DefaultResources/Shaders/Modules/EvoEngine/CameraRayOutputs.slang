@@ -28,7 +28,9 @@ void EE_CAMERA_STORE_RAY_OUTPUT_UINT(const Camera camera, const uint output_flag
 public void EE_CAMERA_STORE_RAY_OUTPUT_DIAGNOSTICS(const Camera camera, const int2 pixel,
                                                    const CameraRayOutputDiagnostics diagnostics) {
   EE_CAMERA_STORE_RAY_OUTPUT_COLOR(camera, EE_CAMERA_RAY_OUTPUT_ALBEDO, ray_albedo_image, pixel, diagnostics.albedo);
-  EE_CAMERA_STORE_RAY_OUTPUT_COLOR(camera, EE_CAMERA_RAY_OUTPUT_NORMAL, ray_normal_image, pixel, diagnostics.normal);
+  if (EE_CAMERA_RAY_OUTPUT_ENABLED(camera, EE_CAMERA_RAY_OUTPUT_NORMAL)) {
+    ray_normal_image[pixel] = float4(diagnostics.normal, diagnostics.roughness);
+  }
   EE_CAMERA_STORE_RAY_OUTPUT_UINT(camera, EE_CAMERA_RAY_OUTPUT_RAY_COUNT, ray_count_image, pixel,
                                   diagnostics.ray_count);
   EE_CAMERA_STORE_RAY_OUTPUT_UINT(camera, EE_CAMERA_RAY_OUTPUT_PATH_LENGTH, ray_path_length_image, pixel,

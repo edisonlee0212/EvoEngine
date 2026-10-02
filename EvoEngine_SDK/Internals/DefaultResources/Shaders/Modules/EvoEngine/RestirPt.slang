@@ -1,8 +1,15 @@
 // @evoengine-dialect native
 public static const uint EE_RESTIR_PT_RESERVOIR_VERSION = 1u;
 public static const uint EE_RESTIR_PT_RESERVOIR_BYTES = 128u;
-public static const uint EE_RESTIR_PT_PRIMARY_SURFACE_BYTES = 32u;
+public static const uint EE_RESTIR_PT_RESOLVED_BYTES = 16u;
+public static const uint EE_RESTIR_PT_PRIMARY_SURFACE_BYTES = 48u;
 public static const uint EE_RESTIR_PT_SPATIAL_SHIFT_BYTES = 32u;
+static const uint EE_RESTIR_PT_PAIRING_SIZES[16] = {
+    254u, 230u, 210u, 190u, 178u, 166u, 154u, 142u,
+    246u, 238u, 222u, 206u, 198u, 182u, 174u, 162u};
+static const uint EE_RESTIR_PT_PAIRING_OFFSETS[16] = {
+    0u, 64516u, 117416u, 161516u, 197616u, 229300u, 256856u, 280572u,
+    300736u, 361252u, 417896u, 467180u, 509616u, 548820u, 581944u, 612220u};
 public static const uint EE_RESTIR_PT_GENERATED_MAX_EVENTS = 32u;
 public static const uint EE_RESTIR_PT_GENERATED_PIXEL_BYTES = 4u + 8u * EE_RESTIR_PT_GENERATED_MAX_EVENTS;
 public static const uint EE_RESTIR_PT_INVALID_INSTANCE = 0xffffffffu;
@@ -19,6 +26,12 @@ public static const uint EE_RESTIR_PT_PATH_VOLUME_SCATTER_NEE = 9u;
 public static const uint EE_RESTIR_PT_FLAG_DELTA_PREFIX = 1u;
 public static const uint EE_RESTIR_PT_FLAG_SECONDARY_EMISSION_RECONNECTION = 4u;
 public static const uint EE_RESTIR_PT_FLAG_FIRST_DIFFUSE_EVENT = 8u;
+public static const uint EE_RESTIR_PT_FLAG_INITIAL_CAMERA_JITTER = 16u;
+public static const uint EE_RESTIR_PT_FLAG_SUFFIX_DESCRIPTOR = 32u;
+public static const uint EE_RESTIR_PT_FLAG_LONG_SUFFIX_DESCRIPTOR = 64u;
+public static const uint EE_RESTIR_PT_FLAG_PRIMARY_DIFFUSE = 128u;
+public static const uint EE_RESTIR_PT_RECONNECTION_SECONDARY_INDEX = 2u;
+public static const float EE_RESTIR_PT_RECON_FOOTPRINT_C_CONSTANT = 0.02f;
 public static const uint EE_RESTIR_PT_PROFILE_SOURCE_REASON_SHIFT = 8u;
 public static const uint EE_RESTIR_PT_SHIFT_VALID = 0u;
 public static const uint EE_RESTIR_PT_SHIFT_NO_PARTNER = 1u;
@@ -56,6 +69,9 @@ public struct RestirPtPrimarySurface {
   public float depth;
   public float3 normal;
   public uint material_id;
+  public uint instance_index;
+  public uint entity_index;
+  public float2 screen_motion;
 };
 
 public struct RestirPtSpatialShift {
@@ -67,12 +83,35 @@ public struct RestirPtSpatialShift {
   public uint reserved;
 };
 
+[[vk::binding(20, 2)]] public ByteAddressBuffer ee_restir_pt_pairing_map;
+
+uint EE_RESTIR_PT_PAIR_HASH(uint value) {
+  value ^= value >> 16u;
+  value *= 0x7feb352du;
+  value ^= value >> 15u;
+  value *= 0x846ca68bu;
+  return value ^ (value >> 16u);
+}
+
 public uint2 EE_RESTIR_PT_PAIR(const uint2 pixel, const uint2 image_size, const uint frame_id,
                               const uint neighbor_index) {
-  const uint offset = neighbor_index < 2u ? 1u : 2u;
-  const uint2 partner = ((frame_id + neighbor_index) & 1u) == 0u
-                            ? uint2(pixel.x ^ offset, pixel.y) : uint2(pixel.x, pixel.y ^ offset);
-  return any(partner >= image_size) ? uint2(0xffffffffu) : partner;
+  const uint size = EE_RESTIR_PT_PAIRING_SIZES[neighbor_index];
+  const uint offset = EE_RESTIR_PT_PAIRING_OFFSETS[neighbor_index];
+  const bool transpose = (EE_RESTIR_PT_PAIR_HASH(frame_id ^ (neighbor_index * 8128u)) & 1u) != 0u;
+  const bool flip = (EE_RESTIR_PT_PAIR_HASH(frame_id ^ (neighbor_index * 31337u)) & 1u) != 0u;
+  int2 coordinate = transpose ? pixel.yx : pixel;
+  if (flip) coordinate.x = int(size) - 1 - coordinate.x;
+  const uint hash_x = EE_RESTIR_PT_PAIR_HASH(frame_id ^ (neighbor_index * 1973u));
+  const uint hash_y = EE_RESTIR_PT_PAIR_HASH(hash_x);
+  coordinate += int2(hash_x % size, hash_y % size);
+  coordinate = (coordinate % int(size) + int(size)) % int(size);
+  const uint packed = ee_restir_pt_pairing_map.Load((offset + uint(coordinate.y) * size + uint(coordinate.x)) * 4u);
+  int2 delta = int2(int(packed << 16u) >> 16u, int(packed) >> 16u);
+  if (flip) delta.x = -delta.x;
+  if (transpose) delta = delta.yx;
+  const int2 partner = int2(pixel) + delta;
+  return any(partner < int2(0)) || any(partner >= int2(image_size))
+             ? uint2(0xffffffffu) : uint2(partner);
 }
 
 public RestirPtPrimarySurface EE_RESTIR_PT_EMPTY_PRIMARY_SURFACE() {
@@ -81,6 +120,9 @@ public RestirPtPrimarySurface EE_RESTIR_PT_EMPTY_PRIMARY_SURFACE() {
   surface.depth = 0.0f;
   surface.normal = float3(0.0f);
   surface.material_id = 0xffffffffu;
+  surface.instance_index = 0xffffffffu;
+  surface.entity_index = 0u;
+  surface.screen_motion = float2(0.0f);
   return surface;
 }
 
@@ -125,6 +167,19 @@ public bool EE_RESTIR_PT_SURFACES_COMPATIBLE(const RestirPtPrimarySurface lhs,
   }
   return dot(lhs.normal, rhs.normal) >= 0.9f &&
          distance(lhs.position, rhs.position) <= 0.1f * min(lhs.depth, rhs.depth);
+}
+
+public bool EE_RESTIR_PT_ENHANCED_SPATIAL_PAIR_ACCEPTED(const RestirPtPrimarySurface lhs,
+                                                        const RestirPtPrimarySurface rhs,
+                                                        const float3 camera_position) {
+  if (lhs.material_id == EE_RESTIR_PT_INVALID_INSTANCE || lhs.material_id != rhs.material_id ||
+      dot(lhs.normal, rhs.normal) < 0.9f) return false;
+  const float3 delta = rhs.position - lhs.position;
+  const float lhs_tolerance = 0.005f * (1.0f + distance(lhs.position, camera_position));
+  const float rhs_tolerance = 0.005f * (1.0f + distance(rhs.position, camera_position));
+  return length(delta) <= 30.0f * min(lhs_tolerance, rhs_tolerance) &&
+         abs(dot(delta, lhs.normal)) <= lhs_tolerance &&
+         abs(dot(delta, rhs.normal)) <= rhs_tolerance;
 }
 
 public void EE_RESTIR_PT_ADD_CANDIDATE(inout RestirPtPathReservoir reservoir,
@@ -180,6 +235,25 @@ public float3 EE_RESTIR_PT_RESOLVE_CANDIDATE(const RestirPtPathReservoir reservo
     return float3(0.0f);
   }
   return reservoir.contribution * reservoir.selected_weight;
+}
+
+public uint EE_RESTIR_PT_SIGNAL_CLASS(const RestirPtPathReservoir reservoir) {
+  if (reservoir.path_type == EE_RESTIR_PT_PATH_PRIMARY_BACKGROUND ||
+      reservoir.path_type == EE_RESTIR_PT_PATH_PRIMARY_EMISSION ||
+      (reservoir.path_type == EE_RESTIR_PT_PATH_UNLIT && reservoir.path_length == 1u))
+    return 2u;
+  return (reservoir.flags & EE_RESTIR_PT_FLAG_PRIMARY_DIFFUSE) != 0u ? 0u : 1u;
+}
+
+public void EE_RESTIR_PT_ADD_SIGNAL(const RestirPtPathReservoir reservoir, const float3 contribution,
+                                    inout float3 diffuse, inout float3 specular, inout float3 excluded) {
+  const uint signal_class = EE_RESTIR_PT_SIGNAL_CLASS(reservoir);
+  if (signal_class == 0u)
+    diffuse += contribution;
+  else if (signal_class == 1u)
+    specular += contribution;
+  else
+    excluded += contribution;
 }
 
 public RestirPtPathReservoir EE_RESTIR_PT_LOAD(RWByteAddressBuffer buffer, const uint pixel_index) {
@@ -240,6 +314,10 @@ public RestirPtPrimarySurface EE_RESTIR_PT_LOAD_PRIMARY_SURFACE(RWByteAddressBuf
   surface.depth = position.w;
   surface.normal = asfloat(normal.xyz);
   surface.material_id = normal.w;
+  const uint2 instance = buffer.Load2(base + 32u);
+  surface.instance_index = instance.x;
+  surface.entity_index = instance.y;
+  surface.screen_motion = asfloat(buffer.Load2(base + 40u));
   return surface;
 }
 
@@ -248,6 +326,8 @@ public void EE_RESTIR_PT_STORE_PRIMARY_SURFACE(RWByteAddressBuffer buffer, const
   const uint base = pixel_index * EE_RESTIR_PT_PRIMARY_SURFACE_BYTES;
   buffer.Store4(base, asuint(float4(surface.position, surface.depth)));
   buffer.Store4(base + 16u, uint4(asuint(surface.normal), surface.material_id));
+  buffer.Store2(base + 32u, uint2(surface.instance_index, surface.entity_index));
+  buffer.Store2(base + 40u, asuint(surface.screen_motion));
 }
 
 public RestirPtSpatialShift EE_RESTIR_PT_LOAD_SPATIAL_SHIFT(RWByteAddressBuffer buffer, const uint pixel_index) {

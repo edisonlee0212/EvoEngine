@@ -17,9 +17,9 @@ cmake --preset vs2026-x64
 cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EvoEngineRuntimePayload
 ```
 
-This target assembles, but does not recompile, the shared runtime DLLs. The standalone `vs2026-x64-runtime` preset remains available for runtime-boundary validation; editor applications, Python bindings, and companion DLLs are omitted from that graph. Add inspectors in `Editor/src` and register them through the editor companion; do not add editor guards or inspection methods to runtime classes. The build checks runtime include and link dependencies in both configurations.
+This target assembles, but does not recompile, the shared runtime DLLs. A separate runtime-only install is not part of the default workflow; the editor build already provides the player payload and Build Manager template. An editor-free build can still be configured manually with `EVOENGINE_WITH_EDITOR=OFF` when needed. Add inspectors in `Editor/src` and register them through the editor companion; do not add editor guards or inspection methods to runtime classes. The normal build checks runtime include and link dependencies.
 
-Configure with `-DBUILD_TESTING=ON` to build `EvoEngineRuntimeBoundaryTests`. Its tests cover component registration, scene cloning, graph serialization, and a Vulkan window with main-camera rendering and keyboard dispatch. Run them with `ctest --test-dir out/build/runtime -C RelWithDebInfo --output-on-failure` on the Windows graphics test machine.
+An optional editor-free configuration with `-DBUILD_TESTING=ON` can build `EvoEngineRuntimeBoundaryTests`. Its tests cover component registration, scene cloning, graph serialization, and a Vulkan window with main-camera rendering and keyboard dispatch.
 
 `Scripts/install_apps.py` configures one build tree, builds and installs the editor applications, then assembles and publishes the matching runtime template from that same graph. Templates are published under `bin/RuntimeTemplates/Windows/x64/<configuration>/<template_id>/`; `current.json` selects the latest complete template while older versions remain available. Runtime composition metadata is generated separately from editor metadata, but both consumers use byte-identical SDK and runtime package DLLs. Identity mismatches still fail installation.
 

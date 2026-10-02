@@ -25,6 +25,8 @@ class EVOENGINE_API RayTracingCameraPass final {
     std::shared_ptr<DescriptorSet> output_descriptor_set;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     RayCameraHistoryResources* history_resources = nullptr;
+    std::shared_ptr<Buffer> primary_surface_buffer;
+    bool write_nrd_signals = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(
@@ -52,6 +54,20 @@ class EVOENGINE_API RayQueryCameraPass final {
     std::shared_ptr<Buffer> resolved_buffer;
     std::shared_ptr<Buffer> shift_buffer;
     std::shared_ptr<Buffer> generated_buffer;
+    std::shared_ptr<Buffer> previous_history_buffer;
+    std::shared_ptr<Buffer> previous_surface_buffer;
+    std::shared_ptr<Buffer> temporal_forward_buffer;
+    std::shared_ptr<Buffer> duplication_buffer;
+    std::shared_ptr<Buffer> next_history_buffer;
+    std::shared_ptr<Buffer> pairing_buffer;
+    bool commit_restir_history = false;
+    std::shared_ptr<Buffer> previous_instance_buffer;
+    std::shared_ptr<Buffer> initial_buffer;
+    bool bind_nrd_guides = false;
+    bool write_nrd_signals = false;
+    bool read_nrd_denoised = false;
+    bool bind_nrd_lobe_hit_distance = false;
+    bool bind_nrd_material_factors = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {},

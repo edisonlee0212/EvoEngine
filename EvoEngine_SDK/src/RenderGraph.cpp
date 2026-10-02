@@ -140,6 +140,9 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "RGBA32F") {
     return VK_FORMAT_R32G32B32A32_SFLOAT;
   }
+  if (format_name == "RGB10A2") {
+    return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+  }
   if (format_name == "RGBA8") {
     return VK_FORMAT_R8G8B8A8_UNORM;
   }

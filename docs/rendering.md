@@ -91,33 +91,100 @@ unchanged cameras continue accumulating.
 
 ### ReSTIR PT ray integrators
 
-Under **Ray Integrator**, choose **Path Tracing**, **ReSTIR PT Candidate Only**, or **ReSTIR PT Spatial Only**.
+Under **Ray Integrator**, choose **Path Tracing**, **ReSTIR PT Candidate Only**, **ReSTIR PT Spatial Only**,
+**ReSTIR PT Temporal Only**, or **ReSTIR PT Enhanced**.
 ReSTIR uses compute shaders with inline RayQuery. Candidate Only samples a path reservoir; Spatial Only also replays
-candidates at reciprocal neighboring pixels and combines their estimates. It uses no previous-frame reservoirs.
+candidates at reciprocal neighboring pixels and sums their pairwise MIS-weighted RGB contributions. It uses no
+previous-frame reservoirs. Spatial resolve stores only the 16-byte RGB result; with 1–16 pairs, ReSTIR uses 224–704
+bytes per pixel for its candidate, surface, shift, and resolved buffers.
+ReSTIR material texture gradients grow with ray travel distance. After diffuse or glossy scattering, a capped
+roughness-aware cone spread carries that footprint along later path segments; sharp specular paths retain their
+existing detail. Alpha, shadow, and emissive visibility sampling remains at its existing LOD.
 Changing the integrator or reuse settings resets accumulation.
 
-**Spatial neighbors** selects 1–4 pairs per pixel and defaults to 4. More pairs improve the recorded equal-frame
-quality but cost more GPU time. **Hybrid shifts** is off by default. It reconnects eligible three-vertex diffuse
-emissive-light paths; other paths use full replay. Scenes with transmissive materials use full replay throughout.
-Preview captures accept `--preview-restir-spatial-neighbors 1|2|3|4` and
-`--preview-restir-spatial-hybrid enabled|disabled`.
+**Temporal history cap** in Temporal Only and Enhanced limits the effective count credited to a reused previous-frame
+reservoir. It is adjustable from 1 to 32 and defaults to 20. New cameras enable **Adaptive duplication cap** by default; saved camera
+settings retain their explicit value. The duplication map lowers the cap toward 1 where neighboring pixels share a path
+seed. In a matched 1920x1080 Sponza Enhanced capture after 1024 accumulated frames, enabling it changed mean linear
+luminance by -0.10% and left the brightest pixels in the same locations. On a separate 256x144 static indirect fixture
+without accumulation, it lost about 24%
+mean brightness after 1024 frames; the uniform cap stayed within 3% of a PT4096 reference. Lower caps can shorten
+persistent fireflies but may add variance. Preview captures can set the cap with
+`--preview-restir-temporal-history-cap 1` or disable the adaptive policy with
+`--preview-restir-temporal-adaptive-cap disabled`. Uniform mode skips the duplication GPU pass and binds a four-byte
+buffer instead of a full-resolution duplication map; the profile's storage estimate excludes that small buffer.
+
+Temporal Only adds a previous-frame reservoir, surface reprojection, optional duplication-aware temporal confidence,
+forward and backward replay shifts, and a history resolve without spatial pairs. Enhanced also adds count-aware spatial
+resampling. Both Spatial Only and Enhanced use reciprocal paper-scale reuse maps with approximately 16-pixel Gaussian
+offsets. Spatial pairs use material, normal, planar-distance, and
+world-distance checks. Temporal Only and Enhanced retain reservoir history across camera motion and rigid mesh
+transforms using previous-instance matrices, while restarting radiance accumulation. Other scene changes clear history.
+Both temporal modes store screen motion with each primary surface and use the prior occluder's motion as a fallback when
+direct history reprojection fails. In an earlier Enhanced eight-frame continuous camera-motion fixture at 256×144,
+this estimate supplied 151 valid forward shifts; single-step motion fixtures did not exercise it. Both temporal modes
+remain experimental. With Enhanced's optional **Temporal hybrid shifts** enabled, eligible static opaque paths reconnect at the second vertex
+for three-vertex diffuse-to-emissive paths, or at the first footprint-selected vertex on longer non-delta NEE and
+BSDF-terminated emissive or environment paths. Longer NEE and BSDF paths also reconnect when that vertex immediately
+precedes an emissive or environment endpoint; punctual endpoints use NEE. Eligible temporal and spatial shifts replay
+the camera prefix, evaluate the target BSDF and connection visibility, and retain a refreshed cached Jacobian on
+shifted winners. Masked, blended, and transmissive materials may coexist in the scene; reconnection paths must use
+opaque surfaces. `k=d` endpoint paths and other unsupported reconnections use full replay. Hybrid shifts remain
+incomplete for moving reconnection geometry and delta, transmission, or volume events. A 256×144 masked-roulette capture improves
+equal-frame error but fails the equal-GPU-time quality gate; quality across scenes remains unverified.
+Preview captures select temporal reuse with `--preview-ray-integrator temporal` or `enhanced` and include
+`restir_pt_temporal` diagnostics in the ray profile report.
+When accumulating samples, Temporal Only and Enhanced preserve each fresh candidate's radiance and replace unusually
+bright resolved pixels with that fresh sample. They also randomly shade the fresh sample on an increasing fraction of pixels as
+accumulation proceeds, reaching 50% after 160 accumulated samples. This reduces correlation from paths that persist in
+the reservoir. The local outlier threshold uses the camera's **Firefly Clamp** value; setting it to zero disables
+replacement, decorrelation, and the global clamp. Both temporal modes allocate 16 extra bytes per pixel per frame in
+flight while these features are active.
+
+**Spatial neighbors** selects 1–16 pairs per pixel and defaults to 3, matching the ReSTIR PT Enhanced paper's
+spatial-pair count. Each pair has a distinct reciprocal reuse map. More pairs cost more GPU time and shift-buffer
+memory; quality above three pairs has not passed an equal-GPU-time gate. In earlier matched Sponza trials, paper-scale
+pairs increased near-black fresh-frame pixels and image error relative to the former shorter-range and local patterns.
+**Hybrid shifts** is off by default in Spatial Only. It reconnects eligible three-vertex diffuse
+emissive-light paths; other paths use full replay, including paths that traverse transmission.
+Preview captures accept `--preview-restir-spatial-neighbors 1..16` and
+`--preview-restir-spatial-hybrid enabled|disabled`. The latter selects temporal hybrid shifts in Enhanced mode.
 
 **Accumulate Samples** averages radiance across frames by default. Disable it for a fresh random sample each frame;
 same-frame spatial reuse still works. Preview captures use `--preview-accumulate-samples enabled|disabled`.
-Spatial Only requires one sample per frame. Both ReSTIR modes require Auto SPP, ray debug views, and optional outputs
-to be off. Unsupported scene features leave ReSTIR unavailable without switching integrators.
+Spatial Only, Temporal Only, and Enhanced require one sample per frame. ReSTIR modes do not support Auto SPP with accumulation enabled;
+ray debug views must be off.
+Temporal Only specializes its candidate and temporal replay shaders for the scene's material features in the background.
+The all-feature shaders render until the specialized pipelines are ready; activation resets temporal history.
+Temporal replay evaluates the matched path contribution and primary surface without selecting another reservoir;
+spatial replay still selects a reservoir for its pairwise weight.
+With NRD disabled, Temporal Only also switches its candidate, combine, and resolve passes together to variants that omit
+NRD signal work. NRD-enabled rendering keeps the signal-producing shaders.
+All six optional ray outputs are available in ReSTIR modes. They describe locally traced candidate paths before
+temporal or spatial reuse: albedo and signed world-space normal come from the first primary hit. The normal image's
+alpha stores linear roughness (the geometric mean of anisotropic roughness axes, or 1 for a miss). Ray count and path
+length cover candidate tracing, and debug shows candidate radiance rather than the resolved reused result. Time currently
+reports zero, as it does for Path Tracing. Unsupported scene features leave ReSTIR unavailable without switching
+integrators.
+The standard Windows build includes optional camera NRD denoising; its input contract and remaining quality work are described in [ray-camera denoising](ray-camera-denoising.md).
 
 Supported paths include triangle meshes (instanced, skinned, and alpha masked), device-supported linear swept sphere
 strands, unlit surfaces, environment and emissive lighting, punctual lights, specular reflection, thin and closed
-transmission, absorption, and homogeneous scattering. Dispersion and Gaussian splats are unavailable. Temporal reuse
-is not implemented. Spatial Only has not passed the equal-GPU-time quality gate against conventional RayQuery Path
-Tracing.
+transmission, absorption, and homogeneous scattering. Dispersion and Gaussian splats are unavailable. Spatial Only
+has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing.
 
 Preview captures can write `--preview-ray-profile-report <path>.json` with per-pair shift outcomes, ray counts, and a
 `*-shift.ppm` heatmap. The heatmap shows the first pair; JSON covers every pair. Add
 `--preview-restir-generated-profile` to record candidate path types and target weights. The
-`restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed`,
-`restir-edges`, and `restir-indirect-upward` fixtures exercise spatial reuse.
+Enhanced report also records the 32 brightest pixels in the final unaccumulated ReSTIR radiance buffer, with their
+reservoir seed, path type, effective count, selected weight, and target density. Its pixel coordinates match the saved
+HDR image.
+The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed-roulette`,
+`restir-mixed`, `restir-edges`, and `restir-indirect-upward` fixtures exercise spatial reuse.
+`restir-indirect-upward-textured` adds a minified opaque ceiling texture for reconnection LOD checks.
+`restir-indirect-upward-moving` animates the indirect ceiling for temporal reconnection checks;
+`restir-indirect-upward-static-pose` holds its frame-64 pose for path-tracing comparisons.
+Use `--preview-fixture-advance-after-frame 0` to reset the moving fixture at capture start.
 
 ### Ray-camera pass flow
 

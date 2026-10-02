@@ -21,6 +21,8 @@
       },
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64",
+        "EVOENGINE_ENABLE_NRD": "ON",
+        "EVOENGINE_NRD_SOURCE_DIR": "${sourceDir}/out/deps/NRD",
         "EVOENGINE_ENABLE_BillboardClouds_PACKAGE": "ON",
         "EVOENGINE_ENABLE_MeshRepair_PACKAGE": "ON",
         "EVOENGINE_ENABLE_TextureBaking_PACKAGE": "ON",
@@ -30,18 +32,6 @@
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
-      }
-    },
-    {
-      "name": "vs2026-x64-runtime",
-      "inherits": "vs2026-x64",
-      "displayName": "Visual Studio 2026 x64 runtime",
-      "binaryDir": "${sourceDir}/out/build/vs2026-x64-runtime",
-      "installDir": "${sourceDir}/out/install/vs2026-x64-runtime",
-      "cacheVariables": {
-        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64-runtime",
-        "EVOENGINE_WITH_EDITOR": "OFF",
-        "BUILD_TESTING": "OFF"
       }
     }
   ],

@@ -24,8 +24,8 @@ class RayCameraHistoryTestAccess {
     return camera.AcquireRayCameraHistory(technique, scene_handle, extent, resource_factory);
   }
 
-  static void Invalidate(Camera& camera) {
-    camera.InvalidateRayCameraHistory();
+  static void Invalidate(Camera& camera, const bool invalidate_restir_history = true) {
+    camera.InvalidateRayCameraHistory(invalidate_restir_history);
   }
 
   static void Release(Camera& camera) {
@@ -155,6 +155,33 @@ TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   EXPECT_EQ(stats.peak_live_history_count, 1u);
 }
 
+TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
+  Camera camera;
+  camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
+  auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, {64, 32, 1},
+                                                      MakeFakeHistory);
+  history.valid = true;
+  history.frame_id = 5;
+  history.restir_history_valid = true;
+  history.restir_history_frame_id = 5;
+  history.restir_nrd_history_valid = true;
+  history.restir_nrd_history_frame_count = 5;
+
+  RayCameraHistoryTestAccess::Invalidate(camera, false);
+  EXPECT_FALSE(history.valid);
+  EXPECT_EQ(history.frame_id, 0u);
+  EXPECT_TRUE(history.restir_history_valid);
+  EXPECT_EQ(history.restir_history_frame_id, 5u);
+  EXPECT_TRUE(history.restir_nrd_history_valid);
+  EXPECT_EQ(history.restir_nrd_history_frame_count, 5u);
+
+  RayCameraHistoryTestAccess::Invalidate(camera);
+  EXPECT_FALSE(history.restir_history_valid);
+  EXPECT_EQ(history.restir_history_frame_id, 0u);
+  EXPECT_FALSE(history.restir_nrd_history_valid);
+  EXPECT_EQ(history.restir_nrd_history_frame_count, 0u);
+}
+
 TEST(RayCameraHistory, SwitchingRestirModesInvalidatesAccumulation) {
   Camera camera;
   constexpr VkExtent3D extent = {64, 32, 1};
@@ -176,6 +203,14 @@ TEST(RayCameraHistory, SwitchingRestirModesInvalidatesAccumulation) {
   EXPECT_FALSE(spatial.valid);
   EXPECT_EQ(spatial.frame_id, 0u);
   EXPECT_EQ(camera.GetFrameCount(), 0u);
+  spatial.restir_history_valid = true;
+  spatial.restir_history_frame_id = 3;
+  camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtTemporalOnly;
+  auto& temporal =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, extent, factory);
+  EXPECT_EQ(temporal.integrator, CameraSettings::RayIntegrator::RestirPtTemporalOnly);
+  EXPECT_FALSE(temporal.restir_history_valid);
+  EXPECT_EQ(temporal.restir_history_frame_id, 0u);
 }
 
 TEST(RayCameraHistory, OutputDescriptorsAreCachedPerFrameSlotWithinOneHistoryGeneration) {

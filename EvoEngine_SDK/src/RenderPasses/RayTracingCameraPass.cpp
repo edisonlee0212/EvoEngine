@@ -212,6 +212,37 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     UpdateRayCameraOptionalOutputDescriptors(output_descriptor_set, history_resources, fallback_color_image_info,
                                              fallback_uint_image_info);
 
+#ifdef EVOENGINE_ENABLE_NRD
+    if (parameters.write_nrd_signals) {
+      if (!parameters.primary_surface_buffer || !history_resources.restir_nrd_diffuse_signal_view ||
+          !history_resources.restir_nrd_specular_signal_view || !history_resources.restir_nrd_excluded_signal_view ||
+          !history_resources.restir_nrd_diffuse_factor_view || !history_resources.restir_nrd_specular_factor_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
+        return;
+      }
+      output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirPrimarySurfaceBinding,
+                                                           parameters.primary_surface_buffer);
+      parameters.transient_resources->RetainBuffer(parameters.primary_surface_buffer);
+      const std::array bindings{
+          std::pair{kRayCameraNrdDiffuseSignalBinding, history_resources.restir_nrd_diffuse_signal_view},
+          std::pair{kRayCameraNrdSpecularSignalBinding, history_resources.restir_nrd_specular_signal_view},
+          std::pair{kRayCameraNrdExcludedSignalBinding, history_resources.restir_nrd_excluded_signal_view},
+          std::pair{kRayCameraNrdDiffuseFactorBinding, history_resources.restir_nrd_diffuse_factor_view},
+          std::pair{kRayCameraNrdSpecularFactorBinding, history_resources.restir_nrd_specular_factor_view},
+      };
+      for (const auto& [binding, view] : bindings) {
+        image_info.imageView = view->GetVkImageView();
+        output_descriptor_set->UpdateImageDescriptorBinding(binding, image_info);
+        parameters.transient_resources->RetainImageView(view);
+      }
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_diffuse_signal_image);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_specular_signal_image);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_excluded_signal_image);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_diffuse_factor_image);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_specular_factor_image);
+    }
+#endif
+
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
@@ -220,13 +251,16 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = parameters.camera->camera_settings.accumulate_samples
-                                 ? (history_resources.valid ? history_resources.frame_id : 0u)
-                                 : static_cast<uint32_t>(Platform::GetFrameCount());
+    const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    push_constant.frame_id =
+        (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+            ? history_resources.restir_history_frame_id
+        : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
+                                                                : static_cast<uint32_t>(Platform::GetFrameCount());
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
-    push_constant.total_samples = parameters.camera->camera_settings.accumulate_samples
-                                      ? push_constant.frame_id * push_constant.frame_samples
-                                      : 0u;
+    push_constant.total_samples =
+        parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id * push_constant.frame_samples : 0u;
     push_constant.shader_execution_reordering =
         (!Platform::RayTracingLinearSweptSpheresEnabled() &&
          Camera::ResolveShaderExecutionReorderingEnabled(
@@ -301,6 +335,84 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     const auto fallback_uint_image_info = PrepareRayCameraUintFallback(vk_command_buffer, history_resources);
     UpdateRayCameraOptionalOutputDescriptors(output_descriptor_set, history_resources, fallback_color_image_info,
                                              fallback_uint_image_info);
+#ifdef EVOENGINE_ENABLE_NRD
+    if (parameters.bind_nrd_guides) {
+      if (!history_resources.restir_nrd_view_z_view || !history_resources.restir_nrd_motion_view ||
+          !history_resources.restir_nrd_normal_roughness_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.restir_nrd_view_z_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdViewZBinding, image_info);
+      image_info.imageView = history_resources.restir_nrd_motion_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdMotionBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_view_z_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_view_z_view);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_motion_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_motion_view);
+      image_info.imageView = history_resources.restir_nrd_normal_roughness_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdNormalRoughnessBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_normal_roughness_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_normal_roughness_view);
+    }
+    if (parameters.write_nrd_signals) {
+      if (!history_resources.restir_nrd_diffuse_signal_view || !history_resources.restir_nrd_specular_signal_view ||
+          !history_resources.restir_nrd_excluded_signal_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.restir_nrd_diffuse_signal_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdDiffuseSignalBinding, image_info);
+      image_info.imageView = history_resources.restir_nrd_specular_signal_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdSpecularSignalBinding, image_info);
+      image_info.imageView = history_resources.restir_nrd_excluded_signal_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdExcludedSignalBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_diffuse_signal_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_diffuse_signal_view);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_specular_signal_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_specular_signal_view);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_excluded_signal_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_excluded_signal_view);
+    }
+    if (parameters.read_nrd_denoised) {
+      if (!history_resources.restir_nrd_denoised_diffuse_view || !history_resources.restir_nrd_denoised_specular_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.restir_nrd_denoised_diffuse_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdDenoisedDiffuseBinding, image_info);
+      image_info.imageView = history_resources.restir_nrd_denoised_specular_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdDenoisedSpecularBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_denoised_diffuse_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_denoised_diffuse_view);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_denoised_specular_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_denoised_specular_view);
+    }
+    if (parameters.bind_nrd_lobe_hit_distance) {
+      if (!history_resources.restir_nrd_lobe_hit_distance_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.restir_nrd_lobe_hit_distance_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdLobeHitDistanceBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_lobe_hit_distance_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_lobe_hit_distance_view);
+    }
+    if (parameters.bind_nrd_material_factors) {
+      if (!history_resources.restir_nrd_diffuse_factor_view || !history_resources.restir_nrd_specular_factor_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.restir_nrd_diffuse_factor_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdDiffuseFactorBinding, image_info);
+      image_info.imageView = history_resources.restir_nrd_specular_factor_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdSpecularFactorBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_diffuse_factor_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_diffuse_factor_view);
+      parameters.transient_resources->RetainImage(history_resources.restir_nrd_specular_factor_image);
+      parameters.transient_resources->RetainImageView(history_resources.restir_nrd_specular_factor_view);
+    }
+#endif
     if (parameters.candidate_buffer) {
       output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirCandidateBinding,
                                                            parameters.candidate_buffer);
@@ -324,6 +436,20 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
                                                            parameters.generated_buffer);
       parameters.transient_resources->RetainBuffer(parameters.generated_buffer);
     }
+    const auto bind_restir_buffer = [&](const uint32_t binding, const std::shared_ptr<Buffer>& buffer) {
+      if (buffer) {
+        output_descriptor_set->UpdateBufferDescriptorBinding(binding, buffer);
+        parameters.transient_resources->RetainBuffer(buffer);
+      }
+    };
+    bind_restir_buffer(kRayCameraRestirPreviousHistoryBinding, parameters.previous_history_buffer);
+    bind_restir_buffer(kRayCameraRestirPreviousSurfaceBinding, parameters.previous_surface_buffer);
+    bind_restir_buffer(kRayCameraRestirTemporalForwardBinding, parameters.temporal_forward_buffer);
+    bind_restir_buffer(kRayCameraRestirDuplicationBinding, parameters.duplication_buffer);
+    bind_restir_buffer(kRayCameraRestirNextHistoryBinding, parameters.next_history_buffer);
+    bind_restir_buffer(kRayCameraRestirPairingBinding, parameters.pairing_buffer);
+    bind_restir_buffer(kRayCameraRestirPreviousInstanceBinding, parameters.previous_instance_buffer);
+    bind_restir_buffer(kRayCameraRestirInitialBinding, parameters.initial_buffer);
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -333,13 +459,16 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
-    push_constant.frame_id = parameters.camera->camera_settings.accumulate_samples
-                                 ? (history_resources.valid ? history_resources.frame_id : 0u)
-                                 : static_cast<uint32_t>(Platform::GetFrameCount());
+    const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    push_constant.frame_id =
+        (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+            ? history_resources.restir_history_frame_id
+        : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
+                                                                : static_cast<uint32_t>(Platform::GetFrameCount());
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
-    push_constant.total_samples = parameters.camera->camera_settings.accumulate_samples
-                                      ? push_constant.frame_id * push_constant.frame_samples
-                                      : 0u;
+    push_constant.total_samples =
+        parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id * push_constant.frame_samples : 0u;
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -353,6 +482,10 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     if (parameters.commit_history) {
       history_resources.valid = true;
       ++history_resources.frame_id;
+    }
+    if (parameters.commit_restir_history) {
+      history_resources.restir_history_valid = true;
+      ++history_resources.restir_history_frame_id;
     }
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);

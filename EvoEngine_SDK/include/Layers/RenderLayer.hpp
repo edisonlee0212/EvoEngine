@@ -172,6 +172,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   [[nodiscard]] RayCameraShaderVariantStats GetRayCameraShaderVariantStats(RayCameraShaderTechnique technique) const;
   [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] bool IsRestirPtTemporalShaderVariantReady(bool nrd_denoising) const;
+  [[nodiscard]] std::string GetRestirPtTemporalShaderVariantError(bool nrd_denoising) const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] RayCameraFramePathStats GetRayCameraFramePathStats() const;
 
@@ -1084,15 +1086,27 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> restir_pt_resolve_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_hybrid_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_enhanced_spatial_hybrid_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_profile_spatial_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_combine_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_resolve_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_duplication_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_nrd_guides_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_nrd_composite_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_hybrid_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_temporal_backward_hybrid_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_temporal_backward_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_enhanced_combine_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_temporal_combine_pipeline_;
+  mutable std::shared_ptr<Buffer> restir_pt_pairing_buffer_;
   std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_fallback_pipeline_;
   std::shared_ptr<RayCameraShaderVariantCache> ray_camera_shader_variant_cache_;
+  std::array<std::shared_ptr<RayCameraShaderVariantCache>, 6> restir_pt_temporal_variant_caches_{};
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   friend class PointCloud;
   std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;

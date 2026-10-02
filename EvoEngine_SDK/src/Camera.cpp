@@ -111,6 +111,28 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
                  RayCameraOptionalOutputByteSize(output);
   }
+  if (history.restir_nrd_view_z_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(float);
+  if (history.restir_nrd_motion_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.restir_nrd_diffuse_signal_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.restir_nrd_specular_signal_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.restir_nrd_excluded_signal_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.restir_nrd_normal_roughness_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(uint32_t);
+  if (history.restir_nrd_denoised_diffuse_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(uint16_t) * 4u;
+  if (history.restir_nrd_denoised_specular_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(uint16_t) * 4u;
+  if (history.restir_nrd_lobe_hit_distance_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(float) * 2u;
+  if (history.restir_nrd_diffuse_factor_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(uint16_t) * 4u;
+  if (history.restir_nrd_specular_factor_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(uint16_t) * 4u;
   for (const auto& buffer : history.restir_candidate_buffers) {
     if (buffer) {
       byte_size += buffer->GetSize();
@@ -126,6 +148,11 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
       byte_size += buffer->GetSize();
     }
   }
+  for (const auto& buffer : history.restir_initial_buffers) {
+    if (buffer) {
+      byte_size += buffer->GetSize();
+    }
+  }
   for (const auto& buffer : history.restir_shift_buffers) {
     if (buffer) {
       byte_size += buffer->GetSize();
@@ -134,6 +161,13 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
   for (const auto& buffer : history.restir_generated_buffers) {
     if (buffer) {
       byte_size += buffer->GetSize();
+    }
+  }
+  for (const auto& buffers : {&history.restir_spatial_history_buffers, &history.restir_surface_history_buffers,
+                              &history.restir_temporal_forward_buffers, &history.restir_duplication_buffers}) {
+    for (const auto& buffer : *buffers) {
+      if (buffer)
+        byte_size += buffer->GetSize();
     }
   }
   return byte_size;
@@ -341,7 +375,8 @@ const std::vector<std::string>& Camera::GetRayDebugViewNames() {
 }
 
 const std::vector<std::string>& Camera::GetRayIntegratorNames() {
-  static const std::vector<std::string> names{"Path Tracing", "ReSTIR PT Candidate Only", "ReSTIR PT Spatial Only"};
+  static const std::vector<std::string> names{"Path Tracing", "ReSTIR PT Candidate Only", "ReSTIR PT Spatial Only",
+                                              "ReSTIR PT Enhanced", "ReSTIR PT Temporal Only"};
   return names;
 }
 
@@ -502,6 +537,12 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
   if (restir_spatial_neighbors != other.restir_spatial_neighbors)
     return true;
   if (restir_spatial_hybrid != other.restir_spatial_hybrid)
+    return true;
+  if (restir_temporal_history_cap != other.restir_temporal_history_cap)
+    return true;
+  if (restir_temporal_adaptive_cap != other.restir_temporal_adaptive_cap)
+    return true;
+  if (restir_enhanced_mode != other.restir_enhanced_mode)
     return true;
   if (auto_spp_min_samples != other.auto_spp_min_samples)
     return true;
@@ -671,7 +712,11 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
   camera_info_block.ray_debug_view =
       static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
-  camera_info_block.ray_output_flags = RayCameraOptionalOutputMask(camera_settings.ray_outputs);
+  auto ray_outputs = camera_settings.ray_outputs;
+#ifdef EVOENGINE_ENABLE_NRD
+  ray_outputs.normal |= camera_settings.nrd_denoising;
+#endif
+  camera_info_block.ray_output_flags = RayCameraOptionalOutputMask(ray_outputs);
   camera_info_block.raster_lighting_flags = 0u;
   if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
       post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
@@ -683,8 +728,20 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
   camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled && camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.accumulate_samples = camera_settings.accumulate_samples ? 1u : 0u;
-  camera_info_block.restir_spatial_neighbors = glm::clamp(camera_settings.restir_spatial_neighbors, 1, 4);
-  camera_info_block.restir_spatial_hybrid = camera_settings.restir_spatial_hybrid ? 1u : 0u;
+  camera_info_block.restir_spatial_neighbors =
+      glm::clamp(camera_settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors);
+  camera_info_block.restir_spatial_hybrid =
+      camera_settings.restir_spatial_hybrid &&
+              camera_settings.ray_integrator != CameraSettings::RayIntegrator::RestirPtTemporalOnly
+          ? 1u
+          : 0u;
+  camera_info_block.restir_temporal_history_cap = glm::clamp(camera_settings.restir_temporal_history_cap, 1, 32);
+  camera_info_block.restir_temporal_adaptive_cap = camera_settings.restir_temporal_adaptive_cap ? 1u : 0u;
+  camera_info_block.restir_enhanced_mode =
+      (camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+       camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+          ? 1u
+          : 0u;
   camera_info_block.auto_spp_min_samples = auto_spp_min_samples;
   camera_info_block.auto_spp_max_samples = auto_spp_max_samples;
   camera_info_block.auto_spp_convergence_threshold = glm::max(camera_settings.auto_spp_convergence_threshold, 0.0f);
@@ -1003,7 +1060,9 @@ bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& ca
                                           std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const {
   const auto& history = ray_camera_history_;
   const auto slot = history.restir_last_shift_slot;
-  if (!history.valid || history.integrator != CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+  if (!history.valid ||
+      (history.integrator != CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
+       history.integrator != CameraSettings::RayIntegrator::RestirPtEnhanced) ||
       slot >= history.restir_candidate_buffers.size() || slot >= history.restir_shift_buffers.size() ||
       !history.restir_candidate_buffers[slot] || !history.restir_shift_buffers[slot]) {
     return false;
@@ -1012,7 +1071,8 @@ bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& ca
   const auto pixel_count = static_cast<size_t>(extent.x) * extent.y;
   history.restir_candidate_buffers[slot]->DownloadVector(candidates, pixel_count);
   history.restir_shift_buffers[slot]->DownloadVector(
-      shifts, pixel_count * static_cast<size_t>(glm::clamp(camera_settings.restir_spatial_neighbors, 1, 4)));
+      shifts, pixel_count * static_cast<size_t>(glm::clamp(camera_settings.restir_spatial_neighbors, 1,
+                                                           CameraSettings::kMaxRestirSpatialNeighbors)));
   return true;
 }
 
@@ -1024,6 +1084,32 @@ bool Camera::DownloadRestirPtGeneratedFrame(std::vector<RestirPtGeneratedPixel>&
   }
   extent = {history.extent.width, history.extent.height};
   history.restir_generated_buffers[slot]->DownloadVector(generated, static_cast<size_t>(extent.x) * extent.y);
+  return true;
+}
+
+bool Camera::DownloadRestirPtEnhancedFrame(std::vector<RestirPtSpatialShift>& forward,
+                                           std::vector<RestirPtPathReservoir>& history_reservoirs,
+                                           std::vector<RestirPtResolvedRadiance>& resolved, glm::uvec2& extent,
+                                           uint32_t& history_frames) const {
+  const auto& history = ray_camera_history_;
+  const auto frame_slot = history.restir_last_shift_slot;
+  history_frames = history.restir_history_frame_id;
+  if (!history.restir_history_valid || history_frames < 2u ||
+      (history.integrator != CameraSettings::RayIntegrator::RestirPtEnhanced &&
+       history.integrator != CameraSettings::RayIntegrator::RestirPtTemporalOnly) ||
+      frame_slot >= history.restir_temporal_forward_buffers.size() ||
+      !history.restir_temporal_forward_buffers[frame_slot] || frame_slot >= history.restir_resolved_buffers.size() ||
+      !history.restir_resolved_buffers[frame_slot] || history.restir_spatial_history_buffers.empty()) {
+    return false;
+  }
+  const auto history_slot = (history_frames - 1u) % history.restir_spatial_history_buffers.size();
+  if (!history.restir_spatial_history_buffers[history_slot])
+    return false;
+  extent = {history.extent.width, history.extent.height};
+  const auto pixel_count = static_cast<size_t>(extent.x) * extent.y;
+  history.restir_temporal_forward_buffers[frame_slot]->DownloadVector(forward, pixel_count);
+  history.restir_spatial_history_buffers[history_slot]->DownloadVector(history_reservoirs, pixel_count);
+  history.restir_resolved_buffers[frame_slot]->DownloadVector(resolved, pixel_count);
   return true;
 }
 
@@ -1057,6 +1143,13 @@ void Camera::ResetFrameCount() {
   if (post_processing_resources_) {
     post_processing_resources_->ResetTemporalState();
   }
+}
+bool Camera::NrdDenoisingAvailable() {
+#ifdef EVOENGINE_ENABLE_NRD
+  return true;
+#else
+  return false;
+#endif
 }
 
 PostProcessingCameraResources& Camera::AcquirePostProcessingResources(
@@ -1111,13 +1204,19 @@ void Camera::ReleasePostProcessingResources() {
   post_processing_resources_.reset();
 }
 
-void Camera::InvalidateRayCameraHistory() {
+void Camera::InvalidateRayCameraHistory(const bool invalidate_restir_history) {
   if (HasRayCameraHistory(ray_camera_history_)) {
     ray_camera_history_.temporal_history_version = temporal_history_version_;
     ray_camera_history_.frame_id = 0;
     ray_camera_history_.valid = false;
     ray_camera_history_.restir_last_shift_slot = UINT32_MAX;
     ray_camera_history_.restir_last_generated_slot = UINT32_MAX;
+    if (invalidate_restir_history) {
+      ray_camera_history_.restir_history_frame_id = 0;
+      ray_camera_history_.restir_history_valid = false;
+      ray_camera_history_.restir_nrd_history_valid = false;
+      ray_camera_history_.restir_nrd_history_frame_count = 0;
+    }
     ++ray_camera_history_counters_.invalidation_count;
   }
 }
@@ -1163,6 +1262,10 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.valid = false;
       history.restir_last_shift_slot = UINT32_MAX;
       history.restir_last_generated_slot = UINT32_MAX;
+      history.restir_history_frame_id = 0;
+      history.restir_history_valid = false;
+      history.restir_nrd_history_valid = false;
+      history.restir_nrd_history_frame_count = 0;
       ++ray_camera_history_counters_.invalidation_count;
     }
   }

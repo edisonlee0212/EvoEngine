@@ -1,4 +1,7 @@
 #include "RenderLayer.hpp"
+#ifdef EVOENGINE_ENABLE_NRD
+#  include "NrdRayCameraDenoiser.hpp"
+#endif
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
@@ -78,6 +81,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <initializer_list>
 #include <limits>
@@ -571,6 +575,16 @@ RenderResourceDescriptor CreateDdgiImportedImageResourceDescriptor(const std::st
   descriptor.managed_by_graph = false;
   return descriptor;
 }
+
+#ifdef EVOENGINE_ENABLE_NRD
+RenderResourceDescriptor CreateRestirPtNrdGuideResourceDescriptor(const char* name, const VkExtent3D extent,
+                                                                  const char* format_name) {
+  auto descriptor = CreateDdgiImageResourceDescriptor(name, glm::uvec2(extent.width, extent.height), format_name);
+  descriptor.lifetime = RenderResourceLifetime::Persistent;
+  descriptor.managed_by_graph = false;
+  return descriptor;
+}
+#endif
 
 std::shared_ptr<Image> CreateDdgiAtlasImage(const DdgiAtlasLayout& layout, const VkFormat format) {
   if (!Platform::Initialized() || layout.resolution.x == 0 || layout.resolution.y == 0) {
@@ -1393,6 +1407,24 @@ std::shared_ptr<Buffer> CreateRestirPtStorageBuffer(const VkExtent3D extent, con
   return std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
 }
 
+#ifdef EVOENGINE_ENABLE_NRD
+std::shared_ptr<Image> CreateRestirPtNrdGuideImage(const VkExtent3D extent, const VkFormat format) {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = extent;
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = format;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  return std::make_shared<Image>(image_info);
+}
+#endif
+
 std::shared_ptr<Buffer> CreateDdgiFallbackProbeStateBuffer(const uint64_t byte_size) {
   const auto fallback_byte_size = glm::max(byte_size, static_cast<uint64_t>(sizeof(glm::vec4)));
   auto buffer = CreateDdgiProbeStateBuffer(fallback_byte_size);
@@ -1433,13 +1465,23 @@ void AddDdgiRayTracingFrameResources(RenderGraph& graph) {
       {RenderResourceNames::scene_mesh_tlas, RenderResourceType::AccelerationStructure, RenderResourceLifetime::Frame});
 }
 
-std::string CameraVariantShaderHeader(const uint32_t feature_mask) {
-  return Platform::GetShaderGlobalDefines() + "\n#define EE_CAMERA_ENABLE_DEBUG_VIEWS " +
+std::string CameraVariantShaderHeader(const uint32_t feature_mask, const bool nrd_signals = true) {
+  return Platform::GetShaderGlobalDefines() +
+#ifdef EVOENGINE_ENABLE_NRD
+         (nrd_signals ? "\n#define EE_ENABLE_NRD_SIGNALS 1\n" : "") +
+#endif
+         "\n#define EE_CAMERA_ENABLE_DEBUG_VIEWS " +
          ((feature_mask & kRayCameraDebugViewsFeature) != 0u ? "1\n" : "0\n") +
          BuildGltfSceneFeatureDefines(feature_mask);
 }
 
 constexpr uint32_t kRestirPtUnsupportedMaterialFeatures = static_cast<uint32_t>(GltfSceneFeature::Dispersion);
+constexpr size_t kTemporalNrdCandidate = 0;
+constexpr size_t kTemporalForward = 1;
+constexpr size_t kTemporalBackward = 2;
+constexpr size_t kTemporalRawCandidate = 3;
+constexpr size_t kTemporalRawCombine = 4;
+constexpr size_t kTemporalRawResolve = 5;
 
 std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
     const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
@@ -1498,11 +1540,13 @@ std::shared_ptr<ComputePipeline> CreateRestirPtCameraPipeline(
     const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
     const std::shared_ptr<DescriptorSetLayout>& ray_tracing_layout,
     const std::shared_ptr<DescriptorSetLayout>& camera_output_layout, const std::string& shader_name,
-    const bool profile_generated = false, const bool single_sample = false) {
+    const bool profile_generated = false, const bool single_sample = false,
+    const uint32_t feature_mask = kGltfSceneAllFeatures & ~kRestirPtUnsupportedMaterialFeatures,
+    const bool nrd_signals = true) {
   auto pipeline = std::make_shared<ComputePipeline>();
   pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute,
-                              CameraVariantShaderHeader(kGltfSceneAllFeatures & ~kRestirPtUnsupportedMaterialFeatures) +
+                              CameraVariantShaderHeader(feature_mask, nrd_signals) +
                                   (profile_generated ? "\n#define EE_RESTIR_PT_PROFILE_GENERATED 1\n"
                                                        "#define EE_RESTIR_PT_PROFILE_ELIGIBILITY 1\n"
                                                      : "") +
@@ -1692,13 +1736,41 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
         kRayCameraRestirCandidateBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
-        kRayCameraRestirPrimarySurfaceBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+        kRayCameraRestirPrimarySurfaceBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_output_stages, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
         kRayCameraRestirResolvedBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
         kRayCameraRestirShiftBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
         kRayCameraRestirGeneratedBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    for (uint32_t binding = kRayCameraRestirPreviousHistoryBinding; binding <= kRayCameraRestirInitialBinding;
+         ++binding) {
+      ray_tracing_camera_output_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    }
+#ifdef EVOENGINE_ENABLE_NRD
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdViewZBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdMotionBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    for (uint32_t binding = kRayCameraNrdDiffuseSignalBinding; binding <= kRayCameraNrdExcludedSignalBinding;
+         ++binding) {
+      ray_tracing_camera_output_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                               ray_camera_output_stages, 0);
+    }
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdNormalRoughnessBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdDenoisedDiffuseBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdDenoisedSpecularBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdLobeHitDistanceBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdDiffuseFactorBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, ray_camera_output_stages, 0);
+    ray_tracing_camera_output_layout_->PushDescriptorBinding(
+        kRayCameraNrdSpecularFactorBinding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, ray_camera_output_stages, 0);
+#endif
     ray_tracing_camera_output_layout_->Initialize();
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_layout_) {
@@ -2827,7 +2899,7 @@ void RenderLayer::ClearAuxiliaryCameras() const {
     for (const auto& i : cameras) {
       if (i.second->prev_global_transform_ != i.first.value) {
         i.second->frame_count_ = 0;
-        i.second->InvalidateRayCameraHistory();
+        i.second->InvalidateRayCameraHistory(false);
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
@@ -3052,7 +3124,7 @@ void RenderLayer::ClearAllCameras() const {
     for (const auto& i : cameras) {
       if (i.second->prev_global_transform_ != i.first.value) {
         i.second->frame_count_ = 0;
-        i.second->InvalidateRayCameraHistory();
+        i.second->InvalidateRayCameraHistory(false);
         i.second->prev_global_transform_ = i.first.value;
       }
       if ((i.second->camera_render_mode == Camera::CameraRenderMode::Rasterization && i.second->rendered_) ||
@@ -3198,6 +3270,11 @@ void RenderLayer::PrepareSceneForRendering(
       bool need_ray_query = false;
       bool need_restir_pt = false;
       bool need_restir_pt_spatial = false;
+      bool need_restir_pt_enhanced = false;
+      bool need_restir_pt_temporal = false;
+      bool need_restir_pt_temporal_raw = false;
+      bool need_restir_pt_temporal_nrd = false;
+      bool need_restir_pt_enhanced_hybrid = false;
       bool need_restir_pt_hybrid = false;
       bool need_restir_pt_generated = false;
       bool need_ray_tracing_debug_views = false;
@@ -3211,8 +3288,21 @@ void RenderLayer::PrepareSceneForRendering(
             camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
         need_restir_pt |= restir_pt_requested;
         need_restir_pt_generated |= restir_pt_requested && camera->restir_pt_profile_generated;
-        need_restir_pt_spatial |= restir_pt_requested && camera->camera_settings.ray_integrator ==
-                                                             CameraSettings::RayIntegrator::RestirPtSpatialOnly;
+        need_restir_pt_enhanced |= restir_pt_requested && camera->camera_settings.ray_integrator ==
+                                                              CameraSettings::RayIntegrator::RestirPtEnhanced;
+        const bool temporal_requested = restir_pt_requested && camera->camera_settings.ray_integrator ==
+                                                                   CameraSettings::RayIntegrator::RestirPtTemporalOnly;
+        need_restir_pt_temporal |= temporal_requested;
+        need_restir_pt_temporal_raw |= temporal_requested && !camera->camera_settings.nrd_denoising;
+        need_restir_pt_temporal_nrd |= temporal_requested && camera->camera_settings.nrd_denoising;
+        need_restir_pt_enhanced_hybrid |=
+            restir_pt_requested &&
+            camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced &&
+            camera->camera_settings.restir_spatial_hybrid;
+        need_restir_pt_spatial |=
+            restir_pt_requested &&
+            (camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+             camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced);
         need_restir_pt_hybrid |=
             restir_pt_requested &&
             camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
@@ -3242,6 +3332,14 @@ void RenderLayer::PrepareSceneForRendering(
         restir_pt_resolve_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtResolve.slang");
       }
+#ifdef EVOENGINE_ENABLE_NRD
+      if ((need_restir_pt || need_ray_query || need_ray_tracing) && !restir_pt_nrd_guides_pipeline_) {
+        restir_pt_nrd_guides_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtNrdGuides.slang");
+        restir_pt_nrd_composite_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtNrdComposite.slang");
+      }
+#endif
       if (need_restir_pt_generated && Platform::RayQueryEnabled() && !restir_pt_profile_candidate_pipeline_) {
         restir_pt_profile_candidate_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtCandidate.slang", true);
@@ -3259,19 +3357,86 @@ void RenderLayer::PrepareSceneForRendering(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatial.slang");
         restir_pt_spatial_combine_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialCombine.slang");
+      }
+      if ((need_restir_pt_spatial || need_restir_pt_temporal) && Platform::RayQueryEnabled() &&
+          !restir_pt_spatial_resolve_pipeline_)
         restir_pt_spatial_resolve_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialResolve.slang");
-      }
       if (need_restir_pt_hybrid && Platform::RayQueryEnabled() && !restir_pt_spatial_hybrid_pipeline_) {
         restir_pt_spatial_hybrid_pipeline_ = CreateRestirPtCameraPipeline(
             per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtSpatialHybrid.slang");
+      }
+      if ((need_restir_pt_enhanced || need_restir_pt_temporal) && Platform::RayQueryEnabled() &&
+          !restir_pt_temporal_forward_pipeline_) {
+        restir_pt_duplication_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtDuplication.slang");
+        restir_pt_temporal_forward_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtTemporalForward.slang");
+        restir_pt_temporal_backward_pipeline_ =
+            CreateRestirPtCameraPipeline(per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_,
+                                         "RestirPtTemporalBackward.slang");
+      }
+      if (need_restir_pt_temporal && Platform::RayQueryEnabled() && !restir_pt_temporal_combine_pipeline_)
+        restir_pt_temporal_combine_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtTemporalCombine.slang");
+      std::array<bool, 6> temporal_variant_activated{};
+      if (need_restir_pt_temporal && Platform::RayQueryEnabled()) {
+        const std::array<std::shared_ptr<ComputePipeline>, 6> fallbacks = {
+            restir_pt_single_sample_candidate_pipeline_, restir_pt_temporal_forward_pipeline_,
+            restir_pt_temporal_backward_pipeline_,       restir_pt_single_sample_candidate_pipeline_,
+            restir_pt_temporal_combine_pipeline_,        restir_pt_spatial_resolve_pipeline_};
+        constexpr std::array shader_names = {"RestirPtCandidate.slang",        "RestirPtTemporalForward.slang",
+                                             "RestirPtTemporalBackward.slang", "RestirPtCandidate.slang",
+                                             "RestirPtTemporalCombine.slang",  "RestirPtSpatialResolve.slang"};
+        for (size_t i = 0; i < restir_pt_temporal_variant_caches_.size(); ++i) {
+          if ((i == kTemporalNrdCandidate && !need_restir_pt_temporal_nrd) ||
+              (i >= kTemporalRawCandidate && !need_restir_pt_temporal_raw))
+            continue;
+          auto& cache = restir_pt_temporal_variant_caches_[i];
+          if (!cache) {
+            cache = std::make_shared<RayCameraShaderVariantCache>(
+                nullptr, fallbacks[i], RayCameraShaderVariantCache::RayTracingFactory{},
+                [per_frame_layout = per_frame_layout_, ray_tracing_layout = ray_tracing_layout_,
+                 camera_output_layout = ray_tracing_camera_output_layout_, shader_name = std::string(shader_names[i]),
+                 single_sample = i == kTemporalNrdCandidate || i == kTemporalRawCandidate,
+                 nrd_signals = i < kTemporalRawCandidate](const uint32_t mask) {
+                  return CreateRestirPtCameraPipeline(per_frame_layout, ray_tracing_layout, camera_output_layout,
+                                                      shader_name, false, single_sample, mask, nrd_signals);
+                });
+          }
+          temporal_variant_activated[i] = cache
+                                              ->Update(feature_mask & ~kRestirPtUnsupportedMaterialFeatures, false,
+                                                       true, false, force_full_ray_camera_shader_variant)
+                                              .ray_query_activated;
+        }
+      }
+      if (need_restir_pt_enhanced && Platform::RayQueryEnabled() && !restir_pt_enhanced_combine_pipeline_)
+        restir_pt_enhanced_combine_pipeline_ = CreateRestirPtCameraPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "RestirPtEnhancedCombine.slang");
+      if (need_restir_pt_enhanced_hybrid && Platform::RayQueryEnabled() &&
+          !restir_pt_temporal_forward_hybrid_pipeline_) {
+        restir_pt_enhanced_spatial_hybrid_pipeline_ =
+            CreateRestirPtCameraPipeline(per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_,
+                                         "RestirPtEnhancedSpatialHybrid.slang");
+        restir_pt_temporal_forward_hybrid_pipeline_ =
+            CreateRestirPtCameraPipeline(per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_,
+                                         "RestirPtTemporalForwardHybrid.slang");
+        restir_pt_temporal_backward_hybrid_pipeline_ =
+            CreateRestirPtCameraPipeline(per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_,
+                                         "RestirPtTemporalBackwardHybrid.slang");
       }
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
         const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
         if ((variant_update.ray_tracing_activated && mode == Camera::CameraRenderMode::RayTracing) ||
-            (variant_update.ray_query_activated && mode == Camera::CameraRenderMode::RayQuery)) {
+            (variant_update.ray_query_activated && mode == Camera::CameraRenderMode::RayQuery) ||
+            (camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly &&
+             (temporal_variant_activated[kTemporalForward] || temporal_variant_activated[kTemporalBackward] ||
+              (camera->camera_settings.nrd_denoising ? temporal_variant_activated[kTemporalNrdCandidate]
+                                                     : temporal_variant_activated[kTemporalRawCandidate] ||
+                                                           temporal_variant_activated[kTemporalRawCombine] ||
+                                                           temporal_variant_activated[kTemporalRawResolve])))) {
           camera->ResetFrameCount();
         }
       }
@@ -6673,6 +6838,31 @@ bool RenderLayer::IsRayCameraShaderVariantReady(const RayCameraShaderTechnique t
   return !ray_camera_shader_variant_cache_ || ray_camera_shader_variant_cache_->IsReady(technique);
 }
 
+bool RenderLayer::IsRestirPtTemporalShaderVariantReady(const bool nrd_denoising) const {
+  for (size_t i = 0; i < restir_pt_temporal_variant_caches_.size(); ++i) {
+    if ((i == kTemporalNrdCandidate && !nrd_denoising) || (i >= kTemporalRawCandidate && nrd_denoising))
+      continue;
+    const auto& cache = restir_pt_temporal_variant_caches_[i];
+    if (!cache || !cache->IsReady(RayCameraShaderTechnique::RayQuery))
+      return false;
+  }
+  return true;
+}
+
+std::string RenderLayer::GetRestirPtTemporalShaderVariantError(const bool nrd_denoising) const {
+  for (size_t i = 0; i < restir_pt_temporal_variant_caches_.size(); ++i) {
+    if ((i == kTemporalNrdCandidate && !nrd_denoising) || (i >= kTemporalRawCandidate && nrd_denoising))
+      continue;
+    const auto& cache = restir_pt_temporal_variant_caches_[i];
+    if (cache) {
+      const auto stats = cache->GetStats(RayCameraShaderTechnique::RayQuery);
+      if (stats.failed)
+        return stats.last_error;
+    }
+  }
+  return {};
+}
+
 void RenderLayer::ApplyAnimators() const {
   const auto scene = GetScene();
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>()) {
@@ -7207,20 +7397,22 @@ bool RenderLayer::UpdateRenderInstanceStorage(
            previous_render_instances->camera_info_blocks_[previous_index];
   };
   if (render_instance_updated) {
+    const bool rigid_motion_only =
+        previous_render_instances && current_render_instances->HasOnlyRigidTransformChanges(*previous_render_instances);
     world_bound.min -= glm::vec3(0.1f);
     world_bound.max += glm::vec3(0.1f);
     scene->SetBound(world_bound);
     for (const auto& camera_entry : current_render_instances->cameras) {
       if (const auto& camera = camera_entry.second) {
         camera->frame_count_ = 0;
-        camera->InvalidateRayCameraHistory();
+        camera->InvalidateRayCameraHistory(!rigid_motion_only);
       }
     }
   } else {
     for (const auto& camera_entry : current_render_instances->cameras) {
       if (const auto& camera = camera_entry.second; camera && camera_info_changed(camera)) {
         camera->frame_count_ = 0;
-        camera->InvalidateRayCameraHistory();
+        camera->InvalidateRayCameraHistory(false);
       }
     }
   }
@@ -8013,10 +8205,14 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     const bool restir_common_ready =
         supported_restir_scene &&
         !(camera->camera_settings.auto_spp_enabled && camera->camera_settings.accumulate_samples) &&
-        !camera->camera_settings.ray_outputs.AnyEnabled() &&
         camera->camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty &&
         restir_pt_candidate_pipeline_ && restir_pt_candidate_pipeline_->Initialized() &&
         restir_pt_single_sample_candidate_pipeline_ && restir_pt_single_sample_candidate_pipeline_->Initialized() &&
+#ifdef EVOENGINE_ENABLE_NRD
+        (!camera->camera_settings.nrd_denoising ||
+         (restir_pt_nrd_guides_pipeline_ && restir_pt_nrd_guides_pipeline_->Initialized() &&
+          restir_pt_nrd_composite_pipeline_ && restir_pt_nrd_composite_pipeline_->Initialized())) &&
+#endif
         (!camera->restir_pt_profile_generated ||
          (restir_pt_profile_candidate_pipeline_ && restir_pt_profile_candidate_pipeline_->Initialized() &&
           restir_pt_profile_single_sample_candidate_pipeline_ &&
@@ -8026,18 +8222,68 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     const bool use_restir_candidate = requested_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly &&
                                       restir_common_ready && restir_pt_resolve_pipeline_ &&
                                       restir_pt_resolve_pipeline_->Initialized();
+    const bool enhanced_requested = requested_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced;
+    const bool temporal_requested = requested_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly;
+    const bool use_adaptive_cap =
+        (enhanced_requested || temporal_requested) && camera->camera_settings.restir_temporal_adaptive_cap;
+    const bool temporal_ready =
+        (!use_adaptive_cap || (restir_pt_duplication_pipeline_ && restir_pt_duplication_pipeline_->Initialized())) &&
+        restir_pt_temporal_forward_pipeline_ && restir_pt_temporal_forward_pipeline_->Initialized() &&
+        restir_pt_temporal_backward_pipeline_ && restir_pt_temporal_backward_pipeline_->Initialized();
+    const bool enhanced_ready =
+        !enhanced_requested ||
+        (temporal_ready && restir_pt_enhanced_combine_pipeline_ &&
+         restir_pt_enhanced_combine_pipeline_->Initialized() &&
+         (!hybrid_requested ||
+          (restir_pt_enhanced_spatial_hybrid_pipeline_ && restir_pt_enhanced_spatial_hybrid_pipeline_->Initialized() &&
+           restir_pt_temporal_forward_hybrid_pipeline_ && restir_pt_temporal_forward_hybrid_pipeline_->Initialized() &&
+           restir_pt_temporal_backward_hybrid_pipeline_ &&
+           restir_pt_temporal_backward_hybrid_pipeline_->Initialized())));
     const bool use_restir_spatial =
-        requested_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly && restir_common_ready &&
-        camera->camera_settings.sample_size == 1 && restir_pt_spatial_pipeline_ &&
-        restir_pt_spatial_pipeline_->Initialized() &&
+        (requested_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly || enhanced_requested) &&
+        enhanced_ready && restir_common_ready && camera->camera_settings.sample_size == 1 &&
+        restir_pt_spatial_pipeline_ && restir_pt_spatial_pipeline_->Initialized() &&
         (!camera->restir_pt_profile_generated ||
          (restir_pt_profile_spatial_pipeline_ && restir_pt_profile_spatial_pipeline_->Initialized())) &&
         restir_pt_spatial_combine_pipeline_ && restir_pt_spatial_combine_pipeline_->Initialized() &&
         restir_pt_spatial_resolve_pipeline_ && restir_pt_spatial_resolve_pipeline_->Initialized() &&
-        (!hybrid_requested ||
+        (enhanced_requested || !hybrid_requested ||
          (restir_pt_spatial_hybrid_pipeline_ && restir_pt_spatial_hybrid_pipeline_->Initialized()));
-    const bool use_restir_hybrid = use_restir_spatial && hybrid_requested;
-    const bool use_restir_pt = use_restir_candidate || use_restir_spatial;
+    const bool use_restir_enhanced = use_restir_spatial && enhanced_requested;
+    const bool use_restir_temporal_only =
+        temporal_requested && temporal_ready && restir_common_ready && camera->camera_settings.sample_size == 1 &&
+        restir_pt_temporal_combine_pipeline_ && restir_pt_temporal_combine_pipeline_->Initialized() &&
+        restir_pt_spatial_resolve_pipeline_ && restir_pt_spatial_resolve_pipeline_->Initialized();
+    const bool use_raw_temporal_variant =
+        use_restir_temporal_only && !camera->camera_settings.nrd_denoising &&
+        std::all_of(restir_pt_temporal_variant_caches_.begin() + kTemporalRawCandidate,
+                    restir_pt_temporal_variant_caches_.end(), [](const auto& cache) {
+                      return cache && cache->IsReady(RayCameraShaderTechnique::RayQuery);
+                    });
+    const bool use_restir_history = use_restir_enhanced || use_restir_temporal_only;
+    const bool use_restir_firefly_replacement = use_restir_history && camera->camera_settings.accumulate_samples &&
+                                                camera->camera_settings.firefly_clamp_threshold > 0.0f;
+    if (use_restir_spatial && !restir_pt_pairing_buffer_) {
+      constexpr size_t pairing_map_words = 638464u;
+      std::vector<uint32_t> pairing_map(pairing_map_words);
+      const auto path = Resources::GetDefaultResourcesPath() / "RestirPtPairing.bin";
+      std::ifstream input(path, std::ios::binary);
+      if (!input ||
+          !input.read(reinterpret_cast<char*>(pairing_map.data()),
+                      static_cast<std::streamsize>(pairing_map.size() * sizeof(uint32_t))) ||
+          input.peek() != std::char_traits<char>::eof()) {
+        throw std::runtime_error("Invalid ReSTIR PT pairing map: " + path.string());
+      }
+      VkBufferCreateInfo create_info{};
+      create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      create_info.size = pairing_map.size() * sizeof(uint32_t);
+      create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+      restir_pt_pairing_buffer_ = std::make_shared<Buffer>(create_info);
+      restir_pt_pairing_buffer_->UploadVector(pairing_map);
+    }
+    const bool use_restir_hybrid = use_restir_spatial && !enhanced_requested && hybrid_requested;
+    const bool use_restir_pt = use_restir_candidate || use_restir_spatial || use_restir_temporal_only;
     if (restir_requested && !use_restir_pt) {
       if (!camera->restir_unavailable_logged_) {
         EVOENGINE_ERROR(
@@ -8074,24 +8320,36 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     std::shared_ptr<Buffer> restir_candidate_buffer;
     std::shared_ptr<Buffer> restir_primary_surface_buffer;
     std::shared_ptr<Buffer> restir_resolved_buffer;
+    std::shared_ptr<Buffer> restir_initial_buffer;
     std::shared_ptr<Buffer> restir_shift_buffer;
     std::shared_ptr<Buffer> restir_generated_buffer;
+    std::shared_ptr<Buffer> restir_previous_history_buffer;
+    std::shared_ptr<Buffer> restir_next_history_buffer;
+    std::shared_ptr<Buffer> restir_previous_surface_buffer;
+    std::shared_ptr<Buffer> restir_temporal_forward_buffer;
+    std::shared_ptr<Buffer> restir_duplication_buffer;
+    const bool use_restir_temporal = use_restir_history && ray_camera_history.restir_history_valid;
     if (use_restir_pt) {
       ray_camera_history.restir_last_generated_slot = UINT32_MAX;
       auto& candidates = ray_camera_history.restir_candidate_buffers;
-      auto& surfaces = ray_camera_history.restir_primary_surface_buffers;
+      auto& surfaces = use_restir_history ? ray_camera_history.restir_surface_history_buffers
+                                          : ray_camera_history.restir_primary_surface_buffers;
       candidates.resize(Platform::GetMaxFramesInFlight());
-      surfaces.resize(Platform::GetMaxFramesInFlight());
+      const uint32_t restir_history_ring_size = Platform::GetMaxFramesInFlight() + 1u;
+      const uint32_t surface_slot = use_restir_history
+                                        ? ray_camera_history.restir_history_frame_id % restir_history_ring_size
+                                        : current_frame_index;
+      surfaces.resize(use_restir_history ? restir_history_ring_size : Platform::GetMaxFramesInFlight());
       if (!candidates[current_frame_index]) {
         candidates[current_frame_index] =
             CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPathReservoir));
       }
-      if (!surfaces[current_frame_index]) {
-        surfaces[current_frame_index] =
+      if (!surfaces[surface_slot]) {
+        surfaces[surface_slot] =
             CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPrimarySurface));
       }
       restir_candidate_buffer = candidates[current_frame_index];
-      restir_primary_surface_buffer = surfaces[current_frame_index];
+      restir_primary_surface_buffer = surfaces[surface_slot];
       if (!restir_candidate_buffer || !restir_primary_surface_buffer) {
         return;
       }
@@ -8108,29 +8366,156 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         }
         ray_camera_history.restir_last_generated_slot = current_frame_index;
       }
-      if (use_restir_spatial) {
+      if (use_restir_spatial || use_restir_temporal_only) {
+        if (use_restir_history) {
+          auto& histories = ray_camera_history.restir_spatial_history_buffers;
+          histories.resize(restir_history_ring_size);
+          if (!histories[surface_slot]) {
+            histories[surface_slot] =
+                CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPathReservoir));
+          }
+          restir_next_history_buffer = histories[surface_slot];
+          if (use_restir_temporal) {
+            const uint32_t previous_slot = (surface_slot + restir_history_ring_size - 1u) % restir_history_ring_size;
+            restir_previous_history_buffer = histories[previous_slot];
+            restir_previous_surface_buffer = surfaces[previous_slot];
+          }
+          auto& forwards = ray_camera_history.restir_temporal_forward_buffers;
+          auto& duplications = ray_camera_history.restir_duplication_buffers;
+          forwards.resize(Platform::GetMaxFramesInFlight());
+          duplications.resize(Platform::GetMaxFramesInFlight());
+          if (!forwards[current_frame_index]) {
+            forwards[current_frame_index] =
+                CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtSpatialShift));
+          }
+          const VkExtent3D duplication_extent = use_adaptive_cap ? render_texture->GetExtent() : VkExtent3D{1u, 1u, 1u};
+          const uint64_t duplication_size =
+              static_cast<uint64_t>(duplication_extent.width) * duplication_extent.height * sizeof(uint32_t);
+          if (!duplications[current_frame_index] || duplications[current_frame_index]->GetSize() != duplication_size) {
+            duplications[current_frame_index] = CreateRestirPtStorageBuffer(duplication_extent, sizeof(uint32_t));
+          }
+          restir_temporal_forward_buffer = forwards[current_frame_index];
+          restir_duplication_buffer = duplications[current_frame_index];
+          if (!restir_next_history_buffer || !restir_temporal_forward_buffer || !restir_duplication_buffer ||
+              (use_restir_temporal && (!restir_previous_history_buffer || !restir_previous_surface_buffer)))
+            return;
+        }
         auto& resolved = ray_camera_history.restir_resolved_buffers;
         resolved.resize(Platform::GetMaxFramesInFlight());
         if (!resolved[current_frame_index]) {
           resolved[current_frame_index] =
-              CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPathReservoir));
+              CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtResolvedRadiance));
         }
         restir_resolved_buffer = resolved[current_frame_index];
-        auto& shifts = ray_camera_history.restir_shift_buffers;
-        shifts.resize(Platform::GetMaxFramesInFlight());
-        if (!shifts[current_frame_index]) {
-          shifts[current_frame_index] = CreateRestirPtStorageBuffer(
-              render_texture->GetExtent(),
-              sizeof(RestirPtSpatialShift) * glm::clamp(camera->camera_settings.restir_spatial_neighbors, 1, 4));
+        if (use_restir_firefly_replacement) {
+          auto& initial = ray_camera_history.restir_initial_buffers;
+          initial.resize(Platform::GetMaxFramesInFlight());
+          if (!initial[current_frame_index]) {
+            initial[current_frame_index] =
+                CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtResolvedRadiance));
+          }
+          restir_initial_buffer = initial[current_frame_index];
         }
-        restir_shift_buffer = shifts[current_frame_index];
-        if (!restir_resolved_buffer || !restir_shift_buffer) {
+        if (use_restir_spatial) {
+          auto& shifts = ray_camera_history.restir_shift_buffers;
+          shifts.resize(Platform::GetMaxFramesInFlight());
+          if (!shifts[current_frame_index]) {
+            shifts[current_frame_index] = CreateRestirPtStorageBuffer(
+                render_texture->GetExtent(),
+                sizeof(RestirPtSpatialShift) * glm::clamp(camera->camera_settings.restir_spatial_neighbors, 1,
+                                                          CameraSettings::kMaxRestirSpatialNeighbors));
+          }
+          restir_shift_buffer = shifts[current_frame_index];
+        }
+        if (!restir_resolved_buffer || (use_restir_spatial && !restir_shift_buffer) ||
+            (use_restir_firefly_replacement && !restir_initial_buffer)) {
           return;
         }
         ray_camera_history.restir_last_shift_slot = current_frame_index;
       }
     }
-    camera->SynchronizeRayCameraOptionalOutputs(ray_camera_history, camera->camera_settings.ray_outputs);
+#ifdef EVOENGINE_ENABLE_NRD
+    if (!use_restir_pt) {
+      auto& surfaces = ray_camera_history.restir_primary_surface_buffers;
+      surfaces.resize(Platform::GetMaxFramesInFlight());
+      if (!surfaces[current_frame_index])
+        surfaces[current_frame_index] =
+            CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtPrimarySurface));
+      restir_primary_surface_buffer = surfaces[current_frame_index];
+      if (!restir_primary_surface_buffer)
+        return;
+    }
+#endif
+#ifdef EVOENGINE_ENABLE_NRD
+    if (!ray_camera_history.restir_nrd_diffuse_signal_image) {
+      ray_camera_history.restir_nrd_diffuse_signal_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32G32B32A32_SFLOAT);
+      ray_camera_history.restir_nrd_diffuse_signal_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_diffuse_signal_image, 0);
+      ray_camera_history.restir_nrd_specular_signal_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32G32B32A32_SFLOAT);
+      ray_camera_history.restir_nrd_specular_signal_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_specular_signal_image, 0);
+      ray_camera_history.restir_nrd_excluded_signal_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32G32B32A32_SFLOAT);
+      ray_camera_history.restir_nrd_excluded_signal_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_excluded_signal_image, 0);
+      ray_camera_history.restir_nrd_lobe_hit_distance_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32G32_SFLOAT);
+      ray_camera_history.restir_nrd_lobe_hit_distance_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_lobe_hit_distance_image, 0);
+      ray_camera_history.restir_nrd_diffuse_factor_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R16G16B16A16_SFLOAT);
+      ray_camera_history.restir_nrd_diffuse_factor_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_diffuse_factor_image, 0);
+      ray_camera_history.restir_nrd_specular_factor_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R16G16B16A16_SFLOAT);
+      ray_camera_history.restir_nrd_specular_factor_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_specular_factor_image, 0);
+    }
+    if (camera->camera_settings.nrd_denoising && !ray_camera_history.restir_nrd_view_z_image) {
+      ray_camera_history.restir_nrd_view_z_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32_SFLOAT);
+      ray_camera_history.restir_nrd_view_z_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_view_z_image, 0);
+      ray_camera_history.restir_nrd_motion_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R32G32B32A32_SFLOAT);
+      ray_camera_history.restir_nrd_motion_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_motion_image, 0);
+      ray_camera_history.restir_nrd_normal_roughness_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_A2B10G10R10_UNORM_PACK32);
+      ray_camera_history.restir_nrd_normal_roughness_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_normal_roughness_image, 0);
+      ray_camera_history.restir_nrd_denoised_diffuse_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R16G16B16A16_SFLOAT);
+      ray_camera_history.restir_nrd_denoised_diffuse_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_denoised_diffuse_image, 0);
+      ray_camera_history.restir_nrd_denoised_specular_image =
+          CreateRestirPtNrdGuideImage(render_texture->GetExtent(), VK_FORMAT_R16G16B16A16_SFLOAT);
+      ray_camera_history.restir_nrd_denoised_specular_view =
+          CreateGraphImageMipView(ray_camera_history.restir_nrd_denoised_specular_image, 0);
+    }
+    if (!ray_camera_history.restir_nrd_diffuse_signal_view || !ray_camera_history.restir_nrd_specular_signal_view ||
+        !ray_camera_history.restir_nrd_excluded_signal_view || !ray_camera_history.restir_nrd_lobe_hit_distance_view ||
+        !ray_camera_history.restir_nrd_diffuse_factor_view || !ray_camera_history.restir_nrd_specular_factor_view)
+      return;
+    if (camera->camera_settings.nrd_denoising &&
+        (!ray_camera_history.restir_nrd_view_z_view || !ray_camera_history.restir_nrd_motion_view ||
+         !ray_camera_history.restir_nrd_normal_roughness_view || !ray_camera_history.restir_nrd_denoised_diffuse_view ||
+         !ray_camera_history.restir_nrd_denoised_specular_view))
+      return;
+    if (camera->camera_settings.nrd_denoising && !ray_camera_history.restir_nrd_denoiser) {
+      auto denoiser = std::make_shared<NrdRayCameraDenoiser>();
+      if (!denoiser->Initialize(render_texture->GetExtent().width, render_texture->GetExtent().height))
+        return;
+      ray_camera_history.restir_nrd_denoiser = std::move(denoiser);
+    }
+#endif
+    auto ray_outputs = camera->camera_settings.ray_outputs;
+#ifdef EVOENGINE_ENABLE_NRD
+    ray_outputs.normal |= camera->camera_settings.nrd_denoising;
+#endif
+    camera->SynchronizeRayCameraOptionalOutputs(ray_camera_history, ray_outputs);
     const auto ray_camera_output_descriptor = camera->AcquireRayCameraOutputDescriptor(
         current_frame_index, Platform::GetFrameCount(), ray_tracing_camera_output_layout_);
     UpdateRayCameraHistoryPeaks();
@@ -8161,15 +8546,66 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
             RenderResourceNames::camera_restir_generated, restir_generated_buffer->GetSize()));
       }
-      if (use_restir_spatial) {
+      if (use_restir_spatial || use_restir_temporal_only) {
         camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
             RenderResourceNames::camera_restir_resolved, restir_resolved_buffer->GetSize()));
-        camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
-            RenderResourceNames::camera_restir_shift, restir_shift_buffer->GetSize()));
+        if (use_restir_firefly_replacement) {
+          camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+              RenderResourceNames::camera_restir_initial, restir_initial_buffer->GetSize()));
+        }
+        if (use_restir_spatial)
+          camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+              RenderResourceNames::camera_restir_shift, restir_shift_buffer->GetSize()));
+        if (use_restir_history) {
+          camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+              RenderResourceNames::camera_restir_next_history, restir_next_history_buffer->GetSize()));
+          if (use_restir_temporal) {
+            camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+                RenderResourceNames::camera_restir_previous_history, restir_previous_history_buffer->GetSize()));
+            camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+                RenderResourceNames::camera_restir_previous_surface, restir_previous_surface_buffer->GetSize()));
+            camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+                RenderResourceNames::camera_restir_temporal_forward, restir_temporal_forward_buffer->GetSize()));
+            if (use_adaptive_cap)
+              camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+                  RenderResourceNames::camera_restir_duplication, restir_duplication_buffer->GetSize()));
+          }
+        }
       }
     }
-    if (camera->camera_settings.ray_outputs.AnyEnabled()) {
-      AddRayCameraOptionalOutputResources(camera_render_graph, camera->camera_settings.ray_outputs);
+#ifdef EVOENGINE_ENABLE_NRD
+    if (!use_restir_pt)
+      camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+          RenderResourceNames::camera_restir_primary_surface, restir_primary_surface_buffer->GetSize()));
+#endif
+#ifdef EVOENGINE_ENABLE_NRD
+    if (camera->camera_settings.nrd_denoising) {
+      camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(RenderResourceNames::camera_nrd_view_z,
+                                                                               render_texture->GetExtent(), "R32F"));
+      camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(RenderResourceNames::camera_nrd_motion,
+                                                                               render_texture->GetExtent(), "RGBA32F"));
+      camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+          RenderResourceNames::camera_nrd_normal_roughness, render_texture->GetExtent(), "RGB10A2"));
+      camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+          RenderResourceNames::camera_nrd_denoised_diffuse, render_texture->GetExtent(), "RGBA16F"));
+      camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+          RenderResourceNames::camera_nrd_denoised_specular, render_texture->GetExtent(), "RGBA16F"));
+    }
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_diffuse_signal, render_texture->GetExtent(), "RGBA32F"));
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_specular_signal, render_texture->GetExtent(), "RGBA32F"));
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_excluded_signal, render_texture->GetExtent(), "RGBA32F"));
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_lobe_hit_distance, render_texture->GetExtent(), "RG32F"));
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_diffuse_factor, render_texture->GetExtent(), "RGBA16F"));
+    camera_render_graph.AddResource(CreateRestirPtNrdGuideResourceDescriptor(
+        RenderResourceNames::camera_nrd_specular_factor, render_texture->GetExtent(), "RGBA16F"));
+#endif
+    if (ray_outputs.AnyEnabled()) {
+      AddRayCameraOptionalOutputResources(camera_render_graph, ray_outputs);
     }
     AddAdvancedFrameResources(camera_render_graph);
     AddAdvancedCameraResources(camera_render_graph);
@@ -8180,38 +8616,199 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     }
     AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     if (use_restir_pt) {
-      auto candidate_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Candidate");
+      auto candidate_pass = RayQueryCameraPass::CreateDescriptor(ray_outputs, "ReSTIR PT Candidate");
       candidate_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Write,
                                           RenderResourceState::StorageReadWrite});
       candidate_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
                                           RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+      if (use_restir_firefly_replacement) {
+        candidate_pass.resources.push_back({RenderResourceNames::camera_restir_initial, RenderResourceUsage::Write,
+                                            RenderResourceState::StorageReadWrite});
+      }
       if (restir_generated_buffer) {
         candidate_pass.resources.push_back({RenderResourceNames::camera_restir_generated, RenderResourceUsage::Write,
                                             RenderResourceState::StorageReadWrite});
       }
+#ifdef EVOENGINE_ENABLE_NRD
+      candidate_pass.resources.push_back({RenderResourceNames::camera_nrd_lobe_hit_distance, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+      candidate_pass.resources.push_back({RenderResourceNames::camera_nrd_diffuse_factor, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+      candidate_pass.resources.push_back({RenderResourceNames::camera_nrd_specular_factor, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+#endif
       camera_render_graph.AddPass(candidate_pass, [&](const RenderGraphExecutionContext& context) {
-        RayQueryCameraPass::Execute(
-            context,
-            {camera,
-             restir_generated_buffer
-                 ? (camera->camera_settings.sample_size == 1 ? restir_pt_profile_single_sample_candidate_pipeline_
-                                                             : restir_pt_profile_candidate_pipeline_)
-                 : (camera->camera_settings.sample_size == 1 ? restir_pt_single_sample_candidate_pipeline_
-                                                             : restir_pt_candidate_pipeline_),
-             per_frame_descriptor_sets_[current_frame_index],
-             ray_tracing_descriptor_sets_[current_frame_index],
-             camera_index,
-             record_commands,
-             ray_camera_output_descriptor,
-             active_camera_transient_resources,
-             &ray_camera_history,
-             restir_candidate_buffer,
-             restir_primary_surface_buffer,
-             false,
-             {},
-             {},
-             restir_generated_buffer});
+        RayQueryCameraPass::Parameters parameters{
+            camera,
+            restir_generated_buffer
+                ? (camera->camera_settings.sample_size == 1 ? restir_pt_profile_single_sample_candidate_pipeline_
+                                                            : restir_pt_profile_candidate_pipeline_)
+                : (camera->camera_settings.sample_size == 1
+                       ? (use_raw_temporal_variant
+                              ? restir_pt_temporal_variant_caches_[kTemporalRawCandidate]->GetRayQueryPipeline()
+                              : (temporal_requested && restir_pt_temporal_variant_caches_[kTemporalNrdCandidate]
+                                     ? restir_pt_temporal_variant_caches_[kTemporalNrdCandidate]->GetRayQueryPipeline()
+                                     : restir_pt_single_sample_candidate_pipeline_))
+                       : restir_pt_candidate_pipeline_),
+            per_frame_descriptor_sets_[current_frame_index],
+            ray_tracing_descriptor_sets_[current_frame_index],
+            camera_index,
+            record_commands,
+            ray_camera_output_descriptor,
+            active_camera_transient_resources,
+            &ray_camera_history,
+            restir_candidate_buffer,
+            restir_primary_surface_buffer,
+            false,
+            {},
+            {},
+            restir_generated_buffer};
+        parameters.initial_buffer = use_restir_firefly_replacement ? restir_initial_buffer : restir_candidate_buffer;
+#ifdef EVOENGINE_ENABLE_NRD
+        parameters.bind_nrd_lobe_hit_distance = true;
+        parameters.bind_nrd_material_factors = true;
+#endif
+        RayQueryCameraPass::Execute(context, parameters);
       });
+#ifdef EVOENGINE_ENABLE_NRD
+      if (camera->camera_settings.nrd_denoising) {
+        auto nrd_guide_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT NRD Guides");
+        nrd_guide_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                            RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        nrd_guide_pass.resources.push_back({RenderResourceNames::camera_nrd_view_z, RenderResourceUsage::Write,
+                                            RenderResourceState::StorageReadWrite});
+        nrd_guide_pass.resources.push_back({RenderResourceNames::camera_nrd_motion, RenderResourceUsage::Write,
+                                            RenderResourceState::StorageReadWrite});
+        nrd_guide_pass.resources.push_back(
+            {RenderResourceNames::camera_ray_normal, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        nrd_guide_pass.resources.push_back({RenderResourceNames::camera_nrd_normal_roughness,
+                                            RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+        camera_render_graph.AddPass(nrd_guide_pass, [&](const RenderGraphExecutionContext& context) {
+          RayQueryCameraPass::Parameters parameters{
+              camera,
+              restir_pt_nrd_guides_pipeline_,
+              per_frame_descriptor_sets_[current_frame_index],
+              ray_tracing_descriptor_sets_[current_frame_index],
+              camera_index,
+              record_commands,
+              camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                       ray_tracing_camera_output_layout_),
+              active_camera_transient_resources,
+              &ray_camera_history};
+          parameters.primary_surface_buffer = restir_primary_surface_buffer;
+          parameters.previous_instance_buffer = current_render_instances->previous_instance_info_descriptor_buffer;
+          parameters.commit_history = false;
+          parameters.bind_nrd_guides = true;
+          RayQueryCameraPass::Execute(context, parameters);
+        });
+      }
+#endif
+      if (use_restir_temporal) {
+        const auto execute_temporal_pass = [&](const RenderGraphExecutionContext& context,
+                                               const std::shared_ptr<ComputePipeline>& pipeline) {
+          RayQueryCameraPass::Parameters parameters{
+              camera,
+              pipeline,
+              per_frame_descriptor_sets_[current_frame_index],
+              ray_tracing_descriptor_sets_[current_frame_index],
+              camera_index,
+              record_commands,
+              camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                       ray_tracing_camera_output_layout_),
+              active_camera_transient_resources,
+              &ray_camera_history};
+          parameters.candidate_buffer = restir_candidate_buffer;
+          parameters.primary_surface_buffer = restir_primary_surface_buffer;
+          parameters.commit_history = false;
+          parameters.previous_history_buffer = restir_previous_history_buffer;
+          parameters.previous_surface_buffer = restir_previous_surface_buffer;
+          parameters.temporal_forward_buffer = restir_temporal_forward_buffer;
+          parameters.duplication_buffer = restir_duplication_buffer;
+          parameters.shift_buffer = restir_shift_buffer ? restir_shift_buffer : restir_duplication_buffer;
+          parameters.previous_instance_buffer = current_render_instances->previous_instance_info_descriptor_buffer;
+          RayQueryCameraPass::Execute(context, parameters);
+        };
+        if (use_adaptive_cap) {
+          auto duplication_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Duplication");
+          duplication_pass.resources.push_back({RenderResourceNames::camera_restir_previous_history,
+                                                RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          duplication_pass.resources.push_back({RenderResourceNames::camera_restir_duplication,
+                                                RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+          camera_render_graph.AddPass(duplication_pass,
+                                      [&, execute_temporal_pass](const RenderGraphExecutionContext& context) {
+                                        execute_temporal_pass(context, restir_pt_duplication_pipeline_);
+                                      });
+        }
+        auto forward_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Temporal Forward");
+        forward_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                          RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite});
+        forward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_history,
+                                          RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        forward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_surface,
+                                          RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        forward_pass.resources.push_back({RenderResourceNames::camera_restir_temporal_forward,
+                                          RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+        camera_render_graph.AddPass(
+            forward_pass, [&, execute_temporal_pass](const RenderGraphExecutionContext& context) {
+              execute_temporal_pass(context,
+                                    temporal_requested && restir_pt_temporal_variant_caches_[kTemporalForward]
+                                        ? restir_pt_temporal_variant_caches_[kTemporalForward]->GetRayQueryPipeline()
+                                        : restir_pt_temporal_forward_pipeline_);
+            });
+        if (hybrid_requested) {
+          auto hybrid_forward_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Temporal Forward Hybrid");
+          hybrid_forward_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                                   RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_forward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_history,
+                                                   RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_forward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_surface,
+                                                   RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_forward_pass.resources.push_back({RenderResourceNames::camera_restir_temporal_forward,
+                                                   RenderResourceUsage::ReadWrite,
+                                                   RenderResourceState::StorageReadWrite});
+          camera_render_graph.AddPass(hybrid_forward_pass,
+                                      [&, execute_temporal_pass](const RenderGraphExecutionContext& context) {
+                                        execute_temporal_pass(context, restir_pt_temporal_forward_hybrid_pipeline_);
+                                      });
+          auto hybrid_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Temporal Backward Hybrid");
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                           RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_previous_surface,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_temporal_forward,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Write,
+                                           RenderResourceState::StorageReadWrite});
+          camera_render_graph.AddPass(hybrid_pass,
+                                      [&, execute_temporal_pass](const RenderGraphExecutionContext& context) {
+                                        execute_temporal_pass(context, restir_pt_temporal_backward_hybrid_pipeline_);
+                                      });
+        }
+        auto backward_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Temporal Backward");
+        backward_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::ReadWrite,
+                                           RenderResourceState::StorageReadWrite});
+        backward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_history,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        backward_pass.resources.push_back({RenderResourceNames::camera_restir_previous_surface,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        backward_pass.resources.push_back({RenderResourceNames::camera_restir_temporal_forward,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        if (use_adaptive_cap)
+          backward_pass.resources.push_back({RenderResourceNames::camera_restir_duplication, RenderResourceUsage::Read,
+                                             RenderResourceState::StorageReadWrite});
+        if (use_restir_spatial && hybrid_requested)
+          backward_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Read,
+                                             RenderResourceState::StorageReadWrite});
+        camera_render_graph.AddPass(
+            backward_pass, [&, execute_temporal_pass](const RenderGraphExecutionContext& context) {
+              execute_temporal_pass(context,
+                                    temporal_requested && restir_pt_temporal_variant_caches_[kTemporalBackward]
+                                        ? restir_pt_temporal_variant_caches_[kTemporalBackward]->GetRayQueryPipeline()
+                                        : restir_pt_temporal_backward_pipeline_);
+            });
+      }
       if (use_restir_spatial) {
         auto spatial_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Shift");
         spatial_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
@@ -8221,15 +8818,24 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         spatial_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Write,
                                           RenderResourceState::StorageReadWrite});
         camera_render_graph.AddPass(spatial_pass, [&](const RenderGraphExecutionContext& context) {
-          RayQueryCameraPass::Execute(
-              context,
-              {camera, restir_generated_buffer ? restir_pt_profile_spatial_pipeline_ : restir_pt_spatial_pipeline_,
-               per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index],
-               camera_index, record_commands,
-               camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
-                                                        ray_tracing_camera_output_layout_),
-               active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
-               restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
+          RayQueryCameraPass::Parameters parameters{
+              camera,
+              restir_generated_buffer ? restir_pt_profile_spatial_pipeline_ : restir_pt_spatial_pipeline_,
+              per_frame_descriptor_sets_[current_frame_index],
+              ray_tracing_descriptor_sets_[current_frame_index],
+              camera_index,
+              record_commands,
+              camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                       ray_tracing_camera_output_layout_),
+              active_camera_transient_resources,
+              &ray_camera_history,
+              restir_candidate_buffer,
+              restir_primary_surface_buffer,
+              false,
+              restir_resolved_buffer,
+              restir_shift_buffer};
+          parameters.pairing_buffer = restir_pt_pairing_buffer_;
+          RayQueryCameraPass::Execute(context, parameters);
         });
         if (use_restir_hybrid) {
           auto hybrid_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Hybrid Shift");
@@ -8240,69 +8846,357 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
           hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::ReadWrite,
                                            RenderResourceState::StorageReadWrite});
           camera_render_graph.AddPass(hybrid_pass, [&](const RenderGraphExecutionContext& context) {
-            RayQueryCameraPass::Execute(
-                context, {camera, restir_pt_spatial_hybrid_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                          camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
-                                                                   ray_tracing_camera_output_layout_),
-                          active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
-                          restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
+            RayQueryCameraPass::Parameters parameters{
+                camera,
+                restir_pt_spatial_hybrid_pipeline_,
+                per_frame_descriptor_sets_[current_frame_index],
+                ray_tracing_descriptor_sets_[current_frame_index],
+                camera_index,
+                record_commands,
+                camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                         ray_tracing_camera_output_layout_),
+                active_camera_transient_resources,
+                &ray_camera_history,
+                restir_candidate_buffer,
+                restir_primary_surface_buffer,
+                false,
+                restir_resolved_buffer,
+                restir_shift_buffer};
+            parameters.pairing_buffer = restir_pt_pairing_buffer_;
+            RayQueryCameraPass::Execute(context, parameters);
           });
         }
-        auto combine_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Spatial Combine");
+        if (use_restir_enhanced && hybrid_requested) {
+          auto hybrid_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Enhanced Spatial Hybrid");
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                           RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          hybrid_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::ReadWrite,
+                                           RenderResourceState::StorageReadWrite});
+          camera_render_graph.AddPass(hybrid_pass, [&](const RenderGraphExecutionContext& context) {
+            RayQueryCameraPass::Parameters parameters{
+                camera,
+                restir_pt_enhanced_spatial_hybrid_pipeline_,
+                per_frame_descriptor_sets_[current_frame_index],
+                ray_tracing_descriptor_sets_[current_frame_index],
+                camera_index,
+                record_commands,
+                camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                         ray_tracing_camera_output_layout_),
+                active_camera_transient_resources,
+                &ray_camera_history,
+                restir_candidate_buffer,
+                restir_primary_surface_buffer,
+                false,
+                restir_resolved_buffer,
+                restir_shift_buffer};
+            parameters.pairing_buffer = restir_pt_pairing_buffer_;
+            RayQueryCameraPass::Execute(context, parameters);
+          });
+        }
+        auto combine_pass = RayQueryCameraPass::CreateDescriptor(
+            {}, use_restir_enhanced ? "ReSTIR PT Enhanced Combine" : "ReSTIR PT Spatial Combine");
         combine_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
                                           RenderResourceState::StorageReadWrite});
         combine_pass.resources.push_back({RenderResourceNames::camera_restir_shift, RenderResourceUsage::Read,
                                           RenderResourceState::StorageReadWrite});
+        if (use_restir_enhanced) {
+          combine_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
+                                            RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+          combine_pass.resources.push_back({RenderResourceNames::camera_restir_next_history, RenderResourceUsage::Write,
+                                            RenderResourceState::StorageReadWrite});
+        }
         combine_pass.resources.push_back({RenderResourceNames::camera_restir_resolved, RenderResourceUsage::Write,
                                           RenderResourceState::StorageReadWrite});
+#ifdef EVOENGINE_ENABLE_NRD
+        combine_pass.resources.push_back({RenderResourceNames::camera_nrd_diffuse_signal, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_nrd_specular_signal, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_nrd_excluded_signal, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+#endif
         camera_render_graph.AddPass(combine_pass, [&](const RenderGraphExecutionContext& context) {
-          RayQueryCameraPass::Execute(
-              context, {camera, restir_pt_spatial_combine_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                        ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                        camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
-                                                                 ray_tracing_camera_output_layout_),
-                        active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
-                        restir_primary_surface_buffer, false, restir_resolved_buffer, restir_shift_buffer});
+          RayQueryCameraPass::Parameters parameters{
+              camera,
+              use_restir_enhanced ? restir_pt_enhanced_combine_pipeline_ : restir_pt_spatial_combine_pipeline_,
+              per_frame_descriptor_sets_[current_frame_index],
+              ray_tracing_descriptor_sets_[current_frame_index],
+              camera_index,
+              record_commands,
+              camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                       ray_tracing_camera_output_layout_),
+              active_camera_transient_resources,
+              &ray_camera_history,
+              restir_candidate_buffer,
+              restir_primary_surface_buffer,
+              false,
+              restir_resolved_buffer,
+              restir_shift_buffer};
+          parameters.next_history_buffer = restir_next_history_buffer;
+          parameters.pairing_buffer = restir_pt_pairing_buffer_;
+          parameters.commit_restir_history = use_restir_enhanced;
+#ifdef EVOENGINE_ENABLE_NRD
+          parameters.write_nrd_signals = true;
+#endif
+          RayQueryCameraPass::Execute(context, parameters);
+        });
+      }
+      if (use_restir_temporal_only) {
+        auto combine_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Temporal Combine");
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_candidate, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_resolved, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+        combine_pass.resources.push_back({RenderResourceNames::camera_restir_next_history, RenderResourceUsage::Write,
+                                          RenderResourceState::StorageReadWrite});
+#ifdef EVOENGINE_ENABLE_NRD
+        for (const auto name :
+             {RenderResourceNames::camera_nrd_diffuse_signal, RenderResourceNames::camera_nrd_specular_signal,
+              RenderResourceNames::camera_nrd_excluded_signal})
+          combine_pass.resources.push_back({name, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+#endif
+        camera_render_graph.AddPass(combine_pass, [&](const RenderGraphExecutionContext& context) {
+          RayQueryCameraPass::Parameters parameters{
+              camera,
+              use_raw_temporal_variant ? restir_pt_temporal_variant_caches_[kTemporalRawCombine]->GetRayQueryPipeline()
+                                       : restir_pt_temporal_combine_pipeline_,
+              per_frame_descriptor_sets_[current_frame_index],
+              ray_tracing_descriptor_sets_[current_frame_index],
+              camera_index,
+              record_commands,
+              camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                       ray_tracing_camera_output_layout_),
+              active_camera_transient_resources,
+              &ray_camera_history,
+              restir_candidate_buffer,
+              restir_primary_surface_buffer,
+              false,
+              restir_resolved_buffer};
+          parameters.next_history_buffer = restir_next_history_buffer;
+          parameters.commit_restir_history = true;
+#ifdef EVOENGINE_ENABLE_NRD
+          parameters.write_nrd_signals = true;
+#endif
+          RayQueryCameraPass::Execute(context, parameters);
         });
       }
       auto resolve_pass = RayQueryCameraPass::CreateDescriptor({}, "ReSTIR PT Resolve");
-      resolve_pass.resources.push_back({use_restir_spatial ? RenderResourceNames::camera_restir_resolved
-                                                           : RenderResourceNames::camera_restir_candidate,
+      resolve_pass.resources.push_back({(use_restir_spatial || use_restir_temporal_only)
+                                            ? RenderResourceNames::camera_restir_resolved
+                                            : RenderResourceNames::camera_restir_candidate,
                                         RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+      if (use_restir_firefly_replacement) {
+        resolve_pass.resources.push_back({RenderResourceNames::camera_restir_initial, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      }
+#ifdef EVOENGINE_ENABLE_NRD
+      const auto nrd_signal_usage = (use_restir_spatial || use_restir_temporal_only) ? RenderResourceUsage::ReadWrite
+                                                                                     : RenderResourceUsage::Write;
+      resolve_pass.resources.push_back(
+          {RenderResourceNames::camera_nrd_diffuse_signal, nrd_signal_usage, RenderResourceState::StorageReadWrite});
+      resolve_pass.resources.push_back(
+          {RenderResourceNames::camera_nrd_specular_signal, nrd_signal_usage, RenderResourceState::StorageReadWrite});
+      resolve_pass.resources.push_back(
+          {RenderResourceNames::camera_nrd_excluded_signal, nrd_signal_usage, RenderResourceState::StorageReadWrite});
+      resolve_pass.resources.push_back({RenderResourceNames::camera_nrd_lobe_hit_distance, RenderResourceUsage::Read,
+                                        RenderResourceState::StorageReadWrite});
+      resolve_pass.resources.push_back({RenderResourceNames::camera_nrd_diffuse_factor, RenderResourceUsage::Read,
+                                        RenderResourceState::StorageReadWrite});
+      resolve_pass.resources.push_back({RenderResourceNames::camera_nrd_specular_factor, RenderResourceUsage::Read,
+                                        RenderResourceState::StorageReadWrite});
+#endif
       camera_render_graph.AddPass(resolve_pass, [&](const RenderGraphExecutionContext& context) {
-        RayQueryCameraPass::Execute(
-            context, {camera, use_restir_spatial ? restir_pt_spatial_resolve_pipeline_ : restir_pt_resolve_pipeline_,
-                      per_frame_descriptor_sets_[current_frame_index],
-                      ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                      camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
-                                                               ray_tracing_camera_output_layout_),
-                      active_camera_transient_resources, &ray_camera_history, restir_candidate_buffer,
-                      restir_primary_surface_buffer, true, restir_resolved_buffer});
+        RayQueryCameraPass::Parameters parameters{
+            camera,
+            use_raw_temporal_variant
+                ? restir_pt_temporal_variant_caches_[kTemporalRawResolve]->GetRayQueryPipeline()
+                : ((use_restir_spatial || use_restir_temporal_only) ? restir_pt_spatial_resolve_pipeline_
+                                                                    : restir_pt_resolve_pipeline_),
+            per_frame_descriptor_sets_[current_frame_index],
+            ray_tracing_descriptor_sets_[current_frame_index],
+            camera_index,
+            record_commands,
+            camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                     ray_tracing_camera_output_layout_),
+            active_camera_transient_resources,
+            &ray_camera_history,
+            restir_candidate_buffer,
+            restir_primary_surface_buffer,
+            true,
+            restir_resolved_buffer};
+        parameters.initial_buffer = use_restir_firefly_replacement ? restir_initial_buffer : restir_candidate_buffer;
+#ifdef EVOENGINE_ENABLE_NRD
+        parameters.write_nrd_signals = true;
+        parameters.bind_nrd_lobe_hit_distance = true;
+        parameters.bind_nrd_material_factors = true;
+#endif
+        RayQueryCameraPass::Execute(context, parameters);
       });
     } else if (use_ray_query) {
-      camera_render_graph.AddPass(
-          RayQueryCameraPass::CreateDescriptor(camera->camera_settings.ray_outputs),
-          [&](const RenderGraphExecutionContext& context) {
-            RayQueryCameraPass::Execute(
-                context, {camera, ray_query_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                          ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history});
-          });
+      auto path_pass = RayQueryCameraPass::CreateDescriptor(ray_outputs);
+#ifdef EVOENGINE_ENABLE_NRD
+      path_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface, RenderResourceUsage::Write,
+                                     RenderResourceState::StorageReadWrite});
+      for (const auto name :
+           {RenderResourceNames::camera_nrd_diffuse_signal, RenderResourceNames::camera_nrd_specular_signal,
+            RenderResourceNames::camera_nrd_excluded_signal, RenderResourceNames::camera_nrd_diffuse_factor,
+            RenderResourceNames::camera_nrd_specular_factor})
+        path_pass.resources.push_back({name, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+#endif
+      camera_render_graph.AddPass(path_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Parameters parameters{camera,
+                                                  ray_query_pipeline,
+                                                  per_frame_descriptor_sets_[current_frame_index],
+                                                  ray_tracing_descriptor_sets_[current_frame_index],
+                                                  camera_index,
+                                                  record_commands,
+                                                  ray_camera_output_descriptor,
+                                                  active_camera_transient_resources,
+                                                  &ray_camera_history};
+#ifdef EVOENGINE_ENABLE_NRD
+        parameters.primary_surface_buffer = restir_primary_surface_buffer;
+        parameters.write_nrd_signals = true;
+        parameters.bind_nrd_material_factors = true;
+#endif
+        RayQueryCameraPass::Execute(context, parameters);
+      });
     } else {
-      camera_render_graph.AddPass(
-          RayTracingCameraPass::CreateDescriptor(ray_camera_pass_name.c_str(), camera->camera_settings.ray_outputs),
-          [&](const RenderGraphExecutionContext& context) {
-            RayTracingCameraPass::Execute(
-                context, {camera, ray_tracing_pipeline, per_frame_descriptor_sets_[current_frame_index],
-                          ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                          ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history});
-          });
+      auto path_pass = RayTracingCameraPass::CreateDescriptor(ray_camera_pass_name.c_str(), ray_outputs);
+#ifdef EVOENGINE_ENABLE_NRD
+      path_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface, RenderResourceUsage::Write,
+                                     RenderResourceState::StorageReadWrite});
+      for (const auto name :
+           {RenderResourceNames::camera_nrd_diffuse_signal, RenderResourceNames::camera_nrd_specular_signal,
+            RenderResourceNames::camera_nrd_excluded_signal, RenderResourceNames::camera_nrd_diffuse_factor,
+            RenderResourceNames::camera_nrd_specular_factor})
+        path_pass.resources.push_back({name, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+#endif
+      camera_render_graph.AddPass(path_pass, [&](const RenderGraphExecutionContext& context) {
+        RayTracingCameraPass::Parameters parameters{camera,
+                                                    ray_tracing_pipeline,
+                                                    per_frame_descriptor_sets_[current_frame_index],
+                                                    ray_tracing_descriptor_sets_[current_frame_index],
+                                                    camera_index,
+                                                    record_commands,
+                                                    ray_camera_output_descriptor,
+                                                    active_camera_transient_resources,
+                                                    &ray_camera_history};
+#ifdef EVOENGINE_ENABLE_NRD
+        parameters.primary_surface_buffer = restir_primary_surface_buffer;
+        parameters.write_nrd_signals = true;
+#endif
+        RayTracingCameraPass::Execute(context, parameters);
+      });
     }
     std::string post_ray_tracing_dependency = ray_camera_pass_name;
+#ifdef EVOENGINE_ENABLE_NRD
+    if (camera->camera_settings.nrd_denoising && !use_restir_pt) {
+      auto guide_pass = RayQueryCameraPass::CreateDescriptor({}, "Path Trace NRD Guides");
+      guide_pass.dependencies.push_back(ray_camera_pass_name);
+      guide_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface, RenderResourceUsage::Read,
+                                      RenderResourceState::StorageReadWrite});
+      guide_pass.resources.push_back(
+          {RenderResourceNames::camera_ray_normal, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+      for (const auto name : {RenderResourceNames::camera_nrd_view_z, RenderResourceNames::camera_nrd_motion,
+                              RenderResourceNames::camera_nrd_normal_roughness})
+        guide_pass.resources.push_back({name, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+      camera_render_graph.AddPass(guide_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Parameters parameters{
+            camera,
+            restir_pt_nrd_guides_pipeline_,
+            per_frame_descriptor_sets_[current_frame_index],
+            ray_tracing_descriptor_sets_[current_frame_index],
+            camera_index,
+            record_commands,
+            camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                     ray_tracing_camera_output_layout_),
+            active_camera_transient_resources,
+            &ray_camera_history};
+        parameters.primary_surface_buffer = restir_primary_surface_buffer;
+        parameters.previous_instance_buffer = current_render_instances->previous_instance_info_descriptor_buffer;
+        parameters.commit_history = false;
+        parameters.bind_nrd_guides = true;
+        RayQueryCameraPass::Execute(context, parameters);
+      });
+    }
+    if (camera->camera_settings.nrd_denoising) {
+      const bool reset_nrd_history = !ray_camera_history.restir_nrd_history_valid;
+      const char* nrd_pass_name = use_restir_pt ? "ReSTIR PT NRD" : "Path Trace NRD";
+      const char* nrd_composite_pass_name = use_restir_pt ? "ReSTIR PT NRD Composite" : "Path Trace NRD Composite";
+      camera_render_graph.AddPass(
+          {nrd_pass_name,
+           RenderPassQueue::Graphics,
+           RenderPassScope::Camera,
+           {{RenderResourceNames::camera_nrd_motion, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_normal_roughness, RenderResourceUsage::Read,
+             RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_view_z, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_diffuse_signal, RenderResourceUsage::Read,
+             RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_specular_signal, RenderResourceUsage::Read,
+             RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_denoised_diffuse, RenderResourceUsage::Write,
+             RenderResourceState::StorageReadWrite},
+            {RenderResourceNames::camera_nrd_denoised_specular, RenderResourceUsage::Write,
+             RenderResourceState::StorageReadWrite}},
+           {use_restir_pt ? ray_camera_pass_name : "Path Trace NRD Guides"},
+           RenderPassProfilerGroup::RayTracing,
+           "NRD RELAX"},
+          [&](const RenderGraphExecutionContext& context) {
+            record_commands([&](const VkCommandBuffer command_buffer) {
+              ApplyGraphResourceBarriers(command_buffer, context, RenderPassQueue::Graphics);
+              const RenderPassGpuTimestampScope gpu_timestamp(command_buffer, context, camera->GetHandle().GetValue());
+              ray_camera_history.restir_nrd_history_valid = ray_camera_history.restir_nrd_denoiser->Denoise(
+                  command_buffer, current_render_instances->camera_info_blocks_.at(camera_index), ray_camera_history,
+                  reset_nrd_history);
+              if (ray_camera_history.restir_nrd_history_valid)
+                ++ray_camera_history.restir_nrd_history_frame_count;
+              ApplyGraphResourceReleaseBarriers(command_buffer, context, RenderPassQueue::Graphics);
+            });
+          });
+      auto composite_pass = RayQueryCameraPass::CreateDescriptor({}, nrd_composite_pass_name);
+      composite_pass.dependencies.push_back(nrd_pass_name);
+      composite_pass.resources.push_back({RenderResourceNames::camera_nrd_denoised_diffuse, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      composite_pass.resources.push_back({RenderResourceNames::camera_nrd_denoised_specular, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      composite_pass.resources.push_back({RenderResourceNames::camera_nrd_excluded_signal, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      composite_pass.resources.push_back(
+          {RenderResourceNames::camera_nrd_view_z, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+      composite_pass.resources.push_back({RenderResourceNames::camera_nrd_diffuse_factor, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      composite_pass.resources.push_back({RenderResourceNames::camera_nrd_specular_factor, RenderResourceUsage::Read,
+                                          RenderResourceState::StorageReadWrite});
+      camera_render_graph.AddPass(composite_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Parameters parameters{
+            camera,
+            restir_pt_nrd_composite_pipeline_,
+            per_frame_descriptor_sets_[current_frame_index],
+            ray_tracing_descriptor_sets_[current_frame_index],
+            camera_index,
+            record_commands,
+            camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                     ray_tracing_camera_output_layout_),
+            active_camera_transient_resources,
+            &ray_camera_history};
+        parameters.commit_history = false;
+        parameters.bind_nrd_guides = true;
+        parameters.write_nrd_signals = true;
+        parameters.read_nrd_denoised = true;
+        parameters.bind_nrd_material_factors = true;
+        RayQueryCameraPass::Execute(context, parameters);
+      });
+      post_ray_tracing_dependency = nrd_composite_pass_name;
+    }
+#endif
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
-          VolumetricCloudsPass::CreateRayTracingDescriptor(ray_camera_pass_name.c_str()),
+          VolumetricCloudsPass::CreateRayTracingDescriptor(post_ray_tracing_dependency.c_str()),
           [&](const RenderGraphExecutionContext& context) {
             const auto time_seconds = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
             VolumetricCloudsPass::Execute(
@@ -8355,6 +9249,37 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
         camera_render_graph, CreateCameraRenderGraphCompileContext(camera));
     auto camera_render_graph_resources = CreateCameraRenderGraphResourceRegistry(
         per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index], camera);
+#ifdef EVOENGINE_ENABLE_NRD
+    if (!use_restir_pt)
+      camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_primary_surface,
+                                               restir_primary_surface_buffer);
+#endif
+#ifdef EVOENGINE_ENABLE_NRD
+    if (camera->camera_settings.nrd_denoising) {
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_view_z,
+                                              ray_camera_history.restir_nrd_view_z_image);
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_motion,
+                                              ray_camera_history.restir_nrd_motion_image);
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_normal_roughness,
+                                              ray_camera_history.restir_nrd_normal_roughness_image);
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_denoised_diffuse,
+                                              ray_camera_history.restir_nrd_denoised_diffuse_image);
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_denoised_specular,
+                                              ray_camera_history.restir_nrd_denoised_specular_image);
+    }
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_diffuse_signal,
+                                            ray_camera_history.restir_nrd_diffuse_signal_image);
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_specular_signal,
+                                            ray_camera_history.restir_nrd_specular_signal_image);
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_excluded_signal,
+                                            ray_camera_history.restir_nrd_excluded_signal_image);
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_lobe_hit_distance,
+                                            ray_camera_history.restir_nrd_lobe_hit_distance_image);
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_diffuse_factor,
+                                            ray_camera_history.restir_nrd_diffuse_factor_image);
+    camera_render_graph_resources.BindImage(RenderResourceNames::camera_nrd_specular_factor,
+                                            ray_camera_history.restir_nrd_specular_factor_image);
+#endif
     if (use_restir_pt) {
       camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_candidate, restir_candidate_buffer);
       camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_primary_surface,
@@ -8362,9 +9287,28 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       if (restir_generated_buffer) {
         camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_generated, restir_generated_buffer);
       }
-      if (use_restir_spatial) {
+      if (use_restir_spatial || use_restir_temporal_only) {
         camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_resolved, restir_resolved_buffer);
-        camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_shift, restir_shift_buffer);
+        if (use_restir_firefly_replacement) {
+          camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_initial, restir_initial_buffer);
+        }
+        if (use_restir_spatial)
+          camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_shift, restir_shift_buffer);
+        if (use_restir_history) {
+          camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_next_history,
+                                                   restir_next_history_buffer);
+          if (use_restir_temporal) {
+            camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_previous_history,
+                                                     restir_previous_history_buffer);
+            camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_previous_surface,
+                                                     restir_previous_surface_buffer);
+            camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_temporal_forward,
+                                                     restir_temporal_forward_buffer);
+            if (use_adaptive_cap)
+              camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_duplication,
+                                                       restir_duplication_buffer);
+          }
+        }
       }
     }
     BindRayCameraOptionalOutputResources(camera_render_graph_resources, ray_camera_history);
@@ -8377,6 +9321,15 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     if (ray_camera_shader_variant_cache_) {
       ray_camera_shader_variant_cache_->RecordActiveUse(use_ray_query ? RayCameraShaderTechnique::RayQuery
                                                                       : RayCameraShaderTechnique::RayTracing);
+    }
+    if (use_restir_pt && temporal_requested) {
+      for (size_t i = 0; i < restir_pt_temporal_variant_caches_.size(); ++i) {
+        if ((i == kTemporalNrdCandidate && !camera->camera_settings.nrd_denoising) ||
+            (i >= kTemporalRawCandidate && !use_raw_temporal_variant))
+          continue;
+        if (const auto& cache = restir_pt_temporal_variant_caches_[i])
+          cache->RecordActiveUse(RayCameraShaderTechnique::RayQuery);
+      }
     }
     camera->rendered_ = true;
     camera->require_rendering_ = false;
@@ -8401,6 +9354,9 @@ void RenderLayer::PreUpdate() {
 void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
+  for (const auto& cache : restir_pt_temporal_variant_caches_)
+    if (cache)
+      cache->WaitForJobs();
   Platform::DrainGpuResourceWork();
   if (const auto scene = sdfgi_scene_.lock()) {
     scene->sdfgi_runtime_.reset();
@@ -8440,19 +9396,31 @@ void RenderLayer::OnDestroy() {
   GlobalReflectionProbe::shared_prefilter_construct_pipeline_.reset();
   post_processing_renderer_resources_.reset();
   ray_camera_shader_variant_cache_.reset();
+  restir_pt_temporal_variant_caches_ = {};
   ray_tracing_camera_pipeline.reset();
   ray_tracing_camera_fallback_pipeline_.reset();
   ray_query_camera_pipeline_.reset();
   restir_pt_candidate_pipeline_.reset();
+  restir_pt_nrd_guides_pipeline_.reset();
+  restir_pt_nrd_composite_pipeline_.reset();
   restir_pt_single_sample_candidate_pipeline_.reset();
   restir_pt_profile_candidate_pipeline_.reset();
   restir_pt_profile_single_sample_candidate_pipeline_.reset();
   restir_pt_resolve_pipeline_.reset();
   restir_pt_spatial_pipeline_.reset();
   restir_pt_spatial_hybrid_pipeline_.reset();
+  restir_pt_enhanced_spatial_hybrid_pipeline_.reset();
   restir_pt_profile_spatial_pipeline_.reset();
   restir_pt_spatial_combine_pipeline_.reset();
   restir_pt_spatial_resolve_pipeline_.reset();
+  restir_pt_duplication_pipeline_.reset();
+  restir_pt_temporal_forward_pipeline_.reset();
+  restir_pt_temporal_forward_hybrid_pipeline_.reset();
+  restir_pt_temporal_backward_hybrid_pipeline_.reset();
+  restir_pt_temporal_backward_pipeline_.reset();
+  restir_pt_enhanced_combine_pipeline_.reset();
+  restir_pt_temporal_combine_pipeline_.reset();
+  restir_pt_pairing_buffer_.reset();
   ray_query_camera_fallback_pipeline_.reset();
   render_graph_transient_resource_stores_.clear();
   ray_camera_render_graph_plan_cache_.Clear();

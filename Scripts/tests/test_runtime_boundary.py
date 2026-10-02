@@ -61,6 +61,16 @@ evoengine_enforce_runtime_boundary(ROOT "${{CMAKE_CURRENT_SOURCE_DIR}}"
         _, build = self.fixture('#define HEADER "Editor/Inspector.hpp"\n#include HEADER\n')
         self.run_check(build, False, 'use a literal include path')
 
+    def test_local_dependency_under_out_is_not_checked_as_project_source(self):
+        root, build = self.fixture(link='''
+add_library(Vendor INTERFACE)
+target_sources(Vendor INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/out/vendor.hpp")
+target_link_libraries(Runtime INTERFACE Vendor)
+''')
+        (root / 'out').mkdir()
+        (root / 'out/vendor.hpp').write_text('#include SOME_VENDOR_MACRO\n')
+        self.run_check(build, True)
+
     def test_shared_header_checked_with_each_runtime_include_path(self):
         root, build = self.fixture('#include "helper.hpp"\n', link='''
 target_include_directories(Runtime INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/safe")

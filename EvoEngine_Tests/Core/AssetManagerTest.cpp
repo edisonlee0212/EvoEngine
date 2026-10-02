@@ -979,7 +979,7 @@ TEST(EditorLayer, CenterPivotDefaultMigratesOnceAndPreservesExplicitPivot) {
 
 TEST(EditorLayer, DeserializesEditorCameraControlsAndSceneCameraPose) {
   EditorLayer editor_layer;
-  RegisterDefaultEditorSceneCamera(editor_layer);
+  const auto scene_camera = RegisterDefaultEditorSceneCamera(editor_layer);
 
   editor_layer.Deserialize(YAML::Load(R"(
 velocity: 2.5
@@ -988,6 +988,8 @@ camera_control_acceleration_time: 0.25
 camera_control_deceleration_time: 0.6
 scene_camera_position: [4.0, 5.0, 6.0]
 scene_camera_rotation: [0.0, 0.0, 0.0, 1.0]
+scene_camera_settings:
+  nrd_denoising: false
 editor_camera_control_key_bindings:
   rotate_mouse_button: 0
   focus_selection_key: 268
@@ -1012,6 +1014,13 @@ editor_camera_control_key_bindings:
   EXPECT_FLOAT_EQ(rotation.y, 0.0f);
   EXPECT_FLOAT_EQ(rotation.z, 0.0f);
   EXPECT_FLOAT_EQ(rotation.w, 1.0f);
+  ASSERT_TRUE(scene_camera);
+  EXPECT_FALSE(scene_camera->camera_settings.nrd_denoising);
+  YAML::Emitter serialized;
+  serialized << YAML::BeginMap;
+  editor_layer.Serialize(serialized);
+  serialized << YAML::EndMap;
+  EXPECT_FALSE(YAML::Load(serialized.c_str())["scene_camera_settings"]["nrd_denoising"].as<bool>());
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_LEFT);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.focus_selection_key, GLFW_KEY_HOME);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_UP);

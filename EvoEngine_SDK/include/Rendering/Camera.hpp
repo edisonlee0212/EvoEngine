@@ -16,6 +16,7 @@ class EVOENGINE_API Buffer;
 class EVOENGINE_API DescriptorSet;
 class EVOENGINE_API DescriptorSetLayout;
 class EVOENGINE_API PostProcessingStack;
+class NrdRayCameraDenoiser;
 class EVOENGINE_API RenderGraphTransientResourceStore;
 struct EVOENGINE_API PostProcessingCameraResources;
 
@@ -40,6 +41,25 @@ inline constexpr uint32_t kRayCameraRestirPrimarySurfaceBinding = kRayCameraRest
 inline constexpr uint32_t kRayCameraRestirResolvedBinding = kRayCameraRestirPrimarySurfaceBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirShiftBinding = kRayCameraRestirResolvedBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirGeneratedBinding = kRayCameraRestirShiftBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirPreviousHistoryBinding = kRayCameraRestirGeneratedBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirPreviousSurfaceBinding = kRayCameraRestirPreviousHistoryBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirTemporalForwardBinding = kRayCameraRestirPreviousSurfaceBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirDuplicationBinding = kRayCameraRestirTemporalForwardBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirNextHistoryBinding = kRayCameraRestirDuplicationBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirPairingBinding = kRayCameraRestirNextHistoryBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirPreviousInstanceBinding = kRayCameraRestirPairingBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirInitialBinding = kRayCameraRestirPreviousInstanceBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdViewZBinding = kRayCameraRestirInitialBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdMotionBinding = kRayCameraNrdViewZBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdDiffuseSignalBinding = kRayCameraNrdMotionBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdSpecularSignalBinding = kRayCameraNrdDiffuseSignalBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdExcludedSignalBinding = kRayCameraNrdSpecularSignalBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdNormalRoughnessBinding = kRayCameraNrdExcludedSignalBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdDenoisedDiffuseBinding = kRayCameraNrdNormalRoughnessBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdDenoisedSpecularBinding = kRayCameraNrdDenoisedDiffuseBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdLobeHitDistanceBinding = kRayCameraNrdDenoisedSpecularBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdDiffuseFactorBinding = kRayCameraNrdLobeHitDistanceBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdSpecularFactorBinding = kRayCameraNrdDiffuseFactorBinding + 1u;
 
 struct RayCameraOutputDescriptorSlot {
   std::shared_ptr<DescriptorSet> descriptor_set;
@@ -73,8 +93,40 @@ struct RayCameraHistoryResources {
   std::vector<std::shared_ptr<Buffer>> restir_candidate_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_initial_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_generated_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_spatial_history_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_surface_history_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_temporal_forward_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_duplication_buffers;
+  std::shared_ptr<Image> restir_nrd_view_z_image;
+  std::shared_ptr<ImageView> restir_nrd_view_z_view;
+  std::shared_ptr<Image> restir_nrd_motion_image;
+  std::shared_ptr<ImageView> restir_nrd_motion_view;
+  std::shared_ptr<Image> restir_nrd_diffuse_signal_image;
+  std::shared_ptr<ImageView> restir_nrd_diffuse_signal_view;
+  std::shared_ptr<Image> restir_nrd_specular_signal_image;
+  std::shared_ptr<ImageView> restir_nrd_specular_signal_view;
+  std::shared_ptr<Image> restir_nrd_excluded_signal_image;
+  std::shared_ptr<ImageView> restir_nrd_excluded_signal_view;
+  std::shared_ptr<Image> restir_nrd_normal_roughness_image;
+  std::shared_ptr<ImageView> restir_nrd_normal_roughness_view;
+  std::shared_ptr<Image> restir_nrd_denoised_diffuse_image;
+  std::shared_ptr<ImageView> restir_nrd_denoised_diffuse_view;
+  std::shared_ptr<Image> restir_nrd_denoised_specular_image;
+  std::shared_ptr<ImageView> restir_nrd_denoised_specular_view;
+  std::shared_ptr<Image> restir_nrd_lobe_hit_distance_image;
+  std::shared_ptr<ImageView> restir_nrd_lobe_hit_distance_view;
+  std::shared_ptr<Image> restir_nrd_diffuse_factor_image;
+  std::shared_ptr<ImageView> restir_nrd_diffuse_factor_view;
+  std::shared_ptr<Image> restir_nrd_specular_factor_image;
+  std::shared_ptr<ImageView> restir_nrd_specular_factor_view;
+  std::shared_ptr<NrdRayCameraDenoiser> restir_nrd_denoiser;
+  bool restir_nrd_history_valid = false;
+  uint32_t restir_nrd_history_frame_count = 0;
+  uint32_t restir_history_frame_id = 0;
+  bool restir_history_valid = false;
   uint32_t restir_last_shift_slot = UINT32_MAX;
   uint32_t restir_last_generated_slot = UINT32_MAX;
 };
@@ -132,7 +184,7 @@ struct EVOENGINE_API CameraInfoBlock {
   int background_source = 0;                           ///< 0 samples the resolved cubemap, 1 uses clear color.
 
   // Ray tracing
-  uint32_t camera_block_reserved3 = 0;
+  uint32_t restir_temporal_history_cap = 20;
   float gamma = 2.2f;
   uint32_t sample_size = 1;
   uint32_t bounce = 4;
@@ -145,10 +197,11 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
   uint32_t ray_output_flags = 0;
-  uint32_t restir_spatial_neighbors = 4;
+  uint32_t restir_spatial_neighbors = 3;
   uint32_t restir_spatial_hybrid = 0;
-  uint32_t camera_block_reserved2 = 0;
-  glm::vec4 shadow_split_distances = {};
+  uint32_t restir_enhanced_mode = 0;
+  uint32_t restir_temporal_adaptive_cap = 1;
+  alignas(16) glm::vec4 shadow_split_distances = {};
 
   /**
    * @brief Projects a 3D world position into 2D screen space.
@@ -185,7 +238,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
   static constexpr uint32_t kRayDebugViewCount = 20;
-  static constexpr uint32_t kRayIntegratorCount = 3;
+  static constexpr uint32_t kRayIntegratorCount = 5;
   static constexpr uint32_t kBackgroundSourceCount = 5;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
@@ -381,6 +434,10 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
                                                   std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const;
   [[nodiscard]] bool DownloadRestirPtGeneratedFrame(std::vector<RestirPtGeneratedPixel>& generated,
                                                     glm::uvec2& extent) const;
+  [[nodiscard]] bool DownloadRestirPtEnhancedFrame(std::vector<RestirPtSpatialShift>& forward,
+                                                   std::vector<RestirPtPathReservoir>& history,
+                                                   std::vector<RestirPtResolvedRadiance>& resolved, glm::uvec2& extent,
+                                                   uint32_t& history_frames) const;
   [[nodiscard]] SampledImageResources GetGBufferBaseColorAoResources() const;
   [[nodiscard]] SampledImageResources GetGBufferNormalRoughnessResources() const;
   [[nodiscard]] SampledImageResources GetGBufferPbrFlagsResources() const;
@@ -389,6 +446,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   void SetRendered();
   void ResetRenderState();
   void ResetFrameCount();
+  [[nodiscard]] static bool NrdDenoisingAvailable();
 
  private:
   friend class Platform;     ///< Grants access to the Platform class.
@@ -441,7 +499,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   std::shared_ptr<DescriptorSet> AcquireRayCameraOutputDescriptor(
       uint32_t frame_index, uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
       const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory = {});
-  void InvalidateRayCameraHistory();
+  void InvalidateRayCameraHistory(bool invalidate_restir_history = true);
   void ReleaseRayCameraHistory();
   PostProcessingCameraResources& AcquirePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);
   void SynchronizePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);

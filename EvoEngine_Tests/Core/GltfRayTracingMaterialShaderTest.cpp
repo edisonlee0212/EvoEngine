@@ -728,7 +728,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("sample_data.k1 = view_direction"), std::string::npos);
   EXPECT_NE(source.find("sample_data.xi = EE_PCG_RANDOM_3(surface_bsdf_seed)"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed)"),
+  EXPECT_NE(source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"),
             std::string::npos);
   EXPECT_NE(source.find("throughput *= sample_data.bsdf_over_pdf"), std::string::npos);
   EXPECT_NE(source.find("last_sample_pdf = sample_data.pdf"), std::string::npos);
@@ -760,8 +760,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
       source.find("EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, diffuse_indirect_path"),
       source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"));
   EXPECT_LT(source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"),
-            source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed)"));
-  EXPECT_LT(source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed)"),
+            source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"));
+  EXPECT_LT(source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"),
             source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"));
   EXPECT_LT(source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"),
             source.find("surface_depth += 1u"));
@@ -1005,7 +1005,7 @@ TEST(GltfRayTracingMaterial, CameraPathRaysCullBackfacesButShadowRaysUseReferenc
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(ray_query.empty());
 
-  EXPECT_NE(raygen.find("TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, EE_CAMERA_RAY_MASK_GEOMETRY"),
+  EXPECT_NE(raygen.find("TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,"),
             std::string::npos);
   EXPECT_NE(ray_query.find("EE_CAMERA_TRIANGLE_RAY_MASK_GEOMETRY"), std::string::npos);
   EXPECT_EQ(raygen.find("RAY_FLAG_FORCE_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES"), std::string::npos);
@@ -1323,7 +1323,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenResolvesNeeBeforeSurfaceTermination) {
   const auto sample = raygen.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,", prepare);
   const auto absorb = raygen.find("sample_data.event_type == EE_GLTF_RT_BSDF_EVENT_ABSORB", sample);
   const auto resolve =
-      raygen.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed)", sample);
+      raygen.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,", sample);
   const auto terminate = raygen.find("if (terminate_path)", resolve);
   const auto roulette = raygen.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)", terminate);
   ASSERT_NE(prepare, std::string::npos);
@@ -1351,9 +1351,11 @@ TEST(GltfRayTracingMaterial, CameraRaygenBuildsReferenceStylePrimaryRays) {
   EXPECT_NE(source.find("mul(float4(clip_coords, -1.0f, 1.0f), camera.inverse_projection)"), std::string::npos);
   EXPECT_NE(source.find("const float3 origin = camera.inverse_view[3].xyz"), std::string::npos);
   EXPECT_NE(source.find("mul(view_position, camera.inverse_view)"), std::string::npos);
-  EXPECT_NE(source.find("EE_CAMERA_TRACE_PATH<T, feature_mask, false>(traversal, sample_seed, primary_ray.origin, "
-                        "primary_ray.direction"),
-            std::string::npos);
+  EXPECT_NE(
+      source.find(
+          "EE_CAMERA_TRACE_PATH<T, feature_mask, false, false, false>(traversal, sample_seed, primary_ray.origin, "
+          "primary_ray.direction"),
+      std::string::npos);
   EXPECT_EQ(source.find("- float2(0.5f)"), std::string::npos);
   EXPECT_EQ(source.find("camera.inverse_projection_view * float4(d.x, d.y"), std::string::npos);
 }
@@ -2160,7 +2162,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesDomainSeparatedPcgAndAccumulation) 
   EXPECT_NE(random.find("float3 EE_PCG_RANDOM_3"), std::string::npos);
   EXPECT_NE(random.find("const float x = EE_PCG_RANDOM(seed)"), std::string::npos);
   EXPECT_NE(raygen.find("uint EE_CAMERA_RANDOM_STREAM"), std::string::npos);
-  EXPECT_NE(raygen.find("previous_accumulated_samples + i"), std::string::npos);
+  EXPECT_NE(raygen.find("sample_index_base + i"), std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_CAMERA"), std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_SURFACE_ALPHA"), std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_SURFACE_LIGHT"), std::string::npos);
@@ -2169,7 +2171,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesDomainSeparatedPcgAndAccumulation) 
   EXPECT_NE(raygen.find("EE_CAMERA_RANDOM_DOMAIN_SURFACE_ROULETTE"), std::string::npos);
   EXPECT_NE(raygen.find("const uint current_segment = path_segment++"), std::string::npos);
   EXPECT_NE(raygen.find("float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, "
-                        "let collect_candidates : bool>("),
+                        "let collect_candidates : bool,"),
             std::string::npos);
   EXPECT_EQ(raygen.find("EE_RANDOM("), std::string::npos);
   EXPECT_EQ(ray_query.find("EE_RANDOM("), std::string::npos);
@@ -2188,8 +2190,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesDomainSeparatedPcgAndAccumulation) 
   EXPECT_NE(render_storage_header.find("uint32_t total_samples"), std::string::npos);
   EXPECT_NE(render_storage_header.find("uint32_t frame_samples"), std::string::npos);
   EXPECT_NE(ray_tracing_pass_source.find("push_constant.frame_samples"), std::string::npos);
-  EXPECT_NE(ray_tracing_pass_source.find(
-                "push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples"),
+  EXPECT_NE(ray_tracing_pass_source.find("parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id * "
+                                         "push_constant.frame_samples : 0u"),
             std::string::npos);
   EXPECT_NE(editor_source.find("--preview-deterministic"), std::string::npos);
   EXPECT_NE(editor_source.find("--preview-sample-size"), std::string::npos);
@@ -2399,11 +2401,11 @@ TEST(GltfRayTracingMaterial, CameraRaygenAlwaysUsesConfigurableFireflyClampThres
   EXPECT_NE(raygen.find("result_image[int2(pixel_coordinate)] = float4(linear_radiance, 1.0f)"), std::string::npos);
   EXPECT_NE(raygen.find("radiance_history_image[int2(pixel_coordinate)] ="), std::string::npos);
 
-  EXPECT_NE(cameras_include.find("uint camera_block_reserved3"), std::string::npos);
+  EXPECT_NE(cameras_include.find("uint restir_temporal_history_cap"), std::string::npos);
   EXPECT_EQ(cameras_include.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(cameras_include.find("float firefly_clamp_threshold"), std::string::npos);
   EXPECT_NE(cameras_include.find("uint auto_spp_enabled"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t camera_block_reserved3 = 0"), std::string::npos);
+  EXPECT_NE(camera_header.find("uint32_t restir_temporal_history_cap = 20"), std::string::npos);
   EXPECT_EQ(camera_header.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(camera_header.find("float firefly_clamp_threshold = 10.0f"), std::string::npos);
   EXPECT_NE(camera_header.find("uint32_t auto_spp_enabled = 0"), std::string::npos);
@@ -2476,7 +2478,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenGatesSerWithHitObjectTrace) {
   EXPECT_EQ(raygen.find("hitObjectTraceRayNV"), std::string::npos);
   EXPECT_EQ(raygen.find("reorderThreadNV"), std::string::npos);
   EXPECT_EQ(raygen.find("hitObjectExecuteShaderNV"), std::string::npos);
-  EXPECT_NE(raygen.find("TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES"), std::string::npos);
+  EXPECT_NE(raygen.find("TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES"),
+            std::string::npos);
   EXPECT_NE(raygen.find("EE_CAMERA_TRACE_SURFACE(traversal, ray_origin, ray_direction"), std::string::npos);
   EXPECT_EQ(raygen.find("reorderThreadEXT(0u)"), std::string::npos);
 }
@@ -2882,6 +2885,6 @@ TEST(GltfRayTracingMaterial, RayDebugViewsShareOneIntegrator) {
   EXPECT_NE(integrator.find("EE_CAMERA_DEBUG_INDIRECT_RADIANCE"), std::string::npos);
   EXPECT_NE(integrator.find("EE_CAMERA_ENCODE_PDF"), std::string::npos);
   EXPECT_NE(integrator.find("path_surface_count"), std::string::npos);
-  EXPECT_NE(integrator.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed)"),
+  EXPECT_NE(integrator.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"),
             std::string::npos);
 }

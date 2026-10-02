@@ -570,6 +570,10 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
+    if (Camera::NrdDenoisingAvailable() && ImGui::Checkbox("NRD Denoising", &camera.camera_settings.nrd_denoising)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
     uint32_t debug_view = static_cast<uint32_t>(camera.camera_settings.ray_debug_view);
     if (ImGui::Combo("Ray Debug View", Camera::GetRayDebugViewNames(), debug_view)) {
       camera.camera_settings.ray_debug_view = Camera::NormalizeRayDebugView(debug_view);
@@ -585,13 +589,31 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
-    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
-        ImGui::SliderInt("Spatial neighbors", &camera.camera_settings.restir_spatial_neighbors, 1, 4)) {
+    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced) &&
+        ImGui::SliderInt("Spatial neighbors", &camera.camera_settings.restir_spatial_neighbors, 1,
+                         CameraSettings::kMaxRestirSpatialNeighbors)) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly &&
-        ImGui::Checkbox("Hybrid shifts", &camera.camera_settings.restir_spatial_hybrid)) {
+    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
+        ImGui::SliderInt("Temporal history cap", &camera.camera_settings.restir_temporal_history_cap, 1, 32)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
+        ImGui::Checkbox("Adaptive duplication cap", &camera.camera_settings.restir_temporal_adaptive_cap)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced) &&
+        ImGui::Checkbox(camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
+                            ? "Temporal hybrid shifts"
+                            : "Hybrid shifts",
+                        &camera.camera_settings.restir_spatial_hybrid)) {
       camera.ResetFrameCount();
       changed = true;
     }

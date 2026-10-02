@@ -1787,6 +1787,16 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
   return false;
 }
 
+bool RenderInstanceStorage::InstanceInfoBlock::HasOnlyTransformDifference(const InstanceInfoBlock& other) const {
+  if (!(*this != other))
+    return false;
+  auto comparable = *this;
+  comparable.model = other.model;
+  comparable.world_bound_min = other.world_bound_min;
+  comparable.world_bound_max = other.world_bound_max;
+  return !(comparable != other);
+}
+
 bool RenderInstanceStorage::IsFiniteBound(const Bound& bound) {
   return std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z) &&
          std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z) &&
@@ -3984,6 +3994,7 @@ void RenderInstanceStorage::BuildPreviousInstanceInfoBlocks(
       continue;
     }
     previous.previous_model = previous_render_instances->instance_info_blocks_[previous_index].model.value;
+    previous.flags.z = static_cast<uint32_t>(previous_index) + 1u;
     if (index < rigid_motion_supported_.size() && rigid_motion_supported_[index] != 0u) {
       previous.flags.x = 1u;
     }
@@ -4077,8 +4088,25 @@ void RenderInstanceStorage::CalculateLodFactor(const std::shared_ptr<Scene>& sce
   }
 }
 bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const {
-  if (render_info_block != other.render_info_block)
-    return true;
+  return HasSceneDifference(other, false);
+}
+
+bool RenderInstanceStorage::HasOnlyRigidTransformChanges(const RenderInstanceStorage& other) const {
+  return HasSceneDifference(other, false) && !HasSceneDifference(other, true);
+}
+
+bool RenderInstanceStorage::HasSceneDifference(const RenderInstanceStorage& other,
+                                               const bool ignore_rigid_transforms) const {
+  if (render_info_block != other.render_info_block) {
+    if (!ignore_rigid_transforms)
+      return true;
+    auto comparable = render_info_block;
+    comparable.split_distances = other.render_info_block.split_distances;
+    comparable.ddgi_volume_header = other.render_info_block.ddgi_volume_header;
+    comparable.ddgi_volumes = other.render_info_block.ddgi_volumes;
+    if (comparable != other.render_info_block)
+      return true;
+  }
 
   if (environment_info_block != other.environment_info_block)
     return true;
@@ -4086,8 +4114,14 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
   if (instance_info_blocks_.size() != other.instance_info_blocks_.size())
     return true;
   for (uint32_t i = 0; i < instance_info_blocks_.size(); i++) {
-    if (instance_info_blocks_[i] != other.instance_info_blocks_[i])
-      return true;
+    const auto& current = instance_info_blocks_[i];
+    const auto& previous = other.instance_info_blocks_[i];
+    if (current != previous) {
+      if (!ignore_rigid_transforms || i >= rigid_motion_supported_.size() || rigid_motion_supported_[i] == 0u)
+        return true;
+      if (!current.HasOnlyTransformDifference(previous))
+        return true;
+    }
   }
 
   const auto directional_light_count = static_cast<size_t>(render_info_block.directional_light_size);
@@ -4382,14 +4416,6 @@ void RenderInstanceStorage::BuildFromScene(
   {
     const ProfilerScope stage_scope("RenderInstanceStorage::BuildRenderInstanceBlocks", "Render");
     BuildRenderInstanceBlocks();
-    const auto& shade_materials = GetGltfShadeMaterials();
-    const bool hybrid_safe = std::all_of(shade_materials.begin(), shade_materials.end(), [](const auto& material) {
-      return material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque) &&
-             material.transmission_factor == 0.0f && material.diffuse_transmission_factor == 0.0f;
-    });
-    for (auto& camera_info_block : camera_info_blocks_) {
-      camera_info_block.restir_spatial_hybrid &= uint32_t(hybrid_safe);
-    }
   }
   UpdateRasterSpatialIndex();
   {
