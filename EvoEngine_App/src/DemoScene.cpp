@@ -166,6 +166,7 @@ struct RenderingRegressionTemporalMotionState {
   bool moving_light_enabled = false;
   bool secondary_geometry_enabled = false;
   bool suffix_light_fixture = false;
+  bool reconnection_fixture = false;
 };
 
 std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
@@ -256,8 +257,13 @@ void RegisterRenderingRegressionTemporalMotionUpdate() {
     }
     if (state->secondary_geometry_enabled && scene->IsEntityValid(state->secondary_geometry_entity)) {
       Transform transform;
-      transform.SetValue(glm::vec3(glm::sin(phase) * 1.35f, 1.6f + glm::cos(phase * 0.5f) * 0.15f, -2.8f),
-                         glm::vec3(0.0f, phase * 0.25f, 0.0f), glm::vec3(1.55f, 0.08f, 1.25f));
+      if (state->reconnection_fixture) {
+        transform.SetValue(glm::vec3(glm::sin(phase) * 0.3f, 2.6f, -2.4f),
+                           glm::vec3(0.0f, glm::sin(phase) * 0.1f, 0.0f), glm::vec3(2.2f, 0.05f, 2.0f));
+      } else {
+        transform.SetValue(glm::vec3(glm::sin(phase) * 1.35f, 1.6f + glm::cos(phase * 0.5f) * 0.15f, -2.8f),
+                           glm::vec3(0.0f, phase * 0.25f, 0.0f), glm::vec3(1.55f, 0.08f, 1.25f));
+      }
       scene->SetDataComponent(state->secondary_geometry_entity, transform);
     }
   });
@@ -2869,6 +2875,9 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   rendering_regression_temporal_motion_state.reset();
 
   const bool furnace_fixture = fixture_id == "furnace";
+  const bool upward_restir_fixture =
+      fixture_id == "restir-indirect-upward" || fixture_id == "restir-indirect-upward-textured" ||
+      fixture_id == "restir-indirect-upward-moving" || fixture_id == "restir-indirect-upward-static-pose";
   const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);
   if (!lighting) {
     throw std::runtime_error("DDGI validation fixture requires an environmental lighting asset.");
@@ -2887,9 +2896,8 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       camera->camera_settings.fov = fov;
       camera->camera_settings.near_distance = near_distance;
       camera->camera_settings.far_distance = far_distance;
-      camera->camera_settings.background_source = fixture_id == "restir-indirect-upward"
-                                                      ? Camera::BackgroundSource::ClearColor
-                                                      : Camera::BackgroundSource::Cubemap;
+      camera->camera_settings.background_source =
+          upward_restir_fixture ? Camera::BackgroundSource::ClearColor : Camera::BackgroundSource::Cubemap;
       camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
       camera->camera_settings.background_intensity = 1.0f;
       camera->camera_settings.sample_size = 1;
@@ -3048,30 +3056,85 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
                                    glm::vec3(0.85f), glm::vec3(1.0f), 0.0f, 1.0f);
     create_emitter("ReSTIR Mirror Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
   } else if (fixture_id == "restir-diffuse-visible" || fixture_id == "restir-diffuse-occluded" ||
-             fixture_id == "restir-roulette" || fixture_id == "restir-indirect" ||
-             fixture_id == "restir-indirect-upward") {
+             fixture_id == "restir-roulette" || fixture_id == "restir-masked-roulette" ||
+             fixture_id == "restir-mixed-roulette" || fixture_id == "restir-environment-roulette" ||
+             fixture_id == "restir-indirect" || upward_restir_fixture) {
+    if (fixture_id == "restir-environment-roulette") {
+      ConfigureEnvironmentalLightingColorSource(*lighting, glm::vec3(1.0f), 1.0f, 1.0f);
+    }
     CreateRenderingRegressionProbe(scene, root, "ReSTIR Diffuse Receiver", primitives.sphere,
                                    glm::vec3(0.0f, 0.85f, -2.4f), glm::vec3(0.85f), glm::vec3(0.75f, 0.6f, 0.45f), 0.9f,
                                    0.0f);
-    if (fixture_id == "restir-indirect-upward") {
+    if (upward_restir_fixture) {
       create_emitter("ReSTIR Upward Emitter", glm::vec3(0.8f, 0.025f, 0.8f), false, 0, false, true,
                      kDdgiValidationEmitterRadiance * 4.0f);
-    } else {
+    } else if (fixture_id != "restir-environment-roulette") {
       create_emitter("ReSTIR Diffuse Emitter", glm::vec3(0.8f, 0.025f, 0.8f), true);
     }
     if (fixture_id == "restir-diffuse-occluded") {
       CreateRenderingRegressionProbe(scene, root, "ReSTIR Occluder", primitives.cube, glm::vec3(0.0f, 1.9f, -2.4f),
                                      glm::vec3(0.5f, 0.06f, 0.5f), glm::vec3(0.25f), 0.9f, 0.0f);
     }
-    if (fixture_id == "restir-roulette" || fixture_id == "restir-indirect" || fixture_id == "restir-indirect-upward") {
-      if (fixture_id == "restir-indirect" || fixture_id == "restir-indirect-upward") {
+    if (fixture_id == "restir-roulette" || fixture_id == "restir-masked-roulette" ||
+        fixture_id == "restir-mixed-roulette" || fixture_id == "restir-environment-roulette" ||
+        fixture_id == "restir-indirect" || upward_restir_fixture) {
+      if (fixture_id == "restir-indirect" || upward_restir_fixture) {
         CreateRenderingRegressionProbe(scene, root, "ReSTIR Indirect Baffle", primitives.cube,
                                        glm::vec3(0.0f, 1.95f, -2.4f), glm::vec3(1.1f, 0.05f, 1.1f), glm::vec3(0.7f),
                                        0.9f, 0.0f);
       }
-      CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Ceiling", primitives.cube,
-                                     glm::vec3(0.0f, 2.6f, -2.4f), glm::vec3(2.2f, 0.05f, 2.0f), glm::vec3(0.78f), 0.9f,
-                                     0.0f);
+      const auto ceiling = CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Ceiling", primitives.cube,
+                                                          glm::vec3(0.0f, 2.6f, -2.4f), glm::vec3(2.2f, 0.05f, 2.0f),
+                                                          glm::vec3(0.78f), 0.9f, 0.0f);
+      if (fixture_id == "restir-indirect-upward-textured") {
+        const auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+        std::vector<glm::vec4> pixels(32 * 32);
+        for (uint32_t y = 0; y < 32; ++y)
+          for (uint32_t x = 0; x < 32; ++x)
+            pixels[y * 32 + x] = glm::vec4(glm::vec3((x + y) % 2 == 0 ? 1.0f : 0.12f), 1.0f);
+        texture->SetRgbaChannelData(pixels, glm::uvec2(32));
+        const auto material = scene->GetOrSetPrivateComponent<MeshRenderer>(ceiling).lock()->material.Get<Material>();
+        material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, texture, 0,
+                             glm::mat3x2(16.0f, 0.0f, 0.0f, 16.0f, 0.0f, 0.0f));
+        material->MarkDirty();
+      }
+      if (fixture_id == "restir-indirect-upward-static-pose") {
+        constexpr float phase = 2.0f * glm::pi<float>() * 15.0f / 24.0f;
+        Transform transform;
+        transform.SetValue(glm::vec3(glm::sin(phase) * 0.3f, 2.6f, -2.4f),
+                           glm::vec3(0.0f, glm::sin(phase) * 0.1f, 0.0f), glm::vec3(2.2f, 0.05f, 2.0f));
+        scene->SetDataComponent(ceiling, transform);
+      }
+      if (fixture_id == "restir-indirect-upward-moving") {
+        rendering_regression_temporal_motion_state = std::make_shared<RenderingRegressionTemporalMotionState>();
+        rendering_regression_temporal_motion_state->scene = scene;
+        rendering_regression_temporal_motion_state->secondary_geometry_entity = ceiling;
+        rendering_regression_temporal_motion_state->secondary_geometry_enabled = true;
+        rendering_regression_temporal_motion_state->reconnection_fixture = true;
+        RegisterRenderingRegressionTemporalMotionUpdate();
+      }
+      if (fixture_id == "restir-masked-roulette") {
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
+        material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+        material->material_data.shade_material.alpha_cutoff = 0.5f;
+        material->MarkDirty();
+        CreateRenderingRegressionMaterialQuadEntity(
+            scene, root, "ReSTIR Masked Blocker",
+            CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(1.0f), glm::vec4(1.0f),
+                                                   glm::vec4(1.0f, 1.0f, 1.0f, 0.0f)}),
+            material, glm::vec3(0.0f, 2.05f, -2.4f), glm::radians(glm::vec3(90.0f, 0.0f, 0.0f)), glm::vec3(1.4f));
+      }
+      if (fixture_id == "restir-mixed-roulette") {
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
+        material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+        material->MarkDirty();
+        CreateRenderingRegressionMaterialQuadEntity(
+            scene, root, "ReSTIR Remote Blended Surface",
+            CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 1.0f, 1.0f, 0.5f), glm::vec4(1.0f, 1.0f, 1.0f, 0.5f),
+                                                   glm::vec4(1.0f, 1.0f, 1.0f, 0.5f),
+                                                   glm::vec4(1.0f, 1.0f, 1.0f, 0.5f)}),
+            material, glm::vec3(5.0f, 1.2f, -2.4f), glm::vec3(0.0f), glm::vec3(0.5f));
+      }
       CreateRenderingRegressionProbe(scene, root, "ReSTIR Roulette Left Wall", primitives.cube,
                                      glm::vec3(-2.2f, 1.25f, -2.4f), glm::vec3(0.05f, 1.3f, 2.0f),
                                      glm::vec3(0.78f, 0.2f, 0.16f), 0.9f, 0.0f);
@@ -3081,8 +3144,8 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       const glm::vec3 roulette_camera_position(0.0f, 1.1f, 1.5f);
       const auto roulette_rotation = glm::quatLookAt(
           glm::normalize(glm::vec3(0.0f, 1.0f, -2.4f) - roulette_camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
-      configure_validation_camera(roulette_camera_position, roulette_rotation,
-                                  fixture_id == "restir-indirect-upward" ? 36.0f : 62.0f, 0.05f, 250.0f);
+      configure_validation_camera(roulette_camera_position, roulette_rotation, upward_restir_fixture ? 36.0f : 62.0f,
+                                  0.05f, 250.0f);
       main_camera->camera_settings.bounce = 8;
       if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
         if (const auto scene_camera = editor_layer->GetSceneCamera()) {
@@ -3253,6 +3316,17 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
 bool evo_engine::AdvanceDdgiValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id) {
   if (!scene) {
     return false;
+  }
+  if (fixture_id == "restir-indirect-upward-moving") {
+    const auto state = rendering_regression_temporal_motion_state;
+    if (!state || state->scene.lock() != scene || !scene->IsEntityValid(state->secondary_geometry_entity)) {
+      return false;
+    }
+    state->frame = 0;
+    Transform transform;
+    transform.SetValue(glm::vec3(0.0f, 2.6f, -2.4f), glm::vec3(0.0f), glm::vec3(2.2f, 0.05f, 2.0f));
+    scene->SetDataComponent(state->secondary_geometry_entity, transform);
+    return true;
   }
   if (fixture_id == "scrolling") {
     if (const auto camera = scene->main_camera.Get<Camera>()) {

@@ -20,6 +20,7 @@ git submodule update --init --recursive
 - Visual Studio 2026 with Desktop development with C++
 - CMake
 - Vulkan SDK
+- An NRD source checkout at `out/deps/NRD` for the `vs2026-x64` preset (including its NRI dependency)
 
 Generate the Visual Studio build tree:
 
@@ -34,7 +35,7 @@ python Scripts\install_apps.py
 python Scripts\install_apps.py --config Debug
 ```
 
-The installer uses one CMake graph for the editor, runtime host, shared SDK/package DLLs, and published runtime template. It does not configure or compile a second runtime tree.
+The standard Windows preset builds NRD into the editor and installs its runtime libraries alongside the other app binaries in `out/install/vs2026-x64`. The camera inspector can enable or disable denoising without changing builds. The installer uses one CMake graph for the editor, runtime host, shared SDK/package DLLs, and published runtime template. It does not configure or compile a second runtime tree.
 
 Incremental installs record their configuration in the install directory. Reusing the same configuration preserves the
 installed runtime, while switching between Debug and RelWithDebInfo cleans it first so incompatible MSVC runtimes are

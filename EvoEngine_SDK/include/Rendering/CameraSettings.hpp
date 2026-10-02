@@ -10,10 +10,13 @@ namespace evo_engine {
  * @brief A structure to define the camera settings used in the engine.
  */
 struct CameraSettings {
+  static constexpr int kMaxRestirSpatialNeighbors = 16;
   enum class RayIntegrator : uint32_t {
     PathTracing,
     RestirPtCandidateOnly,
     RestirPtSpatialOnly,
+    RestirPtEnhanced,
+    RestirPtTemporalOnly,
   };
   enum class BackgroundSource : uint32_t {
     ClearColor,
@@ -111,8 +114,11 @@ struct CameraSettings {
   RayDebugView ray_debug_view = RayDebugView::Beauty;
 
   RayIntegrator ray_integrator = RayIntegrator::PathTracing;
-  int restir_spatial_neighbors = 4;
+  bool nrd_denoising = true;
+  int restir_spatial_neighbors = 3;
   bool restir_spatial_hybrid = false;
+  int restir_temporal_history_cap = 20;
+  bool restir_temporal_adaptive_cap = true;
 
   /** @brief Optional ray-camera diagnostic outputs. */
   RayOutputSettings ray_outputs{};

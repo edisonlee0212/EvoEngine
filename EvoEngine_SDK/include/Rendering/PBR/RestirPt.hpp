@@ -24,6 +24,8 @@ struct RestirPtPathReservoir {
   static constexpr uint32_t kInvalidInstance = UINT32_MAX;
   static constexpr uint32_t kDeltaPrefix = 1u;
   static constexpr uint32_t kSecondaryEmissionReconnection = 4u;
+  static constexpr uint32_t kLongSuffixDescriptor = 64u;
+  static constexpr uint32_t kPrimaryDiffuse = 128u;
   static constexpr uint32_t kProfileSourceReasonShift = 8u;
 
   uint32_t version = kVersion;
@@ -64,14 +66,25 @@ static_assert(offsetof(RestirPtPathReservoir, reconnection_position) == 80u);
 static_assert(offsetof(RestirPtPathReservoir, reconnection_normal) == 96u);
 static_assert(offsetof(RestirPtPathReservoir, primary_position) == 112u);
 
+struct RestirPtResolvedRadiance {
+  float radiance[3]{};
+  float padding = 0.0f;
+};
+
+static_assert(sizeof(RestirPtResolvedRadiance) == 16u);
+
 struct RestirPtPrimarySurface {
   float position[3]{};
   float depth = 0.0f;
   float normal[3]{};
   uint32_t material_id = UINT32_MAX;
+  uint32_t instance_index = UINT32_MAX;
+  uint32_t entity_index = 0u;
+  float screen_motion[2]{};
 };
 
-static_assert(sizeof(RestirPtPrimarySurface) == 32u);
+static_assert(sizeof(RestirPtPrimarySurface) == 48u);
+static_assert(offsetof(RestirPtPrimarySurface, screen_motion) == 40u);
 
 struct RestirPtSpatialShift {
   float contribution[3]{};

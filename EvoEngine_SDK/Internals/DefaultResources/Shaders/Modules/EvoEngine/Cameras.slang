@@ -22,7 +22,7 @@ public struct Camera {
   public int background_source;
 
   // Ray tracing
-  public uint camera_block_reserved3;
+  public uint restir_temporal_history_cap;
   public float gamma;
   public uint sample_size;
   public uint bounce;
@@ -37,7 +37,8 @@ public struct Camera {
   public uint ray_output_flags;
   public uint restir_spatial_neighbors;
   public uint restir_spatial_hybrid;
-  public uint camera_block_reserved2;
+  public uint restir_enhanced_mode;
+  public uint restir_temporal_adaptive_cap;
   public float4 shadow_split_distances;
 };
 

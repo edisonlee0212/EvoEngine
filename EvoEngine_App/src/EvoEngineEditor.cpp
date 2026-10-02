@@ -38,17 +38,18 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <glm/gtc/packing.hpp>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
 
-#include <glm/gtc/packing.hpp>
 #include <nlohmann/json.hpp>
 
 #ifdef EVOENGINE_WINDOWS
@@ -81,11 +82,14 @@ struct EditorCommandLine {
   std::optional<CameraSettings::RayIntegrator> preview_capture_ray_integrator;
   std::optional<int> preview_capture_restir_spatial_neighbors;
   std::optional<bool> preview_capture_restir_spatial_hybrid;
+  std::optional<int> preview_capture_restir_temporal_history_cap;
+  std::optional<bool> preview_capture_restir_temporal_adaptive_cap;
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<float> preview_capture_firefly_clamp_threshold;
   std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<bool> preview_capture_accumulate_samples;
+  std::optional<bool> preview_capture_nrd_denoising;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
   std::optional<float> preview_capture_auto_spp_convergence_threshold;
@@ -96,6 +100,10 @@ struct EditorCommandLine {
   std::optional<bool> preview_gpu_timestamp_capture;
   std::optional<glm::vec3> preview_capture_camera_position;
   std::optional<glm::vec3> preview_capture_camera_look_at;
+  std::optional<size_t> preview_camera_translate_after_frame;
+  glm::vec3 preview_camera_translation{};
+  std::optional<glm::vec3> preview_camera_translation_each_frame;
+  std::optional<size_t> preview_fixture_advance_after_frame;
   std::optional<bool> preview_ambient_occlusion_enabled;
   std::optional<bool> preview_anti_aliasing_enabled;
   std::optional<AntiAliasing::Preset> preview_anti_aliasing_preset;
@@ -620,7 +628,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_ray_debug_view = ParsePreviewRayDebugView(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-ray-integrator") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-ray-integrator requires pathtracing, candidate, or spatial.");
+        throw std::invalid_argument(
+            "--preview-ray-integrator requires pathtracing, candidate, spatial, enhanced, or temporal.");
       }
       const std::string value = argv[++arg_index] ? argv[arg_index] : "";
       if (value == "pathtracing") {
@@ -629,8 +638,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtCandidateOnly;
       } else if (value == "spatial") {
         command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtSpatialOnly;
+      } else if (value == "enhanced") {
+        command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
+      } else if (value == "temporal") {
+        command_line.preview_capture_ray_integrator = CameraSettings::RayIntegrator::RestirPtTemporalOnly;
       } else {
-        throw std::invalid_argument("--preview-ray-integrator requires pathtracing, candidate, or spatial.");
+        throw std::invalid_argument(
+            "--preview-ray-integrator requires pathtracing, candidate, spatial, enhanced, or temporal.");
       }
     } else if (argument == "--preview-ray-outputs") {
       if (arg_index + 1 >= argc) {
@@ -660,15 +674,35 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_accumulate_samples =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-nrd-denoising") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-nrd-denoising requires enabled or disabled.");
+      }
+      command_line.preview_capture_nrd_denoising = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-restir-spatial-neighbors") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-restir-spatial-neighbors requires an integer from 1 to 4.");
+        throw std::invalid_argument("--preview-restir-spatial-neighbors requires an integer from 1 to 16.");
       }
       const int count = std::stoi(argv[++arg_index]);
-      if (count < 1 || count > 4) {
-        throw std::invalid_argument("--preview-restir-spatial-neighbors requires an integer from 1 to 4.");
+      if (count < 1 || count > CameraSettings::kMaxRestirSpatialNeighbors) {
+        throw std::invalid_argument("--preview-restir-spatial-neighbors requires an integer from 1 to 16.");
       }
       command_line.preview_capture_restir_spatial_neighbors = count;
+    } else if (argument == "--preview-restir-temporal-history-cap") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-restir-temporal-history-cap requires an integer from 1 to 32.");
+      }
+      const int cap = std::stoi(argv[++arg_index]);
+      if (cap < 1 || cap > 32) {
+        throw std::invalid_argument("--preview-restir-temporal-history-cap requires an integer from 1 to 32.");
+      }
+      command_line.preview_capture_restir_temporal_history_cap = cap;
+    } else if (argument == "--preview-restir-temporal-adaptive-cap") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-restir-temporal-adaptive-cap requires enabled or disabled.");
+      }
+      command_line.preview_capture_restir_temporal_adaptive_cap =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-restir-spatial-hybrid") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-restir-spatial-hybrid requires enabled or disabled.");
@@ -716,6 +750,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-look-at") {
       command_line.preview_capture_camera_look_at = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-camera-translate-after-frame") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-camera-translate-after-frame requires a frame and xyz translation.");
+      }
+      command_line.preview_camera_translate_after_frame =
+          static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
+      command_line.preview_camera_translation = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-camera-translate-each-frame") {
+      command_line.preview_camera_translation_each_frame = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-fixture-advance-after-frame") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-fixture-advance-after-frame requires a frame number.");
+      }
+      command_line.preview_fixture_advance_after_frame = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-ao") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ao requires gtao or disabled.");
@@ -894,6 +942,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_accumulate_samples && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-accumulate-samples requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_nrd_denoising && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-nrd-denoising requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_nrd_denoising && *command_line.preview_capture_nrd_denoising &&
+      !Camera::NrdDenoisingAvailable()) {
+    throw std::invalid_argument("--preview-nrd-denoising enabled requires an NRD-enabled build.");
+  }
   if (command_line.preview_ray_profile_report_path &&
       (!command_line.demo_preview_capture_path ||
        command_line.preview_ray_profile_report_path->extension() != ".json" ||
@@ -946,6 +1001,16 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
   }
+  if (command_line.preview_camera_translate_after_frame && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-camera-translate-after-frame requires --capture-demo-preview.");
+  }
+  if (command_line.preview_camera_translation_each_frame && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-camera-translate-each-frame requires --capture-demo-preview.");
+  }
+  if (command_line.preview_fixture_advance_after_frame &&
+      (!command_line.demo_preview_capture_path || !command_line.preview_ddgi_fixture)) {
+    throw std::invalid_argument("--preview-fixture-advance-after-frame requires a preview fixture capture.");
+  }
   if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_anti_aliasing_enabled ||
        command_line.preview_anti_aliasing_preset || command_line.preview_anti_aliasing_debug_mode ||
        command_line.preview_anti_aliasing_debug_disabled) &&
@@ -983,8 +1048,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "restir-diffuse-occluded",
                                                "restir-glossy",
                                                "restir-roulette",
+                                               "restir-masked-roulette",
+                                               "restir-mixed-roulette",
+                                               "restir-environment-roulette",
                                                "restir-indirect",
                                                "restir-indirect-upward",
+                                               "restir-indirect-upward-textured",
+                                               "restir-indirect-upward-moving",
+                                               "restir-indirect-upward-static-pose",
                                                "restir-mixed",
                                                "restir-edges",
                                                "restir-instanced",
@@ -1659,7 +1730,8 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   if (!camera.DownloadRestirPtSpatialFrame(candidates, shifts, extent)) {
     return std::nullopt;
   }
-  const auto neighbor_count = static_cast<size_t>(std::clamp(camera.camera_settings.restir_spatial_neighbors, 1, 4));
+  const auto neighbor_count = static_cast<size_t>(
+      std::clamp(camera.camera_settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors));
   if (shifts.size() != candidates.size() * neighbor_count) {
     throw std::runtime_error("ReSTIR PT shift buffer size does not match the neighbor count.");
   }
@@ -1671,6 +1743,11 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   heatmap << "P6\n" << extent.x << ' ' << extent.y << "\n255\n";
   nlohmann::json paths = nlohmann::json::object();
   nlohmann::json path_lengths = nlohmann::json::object();
+  nlohmann::json reconnection_by_path_length = nlohmann::json::object();
+  nlohmann::json long_suffix_by_path_length = nlohmann::json::object();
+  nlohmann::json long_suffix_by_reconnection_index = nlohmann::json::object();
+  nlohmann::json long_suffix_by_path_type = nlohmann::json::object();
+  nlohmann::json long_suffix_shifts_by_reconnection_index = nlohmann::json::object();
   nlohmann::json paths_by_length = nlohmann::json::object();
   nlohmann::json secondary_nee_eligibility = {{"not_profiled", 0},     {"source_invalid", 0},
                                               {"surface_mismatch", 0}, {"degenerate_connection", 0},
@@ -1698,6 +1775,9 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   uint64_t finite_failures = 0;
   uint64_t hybrid_attempts = 0;
   uint64_t hybrid_accepted = 0;
+  uint64_t diffuse_candidates = 0;
+  uint64_t specular_candidates = 0;
+  uint64_t excluded_candidates = 0;
   double candidate_weight_sum = 0.0;
   uint32_t maximum_path_length = 0;
   for (size_t index = 0; index < shifts.size(); ++index) {
@@ -1707,6 +1787,15 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
     const auto status = std::min<size_t>(shift.status, status_names.size() - 1);
     const bool attempted = shift.status != 1u && shift.status != 2u && shift.status != 5u;
     const bool valid = shift.status == 0u;
+    if ((candidate.flags & RestirPtPathReservoir::kLongSuffixDescriptor) != 0u && attempted) {
+      const auto reconnection_index = std::to_string(candidate.reconnection_length);
+      auto& counts = long_suffix_shifts_by_reconnection_index[reconnection_index];
+      if (!counts.is_object())
+        counts = {{"attempts", 0}, {"accepted", 0}, {"rays", 0}};
+      counts["attempts"] = counts["attempts"].get<uint64_t>() + 1;
+      counts["accepted"] = counts["accepted"].get<uint64_t>() + valid;
+      counts["rays"] = counts["rays"].get<uint64_t>() + shift.ray_count;
+    }
     const bool hybrid = camera.camera_settings.restir_spatial_hybrid &&
                         (candidate.flags & RestirPtPathReservoir::kSecondaryEmissionReconnection) != 0u && attempted;
     hybrid_attempts += hybrid;
@@ -1724,6 +1813,15 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
                         std::isfinite(shift.contribution[2]);
     if (first_neighbor && std::isfinite(candidate.weight_sum)) {
       candidate_weight_sum += candidate.weight_sum;
+    }
+    if (first_neighbor && candidate.target_density > 0.0f && candidate.selected_weight > 0.0f) {
+      const bool excluded =
+          candidate.path_type == static_cast<uint32_t>(RestirPtPathType::PrimaryEmission) ||
+          candidate.path_type == static_cast<uint32_t>(RestirPtPathType::PrimaryBackground) ||
+          (candidate.path_type == static_cast<uint32_t>(RestirPtPathType::Unlit) && candidate.path_length == 1u);
+      excluded_candidates += excluded;
+      diffuse_candidates += !excluded && (candidate.flags & RestirPtPathReservoir::kPrimaryDiffuse) != 0u;
+      specular_candidates += !excluded && (candidate.flags & RestirPtPathReservoir::kPrimaryDiffuse) == 0u;
     }
     const auto path = candidate.path_type < path_names.size() ? path_names[candidate.path_type] : "unknown";
     const auto key =
@@ -1751,6 +1849,18 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
       const auto length = std::to_string(candidate.path_length);
       if (first_neighbor)
         path_lengths[length] = path_lengths.value(length, uint64_t{0}) + 1;
+      if (first_neighbor) {
+        auto& indices = reconnection_by_path_length[length];
+        if (!indices.is_object())
+          indices = nlohmann::json::object();
+        const auto index = std::to_string(candidate.reconnection_length);
+        indices[index] = indices.value(index, uint64_t{0}) + 1;
+        if ((candidate.flags & RestirPtPathReservoir::kLongSuffixDescriptor) != 0u) {
+          long_suffix_by_path_length[length] = long_suffix_by_path_length.value(length, uint64_t{0}) + 1;
+          long_suffix_by_reconnection_index[index] = long_suffix_by_reconnection_index.value(index, uint64_t{0}) + 1;
+          long_suffix_by_path_type[key] = long_suffix_by_path_type.value(key, uint64_t{0}) + 1;
+        }
+      }
       maximum_path_length = std::max(maximum_path_length, candidate.path_length);
       if (!paths_by_length.contains(key)) {
         paths_by_length[key] = nlohmann::json::object();
@@ -1789,8 +1899,8 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
   return nlohmann::json{
       {"frame_scope", "last_completed_frame"},
       {"neighbor_count", neighbor_count},
-      {"reservoir_bytes_per_pixel", sizeof(RestirPtPathReservoir) * 2 + sizeof(RestirPtPrimarySurface) +
-                                        sizeof(RestirPtSpatialShift) * neighbor_count},
+      {"reservoir_bytes_per_pixel", sizeof(RestirPtPathReservoir) + sizeof(RestirPtResolvedRadiance) +
+                                        sizeof(RestirPtPrimarySurface) + sizeof(RestirPtSpatialShift) * neighbor_count},
       {"heatmap_file", heatmap_path.filename().string()},
       {"status", status_counts},
       {"attempts", attempts},
@@ -1798,12 +1908,19 @@ std::optional<nlohmann::json> WriteRestirPtShiftDiagnostics(const std::filesyste
       {"acceptance", attempts ? static_cast<double>(accepted) / attempts : 0.0},
       {"rays", rays},
       {"finite_failures", finite_failures},
+      {"primary_lobes",
+       {{"diffuse", diffuse_candidates}, {"specular", specular_candidates}, {"excluded", excluded_candidates}}},
       {"hybrid_attempts", hybrid_attempts},
       {"hybrid_accepted", hybrid_accepted},
       {"hybrid_rejections", hybrid_rejections},
       {"candidate_weight_sum", candidate_weight_sum},
       {"maximum_path_length", maximum_path_length},
       {"path_lengths", path_lengths},
+      {"reconnection_by_path_length", reconnection_by_path_length},
+      {"long_suffix_by_path_length", long_suffix_by_path_length},
+      {"long_suffix_by_reconnection_index", long_suffix_by_reconnection_index},
+      {"long_suffix_by_path_type", long_suffix_by_path_type},
+      {"long_suffix_shifts_by_reconnection_index", long_suffix_shifts_by_reconnection_index},
       {"selected_by_path_length", paths_by_length},
       {"secondary_nee_emission_eligibility", secondary_nee_eligibility},
       {"secondary_nee_source_eligibility", secondary_nee_source_eligibility},
@@ -1859,6 +1976,103 @@ std::optional<nlohmann::json> CollectRestirPtGeneratedDiagnostics(const Camera& 
                         {"by_path_length", by_path_length}};
 }
 
+std::optional<nlohmann::json> CollectRestirPtTemporalDiagnostics(const Camera& camera) {
+  std::vector<RestirPtSpatialShift> forward;
+  std::vector<RestirPtPathReservoir> history;
+  std::vector<RestirPtResolvedRadiance> resolved;
+  glm::uvec2 extent{};
+  uint32_t history_frames = 0;
+  if (!camera.DownloadRestirPtEnhancedFrame(forward, history, resolved, extent, history_frames))
+    return std::nullopt;
+  nlohmann::json status = {{"valid", 0},       {"no_partner", 0}, {"no_source", 0}, {"surface_mismatch", 0},
+                           {"zero_target", 0}, {"other", 0}};
+  constexpr std::array<const char*, 5> names = {"valid", "no_partner", "no_source", "surface_mismatch", "zero_target"};
+  uint64_t history_positive = 0;
+  uint64_t history_non_finite = 0;
+  uint64_t diffuse_history = 0;
+  uint64_t specular_history = 0;
+  uint64_t dual_history_partner = 0;
+  uint64_t dual_valid = 0;
+  uint64_t hybrid_forward_attempts = 0;
+  uint64_t hybrid_forward_valid = 0;
+  uint64_t forward_rays = 0;
+  double effective_count_sum = 0.0;
+  double selected_weight_sum = 0.0;
+  double target_density_sum = 0.0;
+  float max_selected_weight = 0.0f;
+  float max_effective_count = 0.0f;
+  std::vector<size_t> hottest(resolved.size());
+  std::iota(hottest.begin(), hottest.end(), 0u);
+  const auto luminance = [&](const size_t index) {
+    const auto& rgb = resolved[index].radiance;
+    const float value = rgb[0] * 0.2126f + rgb[1] * 0.7152f + rgb[2] * 0.0722f;
+    return std::isfinite(value) ? value : 0.0f;
+  };
+  const size_t hotspot_count = std::min<size_t>(hottest.size(), 32u);
+  std::partial_sort(hottest.begin(), hottest.begin() + hotspot_count, hottest.end(),
+                    [&](const size_t a, const size_t b) {
+                      return luminance(a) > luminance(b);
+                    });
+  nlohmann::json hotspots = nlohmann::json::array();
+  for (size_t i = 0; i < hotspot_count; ++i) {
+    const size_t index = hottest[i];
+    const auto& reservoir = history[index];
+    hotspots.push_back({{"x", index % extent.x},
+                        {"y", extent.y - 1u - index / extent.x},
+                        {"radiance", luminance(index)},
+                        {"seed", reservoir.sample_seed},
+                        {"path_type", reservoir.path_type},
+                        {"primary_diffuse", (reservoir.flags & RestirPtPathReservoir::kPrimaryDiffuse) != 0u},
+                        {"effective_count", reservoir.effective_count},
+                        {"selected_weight", reservoir.selected_weight},
+                        {"target_density", reservoir.target_density}});
+  }
+  for (const auto& shift : forward) {
+    auto& count = status[shift.status < names.size() ? names[shift.status] : "other"];
+    count = count.get<uint64_t>() + 1;
+    dual_history_partner += (shift.reserved & 1u) != 0u;
+    dual_valid += (shift.reserved & 1u) != 0u && shift.status == 0u;
+    hybrid_forward_attempts += (shift.reserved & 0x10000u) != 0u;
+    hybrid_forward_valid += (shift.reserved & 0x10000u) != 0u && shift.status == 0u;
+    forward_rays += shift.ray_count;
+  }
+  for (const auto& reservoir : history) {
+    const bool finite = std::isfinite(reservoir.effective_count) && std::isfinite(reservoir.selected_weight) &&
+                        std::isfinite(reservoir.target_density) && std::isfinite(reservoir.weight_sum);
+    history_non_finite += !finite;
+    if (!finite)
+      continue;
+    history_positive += reservoir.target_density > 0.0f && reservoir.selected_weight > 0.0f;
+    if (reservoir.target_density > 0.0f && reservoir.selected_weight > 0.0f) {
+      diffuse_history += (reservoir.flags & RestirPtPathReservoir::kPrimaryDiffuse) != 0u;
+      specular_history += (reservoir.flags & RestirPtPathReservoir::kPrimaryDiffuse) == 0u;
+    }
+    effective_count_sum += reservoir.effective_count;
+    selected_weight_sum += reservoir.selected_weight;
+    target_density_sum += reservoir.target_density;
+    max_selected_weight = std::max(max_selected_weight, reservoir.selected_weight);
+    max_effective_count = std::max(max_effective_count, reservoir.effective_count);
+  }
+  return nlohmann::json{{"history_frames", history_frames},
+                        {"pixels", extent.x * extent.y},
+                        {"forward_status", status},
+                        {"dual_history_partner", dual_history_partner},
+                        {"dual_valid", dual_valid},
+                        {"hybrid_forward_attempts", hybrid_forward_attempts},
+                        {"hybrid_forward_valid", hybrid_forward_valid},
+                        {"forward_rays", forward_rays},
+                        {"history_positive", history_positive},
+                        {"history_primary_diffuse", diffuse_history},
+                        {"history_primary_other", specular_history},
+                        {"history_non_finite", history_non_finite},
+                        {"history_effective_count_sum", effective_count_sum},
+                        {"history_selected_weight_sum", selected_weight_sum},
+                        {"history_target_density_sum", target_density_sum},
+                        {"history_max_selected_weight", max_selected_weight},
+                        {"history_max_effective_count", max_effective_count},
+                        {"raw_radiance_hotspots", hotspots}};
+}
+
 void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
                                  const Camera& camera, const Camera::CameraRenderMode render_mode,
                                  const size_t rendered_frames, const double elapsed_seconds,
@@ -1880,10 +2094,31 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   }
   const auto restir_shift = WriteRestirPtShiftDiagnostics(report_path, camera);
   const auto restir_generated = CollectRestirPtGeneratedDiagnostics(camera);
+  const auto restir_temporal = CollectRestirPtTemporalDiagnostics(camera);
   const auto restir_bytes_per_pixel =
-      camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
-          ? sizeof(RestirPtPathReservoir) * 2 + sizeof(RestirPtPrimarySurface) +
-                sizeof(RestirPtSpatialShift) * std::clamp(camera.camera_settings.restir_spatial_neighbors, 1, 4)
+      camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
+          ? sizeof(RestirPtPathReservoir) * 3u +
+                sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
+                                                                  camera.camera_settings.firefly_clamp_threshold > 0.0f
+                                                              ? 1u
+                                                              : 0u)) +
+                sizeof(RestirPtPrimarySurface) * 2u +
+                sizeof(RestirPtSpatialShift) * (std::clamp(camera.camera_settings.restir_spatial_neighbors, 1,
+                                                           CameraSettings::kMaxRestirSpatialNeighbors) +
+                                                1u) +
+                (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
+      : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly
+          ? sizeof(RestirPtPathReservoir) * 3u +
+                sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
+                                                                  camera.camera_settings.firefly_clamp_threshold > 0.0f
+                                                              ? 1u
+                                                              : 0u)) +
+                sizeof(RestirPtPrimarySurface) * 2u + sizeof(RestirPtSpatialShift) +
+                (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
+      : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
+          ? sizeof(RestirPtPathReservoir) + sizeof(RestirPtResolvedRadiance) + sizeof(RestirPtPrimarySurface) +
+                sizeof(RestirPtSpatialShift) * std::clamp(camera.camera_settings.restir_spatial_neighbors, 1,
+                                                          CameraSettings::kMaxRestirSpatialNeighbors)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtCandidateOnly
           ? sizeof(RestirPtPathReservoir) + sizeof(RestirPtPrimarySurface)
           : 0u;
@@ -1924,6 +2159,7 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << "  \"restir_pt_profile_bytes_per_pixel\": " << restir_profile_bytes_per_pixel << ",\n"
          << "  \"restir_pt_shift\": " << (restir_shift ? restir_shift->dump() : "null") << ",\n"
          << "  \"restir_pt_generated\": " << (restir_generated ? restir_generated->dump() : "null") << ",\n"
+         << "  \"restir_pt_temporal\": " << (restir_temporal ? restir_temporal->dump() : "null") << ",\n"
          << "  \"vma_memory\": {\"block_count\": " << memory.block_count
          << ", \"allocation_count\": " << memory.allocation_count << ", \"block_bytes\": " << memory.block_bytes
          << ", \"allocation_bytes\": " << memory.allocation_bytes << "},\n"
@@ -2163,16 +2399,21 @@ void CaptureDemoPreview(
     const std::optional<CameraSettings::RayIntegrator>& preview_ray_integrator,
     const std::optional<int>& preview_restir_spatial_neighbors,
     const std::optional<bool>& preview_restir_spatial_hybrid,
+    const std::optional<int>& preview_restir_temporal_history_cap,
+    const std::optional<bool>& preview_restir_temporal_adaptive_cap,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
-    const std::optional<bool>& preview_accumulate_samples, const std::optional<int>& preview_auto_spp_min_samples,
-    const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<bool>& preview_accumulate_samples, const std::optional<bool>& preview_nrd_denoising,
+    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
     const bool preview_restir_generated_profile,
     const std::optional<std::filesystem::path>& preview_raster_profile_report_path,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
+    const std::optional<size_t> preview_camera_translate_after_frame, const glm::vec3 preview_camera_translation,
+    const std::optional<glm::vec3>& preview_camera_translation_each_frame,
+    const std::optional<size_t> preview_fixture_advance_after_frame,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
     const std::optional<bool>& preview_anti_aliasing_enabled,
     const std::optional<AntiAliasing::Preset>& preview_anti_aliasing_preset,
@@ -2254,6 +2495,14 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.restir_spatial_hybrid = *preview_restir_spatial_hybrid;
     scene_camera->ResetFrameCount();
   }
+  if (preview_restir_temporal_history_cap) {
+    scene_camera->camera_settings.restir_temporal_history_cap = *preview_restir_temporal_history_cap;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_restir_temporal_adaptive_cap) {
+    scene_camera->camera_settings.restir_temporal_adaptive_cap = *preview_restir_temporal_adaptive_cap;
+    scene_camera->ResetFrameCount();
+  }
   scene_camera->restir_pt_profile_generated =
       preview_restir_generated_profile &&
       scene_camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
@@ -2275,6 +2524,10 @@ void CaptureDemoPreview(
   }
   if (preview_accumulate_samples) {
     scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_nrd_denoising) {
+    scene_camera->camera_settings.nrd_denoising = *preview_nrd_denoising;
     scene_camera->ResetFrameCount();
   }
   if (preview_auto_spp_min_samples) {
@@ -2450,11 +2703,17 @@ void CaptureDemoPreview(
                                : RayCameraShaderTechnique::RayTracing;
     constexpr size_t max_variant_wait_frames = 30000;
     size_t wait_frames = 0;
-    while (!render_layer->IsRayCameraShaderVariantReady(technique)) {
+    while (!render_layer->IsRayCameraShaderVariantReady(technique) ||
+           (scene_camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly &&
+            !render_layer->IsRestirPtTemporalShaderVariantReady(scene_camera->camera_settings.nrd_denoising))) {
       const auto stats = render_layer->GetRayCameraShaderVariantStats(technique);
       if (stats.failed) {
         throw std::runtime_error("Ray camera shader variant failed: " + stats.last_error);
       }
+      if (const auto error =
+              render_layer->GetRestirPtTemporalShaderVariantError(scene_camera->camera_settings.nrd_denoising);
+          !error.empty())
+        throw std::runtime_error("ReSTIR PT temporal shader variant failed: " + error);
       if (!ApplicationContext::Get().Loop()) {
         throw std::runtime_error("Application ended before the ray camera shader variant became ready.");
       }
@@ -2487,8 +2746,15 @@ void CaptureDemoPreview(
     profiler.ClearFrameHistory();
     profiler.SetEnabled(true);
   }
+  if (preview_fixture_advance_after_frame == 0u &&
+      (!preview_ddgi_fixture ||
+       !AdvanceDdgiValidationFixture(ApplicationContext::Get().GetActiveScene(), *preview_ddgi_fixture))) {
+    throw std::runtime_error("Preview fixture could not advance before capture.");
+  }
   scene_camera->ResetFrameCount();
-  const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode);
+  const bool moving_restir_fixture = preview_ddgi_fixture && *preview_ddgi_fixture == "restir-indirect-upward-moving";
+  const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode) &&
+                                         !preview_camera_translation_each_frame && !moving_restir_fixture;
   constexpr size_t max_capture_frame_slack = 30000;
   const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
   size_t capture_frame_count = 0;
@@ -2506,8 +2772,10 @@ void CaptureDemoPreview(
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
     const auto current_camera_frames = scene_camera->GetFrameCount();
-    stalled_restir_frames =
-        restir_capture && current_camera_frames == previous_camera_frames ? stalled_restir_frames + 1 : 0;
+    stalled_restir_frames = restir_capture && (moving_restir_fixture ? current_camera_frames == 0u
+                                                                     : current_camera_frames == previous_camera_frames)
+                                ? stalled_restir_frames + 1
+                                : 0;
     previous_camera_frames = current_camera_frames;
     if (stalled_restir_frames >= 256) {
       throw std::runtime_error("ReSTIR PT preview camera did not render; check the unsupported-setting error.");
@@ -2518,6 +2786,18 @@ void CaptureDemoPreview(
       throw std::runtime_error(wait_for_ray_accumulation
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
+    }
+    if (preview_camera_translate_after_frame == capture_frame_count) {
+      editor_layer->SetSceneCameraPosition(editor_layer->GetSceneCameraPosition() + preview_camera_translation);
+    }
+    if (preview_camera_translation_each_frame) {
+      editor_layer->SetSceneCameraPosition(editor_layer->GetSceneCameraPosition() +
+                                           *preview_camera_translation_each_frame);
+    }
+    if (preview_fixture_advance_after_frame == capture_frame_count &&
+        (!preview_ddgi_fixture ||
+         !AdvanceDdgiValidationFixture(ApplicationContext::Get().GetActiveScene(), *preview_ddgi_fixture))) {
+      throw std::runtime_error("Preview fixture could not advance during capture.");
     }
   }
   std::vector<ProfilerFrameSnapshot> raster_profiler_frames;
@@ -3096,14 +3376,19 @@ int main(const int argc, char** argv) {
               command_line.demo_profile_id, command_line.preview_capture_render_mode,
               command_line.preview_capture_ray_bounces, command_line.preview_capture_ray_debug_view,
               command_line.preview_capture_ray_integrator, command_line.preview_capture_restir_spatial_neighbors,
-              command_line.preview_capture_restir_spatial_hybrid, command_line.preview_capture_ray_outputs,
+              command_line.preview_capture_restir_spatial_hybrid,
+              command_line.preview_capture_restir_temporal_history_cap,
+              command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
               command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_accumulate_samples,
-              command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
+              command_line.preview_capture_nrd_denoising, command_line.preview_capture_auto_spp_min_samples,
+              command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_ray_profile_report_path, command_line.preview_restir_generated_profile,
               command_line.preview_raster_profile_report_path, command_line.preview_capture_camera_position,
-              command_line.preview_capture_camera_look_at, command_line.preview_ambient_occlusion_enabled,
+              command_line.preview_capture_camera_look_at, command_line.preview_camera_translate_after_frame,
+              command_line.preview_camera_translation, command_line.preview_camera_translation_each_frame,
+              command_line.preview_fixture_advance_after_frame, command_line.preview_ambient_occlusion_enabled,
               command_line.preview_anti_aliasing_enabled, command_line.preview_anti_aliasing_preset,
               command_line.preview_anti_aliasing_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
               command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,

@@ -43,6 +43,10 @@ def check(graph: Path) -> list[str]:
     editor_roots = [Path(p).resolve() for p in index.get("editor_roots", [])]
     errors: set[str] = set()
 
+    def first_party(path: Path) -> bool:
+        return (path.is_relative_to(root) and not path.is_relative_to(root / "Extern")
+                and not path.is_relative_to(root / "out"))
+
     @cache
     def forbidden(path: Path) -> bool:
         return any(path.is_relative_to(p) for p in editor_roots) or (
@@ -84,7 +88,7 @@ def check(graph: Path) -> list[str]:
                 path = (base / value.strip('"')).resolve()
                 if forbidden(path):
                     errors.add(f"{runtime}: editor source/PCH from {name}: {path}")
-                if path.is_relative_to(root) and not path.is_relative_to(root / "Extern"):
+                if first_party(path):
                     sources.add(path)
         includes = list(dict.fromkeys(includes))
         while sources:
@@ -105,7 +109,7 @@ def check(graph: Path) -> list[str]:
                 if ((resolved is not None and forbidden(resolved)) or
                         (resolved is None and Path(include).name.lower() in editor_headers)):
                     errors.add(f"{runtime}: {path} includes editor header {include}")
-                elif resolved and resolved.is_relative_to(root) and not resolved.is_relative_to(root / "Extern"):
+                elif resolved and first_party(resolved):
                     sources.add(resolved)
     return sorted(errors)
 

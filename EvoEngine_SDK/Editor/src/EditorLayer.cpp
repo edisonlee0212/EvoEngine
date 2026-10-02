@@ -2537,11 +2537,14 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
   out << YAML::Key << "ray_integrator" << YAML::Value << Camera::GetRayIntegratorName(settings.ray_integrator);
+  out << YAML::Key << "nrd_denoising" << YAML::Value << settings.nrd_denoising;
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
   out << YAML::Key << "accumulate_samples" << YAML::Value << settings.accumulate_samples;
   out << YAML::Key << "restir_spatial_neighbors" << YAML::Value << settings.restir_spatial_neighbors;
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << settings.restir_spatial_hybrid;
+  out << YAML::Key << "restir_temporal_history_cap" << YAML::Value << settings.restir_temporal_history_cap;
+  out << YAML::Key << "restir_temporal_adaptive_cap" << YAML::Value << settings.restir_temporal_adaptive_cap;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << settings.auto_spp_max_samples;
   out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value << settings.auto_spp_convergence_threshold;
@@ -2567,14 +2570,19 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   if (const auto integrator = in["ray_integrator"]) {
     settings.ray_integrator = Camera::ParseRayIntegrator(integrator.as<std::string>(), settings.ray_integrator);
   }
+  ReadYamlValue(in, "nrd_denoising", settings.nrd_denoising);
   if (const auto view = in["ray_debug_view"]) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }
   ReadYamlValue(in, "auto_spp_enabled", settings.auto_spp_enabled);
   ReadYamlValue(in, "accumulate_samples", settings.accumulate_samples);
   ReadYamlValue(in, "restir_spatial_neighbors", settings.restir_spatial_neighbors);
-  settings.restir_spatial_neighbors = glm::clamp(settings.restir_spatial_neighbors, 1, 4);
+  settings.restir_spatial_neighbors =
+      glm::clamp(settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors);
   ReadYamlValue(in, "restir_spatial_hybrid", settings.restir_spatial_hybrid);
+  ReadYamlValue(in, "restir_temporal_history_cap", settings.restir_temporal_history_cap);
+  settings.restir_temporal_history_cap = glm::clamp(settings.restir_temporal_history_cap, 1, 32);
+  ReadYamlValue(in, "restir_temporal_adaptive_cap", settings.restir_temporal_adaptive_cap);
   ReadYamlValue(in, "auto_spp_min_samples", settings.auto_spp_min_samples);
   ReadYamlValue(in, "auto_spp_max_samples", settings.auto_spp_max_samples);
   ReadYamlValue(in, "auto_spp_convergence_threshold", settings.auto_spp_convergence_threshold);
@@ -7258,9 +7266,11 @@ void EditorLayer::SceneCameraWindow() {
         const ImVec2 view_gizmo_position = ImGui::GetWindowPos();
         ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, view_gizmo_position, ImVec2(96, 96), 0);
         suppress_scene_camera_selection_ |= ImGuizmo::IsOver() || ImGuizmo::IsUsing();
-        GlobalTransform gl;
-        gl.value = glm::inverse(camera_view);
-        sceneCameraRotation = gl.GetRotation();
+        if (ImGuizmo::IsUsingViewManipulate()) {
+          GlobalTransform gl;
+          gl.value = glm::inverse(camera_view);
+          sceneCameraRotation = gl.GetRotation();
+        }
         FinalizeViewportInput(scene_viewport_input_, suppress_scene_camera_selection_ || gizmo_using_);
       }
 #pragma endregion

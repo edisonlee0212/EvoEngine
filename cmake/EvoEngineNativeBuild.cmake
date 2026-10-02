@@ -28,6 +28,11 @@ function(evoengine_runtime_payload)
 	foreach(source IN LISTS EVOENGINE_RUNTIME_PAYLOAD_LIBRARIES)
 		list(APPEND files "{\"source\":\"${source}\"}")
 	endforeach()
+	if(EVOENGINE_ENABLE_NRD)
+		list(APPEND files
+			"{\"source\":\"${EVOENGINE_NRD_SOURCE_DIR}/LICENSE.txt\",\"destination\":\"licenses/NVIDIA-NRD-LICENSE.txt\"}"
+			"{\"source\":\"${EVOENGINE_NRI_SOURCE_DIR}/LICENSE.txt\",\"destination\":\"licenses/NVIDIA-NRI-LICENSE.txt\"}")
+	endif()
 	list(APPEND files "{\"source\":\"${EVOENGINE_RUNTIME_BUILD_IDENTITY_DIR}/evoengine-build.json\"}")
 	foreach(target IN ITEMS EvoEngine_SDK glfw)
 		list(APPEND files "{\"source\":\"$<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:$<TARGET_PDB_FILE:${target}>>\"}")
@@ -111,7 +116,7 @@ function(evoengine_finalize_native_build)
 			list(APPEND package_options "\"${key}\":${value}")
 		elseif(key MATCHES "^CMAKE_(CXX_FLAGS|C_FLAGS|SHARED_LINKER_FLAGS|MSVC_RUNTIME_LIBRARY)" OR
 			key MATCHES "^EVOENGINE_ENABLE_.*_SERVICE$" OR
-			key MATCHES "^EVOENGINE_ENABLE_(RUNTIME_PACKAGES|GRAPHICS_VALIDATION)$")
+			key MATCHES "^EVOENGINE_ENABLE_(RUNTIME_PACKAGES|GRAPHICS_VALIDATION|NRD)$")
 			evoengine_json_string(value "${${key}}")
 			list(APPEND options "\"${key}\":${value}")
 		endif()

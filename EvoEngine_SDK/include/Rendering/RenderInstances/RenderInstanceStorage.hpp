@@ -383,6 +383,7 @@ class EVOENGINE_API RenderInstanceStorage {
      * @return True if the objects are not equal.
      */
     EVOENGINE_API bool operator!=(const InstanceInfoBlock& other) const;
+    EVOENGINE_API bool HasOnlyTransformDifference(const InstanceInfoBlock& other) const;
   };
   static_assert(sizeof(InstanceInfoBlock) == 144);
 
@@ -845,6 +846,7 @@ class EVOENGINE_API RenderInstanceStorage {
    * @return True if the objects are not equal.
    */
   bool operator!=(const RenderInstanceStorage& other) const;
+  bool HasOnlyRigidTransformChanges(const RenderInstanceStorage& other) const;
 
   /**
    * @brief Registers a mesh draw command.
@@ -1233,6 +1235,7 @@ class EVOENGINE_API RenderInstanceStorage {
   [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
  private:
+  bool HasSceneDifference(const RenderInstanceStorage& other, bool ignore_rigid_transforms) const;
   /**
    * @brief Finds the instance index via a renderer handle.
    */
