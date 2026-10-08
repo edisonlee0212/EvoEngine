@@ -7,7 +7,7 @@
 
 namespace eco_sys_lab_package {
 
-/// GPU / CSV layout matching VolumeMeasure.glsl `VolumeMeasureResult`.
+/// GPU / CSV layout matching VolumeMeasure.slang `VolumeMeasureResult`.
 struct GpuVolumeMeasureResult {
   float cumulative_volume = 0.0f;
   float initial_cumulative_volume = 0.0f;

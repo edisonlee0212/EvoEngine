@@ -6,6 +6,11 @@ import EvoEngine.PerFrame;
 import EcoSysLab.AlphaShapeRenderingConstants;
 import EcoSysLab.AlphaShapeTopology;
 import EcoSysLab.Math;
+import EcoSysLab.VolumeMeasure;
+
+// Volume scratch on strands descriptor set (graphics set 1).
+[[vk::binding(16, 1)]] StructuredBuffer<float, Std430DataLayout> alpha_tet_current_volumes;
+[[vk::binding(17, 1)]] StructuredBuffer<float, Std430DataLayout> alpha_tet_initial_volumes;
 
 static const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -52,7 +57,8 @@ float3 PseudoRandomColor(int seed) {
   return float3(r, g, b);
 }
 
-void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICES_SIZE> vertices, uint vertex_index, in float3 vertex_normal, in UniformParticle uniform_particle, int is_bark) {
+void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICES_SIZE> vertices, uint vertex_index,
+                         in float3 vertex_normal, in UniformParticle uniform_particle, int is_bark, uint tet_id) {
   float3 vertex_position = uniform_particle.position_t.xyz +
                          vertex_normal * (global_extrusion_distance + uniform_particle.local_extrusion_distance);
   float4x4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
@@ -61,17 +67,11 @@ void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICE
   vertices[vertex_index].Normal = vertex_normal;
   vertices[vertex_index].Tangent = uniform_particle.tangent.xyz;
 
-  if (use_polar_coordinates_for_uv == 1) {
-    float tex_x = fmod(uniform_particle.profile_polar_coordinate.y * u_multiplier / 3.1415926f, 2.f);
-    if (tex_x > 1.f) {
-      tex_x = 2.f - tex_x;
-    }
-    float tex_y = float(uniform_particle.segment_index) * v_multiplier;
-    vertices[vertex_index].TexCoord = float2(tex_x, tex_y);
+  if (is_bark != 0) {
+    vertices[vertex_index].TexCoord =
+        AlphaBarkPolarUv(uniform_particle, u_multiplier, v_multiplier, use_polar_coordinates_for_uv);
   } else {
-    float tex_x = (uniform_particle.initial_position.y + uniform_particle.initial_position.z) * u_multiplier;
-    float tex_y = uniform_particle.initial_position.x * v_multiplier;
-    vertices[vertex_index].TexCoord = float2(tex_x, tex_y);
+    vertices[vertex_index].TexCoord = AlphaInteriorDiskUv(uniform_particle, texture_diameter);
   }
 
   float4 color = float4(0, 0, 0, 0);
@@ -112,51 +112,40 @@ void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICE
   vertices[vertex_index].Color = color;
   vertices[vertex_index].MaterialIndex = is_bark == 0 ? inner_wood_material_index : bark_material_index;
 
-  if (vertex_colors == 0) {
-  } else if (vertex_colors == 1) {
+  if (vertex_colors == COLOR_DEFAULT) {
+  } else if (vertex_colors == COLOR_NORMALS) {
     vertices[vertex_index].Color = float4(vertex_normal, 0.0);
-  } else if (vertex_colors == 2) {
+  } else if (vertex_colors == COLOR_TANGENTS) {
     vertices[vertex_index].Color = uniform_particle.tangent;
-  } else if (vertex_colors == 3) {
+  } else if (vertex_colors == COLOR_GROUPS) {
     vertices[vertex_index].Color = float4(PseudoRandomColor(segments[uniform_particle.segment_handle].group_index), 1.0);
-  } else if (vertex_colors == 4) {
+  } else if (vertex_colors == COLOR_DEGREE) {
     vertices[vertex_index].Color =
         float4(fmod(floor(uniform_particle.normal_deg.w / 4.0f), 2.0f),
              fmod(floor(uniform_particle.normal_deg.w / 2.0f), 2.0f), fmod(uniform_particle.normal_deg.w, 2.0f), 1.0);
-  } else if (vertex_colors == 5) {
+  } else if (vertex_colors == COLOR_BARK) {
     vertices[vertex_index].Color = float4(1.0 - is_bark, 0.0, is_bark, 1.0);
-  } else if (vertex_colors == 6) {
+  } else if (vertex_colors == COLOR_NORMAL_QUATERNION) {
     vertices[vertex_index].Color = 0.5 * (float4(1, 1, 1, 1) + uniform_particle.normal_q);  // normal quaternion
-  } else if (vertex_colors == 7) {
+  } else if (vertex_colors == COLOR_UP) {
     Segment segment = segments[uniform_particle.segment_handle];
-    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
-    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q, float3(0, 1, 0))), 1.0);  // up
-  } else if (vertex_colors == 8) {
+  } else if (vertex_colors == COLOR_INIT_UP) {
     Segment segment = segments[uniform_particle.segment_handle];
-    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
-    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q0, float3(0, 1, 0))), 1.0);  // initial up
-  } else if (vertex_colors == 9) {
+  } else if (vertex_colors == COLOR_AXIS) {
     Segment segment = segments[uniform_particle.segment_handle];
-    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
-    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
-    float3 up = rotate_vec3(segment.q, float3(0, 1, 0));
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q, float3(0, 0, 1))), 1.0);  // axis
-  } else if (vertex_colors == 10) {
+  } else if (vertex_colors == COLOR_INIT_AXIS) {
     Segment segment = segments[uniform_particle.segment_handle];
-    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
-    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
-    float3 up = rotate_vec3(segment.q0, float3(0, 1, 0));
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q0, float3(0, 0, 1))), 1.0);  // initial axis
-  } else if (vertex_colors == 11) {
-    Segment segment = segments[uniform_particle.segment_handle];
-    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
-    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
-    float3 up = rotate_vec3(segment.q0, float3(0, 1, 0));
-    // Compute the angle between the two vectors
+  } else if (vertex_colors == COLOR_INIT_ANGLE) {
     float angle = uniform_particle.normal_deg.w;
     vertices[vertex_index].Color = float4(angle / PI, -angle / PI, 0, 1.0);  // init angle
+  } else if (vertex_colors == COLOR_VOLUME_CHANGE_HEATMAP) {
+    float initial_volume = alpha_tet_initial_volumes[tet_id];
+    float current_volume = alpha_tet_current_volumes[tet_id];
+    vertices[vertex_index].Color = float4(VolumeChangeHeatmapColor(initial_volume, current_volume), 1.0);
   }
 
   vertices[vertex_index].position = mul(float4(vertex_position, 1.0), transform);
@@ -205,10 +194,10 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
             float3x3 seg_to_world = float3x3(right, up, forward);
             float3 normal = normalize(mul(uniform_particle.normal_deg.xyz, seg_to_world));
 
-            SetUpTriangleVertex(vertices, vertex_index, normal, uniform_particle, tet.is_bark[triangle_index]);
+            SetUpTriangleVertex(vertices, vertex_index, normal, uniform_particle, tet.is_bark[triangle_index], tet_id);
           } else {
             SetUpTriangleVertex(vertices, vertex_index, normalize(uniform_particle.normal_deg.xyz), uniform_particle,
-                                tet.is_bark[triangle_index]);
+                                tet.is_bark[triangle_index], tet_id);
           }
         }
       }

@@ -57,7 +57,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 
@@ -100,6 +102,17 @@ void ConfigureConsoleWindow(const bool hide_console_window) {
   if (!hide_console_window) {
     if (!GetConsoleWindow() && !AttachConsole(ATTACH_PARENT_PROCESS)) {
       AllocConsole();
+    }
+    if (GetConsoleWindow()) {
+      FILE* stream = nullptr;
+      freopen_s(&stream, "CONOUT$", "w", stdout);
+      freopen_s(&stream, "CONOUT$", "w", stderr);
+      freopen_s(&stream, "CONIN$", "r", stdin);
+      SetConsoleOutputCP(CP_UTF8);
+      std::ios::sync_with_stdio(true);
+      std::cout.clear();
+      std::cerr.clear();
+      std::cin.clear();
     }
     return;
   }

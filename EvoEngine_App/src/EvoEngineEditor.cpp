@@ -36,6 +36,7 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <glm/gtc/packing.hpp>
@@ -73,6 +74,7 @@ struct EditorCommandLine {
   std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   ApplicationMode application_mode = ApplicationMode::Editor;
   bool application_mode_explicit = false;
+  bool show_console = false;
   int preview_capture_width = 1280;
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
@@ -530,6 +532,36 @@ void ParsePreviewAntiAliasingPreset(const std::string& value, EditorCommandLine&
   throw std::invalid_argument("--preview-aa-preset requires low, medium, high, or ultra.");
 }
 
+void ApplyConsoleCommandLine(const EditorCommandLine& command_line,
+                             ApplicationInitializationSettings& application_info) {
+  if (command_line.show_console) {
+    application_info.hide_console_window = false;
+  }
+}
+
+void EnsureOsConsoleIfRequested(const EditorCommandLine& command_line) {
+  if (!command_line.show_console) {
+    return;
+  }
+#ifdef EVOENGINE_WINDOWS
+  if (!GetConsoleWindow() && !AttachConsole(ATTACH_PARENT_PROCESS)) {
+    AllocConsole();
+  }
+  if (GetConsoleWindow()) {
+    FILE* stream = nullptr;
+    freopen_s(&stream, "CONOUT$", "w", stdout);
+    freopen_s(&stream, "CONOUT$", "w", stderr);
+    freopen_s(&stream, "CONIN$", "r", stdin);
+    SetConsoleTitleW(L"EvoEngineEditor");
+    SetConsoleOutputCP(CP_UTF8);
+    std::ios::sync_with_stdio(true);
+    std::cout.clear();
+    std::cerr.clear();
+    std::cin.clear();
+  }
+#endif
+}
+
 glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
   if (arg_index + 1 >= argc) {
     throw std::invalid_argument(argument + " requires x,y,z.");
@@ -569,6 +601,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument(argument + " requires a project path.");
       }
       command_line.project_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--console" || argument == "--show-console") {
+      command_line.show_console = true;
     } else if (argument == "--demo") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--demo requires a profile id.");
@@ -3236,6 +3270,7 @@ int main(const int argc, char** argv) {
   bool automated_capture = false;
   try {
     const auto command_line = ParseCommandLine(argc, argv);
+    EnsureOsConsoleIfRequested(command_line);
     automated_capture = command_line.demo_preview_capture_path.has_value() ||
                         command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke ||
                         command_line.author_runtime_scene;
@@ -3252,6 +3287,7 @@ int main(const int argc, char** argv) {
       application_info.use_custom_title_bar = true;
       SetupDemoScene(DemoSetup::Rendering, application_info, resources, false);
       application_info.graphics_settings.use_ray_tracing = false;
+      ApplyConsoleCommandLine(command_line, application_info);
       ApplicationContext::Get().Initialize(application_info);
       initialized = true;
       ApplicationContext::Get().Start(false);
@@ -3299,6 +3335,7 @@ int main(const int argc, char** argv) {
                              !command_line.author_runtime_scene);
         ApplyApplicationModeDefaults(application_info);
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
+        ApplyConsoleCommandLine(command_line, application_info);
         application_info.enable_gpu_timestamp_capture = command_line.preview_gpu_timestamp_capture.value_or(
             command_line.preview_ddgi_report_path.has_value() ||
             command_line.preview_ray_profile_report_path.has_value() ||
@@ -3491,6 +3528,7 @@ int main(const int argc, char** argv) {
     application_info.enable_runtime_packages = !application_info.startup_runtime_packages.empty();
     ApplyApplicationModeDefaults(application_info);
     ApplyGraphicsCommandLineOverrides(command_line, application_info);
+    ApplyConsoleCommandLine(command_line, application_info);
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

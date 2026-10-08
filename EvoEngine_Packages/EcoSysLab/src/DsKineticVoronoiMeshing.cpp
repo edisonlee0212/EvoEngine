@@ -5872,8 +5872,9 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   volume_measure_pipeline->compute_shader = Shader::CreateTemporary(
       ShaderType::Compute, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeMeasure.comp");
+          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeMeasure.slang");
   volume_measure_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  volume_measure_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
   auto& volume_measure_push = volume_measure_pipeline->push_constant_ranges.emplace_back();
   volume_measure_push.size = sizeof(uint32_t) * 4;
   volume_measure_push.offset = 0;
@@ -5884,8 +5885,9 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   volume_finalize_pipeline->compute_shader = Shader::CreateTemporary(
       ShaderType::Compute, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeFinalize.comp");
+          "Shaders/Compute/DynamicStrands/VolumeMeasure/KineticVoronoiMeshing/VolumeFinalize.slang");
   volume_finalize_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  volume_finalize_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
   auto& volume_finalize_push = volume_finalize_pipeline->push_constant_ranges.emplace_back();
   volume_finalize_push.size = sizeof(uint32_t) * 4;
   volume_finalize_push.offset = 0;
@@ -6159,10 +6161,17 @@ void DsKineticVoronoiMeshing::MaybeMeasureSmoothedVolumeCpu() const {
 
 void eco_sys_lab_package::DsKineticVoronoiMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  // Legacy strands bindings 8–9 kept valid; Slang meshlet shaders use geometry set 1.
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       8, device_segment_meshlet_vertices_buffer, 0);
   dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
       9, device_segment_meshlet_triangles_buffer, 0);
+  if (!geometry_descriptor_sets.empty()) {
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        0, device_segment_meshlet_vertices_buffer, 0);
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        1, device_segment_meshlet_triangles_buffer, 0);
+  }
   if (device_segment_signed_volumes_buffer) {
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         14, device_segment_signed_volumes_buffer, 0);
@@ -6199,6 +6208,8 @@ void DsKineticVoronoiMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_com
   volume_measure_pipeline->Bind(vk_command_buffer);
   volume_measure_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_measure_pipeline->PushConstant(vk_command_buffer, 0, measure_push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(measure_push.triangle_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);
@@ -6215,6 +6226,8 @@ void DsKineticVoronoiMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_com
   volume_finalize_pipeline->Bind(vk_command_buffer);
   volume_finalize_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_finalize_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_finalize_pipeline->PushConstant(vk_command_buffer, 0, finalize_push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(finalize_push.segment_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);

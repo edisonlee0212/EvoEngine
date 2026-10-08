@@ -66,7 +66,47 @@ bool DynamicTreeStrandsInspector::Inspect(InspectorContext& context, DynamicTree
   ImGui::SameLine();
   ImGui::RadioButton("Alpha Shape Meshing", reinterpret_cast<int*>(&target.initialize_parameters.meshing_type),
                      static_cast<int>(MeshingType::AlphaShape));
+  ImGui::SameLine();
+  ImGui::RadioButton("Both", reinterpret_cast<int*>(&target.initialize_parameters.meshing_type),
+                     static_cast<int>(MeshingType::Both));
+  const bool show_kinetic_settings = target.initialize_parameters.meshing_type == MeshingType::KineticVoronoi ||
+                                     target.initialize_parameters.meshing_type == MeshingType::Both;
+  const bool show_alpha_settings = target.initialize_parameters.meshing_type == MeshingType::AlphaShape ||
+                                   target.initialize_parameters.meshing_type == MeshingType::Both;
+  if (show_kinetic_settings) {
+    if (ImGui::TreeNodeEx("Kinetic Voronoi settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (auto* kinetic_voronoi = target.dynamic_strands->GetKineticVoronoiMeshing()) {
+        kinetic_voronoi->OnInspect(editor_layer);
+      } else {
+        ImGui::TextDisabled("Re-initialize / re-subdivide to activate Kinetic Voronoi meshing.");
+        DsKineticVoronoiMeshing::InspectSharedMeshingSettings(editor_layer);
+      }
+      ImGui::TreePop();
+    }
+  }
+  if (show_alpha_settings) {
+    if (ImGui::TreeNodeEx("Alpha Shape settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (auto* alpha_shape = target.dynamic_strands->GetAlphaShapeMeshing()) {
+        alpha_shape->OnInspect(editor_layer);
+      } else {
+        ImGui::TextDisabled("Re-initialize / re-subdivide to activate Alpha Shape meshing.");
+      }
+      ImGui::TreePop();
+    }
+  }
+  ImGui::Checkbox("Fixed seed", &target.fixed_subdivision_seed);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, random strand subdivisions use the Seed value below so meshing-buffer hashes stay "
+        "stable across re-subdivide attempts. Disable to draw a fresh random seed each time.");
+  }
+  if (!target.fixed_subdivision_seed) {
+    ImGui::BeginDisabled();
+  }
   ImGui::DragInt("Seed", &target.seed, 1, 0, INT_MAX);
+  if (!target.fixed_subdivision_seed) {
+    ImGui::EndDisabled();
+  }
   editor_layer->DragAndDropButton<Material>(target.materials.bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(target.materials.inner_wood_material_ref, "Inner wood Material");
   editor_layer->DragAndDropButton<Material>(target.materials.splinter_material_ref, "Splinter Material");
@@ -264,12 +304,7 @@ bool DynamicTreeStrandsInspector::Inspect(InspectorContext& context, DynamicTree
     EVOENGINE_LOG("Uploaded data from GPU")
   }
 
-  if (auto* kinetic = target.dynamic_strands->GetKineticVoronoiMeshing()) {
-    InspectorRegistry::GetInstance().InspectValue(inspector_context, *kinetic);
-  }
-  if (auto* alpha = target.dynamic_strands->GetAlphaShapeMeshing()) {
-    InspectorRegistry::GetInstance().InspectValue(inspector_context, *alpha);
-  }
+  // Meshing-specific inspectors are shown above under Kinetic/Alpha settings trees when that mode is active.
 
   return false;
 }

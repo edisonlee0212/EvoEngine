@@ -480,8 +480,9 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   volume_measure_pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/VolumeMeasure/AlphaShapeMeshing/VolumeMeasure.comp");
+                                  "Shaders/Compute/DynamicStrands/VolumeMeasure/AlphaShapeMeshing/VolumeMeasure.slang");
   volume_measure_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
+  volume_measure_pipeline->descriptor_set_layouts.emplace_back(geometry_descriptor_set_layout);
   auto& volume_measure_push_constant_range = volume_measure_pipeline->push_constant_ranges.emplace_back();
   volume_measure_push_constant_range.size = sizeof(uint32_t) * 4;
   volume_measure_push_constant_range.offset = 0;
@@ -643,6 +644,8 @@ void DsAlphaShapeMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_command
   volume_measure_pipeline->Bind(vk_command_buffer);
   volume_measure_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->BindDescriptorSet(
+      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_measure_pipeline->PushConstant(vk_command_buffer, 0, push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(push.tetrahedron_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);
@@ -731,18 +734,12 @@ void DsAlphaShapeMeshing::CaptureInitialTetrahedronVolumes() {
 
 void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  // Bindings 8–9 are Kinetic meshlets; Alpha uses 10–13 + 16–17 so both can be live.
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      10, device_uniform_particles_buffer, 0);
-  dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-      11, device_delaunay_tetrahedrons_buffer, 0);
-  if (device_near_degenerate_buffer) {
-    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        12, device_near_degenerate_buffer, 0);
-  }
-  if (!device_volume_result_buffers.empty()) {
-    const auto& result_buffer = device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
-    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(13, result_buffer, 0);
+  // Particles/tets live on geometry set 1; volume scratch uses strands 16–17 + 19–20.
+  if (!geometry_descriptor_sets.empty()) {
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_uniform_particles_buffer,
+                                                                                0);
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        1, device_delaunay_tetrahedrons_buffer, 0);
   }
   if (device_tet_current_volumes_buffer) {
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -751,6 +748,14 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateBindings() const {
   if (device_tet_initial_volumes_buffer) {
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
         17, device_tet_initial_volumes_buffer, 0);
+  }
+  if (device_near_degenerate_buffer) {
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
+        19, device_near_degenerate_buffer, 0);
+  }
+  if (!device_volume_result_buffers.empty()) {
+    const auto& result_buffer = device_volume_result_buffers[current_frame_index % device_volume_result_buffers.size()];
+    dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(20, result_buffer, 0);
   }
 }
 
@@ -847,15 +852,10 @@ void DsAlphaShapeMeshing::Stats(const std::shared_ptr<EditorLayer>& editor_layer
 }
 
 void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
+  // Editor package fills branch/strand InspectSettings widgets via
+  // DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings.
+  (void)editor_layer;
   ImGui::Checkbox("Render branches", &render_settings.branches_render_parameters.enabled);
-  if (render_settings.branches_render_parameters.enabled) {
-    if (ImGui::TreeNodeEx("Branch render settings")) {
-      if (ImGui::Button("Rebuild branches pipelines")) {
-        BuildBranchesRenderingPipelines();
-      }
-      ImGui::TreePop();
-    }
-  }
   ImGui::Checkbox("GPU volume measure → CSV", &render_settings.enable_volume_measure);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
@@ -865,18 +865,8 @@ void DsAlphaShapeMeshing::OnInspectRenderSettings(const std::shared_ptr<EditorLa
   ImGui::Checkbox("Render Visualization", &render_settings.visualization_rendering);
   if (render_settings.visualization_rendering) {
     ImGui::Checkbox("Render strands", &render_settings.small_segments_visualization_render_parameters.enabled);
-    if (render_settings.small_segments_visualization_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Strands render settings")) {
-        ImGui::TreePop();
-      }
-    }
   } else {
     ImGui::Checkbox("Render splinters", &render_settings.small_segments_render_parameters.enabled);
-    if (render_settings.small_segments_render_parameters.enabled) {
-      if (ImGui::TreeNodeEx("Splinter render settings")) {
-        ImGui::TreePop();
-      }
-    }
   }
 }
 
