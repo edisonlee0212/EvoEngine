@@ -1,5 +1,4 @@
 #include "DsIntersectionBoundaryMesh.hpp"
-#include "imgui.h"
 #include "AssetManager.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicStrands.hpp"
@@ -7,6 +6,7 @@
 #include "EcoSysLabPaths.hpp"
 #include "MeshRenderer.hpp"
 #include "Transform.hpp"
+#include "imgui.h"
 
 using namespace eco_sys_lab_package;
 

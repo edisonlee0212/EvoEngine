@@ -1,15 +1,15 @@
 #include "DsAlphaShapeMeshing.hpp"
 #include "Application.hpp"
-#include "EditorDialogBridge.hpp"
-#include "imgui.h"
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DsAlphaShapeVolumeUtils.hpp"
 #include "DynamicStrands.hpp"
+#include "EditorDialogBridge.hpp"
 #include "Platform/Platform.hpp"
 #include "Shader.hpp"
 #include "Utilities.hpp"
+#include "imgui.h"
 
 using namespace eco_sys_lab_package;
 
@@ -644,8 +644,8 @@ void DsAlphaShapeMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_command
   volume_measure_pipeline->Bind(vk_command_buffer);
   volume_measure_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  volume_measure_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                             geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_measure_pipeline->PushConstant(vk_command_buffer, 0, push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(push.tetrahedron_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);
@@ -736,10 +736,9 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::UpdateBindings() const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   // Particles/tets live on geometry set 1; volume scratch uses strands 16–17 + 19–20.
   if (!geometry_descriptor_sets.empty()) {
-    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_uniform_particles_buffer,
-                                                                                0);
-    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(
-        1, device_delaunay_tetrahedrons_buffer, 0);
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_uniform_particles_buffer, 0);
+    geometry_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_delaunay_tetrahedrons_buffer,
+                                                                                 0);
   }
   if (device_tet_current_volumes_buffer) {
     dynamic_strands->strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(

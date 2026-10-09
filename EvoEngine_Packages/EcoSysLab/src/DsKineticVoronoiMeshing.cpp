@@ -1,6 +1,4 @@
 #include "DsKineticVoronoiMeshing.hpp"
-#include "EditorDialogBridge.hpp"
-#include "imgui.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -41,6 +39,7 @@
 #include "DynamicStrandsInitializationParameters.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabPaths.hpp"
+#include "EditorDialogBridge.hpp"
 #include "Jobs.hpp"
 #include "KineticMeshCachePipeline.hpp"
 #include "MeshRenderer.hpp"
@@ -51,6 +50,7 @@
 #include "StrandModelMeshGenerator.hpp"
 #include "Transform.hpp"
 #include "Vertex.hpp"
+#include "imgui.h"
 #include "kinDS/kinDS/KineticDelaunay.hpp"
 #include "kinDS/kinDS/MeshIntersection.hpp"
 #include "kinDS/kinDS/MeshingBuffer.hpp"
@@ -1679,7 +1679,11 @@ std::filesystem::path MeshingBufferDirectory() {
 std::string CurrentUtcTimestamp() {
   const std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
   std::tm utc{};
+#ifdef _WIN32
   gmtime_s(&utc, &time);
+#else
+  gmtime_r(&time, &utc);
+#endif
   std::ostringstream timestamp;
   timestamp << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
   return timestamp.str();
@@ -5405,11 +5409,11 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::InitBuffer(
 }
 
 bool eco_sys_lab_package::BuildKineticMeshingInputs(const DynamicStrandsInitializeParameters& initialize_parameters,
-                                                   const StrandModelSkeleton& strand_model_skeleton,
-                                                   const StrandModelStrandGroup& strand_model_strand_group,
-                                                   DtsStrandGroup& randomly_subdivided_strand_group,
-                                                   DtsStrandGroup& uniformly_subdivided_strand_group,
-                                                   KineticMeshingInputs& out_inputs) {
+                                                    const StrandModelSkeleton& strand_model_skeleton,
+                                                    const StrandModelStrandGroup& strand_model_strand_group,
+                                                    DtsStrandGroup& randomly_subdivided_strand_group,
+                                                    DtsStrandGroup& uniformly_subdivided_strand_group,
+                                                    KineticMeshingInputs& out_inputs) {
   const auto& randomly_subdivided_strands = randomly_subdivided_strand_group.PeekStrands();
   const auto& randomly_subdivided_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
   if (randomly_subdivided_strands.empty()) {
@@ -5546,7 +5550,7 @@ bool eco_sys_lab_package::BuildKineticMeshingInputs(const DynamicStrandsInitiali
 
       randomly_subdivided_segment_handles[strand_index].push_back(static_cast<int>(segment_handle));
 
-      if (!isnan(segment.end_t)) {
+      if (!std::isnan(segment.end_t)) {
         random_subdivisions_by_strand[strand_index].push_back(
             initialize_parameters.uniform_subdivision * (segment.end_t + random_segment_data.original_segment_index));
       }
@@ -5778,7 +5782,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::InitData(
 }
 
 KineticMeshCacheResult eco_sys_lab_package::RunKineticMeshingCache(DsKineticVoronoiMeshing& meshing,
-                                                                  KineticMeshingInputs& inputs) {
+                                                                   KineticMeshingInputs& inputs) {
   const bool skip_load = DsKineticVoronoiMeshing::meshing_settings.cache_hit_skip_load;
   const bool override_buffer = DsKineticVoronoiMeshing::meshing_settings.override_meshing_buffer;
 
@@ -6208,8 +6212,8 @@ void DsKineticVoronoiMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_com
   volume_measure_pipeline->Bind(vk_command_buffer);
   volume_measure_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  volume_measure_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_measure_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                             geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_measure_pipeline->PushConstant(vk_command_buffer, 0, measure_push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(measure_push.triangle_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);
@@ -6226,8 +6230,8 @@ void DsKineticVoronoiMeshing::DispatchVolumeMeasure(const VkCommandBuffer vk_com
   volume_finalize_pipeline->Bind(vk_command_buffer);
   volume_finalize_pipeline->BindDescriptorSet(
       vk_command_buffer, 0, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  volume_finalize_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  volume_finalize_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                              geometry_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
   volume_finalize_pipeline->PushConstant(vk_command_buffer, 0, finalize_push);
   vkCmdDispatch(vk_command_buffer, Platform::DivUp(finalize_push.segment_size, work_group_invocations), 1, 1);
   Platform::EverythingBarrier(vk_command_buffer);
@@ -6782,13 +6786,8 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
       BuildSegmentMeshletsRenderingPipelines();
     }
 
-    const char* color_modes[] = {"Standard",
-                                 "Normals",
-                                 "UVs",
-                                 "Pair",
-                                 "Neighbor connectivity",
-                                 "Neighbor tags",
-                                 "Volume change heatmap"};
+    const char* color_modes[] = {
+        "Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags", "Volume change heatmap"};
     ImGui::Combo("Color mode", &render_settings.segment_meshlet_render_parameters.color_mode, color_modes,
                  IM_ARRAYSIZE(color_modes));
     if (ImGui::IsItemHovered()) {
@@ -6819,7 +6818,8 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
 }
 
 void eco_sys_lab_package::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle& rendering_instance_handle,
-                                                                          std::shared_ptr<Scene> scene, Entity& owner) {
+                                                                           std::shared_ptr<Scene> scene,
+                                                                           Entity& owner) {
   RegisterSegmentMeshletsRenderInstance(rendering_instance_handle, scene, owner);
 }
 

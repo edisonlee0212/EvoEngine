@@ -285,7 +285,8 @@ void EcoSysLabLayer::Update() {
   if (years_done) {
     EVOENGINE_LOG("Tree auto-grow finished at age " << (simulated_time_ / 365.f) << " years.");
   } else {
-    EVOENGINE_LOG("Tree auto-grow finished after requested iterations (age " << (simulated_time_ / 365.f) << " years).");
+    EVOENGINE_LOG("Tree auto-grow finished after requested iterations (age " << (simulated_time_ / 365.f)
+                                                                             << " years).");
   }
   if (on_auto_grow_finished_) {
     auto finished = std::move(on_auto_grow_finished_);

@@ -93,8 +93,8 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
         const auto app_status = ApplicationContext::Get().GetApplicationStatus();
-        const bool physics_simulation_active = app_status == Application::ExecutionStatus::Playing ||
-                                               app_status == Application::ExecutionStatus::Step;
+        const bool physics_simulation_active =
+            app_status == Application::ExecutionStatus::Playing || app_status == Application::ExecutionStatus::Step;
         dts->dynamic_strands->RenderCompute(physics_simulation_active);
       }
     });
