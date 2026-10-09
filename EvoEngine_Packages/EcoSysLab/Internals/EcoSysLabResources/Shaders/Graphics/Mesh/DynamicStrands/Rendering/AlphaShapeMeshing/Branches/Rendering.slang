@@ -74,7 +74,8 @@ void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICE
     vertices[vertex_index].TexCoord = AlphaInteriorDiskUv(uniform_particle, texture_diameter);
   }
 
-  float4 color = float4(0, 0, 0, 0);
+  // Deferred lighting multiplies material albedo by vertex color; white keeps bark/wood visible in Default.
+  float4 color = float4(1, 1, 1, 1);
 
   int segment_handle = uniform_particle.segment_handle;
 

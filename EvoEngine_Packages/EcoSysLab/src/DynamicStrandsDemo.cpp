@@ -1129,7 +1129,6 @@ bool DynamicStrandsDemo::DrawVolumetricMeshingUi() {
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
 
   if (ImGui::TreeNodeEx("Volumetric Meshing", ImGuiTreeNodeFlags_DefaultOpen)) {
-    DrawPrecomputedExperimentsUi();
     if (ImGui::Button("Log cut")) {
       ResetEnvironment();
       camera_pose.SetPosition(glm::vec3(-0.3, kVolumetricLogExperimentCameraHeight, 0.2));
@@ -1366,8 +1365,6 @@ bool DynamicStrandsDemo::DrawVolumetricMeshingUi() {
           "rotates downwards around it.");
     }
 
-    DrawVolumetricPrecomputeUi();
-
     const auto& volumetric_experiments = GetVolumetricTreeExperiments();
     for (const auto& experiment : volumetric_experiments) {
       if (ImGui::Button(experiment.display_name)) {
@@ -1529,6 +1526,9 @@ bool DynamicStrandsDemo::DrawVolumetricMeshingUi() {
 
     ImGui::TreePop();
   }
+
+  DrawPrecomputedExperimentsUi();
+  DrawVolumetricPrecomputeUi();
 
   return changed;
 }

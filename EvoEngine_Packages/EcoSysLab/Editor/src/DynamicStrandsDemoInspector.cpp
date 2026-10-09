@@ -16,7 +16,6 @@ void DynamicStrandsDemoInspector::ResetEnvironment(DynamicStrandsDemo& target,
 }
 bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStrandsDemo& target) {
   const auto& editor_layer = context.editor_layer;
-  target.DrawVolumetricMeshingUi();
   auto& inspector_context = context;
   if (ImGui::TreeNode("Physics Parameters")) {
     InspectSettings(target.physics_parameters, editor_layer);
@@ -24,6 +23,8 @@ bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStra
   }
 
   if (target.demo_type != DynamicStrandsDemo::DemoType::Empty) {
+    // Advances tree-growth volumetric demos and shows their progress.
+    target.DrawVolumetricMeshingUi();
     ImGui::Text("Demo started");
     ImGui::Text(("Simulated time: " + std::to_string(target.simulated_time)).c_str());
     ImGui::Text(("Target simulation time: " + std::to_string(target.target_simulation_time)).c_str());
@@ -53,31 +54,9 @@ bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStra
     ImGui::TreePop();
   }
 
-  if (ImGui::Button("Log break [Diffuse]")) {
-    ResetEnvironment(target, editor_layer);
-    camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(10, 0, 0)));
-    target.demo_type = DynamicStrandsDemo::DemoType::LogBreak;
-    target.demo_status = DynamicStrandsDemo::DemoStatus::Simulation;
-    target.log_experiment_setup_settings.center_damage = 0.95f;
-    target.log_experiment_setup_settings.center_distance_offset = 0.01f;
-    target.log_experiment_setup_settings.center_damage_transition = 0.02f;
-    target.log_experiment_setup_settings.fungus_test = false;
-
-    // TODO
-    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
-    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
-
-    target.log_experiment_setup_settings.t_cut = true;
-    target.log_experiment_setup_settings.t_cut_width = 0.f;
-    target.target_factor0 = 2.f;
-    target.target_factor1 = 1.f;
-
-    dts->LogExperimentSetup(target.log_experiment_setup_settings);
-    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
-    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
-  }
-  if (ImGui::Button("Fungus [Competition-Equal]")) {
+  if (ImGui::TreeNodeEx("Experiments", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::TreeNodeEx("Woodstock", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::Button("Fungus [Competition-Equal]")) {
     ResetEnvironment(target, editor_layer);
     camera_pose.SetPosition(glm::vec3(0.25, 0.9, 0.6));
     camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, 0, 0)));
@@ -355,6 +334,32 @@ bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStra
     target.board_experiment_setup_settings.fungus_test = true;
 
     dts->BoardExperimentSetup(target.board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+    ImGui::TreePop();  // Woodstock
+    if (ImGui::TreeNodeEx("Stressful Trees", ImGuiTreeNodeFlags_DefaultOpen)) {
+      if (ImGui::Button("Log break [Diffuse]")) {
+    ResetEnvironment(target, editor_layer);
+    camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(10, 0, 0)));
+    target.demo_type = DynamicStrandsDemo::DemoType::LogBreak;
+    target.demo_status = DynamicStrandsDemo::DemoStatus::Simulation;
+    target.log_experiment_setup_settings.center_damage = 0.95f;
+    target.log_experiment_setup_settings.center_distance_offset = 0.01f;
+    target.log_experiment_setup_settings.center_damage_transition = 0.02f;
+    target.log_experiment_setup_settings.fungus_test = false;
+
+    // TODO
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
+    target.log_experiment_setup_settings.t_cut = true;
+    target.log_experiment_setup_settings.t_cut_width = 0.f;
+    target.target_factor0 = 2.f;
+    target.target_factor1 = 1.f;
+
+    dts->LogExperimentSetup(target.log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
@@ -903,6 +908,11 @@ bool DynamicStrandsDemoInspector::Inspect(InspectorContext& context, DynamicStra
     curve_values.emplace_back(-0.1, 0);
     curve_values.emplace_back(1, 0.5);
     curve_values.emplace_back(0.1, 0);
+  }
+    ImGui::TreePop();  // Stressful Trees
+
+    target.DrawVolumetricMeshingUi();
+    ImGui::TreePop();  // Experiments
   }
 
   return changed;

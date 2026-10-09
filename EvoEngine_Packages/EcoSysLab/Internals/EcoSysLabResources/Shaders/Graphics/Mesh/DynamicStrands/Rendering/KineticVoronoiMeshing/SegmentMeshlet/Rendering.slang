@@ -132,9 +132,15 @@ float3 SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, MAX_VERTEX_COUNT>
   float4 selection_overlay = SelectionOverlayColor(segment_meshlet_vertex.segment_index);
 
   switch (color_mode) {
-    case COLOR_STANDARD:
-      vertices[vertex_index].Color = selection_overlay;
+    case COLOR_STANDARD: {
+      // Deferred lighting multiplies material albedo by vertex color; use white so bark/wood show.
+      float4 color = float4(1.0, 1.0, 1.0, 1.0);
+      if (selection_overlay.a > 0.0) {
+        color.rgb = lerp(color.rgb, selection_overlay.rgb, selection_overlay.a);
+      }
+      vertices[vertex_index].Color = color;
       break;
+    }
     case COLOR_NORMALS: {
       float4 color = float4(vertex_normal, 1.0);
       if (selection_overlay.a > 0.0) {

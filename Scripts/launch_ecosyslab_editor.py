@@ -59,6 +59,25 @@ def parse_args() -> argparse.Namespace:
         help="Do not pass --console (editor stays a pure GUI process).",
     )
     parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help=(
+            "Incrementally rebuild/install apps via Scripts/install_apps.py before launching "
+            "(CMake only rebuilds out-of-date targets)."
+        ),
+    )
+    parser.add_argument(
+        "--preset",
+        default="vs2026-x64",
+        help="CMake configure preset used with --rebuild. Defaults to vs2026-x64.",
+    )
+    parser.add_argument(
+        "--config",
+        default="RelWithDebInfo",
+        choices=["Debug", "RelWithDebInfo", "Release"],
+        help="Build configuration used with --rebuild. Defaults to RelWithDebInfo.",
+    )
+    parser.add_argument(
         "editor_args",
         nargs=argparse.REMAINDER,
         help="Extra arguments forwarded to EvoEngineEditor after --. Example: -- --demo ecosyslab",
@@ -66,9 +85,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def rebuild_apps(root: Path, preset: str, config: str) -> None:
+    command = [
+        sys.executable,
+        str(root / "Scripts" / "install_apps.py"),
+        "--preset",
+        preset,
+        "--config",
+        config,
+        "--incremental",
+        "--no-open",
+    ]
+    print(
+        subprocess.list2cmdline(command) if os.name == "nt" else " ".join(command),
+        flush=True,
+    )
+    completed = subprocess.run(command, cwd=str(root))
+    if completed.returncode != 0:
+        raise SystemExit(completed.returncode)
+
+
 def main() -> int:
     args = parse_args()
     root = repo_root()
+    if args.rebuild:
+        rebuild_apps(root, args.preset, args.config)
+
     editor = resolve_editor(root, args.editor)
     project = args.project
     if project is None:

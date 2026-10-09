@@ -3053,6 +3053,21 @@ void EditorLayer::PreUpdate() {
     DrawMainMenuBar();
   }
 
+  // P toggles Play/Pause (same as the toolbar play button). Skip while typing in text fields.
+  if (!ImGui::GetIO().WantTextInput && Input::GetKey(GLFW_KEY_P) == Input::KeyActionType::Press) {
+    switch (ApplicationContext::Get().GetApplicationStatus()) {
+      case Application::ExecutionStatus::Playing:
+        ApplicationContext::Get().Pause();
+        break;
+      case Application::ExecutionStatus::NotPlaying:
+      case Application::ExecutionStatus::Pause:
+        ApplicationContext::Get().Play();
+        break;
+      default:
+        break;
+    }
+  }
+
   const auto scene = ApplicationContext::Get().GetActiveScene();
   UpdateCameraTransition();
   PrepareFrameState();
@@ -7278,6 +7293,36 @@ void EditorLayer::SceneCameraWindow() {
       if (scene_camera_window_focused_ && !ImGui::GetIO().WantTextInput && !gizmo_using_ &&
           Input::GetKey(editor_camera_control_key_bindings.focus_selection_key) == Input::KeyActionType::Press)
         FocusSceneCameraOnSelection(scene, scene_camera);
+
+      // T/R/S switch local transform gizmo mode (same as scene toolbar). Skip while mouse-look/WASD is active
+      // so S does not collide with move-backward.
+      if (scene_camera_window_focused_ && enable_gizmos && !gizmo_using_ && !ImGui::GetIO().WantTextInput &&
+          !ImGui::GetIO().WantCaptureKeyboard && !ImGui::IsAnyItemActive()) {
+        const auto mouse_busy = [](const int button) {
+          const auto state = Input::GetKey(button);
+          return state == Input::KeyActionType::Hold || state == Input::KeyActionType::Press;
+        };
+        if (!mouse_busy(editor_camera_control_key_bindings.rotate_mouse_button) &&
+            !mouse_busy(GLFW_MOUSE_BUTTON_LEFT) && !mouse_busy(GLFW_MOUSE_BUTTON_RIGHT) &&
+            !mouse_busy(GLFW_MOUSE_BUTTON_MIDDLE)) {
+          const auto primary = entity_selection_.GetPrimary();
+          const bool has_gizmo_target =
+              environmental_lighting_gizmo_target_.has_value() ||
+              (scene->IsEntityValid(primary) && scene->HasDataComponent<Transform>(primary));
+          if (has_gizmo_target) {
+            if (Input::GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
+              CancelEntityGizmoSession();
+              SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Translate);
+            } else if (Input::GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
+              CancelEntityGizmoSession();
+              SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Rotate);
+            } else if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Press) {
+              CancelEntityGizmoSession();
+              SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Scale);
+            }
+          }
+        }
+      }
 
       if (scene_camera_window_focused_ && !GetLockEntitySelection() &&
           Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
