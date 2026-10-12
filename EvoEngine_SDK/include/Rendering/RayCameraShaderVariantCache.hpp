@@ -59,6 +59,8 @@ class EVOENGINE_API RayCameraShaderVariantCache final {
   RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query,
                                       bool need_ray_tracing_debug_views = false,
                                       bool need_ray_query_debug_views = false);
+  [[nodiscard]] RayCameraShaderVariantStats Prewarm(uint32_t feature_mask, RayCameraShaderTechnique technique,
+                                                    bool debug_views = false);
   [[nodiscard]] std::shared_ptr<RayTracingPipeline> GetRayTracingPipeline() const;
   [[nodiscard]] std::shared_ptr<ComputePipeline> GetRayQueryPipeline() const;
   [[nodiscard]] RayCameraShaderVariantStats GetStats(RayCameraShaderTechnique technique) const;

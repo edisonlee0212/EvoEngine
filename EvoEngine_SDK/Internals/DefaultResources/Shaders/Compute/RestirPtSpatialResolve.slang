@@ -10,6 +10,7 @@ import EvoEngine.Random;
 [[vk::binding(31, 2)]] RWTexture2D<float2> nrd_lobe_hit_distance_image;
 [[vk::binding(32, 2)]] RWTexture2D<float4> nrd_diffuse_factor_image;
 [[vk::binding(33, 2)]] RWTexture2D<float4> nrd_specular_factor_image;
+[[vk::binding(34, 2)]] RWByteAddressBuffer nrd_accumulation_buffer;
 #endif
 
 [shader("compute")][numthreads(8, 8, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
@@ -85,11 +86,16 @@ import EvoEngine.Random;
   const float fresh_luminance = dot(fresh_radiance, float3(1.0f / 3.0f));
   const float scale = raw_luminance > 0.0f && isfinite(raw_luminance) ? fresh_luminance / raw_luminance : 0.0f;
   const float2 lobe_hit_distance = nrd_lobe_hit_distance_image[pixel_coordinate];
+  float4 diffuse_signal = float4(diffuse * scale, lobe_hit_distance.x);
+  float4 specular_signal = float4(specular * scale, lobe_hit_distance.y);
+  float4 excluded_signal = float4(excluded * scale, 0.0f);
+  EE_CAMERA_ACCUMULATE_RESTIR_NRD_SIGNALS(nrd_accumulation_buffer, pixel_coordinate.y * width + pixel_coordinate.x,
+                                           diffuse_signal, specular_signal, excluded_signal);
   nrd_diffuse_signal_image[pixel_coordinate] =
-      float4(diffuse * scale / nrd_diffuse_factor_image[pixel_coordinate].xyz, lobe_hit_distance.x);
+      float4(diffuse_signal.xyz / nrd_diffuse_factor_image[pixel_coordinate].xyz, diffuse_signal.w);
   nrd_specular_signal_image[pixel_coordinate] =
-      float4(specular * scale / nrd_specular_factor_image[pixel_coordinate].xyz, lobe_hit_distance.y);
-  nrd_excluded_signal_image[pixel_coordinate] = float4(excluded * scale, 0.0f);
+      float4(specular_signal.xyz / nrd_specular_factor_image[pixel_coordinate].xyz, specular_signal.w);
+  nrd_excluded_signal_image[pixel_coordinate] = excluded_signal;
 #else
   EE_CAMERA_RESOLVE_RESTIR_RADIANCE_PIXEL(pixel_coordinate, radiance);
 #endif

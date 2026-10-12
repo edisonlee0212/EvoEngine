@@ -97,12 +97,12 @@ uint32_t RayCameraOptionalOutputByteSize(const RayCameraOptionalOutput output) {
 }
 
 bool HasRayCameraHistory(const RayCameraHistoryResources& history) {
-  return history.radiance_image && history.radiance_view && history.convergence_image && history.convergence_view;
+  return history.radiance_image && history.radiance_view;
 }
 
 uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
-  auto byte_size = static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
-                   sizeof(glm::vec4) * 2u;
+  auto byte_size =
+      static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth * sizeof(glm::vec4);
   for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
     if (!history.optional_outputs.images[index]) {
       continue;
@@ -111,6 +111,12 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
                  RayCameraOptionalOutputByteSize(output);
   }
+  for (const auto& image : history.nrd_taa_color_images)
+    if (image)
+      byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * 8u;
+  for (const auto& image : history.nrd_taa_geometry_images)
+    if (image)
+      byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * 8u;
   if (history.restir_nrd_view_z_image)
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(float);
   if (history.restir_nrd_motion_image)
@@ -137,6 +143,10 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     if (buffer) {
       byte_size += buffer->GetSize();
     }
+  }
+  for (const auto& buffer : history.restir_nrd_accumulation_buffers) {
+    if (buffer)
+      byte_size += buffer->GetSize();
   }
   for (const auto& buffer : history.restir_primary_surface_buffers) {
     if (buffer) {
@@ -530,8 +540,6 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (ray_output_flags != other.ray_output_flags)
     return true;
-  if (auto_spp_enabled != other.auto_spp_enabled)
-    return true;
   if (accumulate_samples != other.accumulate_samples)
     return true;
   if (restir_spatial_neighbors != other.restir_spatial_neighbors)
@@ -543,12 +551,6 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
   if (restir_temporal_adaptive_cap != other.restir_temporal_adaptive_cap)
     return true;
   if (restir_enhanced_mode != other.restir_enhanced_mode)
-    return true;
-  if (auto_spp_min_samples != other.auto_spp_min_samples)
-    return true;
-  if (auto_spp_max_samples != other.auto_spp_max_samples)
-    return true;
-  if (auto_spp_convergence_threshold != other.auto_spp_convergence_threshold)
     return true;
   if (shadow_split_distances != other.shadow_split_distances)
     return true;
@@ -723,10 +725,6 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
       post_processing_stack->ambient_occlusion) {
     camera_info_block.raster_lighting_flags |= CameraInfoBlock::kRasterLightingGtaoVisibility;
   }
-  const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
-  const auto auto_spp_max_samples =
-      static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
-  camera_info_block.auto_spp_enabled = camera_settings.auto_spp_enabled && camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.accumulate_samples = camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.restir_spatial_neighbors =
       glm::clamp(camera_settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors);
@@ -742,9 +740,6 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
        camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
           ? 1u
           : 0u;
-  camera_info_block.auto_spp_min_samples = auto_spp_min_samples;
-  camera_info_block.auto_spp_max_samples = auto_spp_max_samples;
-  camera_info_block.auto_spp_convergence_threshold = glm::max(camera_settings.auto_spp_convergence_threshold, 0.0f);
 }
 
 void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachmentInfo>& attachment_infos,
@@ -1035,9 +1030,7 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
     }
     stats.valid_history_count += history.valid ? 1u : 0u;
     stats.radiance_image_count += history.radiance_image ? 1u : 0u;
-    stats.convergence_image_count += history.convergence_image ? 1u : 0u;
     stats.radiance_view_count += history.radiance_view ? 1u : 0u;
-    stats.convergence_view_count += history.convergence_view ? 1u : 0u;
     stats.optional_output_image_count += static_cast<uint64_t>(std::count_if(
         history.optional_outputs.images.begin(), history.optional_outputs.images.end(), [](const auto& image) {
           return static_cast<bool>(image);
@@ -1214,6 +1207,7 @@ void Camera::InvalidateRayCameraHistory(const bool invalidate_restir_history) {
     if (invalidate_restir_history) {
       ray_camera_history_.restir_history_frame_id = 0;
       ray_camera_history_.restir_history_valid = false;
+      ray_camera_history_.nrd_taa_history_valid = false;
       ray_camera_history_.restir_nrd_history_valid = false;
       ray_camera_history_.restir_nrd_history_frame_count = 0;
     }
@@ -1234,8 +1228,6 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
     if (!resource_factory) {
       history.radiance_image = CreateRayCameraHistoryImage(extent);
       history.radiance_view = CreateGraphImageMipView(history.radiance_image, 0);
-      history.convergence_image = CreateRayCameraHistoryImage(extent);
-      history.convergence_view = CreateGraphImageMipView(history.convergence_image, 0);
     }
     history.technique = technique;
     history.integrator = camera_settings.ray_integrator;
@@ -1264,6 +1256,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.restir_last_generated_slot = UINT32_MAX;
       history.restir_history_frame_id = 0;
       history.restir_history_valid = false;
+      history.nrd_taa_history_valid = false;
       history.restir_nrd_history_valid = false;
       history.restir_nrd_history_frame_count = 0;
       ++ray_camera_history_counters_.invalidation_count;

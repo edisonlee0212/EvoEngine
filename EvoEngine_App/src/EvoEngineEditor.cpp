@@ -87,12 +87,10 @@ struct EditorCommandLine {
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<float> preview_capture_firefly_clamp_threshold;
-  std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<bool> preview_capture_accumulate_samples;
   std::optional<bool> preview_capture_nrd_denoising;
-  std::optional<int> preview_capture_auto_spp_min_samples;
-  std::optional<int> preview_capture_auto_spp_max_samples;
-  std::optional<float> preview_capture_auto_spp_convergence_threshold;
+  std::optional<bool> preview_capture_nrd_temporal_aa;
+  std::optional<bool> preview_capture_nrd_reblur;
   std::optional<int> preview_capture_sample_size;
   std::optional<std::filesystem::path> preview_ray_profile_report_path;
   bool preview_restir_generated_profile = false;
@@ -103,6 +101,7 @@ struct EditorCommandLine {
   std::optional<size_t> preview_camera_translate_after_frame;
   glm::vec3 preview_camera_translation{};
   std::optional<glm::vec3> preview_camera_translation_each_frame;
+  std::optional<glm::vec3> preview_camera_rotation_each_frame;
   std::optional<size_t> preview_fixture_advance_after_frame;
   std::optional<bool> preview_ambient_occlusion_enabled;
   std::optional<bool> preview_anti_aliasing_enabled;
@@ -662,12 +661,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
       }
       command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
-    } else if (argument == "--preview-auto-spp") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
-      }
-      command_line.preview_capture_auto_spp_enabled =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-accumulate-samples") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-accumulate-samples requires enabled or disabled.");
@@ -679,6 +672,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-nrd-denoising requires enabled or disabled.");
       }
       command_line.preview_capture_nrd_denoising = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-nrd-temporal-aa") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-nrd-temporal-aa requires enabled or disabled.");
+      command_line.preview_capture_nrd_temporal_aa =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-nrd-denoiser") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-nrd-denoiser requires relax or reblur.");
+      }
+      const std::string_view denoiser = argv[++arg_index] ? argv[arg_index] : "";
+      if (denoiser != "relax" && denoiser != "reblur") {
+        throw std::invalid_argument("--preview-nrd-denoiser requires relax or reblur.");
+      }
+      command_line.preview_capture_nrd_reblur = denoiser != "relax";
     } else if (argument == "--preview-restir-spatial-neighbors") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-restir-spatial-neighbors requires an integer from 1 to 16.");
@@ -709,21 +716,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_restir_spatial_hybrid =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-auto-spp-min-samples") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-auto-spp-min-samples requires a positive integer.");
-      }
-      command_line.preview_capture_auto_spp_min_samples = std::max(1, std::stoi(argv[++arg_index]));
-    } else if (argument == "--preview-auto-spp-max-samples") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-auto-spp-max-samples requires a positive integer.");
-      }
-      command_line.preview_capture_auto_spp_max_samples = std::max(1, std::stoi(argv[++arg_index]));
-    } else if (argument == "--preview-auto-spp-threshold") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-auto-spp-threshold requires a non-negative number.");
-      }
-      command_line.preview_capture_auto_spp_convergence_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
     } else if (argument == "--preview-sample-size") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-sample-size requires a positive integer.");
@@ -759,6 +751,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_camera_translation = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-translate-each-frame") {
       command_line.preview_camera_translation_each_frame = ParseVec3Argument(argc, argv, arg_index, argument);
+    } else if (argument == "--preview-camera-rotate-each-frame") {
+      command_line.preview_camera_rotation_each_frame = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-fixture-advance-after-frame") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-fixture-advance-after-frame requires a frame number.");
@@ -945,6 +939,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_nrd_denoising && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-nrd-denoising requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_nrd_reblur && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-nrd-denoiser requires --capture-demo-preview.");
+  }
   if (command_line.preview_capture_nrd_denoising && *command_line.preview_capture_nrd_denoising &&
       !Camera::NrdDenoisingAvailable()) {
     throw std::invalid_argument("--preview-nrd-denoising enabled requires an NRD-enabled build.");
@@ -1004,8 +1001,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_camera_translate_after_frame && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-camera-translate-after-frame requires --capture-demo-preview.");
   }
-  if (command_line.preview_camera_translation_each_frame && !command_line.demo_preview_capture_path) {
-    throw std::invalid_argument("--preview-camera-translate-each-frame requires --capture-demo-preview.");
+  if ((command_line.preview_camera_translation_each_frame || command_line.preview_camera_rotation_each_frame) &&
+      !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("Camera motion requires --capture-demo-preview.");
   }
   if (command_line.preview_fixture_advance_after_frame &&
       (!command_line.demo_preview_capture_path || !command_line.preview_ddgi_fixture)) {
@@ -1106,8 +1104,7 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
           command_line.preview_capture_render_mode != Camera::CameraRenderMode::RayTracing ||
           command_line.preview_capture_ray_debug_view != CameraSettings::RayDebugView::Beauty ||
           command_line.preview_capture_ser_mode != CameraSettings::ShaderExecutionReorderingMode::Disabled ||
-          command_line.preview_capture_auto_spp_enabled != false || command_line.preview_capture_sample_size != 4 ||
-          command_line.preview_capture_warmup_frames != 64) {
+          command_line.preview_capture_sample_size != 4 || command_line.preview_capture_warmup_frames != 64) {
         throw std::invalid_argument(
             "DDGI quality references require a fixed 64-frame, 4-SPP RT-pipeline beauty capture.");
       }
@@ -1311,6 +1308,7 @@ void ApplyBistroDemoEditorCameraDefaults() {
   editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
   editor_layer->SetSceneCameraRotation(editor_layer->default_scene_camera_rotation);
   if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+    scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
     scene_camera->camera_settings.fov = 60.0f;
     scene_camera->camera_settings.far_distance = 500.0f;
     scene_camera->ResetFrameCount();
@@ -1454,9 +1452,11 @@ void WaitForDemoProfileProjectIdle() {
 }
 
 bool DemoPreviewSceneInputsReady() {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   return ProjectManager::IsProjectIdle() && !AssetManager::GetAssetLoadSnapshot().Active() &&
          !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
-         !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
+         !BottomLevelAccelerationStructure::HasPendingStaticBuilds() &&
+         (!render_layer || render_layer->IsSceneShaderPrewarmComplete(ApplicationContext::Get().GetActiveScene()));
 }
 
 void WaitForDemoPreviewSceneInputsReady() {
@@ -1465,6 +1465,11 @@ void WaitForDemoPreviewSceneInputsReady() {
   size_t load_frame_count = 0;
   size_t stable_frame_count = 0;
   while (stable_frame_count < settled_frame_count) {
+    if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+      if (const auto error = render_layer->GetSceneShaderPrewarmError(ApplicationContext::Get().GetActiveScene());
+          !error.empty())
+        throw std::runtime_error("Scene shader preparation failed: " + error);
+    }
     if (DemoPreviewSceneInputsReady()) {
       ++stable_frame_count;
     } else {
@@ -2108,7 +2113,7 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
                                                 1u) +
                 (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly
-          ? sizeof(RestirPtPathReservoir) * 3u +
+          ? sizeof(RestirPtPathReservoir) * 2u +
                 sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
                                                                   camera.camera_settings.firefly_clamp_threshold > 0.0f
                                                               ? 1u
@@ -2403,16 +2408,18 @@ void CaptureDemoPreview(
     const std::optional<bool>& preview_restir_temporal_adaptive_cap,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
-    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
-    const std::optional<bool>& preview_accumulate_samples, const std::optional<bool>& preview_nrd_denoising,
-    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
-    const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
+    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_accumulate_samples,
+    const std::optional<bool>& preview_nrd_denoising, const std::optional<bool>& preview_nrd_reblur,
+    const std::optional<bool>& preview_nrd_temporal_aa,
+
+    const std::optional<int> preview_sample_size,
     const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
     const bool preview_restir_generated_profile,
     const std::optional<std::filesystem::path>& preview_raster_profile_report_path,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<size_t> preview_camera_translate_after_frame, const glm::vec3 preview_camera_translation,
     const std::optional<glm::vec3>& preview_camera_translation_each_frame,
+    const std::optional<glm::vec3>& preview_camera_rotation_each_frame,
     const std::optional<size_t> preview_fixture_advance_after_frame,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
     const std::optional<bool>& preview_anti_aliasing_enabled,
@@ -2518,10 +2525,6 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
     scene_camera->ResetFrameCount();
   }
-  if (preview_auto_spp_enabled) {
-    scene_camera->camera_settings.auto_spp_enabled = *preview_auto_spp_enabled;
-    scene_camera->ResetFrameCount();
-  }
   if (preview_accumulate_samples) {
     scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
     scene_camera->ResetFrameCount();
@@ -2530,20 +2533,12 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.nrd_denoising = *preview_nrd_denoising;
     scene_camera->ResetFrameCount();
   }
-  if (preview_auto_spp_min_samples) {
-    scene_camera->camera_settings.auto_spp_min_samples = std::max(1, *preview_auto_spp_min_samples);
-    scene_camera->camera_settings.auto_spp_max_samples = std::max(scene_camera->camera_settings.auto_spp_max_samples,
-                                                                  scene_camera->camera_settings.auto_spp_min_samples);
+  if (preview_nrd_temporal_aa) {
+    scene_camera->camera_settings.nrd_temporal_aa = *preview_nrd_temporal_aa;
     scene_camera->ResetFrameCount();
   }
-  if (preview_auto_spp_max_samples) {
-    scene_camera->camera_settings.auto_spp_max_samples =
-        std::max(scene_camera->camera_settings.auto_spp_min_samples, *preview_auto_spp_max_samples);
-    scene_camera->ResetFrameCount();
-  }
-  if (preview_auto_spp_convergence_threshold) {
-    scene_camera->camera_settings.auto_spp_convergence_threshold =
-        std::max(0.0f, *preview_auto_spp_convergence_threshold);
+  if (preview_nrd_reblur) {
+    scene_camera->camera_settings.nrd_reblur = *preview_nrd_reblur;
     scene_camera->ResetFrameCount();
   }
   if (deterministic_capture || preview_sample_size) {
@@ -2730,11 +2725,6 @@ void CaptureDemoPreview(
     LogBistroParityCaptureState(active_scene, scene_camera, width, height,
                                 Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
   }
-  if (const auto active_scene = ApplicationContext::Get().GetActiveScene()) {
-    if (const auto main_camera = active_scene->main_camera.Get<Camera>(); main_camera && main_camera != scene_camera) {
-      main_camera->SetRequireRendering(false);
-    }
-  }
   if (preview_ray_profile_report_path || preview_raster_profile_report_path) {
     Platform::WaitForFrameSubmissions("Camera Profile Readiness Fence Wait");
     Platform::ResetGpuTimestampStats();
@@ -2754,14 +2744,15 @@ void CaptureDemoPreview(
   scene_camera->ResetFrameCount();
   const bool moving_restir_fixture = preview_ddgi_fixture && *preview_ddgi_fixture == "restir-indirect-upward-moving";
   const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode) &&
-                                         !preview_camera_translation_each_frame && !moving_restir_fixture;
+                                         !preview_camera_translation_each_frame &&
+                                         !preview_camera_rotation_each_frame && !moving_restir_fixture;
   constexpr size_t max_capture_frame_slack = 30000;
   const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
   size_t capture_frame_count = 0;
   size_t stalled_restir_frames = 0;
   uint32_t previous_camera_frames = scene_camera->GetFrameCount();
   const bool restir_capture =
-      preview_ray_integrator && *preview_ray_integrator != CameraSettings::RayIntegrator::PathTracing;
+      scene_camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
   std::vector<double> cpu_frame_samples;
   cpu_frame_samples.reserve(warmup_frames);
   const auto capture_start_time = std::chrono::steady_clock::now();
@@ -2793,6 +2784,10 @@ void CaptureDemoPreview(
     if (preview_camera_translation_each_frame) {
       editor_layer->SetSceneCameraPosition(editor_layer->GetSceneCameraPosition() +
                                            *preview_camera_translation_each_frame);
+    }
+    if (preview_camera_rotation_each_frame) {
+      editor_layer->SetSceneCameraRotation(glm::normalize(glm::quat(glm::radians(*preview_camera_rotation_each_frame)) *
+                                                          editor_layer->GetSceneCameraRotation()));
     }
     if (preview_fixture_advance_after_frame == capture_frame_count &&
         (!preview_ddgi_fixture ||
@@ -3308,6 +3303,14 @@ int main(const int argc, char** argv) {
         if (command_line.application_mode == ApplicationMode::Editor) {
           ApplyDemoEditorDefaults(*command_line.demo_profile_id);
         }
+        if (command_line.demo_preview_capture_path || command_line.bistro_smoke) {
+          ApplicationContext::Get().RegisterPreUpdateFunction([] {
+            if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
+              if (const auto main_camera = scene->main_camera.Get<Camera>())
+                main_camera->SetEnabled(false);
+            }
+          });
+        }
         if (command_line.author_runtime_scene) {
           ApplicationContext::Get().RegisterPreUpdateFunction([] {
             ApplicationContext::Get().GetLayer<EditorLayer>()->main_camera_allow_auto_resize = false;
@@ -3380,14 +3383,14 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_restir_temporal_history_cap,
               command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_auto_spp_enabled, command_line.preview_capture_accumulate_samples,
-              command_line.preview_capture_nrd_denoising, command_line.preview_capture_auto_spp_min_samples,
-              command_line.preview_capture_auto_spp_max_samples,
-              command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
-              command_line.preview_ray_profile_report_path, command_line.preview_restir_generated_profile,
-              command_line.preview_raster_profile_report_path, command_line.preview_capture_camera_position,
-              command_line.preview_capture_camera_look_at, command_line.preview_camera_translate_after_frame,
-              command_line.preview_camera_translation, command_line.preview_camera_translation_each_frame,
+              command_line.preview_capture_accumulate_samples, command_line.preview_capture_nrd_denoising,
+              command_line.preview_capture_nrd_reblur, command_line.preview_capture_nrd_temporal_aa,
+
+              command_line.preview_capture_sample_size, command_line.preview_ray_profile_report_path,
+              command_line.preview_restir_generated_profile, command_line.preview_raster_profile_report_path,
+              command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
+              command_line.preview_camera_translate_after_frame, command_line.preview_camera_translation,
+              command_line.preview_camera_translation_each_frame, command_line.preview_camera_rotation_each_frame,
               command_line.preview_fixture_advance_after_frame, command_line.preview_ambient_occlusion_enabled,
               command_line.preview_anti_aliasing_enabled, command_line.preview_anti_aliasing_preset,
               command_line.preview_anti_aliasing_debug_mode, command_line.preview_anti_aliasing_debug_disabled,

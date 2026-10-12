@@ -2538,16 +2538,36 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
   out << YAML::Key << "ray_integrator" << YAML::Value << Camera::GetRayIntegratorName(settings.ray_integrator);
   out << YAML::Key << "nrd_denoising" << YAML::Value << settings.nrd_denoising;
+  out << YAML::Key << "nrd_reblur" << YAML::Value << settings.nrd_reblur;
+  out << YAML::Key << "nrd_temporal_aa" << YAML::Value << settings.nrd_temporal_aa;
+  out << YAML::Key << "nrd_relax_diffuse_prepass_radius" << YAML::Value << settings.nrd_relax_diffuse_prepass_radius;
+  out << YAML::Key << "nrd_relax_specular_prepass_radius" << YAML::Value << settings.nrd_relax_specular_prepass_radius;
+  out << YAML::Key << "nrd_relax_diffuse_history_frames" << YAML::Value << settings.nrd_relax_diffuse_history_frames;
+  out << YAML::Key << "nrd_relax_specular_history_frames" << YAML::Value << settings.nrd_relax_specular_history_frames;
+  out << YAML::Key << "nrd_relax_atrous_iterations" << YAML::Value << settings.nrd_relax_atrous_iterations;
+  out << YAML::Key << "nrd_relax_lobe_angle_fraction" << YAML::Value << settings.nrd_relax_lobe_angle_fraction;
+  out << YAML::Key << "nrd_relax_roughness_fraction" << YAML::Value << settings.nrd_relax_roughness_fraction;
+  out << YAML::Key << "nrd_relax_diffuse_luminance_sensitivity" << YAML::Value
+      << settings.nrd_relax_diffuse_luminance_sensitivity;
+  out << YAML::Key << "nrd_relax_specular_luminance_sensitivity" << YAML::Value
+      << settings.nrd_relax_specular_luminance_sensitivity;
+  out << YAML::Key << "nrd_relax_depth_threshold" << YAML::Value << settings.nrd_relax_depth_threshold;
+  out << YAML::Key << "nrd_relax_anti_firefly" << YAML::Value << settings.nrd_relax_anti_firefly;
+  out << YAML::Key << "nrd_relax_roughness_edge_stopping" << YAML::Value << settings.nrd_relax_roughness_edge_stopping;
+  out << YAML::Key << "nrd_reblur_min_blur_radius" << YAML::Value << settings.nrd_reblur_min_blur_radius;
+  out << YAML::Key << "nrd_reblur_max_blur_radius" << YAML::Value << settings.nrd_reblur_max_blur_radius;
+  out << YAML::Key << "nrd_reblur_diffuse_prepass_radius" << YAML::Value << settings.nrd_reblur_diffuse_prepass_radius;
+  out << YAML::Key << "nrd_reblur_specular_prepass_radius" << YAML::Value
+      << settings.nrd_reblur_specular_prepass_radius;
+  out << YAML::Key << "nrd_reblur_history_frames" << YAML::Value << settings.nrd_reblur_history_frames;
+  out << YAML::Key << "nrd_reblur_lobe_angle_fraction" << YAML::Value << settings.nrd_reblur_lobe_angle_fraction;
+  out << YAML::Key << "nrd_reblur_roughness_fraction" << YAML::Value << settings.nrd_reblur_roughness_fraction;
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
-  out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
   out << YAML::Key << "accumulate_samples" << YAML::Value << settings.accumulate_samples;
   out << YAML::Key << "restir_spatial_neighbors" << YAML::Value << settings.restir_spatial_neighbors;
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << settings.restir_spatial_hybrid;
   out << YAML::Key << "restir_temporal_history_cap" << YAML::Value << settings.restir_temporal_history_cap;
   out << YAML::Key << "restir_temporal_adaptive_cap" << YAML::Value << settings.restir_temporal_adaptive_cap;
-  out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
-  out << YAML::Key << "auto_spp_max_samples" << YAML::Value << settings.auto_spp_max_samples;
-  out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value << settings.auto_spp_convergence_threshold;
   out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
       << Camera::GetShaderExecutionReorderingModeName(settings.shader_execution_reordering_mode);
 }
@@ -2571,10 +2591,30 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
     settings.ray_integrator = Camera::ParseRayIntegrator(integrator.as<std::string>(), settings.ray_integrator);
   }
   ReadYamlValue(in, "nrd_denoising", settings.nrd_denoising);
+  ReadYamlValue(in, "nrd_reblur", settings.nrd_reblur);
+  ReadYamlValue(in, "nrd_temporal_aa", settings.nrd_temporal_aa);
+  ReadYamlValue(in, "nrd_relax_diffuse_prepass_radius", settings.nrd_relax_diffuse_prepass_radius);
+  ReadYamlValue(in, "nrd_relax_specular_prepass_radius", settings.nrd_relax_specular_prepass_radius);
+  ReadYamlValue(in, "nrd_relax_diffuse_history_frames", settings.nrd_relax_diffuse_history_frames);
+  ReadYamlValue(in, "nrd_relax_specular_history_frames", settings.nrd_relax_specular_history_frames);
+  ReadYamlValue(in, "nrd_relax_atrous_iterations", settings.nrd_relax_atrous_iterations);
+  ReadYamlValue(in, "nrd_relax_lobe_angle_fraction", settings.nrd_relax_lobe_angle_fraction);
+  ReadYamlValue(in, "nrd_relax_roughness_fraction", settings.nrd_relax_roughness_fraction);
+  ReadYamlValue(in, "nrd_relax_diffuse_luminance_sensitivity", settings.nrd_relax_diffuse_luminance_sensitivity);
+  ReadYamlValue(in, "nrd_relax_specular_luminance_sensitivity", settings.nrd_relax_specular_luminance_sensitivity);
+  ReadYamlValue(in, "nrd_relax_depth_threshold", settings.nrd_relax_depth_threshold);
+  ReadYamlValue(in, "nrd_relax_anti_firefly", settings.nrd_relax_anti_firefly);
+  ReadYamlValue(in, "nrd_relax_roughness_edge_stopping", settings.nrd_relax_roughness_edge_stopping);
+  ReadYamlValue(in, "nrd_reblur_min_blur_radius", settings.nrd_reblur_min_blur_radius);
+  ReadYamlValue(in, "nrd_reblur_max_blur_radius", settings.nrd_reblur_max_blur_radius);
+  ReadYamlValue(in, "nrd_reblur_diffuse_prepass_radius", settings.nrd_reblur_diffuse_prepass_radius);
+  ReadYamlValue(in, "nrd_reblur_specular_prepass_radius", settings.nrd_reblur_specular_prepass_radius);
+  ReadYamlValue(in, "nrd_reblur_history_frames", settings.nrd_reblur_history_frames);
+  ReadYamlValue(in, "nrd_reblur_lobe_angle_fraction", settings.nrd_reblur_lobe_angle_fraction);
+  ReadYamlValue(in, "nrd_reblur_roughness_fraction", settings.nrd_reblur_roughness_fraction);
   if (const auto view = in["ray_debug_view"]) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }
-  ReadYamlValue(in, "auto_spp_enabled", settings.auto_spp_enabled);
   ReadYamlValue(in, "accumulate_samples", settings.accumulate_samples);
   ReadYamlValue(in, "restir_spatial_neighbors", settings.restir_spatial_neighbors);
   settings.restir_spatial_neighbors =
@@ -2583,9 +2623,6 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "restir_temporal_history_cap", settings.restir_temporal_history_cap);
   settings.restir_temporal_history_cap = glm::clamp(settings.restir_temporal_history_cap, 1, 32);
   ReadYamlValue(in, "restir_temporal_adaptive_cap", settings.restir_temporal_adaptive_cap);
-  ReadYamlValue(in, "auto_spp_min_samples", settings.auto_spp_min_samples);
-  ReadYamlValue(in, "auto_spp_max_samples", settings.auto_spp_max_samples);
-  ReadYamlValue(in, "auto_spp_convergence_threshold", settings.auto_spp_convergence_threshold);
   if (const auto mode = in["shader_execution_reordering_mode"]) {
     settings.shader_execution_reordering_mode =
         Camera::ParseShaderExecutionReorderingMode(mode.as<std::string>(), settings.shader_execution_reordering_mode);
@@ -3255,6 +3292,8 @@ void EditorLayer::DrawProjectLoadingPopup() {
   const bool scene_ready = project_manager.start_scene_ != nullptr;
   const bool pending_scene_load = !project_manager.new_project_path_.empty() && !scene_ready &&
                                   ApplicationContext::Get().GetApplicationInfo().load_project_start_scene;
+  if (scene_ready && render_layer && !render_layer->IsSceneShaderPrewarmComplete(scene))
+    scene_loading_popup_visible_ = true;
   if (scene_loading_popup_visible_ && scene_ready) {
     if (const auto scene_camera = GetSceneCamera()) {
       scene_camera->SetRequireRendering(true);
@@ -3278,7 +3317,10 @@ void EditorLayer::DrawProjectLoadingPopup() {
   }
 
   const auto draw_loading_status = [&]() {
-    ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
+    if (scene_ready && render_layer && !render_layer->IsSceneShaderPrewarmComplete(scene))
+      ImGui::TextUnformatted("Preparing rendering shaders...");
+    else
+      ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
   };
 
   if (ImGui::BeginPopupModal("Loading Scene...", nullptr, modal_flags)) {

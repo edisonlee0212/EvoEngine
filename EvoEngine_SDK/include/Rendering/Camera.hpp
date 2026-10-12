@@ -60,6 +60,7 @@ inline constexpr uint32_t kRayCameraNrdDenoisedSpecularBinding = kRayCameraNrdDe
 inline constexpr uint32_t kRayCameraNrdLobeHitDistanceBinding = kRayCameraNrdDenoisedSpecularBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdDiffuseFactorBinding = kRayCameraNrdLobeHitDistanceBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdSpecularFactorBinding = kRayCameraNrdDiffuseFactorBinding + 1u;
+inline constexpr uint32_t kRayCameraRestirNrdAccumulationBinding = kRayCameraNrdSpecularFactorBinding + 1u;
 
 struct RayCameraOutputDescriptorSlot {
   std::shared_ptr<DescriptorSet> descriptor_set;
@@ -75,12 +76,15 @@ struct RayCameraOptionalOutputResources {
   uint32_t enabled_mask = 0u;
 };
 
+inline constexpr uint32_t kRayCameraNrdTaaPreviousColorBinding = 39u;
+inline constexpr uint32_t kRayCameraNrdTaaPreviousGeometryBinding = 40u;
+inline constexpr uint32_t kRayCameraNrdTaaNextColorBinding = 41u;
+inline constexpr uint32_t kRayCameraNrdTaaNextGeometryBinding = 42u;
+
 struct RayCameraHistoryResources {
   VkExtent3D extent{};
   std::shared_ptr<Image> radiance_image;
   std::shared_ptr<ImageView> radiance_view;
-  std::shared_ptr<Image> convergence_image;
-  std::shared_ptr<ImageView> convergence_view;
   RayCameraOptionalOutputResources optional_outputs;
   RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
   CameraSettings::RayIntegrator integrator = CameraSettings::RayIntegrator::PathTracing;
@@ -100,6 +104,7 @@ struct RayCameraHistoryResources {
   std::vector<std::shared_ptr<Buffer>> restir_surface_history_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_temporal_forward_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_duplication_buffers;
+  std::vector<std::shared_ptr<Buffer>> restir_nrd_accumulation_buffers;
   std::shared_ptr<Image> restir_nrd_view_z_image;
   std::shared_ptr<ImageView> restir_nrd_view_z_view;
   std::shared_ptr<Image> restir_nrd_motion_image;
@@ -123,6 +128,13 @@ struct RayCameraHistoryResources {
   std::shared_ptr<Image> restir_nrd_specular_factor_image;
   std::shared_ptr<ImageView> restir_nrd_specular_factor_view;
   std::shared_ptr<NrdRayCameraDenoiser> restir_nrd_denoiser;
+
+  std::array<std::shared_ptr<Image>, 2> nrd_taa_color_images;
+  std::array<std::shared_ptr<ImageView>, 2> nrd_taa_color_views;
+  std::array<std::shared_ptr<Image>, 2> nrd_taa_geometry_images;
+  std::array<std::shared_ptr<ImageView>, 2> nrd_taa_geometry_views;
+  uint32_t nrd_taa_write_slot = 0;
+  bool nrd_taa_history_valid = false;
   bool restir_nrd_history_valid = false;
   uint32_t restir_nrd_history_frame_count = 0;
   uint32_t restir_history_frame_id = 0;
@@ -138,9 +150,7 @@ struct RayCameraHistoryStats {
   uint64_t live_ray_query_history_count = 0;
   uint64_t valid_history_count = 0;
   uint64_t radiance_image_count = 0;
-  uint64_t convergence_image_count = 0;
   uint64_t radiance_view_count = 0;
-  uint64_t convergence_view_count = 0;
   uint64_t optional_output_image_count = 0;
   uint64_t optional_output_view_count = 0;
   uint64_t live_byte_size = 0;
@@ -189,10 +199,6 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t sample_size = 1;
   uint32_t bounce = 4;
   float firefly_clamp_threshold = 10.0f;
-  uint32_t auto_spp_enabled = 0;
-  uint32_t auto_spp_min_samples = 16;
-  uint32_t auto_spp_max_samples = 256;
-  float auto_spp_convergence_threshold = 0.01f;
   uint32_t accumulate_samples = 1;
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
@@ -275,7 +281,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] static bool IsRayCameraRenderMode(CameraRenderMode mode);
   [[nodiscard]] static CameraRenderMode ResolveCameraRenderMode(CameraRenderMode requested_mode);
 
-  CameraRenderMode camera_render_mode = CameraRenderMode::Rasterization;  ///< The current rendering mode.
+  CameraRenderMode camera_render_mode = CameraRenderMode::RayQuery;  ///< The current rendering mode.
   bool restir_pt_profile_generated = false;
 
   /**

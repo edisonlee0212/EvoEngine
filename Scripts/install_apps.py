@@ -252,6 +252,23 @@ def publish_runtime_template(template_dir: Path, install_dir: Path) -> Path:
     temporary_pointer = pointer_path.with_name(f".{pointer_path.name}.tmp-{os.getpid()}")
     temporary_pointer.write_text(json.dumps(pointer, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary_pointer, pointer_path)
+    for previous in destination_root.iterdir():
+        if previous == destination or not previous.is_dir():
+            continue
+        if previous.resolve() != destination_root.resolve() / previous.name:
+            continue
+        if len(previous.name) != 64 or any(char not in "0123456789abcdef" for char in previous.name):
+            continue
+        try:
+            marker = json.loads((previous / RUNTIME_TEMPLATE_MARKER).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (
+            isinstance(marker, dict)
+            and marker.get("kind") == "EvoEngineRuntimeTemplate"
+            and marker.get("template_id") == previous.name
+        ):
+            shutil.rmtree(previous)
     return destination
 
 

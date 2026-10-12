@@ -2,9 +2,11 @@ import EvoEngine.CameraRayIntegrator;
 import EvoEngine.RestirPtPreviousSurface;
 import EvoEngine.CameraRayTraversalPolicies;
 
-[[vk::binding(11, 2)]] RWByteAddressBuffer primary_surface_buffer;
 [[vk::binding(23, 2)]] RWTexture2D<float> view_z_image;
 [[vk::binding(24, 2)]] RWTexture2D<float4> motion_image;
+[[vk::binding(31, 2)]] RWTexture2D<float2> nrd_lobe_hit_distance_image;
+[[vk::binding(32, 2)]] RWTexture2D<float4> nrd_diffuse_factor_image;
+[[vk::binding(33, 2)]] RWTexture2D<float4> nrd_specular_factor_image;
 [[vk::binding(28, 2)]] RWTexture2D<float4> nrd_normal_roughness_image;
 
 float3 EE_RESTIR_PT_NRD_PACK_NORMAL_ROUGHNESS(float3 normal, const float roughness) {
@@ -26,18 +28,25 @@ float3 EE_RESTIR_PT_NRD_PACK_NORMAL_ROUGHNESS(float3 normal, const float roughne
   const uint2 pixel = dispatch_thread_id.xy;
   if (any(pixel >= uint2(width, height))) return;
 
-  RestirPtPrimarySurface current =
-      EE_RESTIR_PT_LOAD_PRIMARY_SURFACE(primary_surface_buffer, pixel.y * width + pixel.x);
-  float4 raw_normal = ray_normal_image[int2(pixel)];
+  RestirPtPrimarySurface current;
+  float4 raw_normal;
   const Camera camera = EE_CAMERA_RESTIR_ACTIVE_CAMERA();
-  if (camera.restir_enhanced_mode != 0u)
-    EE_CAMERA_NRD_TRACE_CENTER_GUIDE<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
-                                     EE_GLTF_COMPILED_FEATURE_MASK>(pixel, uint2(width, height), current, raw_normal);
+  float3 diffuse_factor, specular_factor;
+  float2 lobe_hit_distance;
+  float material_category;
+  EE_CAMERA_NRD_TRACE_CENTER_GUIDE<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
+                                 EE_GLTF_COMPILED_FEATURE_MASK>(pixel, uint2(width, height), current, raw_normal,
+                                     diffuse_factor, specular_factor, lobe_hit_distance, material_category);
+  if (EE_CAMERA_NRD_PATH_TRACING_ENABLED() && EE_CAMERA_NRD_NORMAL_OUTPUT_ENABLED())
+    ray_normal_image[int2(pixel)] = raw_normal;
+  nrd_diffuse_factor_image[pixel] = float4(diffuse_factor, 0.0f);
+  nrd_specular_factor_image[pixel] = float4(specular_factor, 0.0f);
+  nrd_lobe_hit_distance_image[pixel] = lobe_hit_distance;
   const bool valid_normal = all(isfinite(raw_normal)) && dot(raw_normal.xyz, raw_normal.xyz) > 1e-8f;
   const float3 packed_normal = EE_RESTIR_PT_NRD_PACK_NORMAL_ROUGHNESS(
       valid_normal ? normalize(raw_normal.xyz) : float3(0.0f, 0.0f, 1.0f),
       valid_normal ? raw_normal.w : 1.0f);
-  nrd_normal_roughness_image[int2(pixel)] = float4(packed_normal, 0.0f);
+  nrd_normal_roughness_image[int2(pixel)] = float4(packed_normal, material_category / 3.0f);
   if (current.material_id == EE_RESTIR_PT_INVALID_INSTANCE || !all(isfinite(current.position))) {
     view_z_image[int2(pixel)] = 1e8f;
     motion_image[int2(pixel)] = float4(0.0f);
@@ -69,7 +78,8 @@ float3 EE_RESTIR_PT_NRD_PACK_NORMAL_ROUGHNESS(float3 normal, const float roughne
   const float3 previous_camera_position = camera.previous_inverse_view[3].xyz;
   const float3 previous_camera_back = camera.previous_inverse_view[2].xyz;
   const float previous_view_z = dot(previous.position - previous_camera_position, previous_camera_back);
-  const float3 motion_2_5d = float3(motion, previous_view_z - view_z);
+  // NRD converts RH matrices and signed view Z to positive depth before reprojection.
+  const float3 motion_2_5d = float3(motion, abs(previous_view_z) - abs(view_z));
   motion_image[int2(pixel)] = all(isfinite(motion_2_5d))
                                   ? float4(motion_2_5d, 0.0f)
                                   : float4(2.0f, 2.0f, 0.0f, 0.0f);

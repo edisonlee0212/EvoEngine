@@ -15,6 +15,7 @@
 
 #  include <NRDIntegration.hpp>
 
+#  include <algorithm>
 #  include <cstring>
 #  include <limits>
 
@@ -37,6 +38,7 @@ struct NrdRayCameraDenoiser::Impl {
   uint32_t width = 0u;
   uint32_t height = 0u;
   uint32_t frame_index = 0u;
+  bool reblur = false;
   bool initialized = false;
 };
 
@@ -44,7 +46,7 @@ NrdRayCameraDenoiser::NrdRayCameraDenoiser() : impl_(std::make_unique<Impl>()) {
 }
 NrdRayCameraDenoiser::~NrdRayCameraDenoiser() = default;
 
-bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t height) {
+bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t height, const bool reblur) {
   if (width == 0u || height == 0u || width > std::numeric_limits<uint16_t>::max() ||
       height > std::numeric_limits<uint16_t>::max())
     return false;
@@ -66,7 +68,8 @@ bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t heigh
   device.minorVersion =
       static_cast<uint8_t>(VK_API_VERSION_MINOR(Platform::GetSelectedPhysicalDevice()->properties.apiVersion));
 
-  const nrd::DenoiserDesc denoiser{kDenoiser, nrd::Denoiser::RELAX_DIFFUSE_SPECULAR};
+  const nrd::DenoiserDesc denoiser{
+      kDenoiser, reblur ? nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR : nrd::Denoiser::RELAX_DIFFUSE_SPECULAR};
   nrd::InstanceCreationDesc instance{};
   instance.denoisers = &denoiser;
   instance.denoisersNum = 1u;
@@ -78,22 +81,21 @@ bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t heigh
   integration.autoWaitForIdle = true;
   if (impl_->integration.RecreateVK(integration, instance, device) != nrd::Result::SUCCESS)
     return false;
-  nrd::RelaxSettings settings{};
-  settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::AREA_3X3;
-  settings.diffusePrepassBlurRadius = 2.0f;
-  settings.specularPrepassBlurRadius = 8.0f;
-  settings.atrousIterationNum = 2u;
-  if (impl_->integration.SetDenoiserSettings(kDenoiser, &settings) != nrd::Result::SUCCESS)
-    return false;
   impl_->width = width;
   impl_->height = height;
   impl_->frame_index = 0u;
+  impl_->reblur = reblur;
   impl_->initialized = true;
   return true;
 }
 
+bool NrdRayCameraDenoiser::UsesReblur() const {
+  return impl_->reblur;
+}
+
 bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const CameraInfoBlock& camera,
-                                   const RayCameraHistoryResources& history, const bool reset_history) {
+                                   const RayCameraHistoryResources& history, const bool reset_history,
+                                   const CameraSettings& camera_settings) {
   if (!impl_->initialized || !history.restir_nrd_motion_image || !history.restir_nrd_normal_roughness_image ||
       !history.restir_nrd_view_z_image || !history.restir_nrd_diffuse_signal_image ||
       !history.restir_nrd_specular_signal_image || !history.restir_nrd_denoised_diffuse_image ||
@@ -101,10 +103,62 @@ bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const C
     return false;
 
   impl_->integration.NewFrame();
+  if (impl_->reblur) {
+    nrd::ReblurSettings settings{};
+    settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
+    settings.minMaterialForDiffuse = 0.0f;
+    settings.minMaterialForSpecular = 0.0f;
+    settings.maxBlurRadius = std::max(camera_settings.nrd_reblur_max_blur_radius, 0.1f);
+    settings.minBlurRadius = std::clamp(camera_settings.nrd_reblur_min_blur_radius, 0.0f, settings.maxBlurRadius);
+    settings.diffusePrepassBlurRadius = std::max(camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+    settings.specularPrepassBlurRadius = std::max(camera_settings.nrd_reblur_specular_prepass_radius, 0.0f);
+    settings.maxAccumulatedFrameNum = static_cast<uint32_t>(
+        std::clamp(camera_settings.nrd_reblur_history_frames, 0, static_cast<int>(nrd::REBLUR_MAX_HISTORY_FRAME_NUM)));
+    settings.maxFastAccumulatedFrameNum =
+        std::min(settings.maxFastAccumulatedFrameNum, settings.maxAccumulatedFrameNum);
+    settings.historyFixFrameNum =
+        std::min(settings.historyFixFrameNum,
+                 settings.maxFastAccumulatedFrameNum > 0u ? settings.maxFastAccumulatedFrameNum - 1u : 0u);
+    settings.lobeAngleFraction = std::clamp(camera_settings.nrd_reblur_lobe_angle_fraction, 0.001f, 1.0f);
+    settings.roughnessFraction = std::clamp(camera_settings.nrd_reblur_roughness_fraction, 0.001f, 1.0f);
+    if (impl_->integration.SetDenoiserSettings(kDenoiser, &settings) != nrd::Result::SUCCESS)
+      return false;
+  } else {
+    nrd::RelaxSettings settings{};
+    settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
+    settings.minMaterialForDiffuse = 0.0f;
+    settings.minMaterialForSpecular = 0.0f;
+    settings.diffusePrepassBlurRadius = std::max(camera_settings.nrd_relax_diffuse_prepass_radius, 0.0f);
+    settings.specularPrepassBlurRadius = std::max(camera_settings.nrd_relax_specular_prepass_radius, 0.0f);
+    settings.diffuseMaxAccumulatedFrameNum = static_cast<uint32_t>(std::clamp(
+        camera_settings.nrd_relax_diffuse_history_frames, 0, static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
+    settings.specularMaxAccumulatedFrameNum = static_cast<uint32_t>(std::clamp(
+        camera_settings.nrd_relax_specular_history_frames, 0, static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
+    settings.diffuseMaxFastAccumulatedFrameNum =
+        std::min(settings.diffuseMaxFastAccumulatedFrameNum, settings.diffuseMaxAccumulatedFrameNum);
+    settings.specularMaxFastAccumulatedFrameNum =
+        std::min(settings.specularMaxFastAccumulatedFrameNum, settings.specularMaxAccumulatedFrameNum);
+    const auto fast_frames =
+        std::min(settings.diffuseMaxFastAccumulatedFrameNum, settings.specularMaxFastAccumulatedFrameNum);
+    settings.historyFixFrameNum = std::min(settings.historyFixFrameNum, fast_frames > 0u ? fast_frames - 1u : 0u);
+    settings.atrousIterationNum = static_cast<uint32_t>(std::clamp(camera_settings.nrd_relax_atrous_iterations, 2, 8));
+    settings.lobeAngleFraction = std::clamp(camera_settings.nrd_relax_lobe_angle_fraction, 0.001f, 1.0f);
+    settings.roughnessFraction = std::clamp(camera_settings.nrd_relax_roughness_fraction, 0.001f, 1.0f);
+    settings.diffusePhiLuminance = std::max(camera_settings.nrd_relax_diffuse_luminance_sensitivity, 0.001f);
+    settings.specularPhiLuminance = std::max(camera_settings.nrd_relax_specular_luminance_sensitivity, 0.001f);
+    settings.depthThreshold = std::clamp(camera_settings.nrd_relax_depth_threshold, 0.000001f, 1.0f);
+    settings.enableAntiFirefly = camera_settings.nrd_relax_anti_firefly;
+    settings.enableRoughnessEdgeStopping = camera_settings.nrd_relax_roughness_edge_stopping;
+    if (impl_->integration.SetDenoiserSettings(kDenoiser, &settings) != nrd::Result::SUCCESS)
+      return false;
+  }
   nrd::CommonSettings common{};
-  std::memcpy(common.viewToClipMatrix, &camera.projection[0][0], sizeof(common.viewToClipMatrix));
+  // Ray images use bottom-left UVs; NRD reconstructs positions with top-left UVs.
+  const auto image_orientation = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f));
+  const auto projection = image_orientation * camera.projection;
+  std::memcpy(common.viewToClipMatrix, &projection[0][0], sizeof(common.viewToClipMatrix));
   std::memcpy(common.worldToViewMatrix, &camera.view[0][0], sizeof(common.worldToViewMatrix));
-  const auto previous_projection = glm::inverse(camera.previous_inverse_projection);
+  const auto previous_projection = image_orientation * glm::inverse(camera.previous_inverse_projection);
   const auto previous_view = glm::inverse(camera.previous_inverse_view);
   std::memcpy(common.viewToClipMatrixPrev, &previous_projection[0][0], sizeof(common.viewToClipMatrixPrev));
   std::memcpy(common.worldToViewMatrixPrev, &previous_view[0][0], sizeof(common.worldToViewMatrixPrev));
@@ -143,11 +197,14 @@ struct evo_engine::NrdRayCameraDenoiser::Impl {};
 evo_engine::NrdRayCameraDenoiser::NrdRayCameraDenoiser() : impl_(std::make_unique<Impl>()) {
 }
 evo_engine::NrdRayCameraDenoiser::~NrdRayCameraDenoiser() = default;
-bool evo_engine::NrdRayCameraDenoiser::Initialize(uint32_t, uint32_t) {
+bool evo_engine::NrdRayCameraDenoiser::Initialize(uint32_t, uint32_t, bool) {
+  return false;
+}
+bool evo_engine::NrdRayCameraDenoiser::UsesReblur() const {
   return false;
 }
 bool evo_engine::NrdRayCameraDenoiser::Denoise(VkCommandBuffer, const CameraInfoBlock&,
-                                               const RayCameraHistoryResources&, bool) {
+                                               const RayCameraHistoryResources&, bool, const CameraSettings&) {
   return false;
 }
 

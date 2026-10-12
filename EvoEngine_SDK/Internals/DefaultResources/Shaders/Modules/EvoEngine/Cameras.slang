@@ -27,10 +27,6 @@ public struct Camera {
   public uint sample_size;
   public uint bounce;
   public float firefly_clamp_threshold;
-  public uint auto_spp_enabled;
-  public uint auto_spp_min_samples;
-  public uint auto_spp_max_samples;
-  public float auto_spp_convergence_threshold;
   public uint accumulate_samples;
   public uint ray_debug_view;
   public uint raster_lighting_flags;

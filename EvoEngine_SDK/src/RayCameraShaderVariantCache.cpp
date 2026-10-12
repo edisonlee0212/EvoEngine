@@ -367,6 +367,46 @@ RayCameraShaderVariantUpdate RayCameraShaderVariantCache::Update(const uint32_t 
   return result;
 }
 
+RayCameraShaderVariantStats RayCameraShaderVariantCache::Prewarm(const uint32_t feature_mask,
+                                                                 const RayCameraShaderTechnique technique,
+                                                                 const bool debug_views) {
+  const std::lock_guard lock(mutex_);
+  PollCompletedJobs();
+  const auto mask = PromoteGltfSceneFeatures(feature_mask) | (debug_views ? kRayCameraDebugViewsFeature : 0u);
+  if (mask != kRayCameraFallbackMask) {
+    if (technique == RayCameraShaderTechnique::RayTracing)
+      RequestRayTracing(mask);
+    else
+      RequestRayQuery(mask);
+  }
+  const auto status = [&](auto& state) {
+    auto result = state.stats;
+    result.requested_mask = mask;
+    result.requested_key = VariantKey(technique, mask);
+    result.ready = mask == kRayCameraFallbackMask && state.fallback != nullptr;
+    result.pending = !result.ready;
+    result.failed = false;
+    result.last_error.clear();
+    if (!state.fallback) {
+      result.pending = false;
+      result.failed = true;
+      result.last_error = "Ray camera pipeline is unavailable.";
+    }
+    if (const auto search = state.entries.find(mask); search != state.entries.end()) {
+      const auto& entry = search->second;
+      const std::lock_guard entry_lock(entry->mutex);
+      TouchEntry(entry);
+      result.pending = !entry->published;
+      result.ready = entry->published && entry->success;
+      result.failed = entry->published && !entry->success;
+      result.last_error = entry->error;
+      result.cache_source = entry->cache_source;
+    }
+    return result;
+  };
+  return technique == RayCameraShaderTechnique::RayTracing ? status(ray_tracing_) : status(ray_query_);
+}
+
 std::shared_ptr<RayTracingPipeline> RayCameraShaderVariantCache::GetRayTracingPipeline() const {
   const std::lock_guard lock(mutex_);
   return ray_tracing_.active;

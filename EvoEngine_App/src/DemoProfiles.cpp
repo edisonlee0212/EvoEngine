@@ -190,13 +190,6 @@ void FrameSceneCameraOnTarget(const std::shared_ptr<EditorLayer>& editor_layer, 
   editor_layer->SetSceneCameraRotation(glm::quat(glm::vec3(0.0f)));
 }
 
-void EnableMainCameraRayTracing(const std::shared_ptr<Scene>& scene) {
-  if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-    main_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
-    main_camera->ResetFrameCount();
-  }
-}
-
 bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene) {
   const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
   if (!lighting) {
@@ -222,16 +215,11 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
     camera_transform.SetRotation(camera_rotation);
     scene->SetDataComponent(main_camera->GetOwner(), camera_transform);
   }
-  EnableMainCameraRayTracing(scene);
   editor_layer->main_camera_allow_auto_resize = true;
   editor_layer->main_camera_resolution_x = 1920;
   editor_layer->main_camera_resolution_y = 1080;
   editor_layer->SetSceneCameraPosition(camera_position);
   editor_layer->SetSceneCameraRotation(camera_rotation);
-  if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-    scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-    scene_camera->ResetFrameCount();
-  }
   editor_layer->SetSelectedEntity(Entity(), false);
   OpenShowcaseAssetInspector(editor_layer, FindShowcaseInspectorTarget(scene).material);
   return true;
@@ -245,9 +233,12 @@ void PrepareRenderingDemoShowcase(const std::shared_ptr<EditorLayer>& editor_lay
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->dynamic_reflection_probe_settings.faces_per_frame = 1;
   }
-  EnableMainCameraRayTracing(scene);
   if (!editor_layer) {
     return;
+  }
+  if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+    scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+    scene_camera->ResetFrameCount();
   }
 
   if (PrepareDdgiShowcase(editor_layer, scene)) {
