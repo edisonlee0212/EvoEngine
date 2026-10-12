@@ -115,6 +115,27 @@ struct CameraSettings {
 
   RayIntegrator ray_integrator = RayIntegrator::PathTracing;
   bool nrd_denoising = true;
+  bool nrd_reblur = true;
+  bool nrd_temporal_aa = true;
+  float nrd_reblur_min_blur_radius = 1.0f;
+  float nrd_reblur_max_blur_radius = 10.0f;
+  float nrd_reblur_diffuse_prepass_radius = 0.0f;
+  float nrd_reblur_specular_prepass_radius = 0.0f;
+  int nrd_reblur_history_frames = 30;
+  float nrd_reblur_lobe_angle_fraction = 0.15f;
+  float nrd_reblur_roughness_fraction = 0.15f;
+  float nrd_relax_diffuse_prepass_radius = 0.0f;
+  float nrd_relax_specular_prepass_radius = 0.0f;
+  int nrd_relax_diffuse_history_frames = 30;
+  int nrd_relax_specular_history_frames = 30;
+  int nrd_relax_atrous_iterations = 2;
+  float nrd_relax_lobe_angle_fraction = 0.5f;
+  float nrd_relax_roughness_fraction = 0.15f;
+  float nrd_relax_diffuse_luminance_sensitivity = 2.0f;
+  float nrd_relax_specular_luminance_sensitivity = 1.0f;
+  float nrd_relax_depth_threshold = 0.003f;
+  bool nrd_relax_anti_firefly = false;
+  bool nrd_relax_roughness_edge_stopping = true;
   int restir_spatial_neighbors = 3;
   bool restir_spatial_hybrid = false;
   int restir_temporal_history_cap = 20;
@@ -123,24 +144,8 @@ struct CameraSettings {
   /** @brief Optional ray-camera diagnostic outputs. */
   RayOutputSettings ray_outputs{};
 
-  /**
-   * \brief Enables per-pixel adaptive ray tracing accumulation.
-   */
-  bool auto_spp_enabled = false;
   /** @brief When disabled, each ray-camera frame replaces the previous radiance with fresh random samples. */
   bool accumulate_samples = true;
-  /**
-   * \brief Minimum accumulated samples per pixel before convergence can stop a pixel.
-   */
-  int auto_spp_min_samples = 16;
-  /**
-   * \brief Maximum accumulated samples per pixel for adaptive accumulation.
-   */
-  int auto_spp_max_samples = 256;
-  /**
-   * \brief Relative luminance delta threshold used to mark an adaptive pixel converged.
-   */
-  float auto_spp_convergence_threshold = 0.01f;
 
   ShaderExecutionReorderingMode shader_execution_reordering_mode = ShaderExecutionReorderingMode::Automatic;
 };

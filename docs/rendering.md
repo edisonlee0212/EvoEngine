@@ -120,6 +120,11 @@ resampling. Both Spatial Only and Enhanced use reciprocal paper-scale reuse maps
 offsets. Spatial pairs use material, normal, planar-distance, and
 world-distance checks. Temporal Only and Enhanced retain reservoir history across camera motion and rigid mesh
 transforms using previous-instance matrices, while restarting radiance accumulation. Other scene changes clear history.
+Spatial Only, Temporal Only and Enhanced share one scratch-buffer set per camera across frames.
+Temporal Only and Enhanced keep two reservoir/surface history slots. Temporal Only's candidate uses the current
+reservoir-history slot, which is updated in place after temporal replay; Enhanced keeps its candidate separate.
+Main graphics-queue memory dependencies order reuse, and submitted frames retain their resources until completion.
+This reduces allocations without changing reservoir precision, temporal history limits, or samples per frame.
 Both temporal modes store screen motion with each primary surface and use the prior occluder's motion as a fallback when
 direct history reprojection fails. In an earlier Enhanced eight-frame continuous camera-motion fixture at 256×144,
 this estimate supplied 151 valid forward shifts; single-step motion fixtures did not exercise it. Both temporal modes
@@ -152,9 +157,18 @@ Preview captures accept `--preview-restir-spatial-neighbors 1..16` and
 
 **Accumulate Samples** averages radiance across frames by default. Disable it for a fresh random sample each frame;
 same-frame spatial reuse still works. Preview captures use `--preview-accumulate-samples enabled|disabled`.
-Spatial Only, Temporal Only, and Enhanced require one sample per frame. ReSTIR modes do not support Auto SPP with accumulation enabled;
-ray debug views must be off.
+All ReSTIR modes accept multiple samples per frame. Each sample runs a complete, independently seeded candidate,
+reuse, and resolve sequence; the resolved radiance is averaged. Temporal modes read the previous frame's reservoir
+for every estimate and publish the final estimate's reservoir for the next frame. More samples increase GPU work
+roughly in proportion to the sample count. Ray debug views must be off for ReSTIR.
+All pixels continue sampling each frame; adaptive per-pixel stopping is not supported.
 Temporal Only specializes its candidate and temporal replay shaders for the scene's material features in the background.
+The editor prepares the loaded scene's supported PT backends, beauty/debug variants, ReSTIR modes (including hybrid
+shifts and diagnostics), and NRD signal passes during scene loading. The loading modal stays open until preparation
+finishes. Temporal Only's raw and NRD variants are prepared together. This uses the scene's material feature set,
+not every possible feature combination. New scenes or changed material feature sets trigger preparation again.
+Shader/pipeline caches accelerate subsequent loads. NRD denoiser contexts and camera history buffers are still
+created only when used. Runtime applications retain demand-driven preparation.
 The all-feature shaders render until the specialized pipelines are ready; activation resets temporal history.
 Temporal replay evaluates the matched path contribution and primary surface without selecting another reservoir;
 spatial replay still selects a reservoir for its pairwise weight.
@@ -173,6 +187,8 @@ strands, unlit surfaces, environment and emissive lighting, punctual lights, spe
 transmission, absorption, and homogeneous scattering. Dispersion and Gaussian splats are unavailable. Spatial Only
 has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing.
 
+Preview captures disable the unused scene main camera before waiting for preview readiness, avoiding a second
+ray history and denoiser allocation during capture startup.
 Preview captures can write `--preview-ray-profile-report <path>.json` with per-pair shift outcomes, ray counts, and a
 `*-shift.ppm` heatmap. The heatmap shows the first pair; JSON covers every pair. Add
 `--preview-restir-generated-profile` to record candidate path types and target weights. The

@@ -574,6 +574,117 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
+    if (Camera::NrdDenoisingAvailable() && camera.camera_settings.nrd_denoising) {
+      int denoiser = camera.camera_settings.nrd_reblur ? 1 : 0;
+      if (ImGui::Combo("NRD Denoiser", &denoiser, "RELAX\0REBLUR\0")) {
+        camera.camera_settings.nrd_reblur = denoiser != 0;
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::Checkbox("NRD Temporal AA", &camera.camera_settings.nrd_temporal_aa)) {
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Reproject and clamp denoised color history; reject disocclusions and material boundaries.");
+      if (!camera.camera_settings.nrd_reblur && ImGui::TreeNode("RELAX Settings")) {
+        auto& settings = camera.camera_settings;
+        bool relax_changed = false;
+        relax_changed |= ImGui::DragFloat("Diffuse prepass radius (px)", &settings.nrd_relax_diffuse_prepass_radius,
+                                          0.1f, 0.0f, 1000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::DragFloat("Specular prepass radius (px)", &settings.nrd_relax_specular_prepass_radius,
+                                          0.1f, 0.0f, 1000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::SliderInt("Diffuse history frames", &settings.nrd_relax_diffuse_history_frames, 0, 255,
+                                          "%d", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::SliderInt("Specular history frames", &settings.nrd_relax_specular_history_frames, 0,
+                                          255, "%d", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::SliderInt("A-trous iterations", &settings.nrd_relax_atrous_iterations, 2, 8, "%d",
+                                          ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::SliderFloat("Normal rejection fraction", &settings.nrd_relax_lobe_angle_fraction,
+                                            0.001f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::SliderFloat("Roughness rejection fraction", &settings.nrd_relax_roughness_fraction,
+                                            0.001f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |=
+            ImGui::DragFloat("Diffuse luminance sensitivity", &settings.nrd_relax_diffuse_luminance_sensitivity, 0.01f,
+                             0.001f, 64.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |=
+            ImGui::DragFloat("Specular luminance sensitivity", &settings.nrd_relax_specular_luminance_sensitivity,
+                             0.01f, 0.001f, 64.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::DragFloat("Depth rejection threshold", &settings.nrd_relax_depth_threshold, 0.0001f,
+                                          0.000001f, 1.0f, "%.6f", ImGuiSliderFlags_AlwaysClamp);
+        relax_changed |= ImGui::Checkbox("Anti-firefly", &settings.nrd_relax_anti_firefly);
+        relax_changed |= ImGui::Checkbox("Roughness edge stopping", &settings.nrd_relax_roughness_edge_stopping);
+        if (ImGui::Button("Reset RELAX settings")) {
+          const CameraSettings defaults;
+          settings.nrd_relax_diffuse_prepass_radius = defaults.nrd_relax_diffuse_prepass_radius;
+          settings.nrd_relax_specular_prepass_radius = defaults.nrd_relax_specular_prepass_radius;
+          settings.nrd_relax_diffuse_history_frames = defaults.nrd_relax_diffuse_history_frames;
+          settings.nrd_relax_specular_history_frames = defaults.nrd_relax_specular_history_frames;
+          settings.nrd_relax_atrous_iterations = defaults.nrd_relax_atrous_iterations;
+          settings.nrd_relax_lobe_angle_fraction = defaults.nrd_relax_lobe_angle_fraction;
+          settings.nrd_relax_roughness_fraction = defaults.nrd_relax_roughness_fraction;
+          settings.nrd_relax_diffuse_luminance_sensitivity = defaults.nrd_relax_diffuse_luminance_sensitivity;
+          settings.nrd_relax_specular_luminance_sensitivity = defaults.nrd_relax_specular_luminance_sensitivity;
+          settings.nrd_relax_depth_threshold = defaults.nrd_relax_depth_threshold;
+          settings.nrd_relax_anti_firefly = defaults.nrd_relax_anti_firefly;
+          settings.nrd_relax_roughness_edge_stopping = defaults.nrd_relax_roughness_edge_stopping;
+          relax_changed = true;
+        }
+        if (relax_changed) {
+          camera.ResetFrameCount();
+          changed = true;
+        }
+        ImGui::TreePop();
+      }
+      if (camera.camera_settings.nrd_reblur && ImGui::TreeNode("REBLUR Settings")) {
+        auto& settings = camera.camera_settings;
+        bool reblur_changed = false;
+        reblur_changed |= ImGui::DragFloat("Minimum blur radius (px)", &settings.nrd_reblur_min_blur_radius, 0.1f, 0.0f,
+                                           settings.nrd_reblur_max_blur_radius, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        reblur_changed |= ImGui::DragFloat("Maximum blur radius (px)", &settings.nrd_reblur_max_blur_radius, 0.1f, 0.1f,
+                                           1000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        reblur_changed |= ImGui::DragFloat("Diffuse prepass radius (px)", &settings.nrd_reblur_diffuse_prepass_radius,
+                                           0.1f, 0.0f, 1000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip("Filtering before history accumulation. Zero disables the diffuse prepass.");
+        reblur_changed |= ImGui::DragFloat("Specular prepass radius (px)", &settings.nrd_reblur_specular_prepass_radius,
+                                           0.1f, 0.0f, 1000.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip("Filtering before history accumulation, also used for specular motion tracking.");
+        reblur_changed |= ImGui::SliderInt("Maximum history frames", &settings.nrd_reblur_history_frames, 0, 63, "%d",
+                                           ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip(
+              "NRD history, independent of ReSTIR history and Accumulate Samples. More frames improve stability but "
+              "slow response.");
+        reblur_changed |= ImGui::SliderFloat("Normal rejection fraction", &settings.nrd_reblur_lobe_angle_fraction,
+                                             0.001f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip("Lobe angle fraction. Larger values allow filtering across more normal variation.");
+        reblur_changed |= ImGui::SliderFloat("Roughness rejection fraction", &settings.nrd_reblur_roughness_fraction,
+                                             0.001f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip("Larger values allow filtering across more roughness variation.");
+        if (ImGui::Button("Reset REBLUR settings")) {
+          const CameraSettings defaults;
+          settings.nrd_reblur_min_blur_radius = defaults.nrd_reblur_min_blur_radius;
+          settings.nrd_reblur_max_blur_radius = defaults.nrd_reblur_max_blur_radius;
+          settings.nrd_reblur_diffuse_prepass_radius = defaults.nrd_reblur_diffuse_prepass_radius;
+          settings.nrd_reblur_specular_prepass_radius = defaults.nrd_reblur_specular_prepass_radius;
+          settings.nrd_reblur_history_frames = defaults.nrd_reblur_history_frames;
+          settings.nrd_reblur_lobe_angle_fraction = defaults.nrd_reblur_lobe_angle_fraction;
+          settings.nrd_reblur_roughness_fraction = defaults.nrd_reblur_roughness_fraction;
+          reblur_changed = true;
+        }
+        if (reblur_changed) {
+          settings.nrd_reblur_min_blur_radius =
+              std::min(settings.nrd_reblur_min_blur_radius, settings.nrd_reblur_max_blur_radius);
+          camera.ResetFrameCount();
+          changed = true;
+        }
+        ImGui::TreePop();
+      }
+    }
     uint32_t debug_view = static_cast<uint32_t>(camera.camera_settings.ray_debug_view);
     if (ImGui::Combo("Ray Debug View", Camera::GetRayDebugViewNames(), debug_view)) {
       camera.camera_settings.ray_debug_view = Camera::NormalizeRayDebugView(debug_view);
@@ -583,10 +694,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }
-    const char* sample_label = camera.camera_settings.auto_spp_enabled && camera.camera_settings.accumulate_samples
-                                   ? "Samples/frame"
-                                   : "Samples";
-    if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
+    if (ImGui::SliderInt("Samples/frame", &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
     if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
@@ -628,39 +736,12 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if (ImGui::Checkbox("Auto SPP", &camera.camera_settings.auto_spp_enabled)) {
-      camera.ResetFrameCount();
-      changed = true;
-    }
     if (ImGui::Checkbox("Accumulate Samples", &camera.camera_settings.accumulate_samples)) {
       camera.ResetFrameCount();
       changed = true;
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip("When disabled, each frame replaces previous radiance with fresh random samples.");
-    }
-    if (camera.camera_settings.auto_spp_enabled && camera.camera_settings.accumulate_samples) {
-      if (ImGui::DragInt("Auto min SPP", &camera.camera_settings.auto_spp_min_samples, 1, 1, 4096)) {
-        camera.camera_settings.auto_spp_min_samples = glm::max(camera.camera_settings.auto_spp_min_samples, 1);
-        camera.camera_settings.auto_spp_max_samples =
-            glm::max(camera.camera_settings.auto_spp_max_samples, camera.camera_settings.auto_spp_min_samples);
-        camera.ResetFrameCount();
-        changed = true;
-      }
-      if (ImGui::DragInt("Auto max SPP", &camera.camera_settings.auto_spp_max_samples, 1,
-                         camera.camera_settings.auto_spp_min_samples, 8192)) {
-        camera.camera_settings.auto_spp_max_samples =
-            glm::max(camera.camera_settings.auto_spp_max_samples, camera.camera_settings.auto_spp_min_samples);
-        camera.ResetFrameCount();
-        changed = true;
-      }
-      if (ImGui::DragFloat("Auto threshold", &camera.camera_settings.auto_spp_convergence_threshold, 0.001f, 0.0f, 1.0f,
-                           "%.4f")) {
-        camera.camera_settings.auto_spp_convergence_threshold =
-            glm::max(camera.camera_settings.auto_spp_convergence_threshold, 0.0f);
-        camera.ResetFrameCount();
-        changed = true;
-      }
     }
   }
   if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {

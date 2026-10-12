@@ -2279,88 +2279,6 @@ TEST(GltfRayTracingMaterial, SamplingAndRotationNumericalContracts) {
   EXPECT_NEAR(lod_after - lod_before, std::log2(gradient_after / gradient_before), 1.0e-6f);
 }
 
-TEST(GltfRayTracingMaterial, CameraRaygenUsesAutoSppConvergenceControl) {
-  const auto raygen = ReadRayTracingCameraSource();
-  const auto ray_query = ReadRayQueryCameraSource();
-  const auto camera_outputs = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayOutputs.slang"));
-  const auto cameras_include = ReadTextFile(ShaderPath("Modules/EvoEngine/Cameras.slang"));
-  const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
-  const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
-  const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
-  const auto ray_tracing_pass_source = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
-  const auto render_layer_source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
-  const auto application_source = ReadTextFile(SdkPath("src/Application.cpp"));
-  const auto editor_layer_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
-  const auto inspection_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
-  const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
-  const auto python_binding =
-      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding" / "src" / "PyEcoSysLab.cpp");
-
-  ASSERT_FALSE(raygen.empty());
-  ASSERT_FALSE(ray_query.empty());
-  ASSERT_FALSE(camera_outputs.empty());
-  ASSERT_FALSE(cameras_include.empty());
-  ASSERT_FALSE(camera_header.empty());
-  ASSERT_FALSE(camera_settings.empty());
-  ASSERT_FALSE(camera_source.empty());
-  ASSERT_FALSE(ray_tracing_pass_source.empty());
-  ASSERT_FALSE(render_layer_source.empty());
-  ASSERT_FALSE(application_source.empty());
-  ASSERT_FALSE(editor_layer_source.empty());
-  ASSERT_FALSE(inspection_source.empty());
-  ASSERT_FALSE(editor_source.empty());
-  ASSERT_FALSE(python_binding.empty());
-
-  EXPECT_NE(raygen.find("import EvoEngine.CameraRayIntegrator;"), std::string::npos);
-  EXPECT_NE(camera_outputs.find("[[vk::binding(3, 2)]] public RWTexture2D<float4> convergence_history_image"),
-            std::string::npos);
-  EXPECT_NE(raygen.find("float EE_CAMERA_RELATIVE_LUMINANCE_DELTA"), std::string::npos);
-  EXPECT_NE(raygen.find("camera.auto_spp_enabled != 0u"), std::string::npos);
-  EXPECT_NE(raygen.find("previous_auto_metadata.z > 0.5f"), std::string::npos);
-  EXPECT_NE(raygen.find("previous_auto_samples >= auto_spp_max_samples"), std::string::npos);
-  EXPECT_NE(raygen.find("convergence_history_image[int2(pixel_coordinate)] ="), std::string::npos);
-  EXPECT_NE(raygen.find("auto_sample_converged ? 1.0f : 0.0f"), std::string::npos);
-
-  EXPECT_NE(cameras_include.find("uint auto_spp_enabled"), std::string::npos);
-  EXPECT_NE(cameras_include.find("uint auto_spp_min_samples"), std::string::npos);
-  EXPECT_NE(cameras_include.find("uint auto_spp_max_samples"), std::string::npos);
-  EXPECT_NE(cameras_include.find("float auto_spp_convergence_threshold"), std::string::npos);
-  EXPECT_NE(cameras_include.find("uint raster_lighting_flags"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t auto_spp_enabled = 0"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t auto_spp_min_samples = 16"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t auto_spp_max_samples = 256"), std::string::npos);
-  EXPECT_NE(camera_header.find("float auto_spp_convergence_threshold = 0.01f"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t raster_lighting_flags = 0"), std::string::npos);
-  EXPECT_NE(camera_settings.find("bool auto_spp_enabled = false"), std::string::npos);
-  EXPECT_NE(camera_settings.find("int auto_spp_min_samples = 16"), std::string::npos);
-  EXPECT_NE(camera_settings.find("int auto_spp_max_samples = 256"), std::string::npos);
-  EXPECT_NE(camera_settings.find("float auto_spp_convergence_threshold = 0.01f"), std::string::npos);
-  EXPECT_NE(camera_source.find("auto_spp_enabled != other.auto_spp_enabled"), std::string::npos);
-  EXPECT_NE(camera_source.find("camera_info_block.auto_spp_enabled"), std::string::npos);
-  EXPECT_NE(camera_source.find("glm::max(camera_settings.auto_spp_min_samples, 1)"), std::string::npos);
-
-  EXPECT_NE(ray_tracing_pass_source.find("convergence_image"), std::string::npos);
-  EXPECT_NE(ray_tracing_pass_source.find("convergence_view"), std::string::npos);
-  EXPECT_NE(ray_tracing_pass_source.find("UpdateImageDescriptorBinding(3"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("ray_tracing_camera_output_layout_->PushDescriptorBinding(3"), std::string::npos);
-
-  EXPECT_NE(application_source.find("auto_spp_min_samples"), std::string::npos);
-  EXPECT_NE(application_source.find("auto_spp_max_samples"), std::string::npos);
-  EXPECT_NE(application_source.find("auto_spp_convergence_threshold"), std::string::npos);
-  EXPECT_NE(editor_layer_source.find("auto_spp_min_samples"), std::string::npos);
-  EXPECT_NE(editor_layer_source.find("auto_spp_max_samples"), std::string::npos);
-  EXPECT_NE(editor_layer_source.find("auto_spp_convergence_threshold"), std::string::npos);
-  EXPECT_NE(inspection_source.find("Auto SPP"), std::string::npos);
-  EXPECT_NE(editor_source.find("--preview-auto-spp"), std::string::npos);
-  EXPECT_NE(editor_source.find("--preview-auto-spp-min-samples"), std::string::npos);
-  EXPECT_NE(editor_source.find("--preview-auto-spp-max-samples"), std::string::npos);
-  EXPECT_NE(editor_source.find("--preview-auto-spp-threshold"), std::string::npos);
-  EXPECT_NE(python_binding.find("auto_spp_enabled"), std::string::npos);
-
-  EXPECT_NE(ray_query.find("camera.auto_spp_enabled != 0u"), std::string::npos);
-  EXPECT_NE(ray_query.find("convergence_history_image"), std::string::npos);
-}
-
 TEST(GltfRayTracingMaterial, CameraRaygenAlwaysUsesConfigurableFireflyClampThreshold) {
   const auto raygen = ReadRayTracingCameraSource();
   const auto ray_query = ReadRayQueryCameraSource();
@@ -2404,11 +2322,9 @@ TEST(GltfRayTracingMaterial, CameraRaygenAlwaysUsesConfigurableFireflyClampThres
   EXPECT_NE(cameras_include.find("uint restir_temporal_history_cap"), std::string::npos);
   EXPECT_EQ(cameras_include.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(cameras_include.find("float firefly_clamp_threshold"), std::string::npos);
-  EXPECT_NE(cameras_include.find("uint auto_spp_enabled"), std::string::npos);
   EXPECT_NE(camera_header.find("uint32_t restir_temporal_history_cap = 20"), std::string::npos);
   EXPECT_EQ(camera_header.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(camera_header.find("float firefly_clamp_threshold = 10.0f"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t auto_spp_enabled = 0"), std::string::npos);
   EXPECT_EQ(camera_settings.find("firefly_clamp_enabled"), std::string::npos);
   EXPECT_NE(camera_settings.find("float firefly_clamp_threshold = 10.0f"), std::string::npos);
   EXPECT_EQ(camera_source.find("firefly_clamp_enabled"), std::string::npos);
@@ -2668,7 +2584,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileIsWiredAndContainsReprese
   EXPECT_NE(demo_scene_header.find("ConfigureRenderingRegressionDemoScene"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("PrepareRenderingRegressionGeneratedAssets"), std::string::npos);
   for (const auto* probe : {"Material Probe Dielectric", "Emissive NEE Constant Emitter", "Punctual Light Probe Point",
-                            "Skinned Capoeira Probe", "Firefly Clamp Probe", "Auto SPP Convergence Probe"}) {
+                            "Skinned Capoeira Probe", "Firefly Clamp Probe"}) {
     EXPECT_NE(demo_scene_source.find(probe), std::string::npos) << probe;
   }
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::emissive_texture"), std::string::npos);

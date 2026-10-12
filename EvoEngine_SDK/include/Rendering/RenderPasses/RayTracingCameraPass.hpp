@@ -68,6 +68,11 @@ class EVOENGINE_API RayQueryCameraPass final {
     bool read_nrd_denoised = false;
     bool bind_nrd_lobe_hit_distance = false;
     bool bind_nrd_material_factors = false;
+    bool bind_nrd_temporal_aa = false;
+    bool commit_nrd_temporal_aa = false;
+    uint32_t nrd_taa_write_slot = 0;
+    uint32_t restir_sample_index = 0;
+    std::shared_ptr<Buffer> nrd_sample_accumulation_buffer;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {},

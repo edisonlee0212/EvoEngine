@@ -16,6 +16,7 @@ public struct CameraRayOutputDiagnostics {
   public float3 nrd_diffuse_radiance;
   public float3 nrd_specular_radiance;
   public float3 nrd_excluded_radiance;
+  public float3 nrd_matched_direction;
 };
 
 public CameraRayOutputDiagnostics EE_CAMERA_INIT_RAY_OUTPUT_DIAGNOSTICS() {
@@ -26,4 +27,8 @@ public CameraRayOutputDiagnostics EE_CAMERA_INIT_RAY_OUTPUT_DIAGNOSTICS() {
   diagnostics.nrd_diffuse_factor = float3(1.0f);
   diagnostics.nrd_specular_factor = float3(1.0f);
   return diagnostics;
+}
+
+public float EE_CAMERA_NRD_ROUGHNESS(const float2 ggx_alpha) {
+  return sqrt(sqrt(ggx_alpha.x * ggx_alpha.y));
 }

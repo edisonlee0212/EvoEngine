@@ -860,10 +860,6 @@ void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
     main_camera->camera_settings.sample_size = 4;
     main_camera->camera_settings.bounce = 5;
     main_camera->camera_settings.firefly_clamp_threshold = 10.0f;
-    main_camera->camera_settings.auto_spp_enabled = false;
-    main_camera->camera_settings.auto_spp_min_samples = 4;
-    main_camera->camera_settings.auto_spp_max_samples = 32;
-    main_camera->camera_settings.auto_spp_convergence_threshold = 0.01f;
     main_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
     configure_post_processing(main_camera);
     const auto main_camera_entity = main_camera->GetOwner();
@@ -890,10 +886,6 @@ void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
       scene_camera->camera_settings.sample_size = 4;
       scene_camera->camera_settings.bounce = 5;
       scene_camera->camera_settings.firefly_clamp_threshold = 10.0f;
-      scene_camera->camera_settings.auto_spp_enabled = false;
-      scene_camera->camera_settings.auto_spp_min_samples = 4;
-      scene_camera->camera_settings.auto_spp_max_samples = 32;
-      scene_camera->camera_settings.auto_spp_convergence_threshold = 0.01f;
       configure_post_processing(scene_camera);
       scene_camera->ResetFrameCount();
     }
@@ -2346,12 +2338,6 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
   CreateRenderingRegressionProbe(scene, root, "M42 Firefly Clamp Probe", primitives.sphere,
                                  glm::vec3(2.15f, 0.85f, -2.35f), glm::vec3(0.075f), glm::vec3(1.0f, 0.96f, 0.72f),
                                  0.2f, 0.0f, 80.0f, false);
-  CreateRenderingRegressionProbe(scene, root, "M42 Auto SPP Convergence Probe Low Contrast", primitives.cube,
-                                 glm::vec3(-0.48f, -0.42f, -0.28f), glm::vec3(0.18f, 0.18f, 0.05f), glm::vec3(0.42f),
-                                 0.9f, 0.0f);
-  CreateRenderingRegressionProbe(scene, root, "M42 Auto SPP Convergence Probe High Contrast", primitives.cube,
-                                 glm::vec3(0.0f, -0.42f, -0.28f), glm::vec3(0.18f, 0.18f, 0.05f), glm::vec3(0.9f), 0.9f,
-                                 0.0f);
   CreateRenderingRegressionProbe(scene, root, "M42 Punctual Light Shadow Blocker", primitives.cube,
                                  glm::vec3(0.95f, -0.08f, -2.15f), glm::vec3(0.18f, 0.62f, 0.18f),
                                  glm::vec3(0.18f, 0.20f, 0.24f), 0.8f, 0.0f);
@@ -2488,7 +2474,6 @@ void evo_engine::ConfigureEnvironmentLightingValidationScene(const std::shared_p
     camera->camera_settings.sample_size = 1;
     camera->camera_settings.bounce = 4;
     camera->camera_settings.ray_debug_view = CameraSettings::RayDebugView::Beauty;
-    camera->camera_settings.auto_spp_enabled = false;
     camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
     if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       stack->enable_ambient_occlusion = false;
@@ -2902,7 +2887,6 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       camera->camera_settings.background_intensity = 1.0f;
       camera->camera_settings.sample_size = 1;
       camera->camera_settings.bounce = 4;
-      camera->camera_settings.auto_spp_enabled = false;
       camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
       if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
         stack->enable_ambient_occlusion = false;
@@ -5037,7 +5021,6 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   scene_camera->camera_settings.shader_execution_reordering_mode =
       CameraSettings::ShaderExecutionReorderingMode::Disabled;
   scene_camera->camera_settings.firefly_clamp_threshold = 10.0f;
-  scene_camera->camera_settings.auto_spp_enabled = false;
   scene_camera->camera_settings.background_intensity = 1.0f;
   scene_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
   SetEnvironmentalLightingIntensity(scene, 1.0f);
@@ -5074,7 +5057,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
       scene_camera->camera_settings.shader_execution_reordering_mode ==
           CameraSettings::ShaderExecutionReorderingMode::Disabled &&
       scene_camera->camera_settings.firefly_clamp_threshold == 10.0f &&
-      !scene_camera->camera_settings.auto_spp_enabled && scene_camera->camera_settings.background_intensity == 1.0f &&
+      scene_camera->camera_settings.background_intensity == 1.0f &&
       scene->environmental_lighting.Get<EnvironmentalLighting>() &&
       scene->environmental_lighting.Get<EnvironmentalLighting>()->environment_lighting_intensity == 1.0f &&
       scene->environmental_lighting.Get<EnvironmentalLighting>()->diffuse_fallback_intensity == 1.0f;
@@ -5356,7 +5339,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
             "\"measure_frames\": 120, \"image\": \"sponza-repeatability-anchor.png\"}, "
             "\"ray\": {\"render_mode\": \"RayTracing\", \"ddgi_enabled\": false, \"frames\": 64, "
             "\"samples_per_frame\": 4, \"total_spp\": 256, \"debug_view\": \"Beauty\", \"ser\": \"disabled\", "
-            "\"firefly_clamp_threshold\": 10.0, \"auto_spp\": false, "
+            "\"firefly_clamp_threshold\": 10.0, "
             "\"image\": \"sponza-ray-reference.png\"}}},\n"
             "  \"captures\": [";
   const auto write_region = [&](const RegionEvidence& region) {
@@ -6124,7 +6107,6 @@ void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->Resize({1920, 1080});
     main_camera->skybox.Clear();
-    main_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
     main_camera->camera_settings.background_source = Camera::BackgroundSource::InheritEnvironmentalLighting;
     main_camera->camera_settings.background_intensity = 1.0f;
     main_camera->camera_settings.fov = camera_frame.fov;

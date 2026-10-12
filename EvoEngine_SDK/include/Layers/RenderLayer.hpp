@@ -174,6 +174,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
   [[nodiscard]] bool IsRestirPtTemporalShaderVariantReady(bool nrd_denoising) const;
   [[nodiscard]] std::string GetRestirPtTemporalShaderVariantError(bool nrd_denoising) const;
+  [[nodiscard]] bool IsSceneShaderPrewarmComplete(const std::shared_ptr<Scene>& scene) const;
+  [[nodiscard]] std::string GetSceneShaderPrewarmError(const std::shared_ptr<Scene>& scene) const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] RayCameraFramePathStats GetRayCameraFramePathStats() const;
 
@@ -1079,9 +1081,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
-  std::shared_ptr<ComputePipeline> restir_pt_candidate_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_single_sample_candidate_pipeline_;
-  std::shared_ptr<ComputePipeline> restir_pt_profile_candidate_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_profile_single_sample_candidate_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_resolve_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_spatial_pipeline_;
@@ -1094,6 +1094,9 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_guides_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_composite_pipeline_;
+  std::shared_ptr<ComputePipeline> nrd_temporal_aa_pipeline_;
+  std::shared_ptr<ComputePipeline> nrd_temporal_aa_resolve_pipeline_;
+  std::shared_ptr<ComputePipeline> restir_pt_nrd_reblur_pack_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_hybrid_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_temporal_backward_hybrid_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_temporal_backward_pipeline_;
@@ -1107,6 +1110,10 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_fallback_pipeline_;
   std::shared_ptr<RayCameraShaderVariantCache> ray_camera_shader_variant_cache_;
   std::array<std::shared_ptr<RayCameraShaderVariantCache>, 6> restir_pt_temporal_variant_caches_{};
+  std::weak_ptr<Scene> shader_prewarm_scene_;
+  uint32_t scene_shader_prewarm_mask_ = UINT32_MAX;
+  bool scene_shader_prewarm_complete_ = false;
+  std::string scene_shader_prewarm_error_;
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   friend class PointCloud;
   std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;

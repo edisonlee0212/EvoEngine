@@ -122,6 +122,9 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "R16F") {
     return VK_FORMAT_R16_SFLOAT;
   }
+  if (format_name == "RG32UI") {
+    return VK_FORMAT_R32G32_UINT;
+  }
   if (format_name == "RG32F") {
     return VK_FORMAT_R32G32_SFLOAT;
   }

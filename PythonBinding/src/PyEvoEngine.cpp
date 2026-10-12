@@ -170,7 +170,6 @@ bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& rende
   main_camera->camera_render_mode = requested_mode;
   main_camera->camera_settings.sample_size = samples_per_frame;
   main_camera->camera_settings.bounce = bounces;
-  main_camera->camera_settings.auto_spp_enabled = false;
   main_camera->ResetFrameCount();
   return true;
 }

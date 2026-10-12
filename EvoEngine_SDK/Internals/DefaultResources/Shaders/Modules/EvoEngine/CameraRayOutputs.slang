@@ -3,7 +3,6 @@ __exported import EvoEngine.CameraRayOutputTypes;
 [[vk::binding(0, 2)]] public RWTexture2D<float4> result_image;
 [[vk::binding(1, 2)]] public RWTexture2D<float> ray_hit_distance_image;
 [[vk::binding(2, 2)]] public RWTexture2D<float4> radiance_history_image;
-[[vk::binding(3, 2)]] public RWTexture2D<float4> convergence_history_image;
 [[vk::binding(4, 2)]] public RWTexture2D<float4> ray_albedo_image;
 [[vk::binding(5, 2)]] public RWTexture2D<float4> ray_normal_image;
 [[vk::binding(6, 2)]] public RWTexture2D<uint> ray_count_image;

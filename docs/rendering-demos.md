@@ -51,7 +51,7 @@ The Rendering profile loads Sponza with:
 - shared camera-following GI cascades, with Automatic SDFGI selected by default and Automatic DDGI available with RT;
 - disabled imported Sponza punctual lights plus enabled EvoEngine-authored directional and point lights;
 - the Capoeira character enabled;
-- a ray-tracing main camera and raster editor Scene camera in the standard editor setup.
+- a raster editor Scene camera; the demo does not override the main camera's render mode.
 
 The profile is useful for comparing camera techniques, inspecting probe placement, exercising raster material previews,
 and capturing README or launcher images.
@@ -64,5 +64,6 @@ cross-technique capture and shader debugging.
 
 Bistro is the large-scene integration fixture. It stresses glTF import, material and texture counts, acceleration
 structures, path tracing, shadows, and optional DDGI at a scale closer to a production scene.
+Its editor Scene camera is set to rasterization, while the main camera keeps its default or saved render mode.
 
 Validation commands for these profiles are collected in [Rendering validation](rendering-validation.md).

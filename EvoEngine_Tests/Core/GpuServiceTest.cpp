@@ -4082,6 +4082,53 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
 }
 
+TEST(GpuService, NrdSignalPackingAndHistoryMatchPinnedFormulas) {
+  ScopedGpuPlatform platform;
+  constexpr size_t value_count = 52;
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = value_count * sizeof(float);
+  buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_info, allocation_info);
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptors = std::make_shared<DescriptorSet>(layout);
+  descriptors->UpdateBufferDescriptorBinding(0, output);
+  auto shader = std::make_shared<Shader>();
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" / "Shaders" /
+                    "Compute" / "NrdSignalProbe.slang";
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), path));
+  ComputePipeline pipeline;
+  pipeline.compute_shader = shader;
+  pipeline.descriptor_set_layouts.emplace_back(layout);
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline.Bind(command_buffer);
+    pipeline.BindDescriptorSet(command_buffer, 0, descriptors->GetVkDescriptorSet());
+    pipeline.Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+  std::array<float, value_count> values{};
+  output->Download(values);
+  std::array<float, value_count> expected = {4.0f,  -2.0f, 0.0f,        0.5f, 0.0f, 0.0f,
+                                             -1.0f, 0.5f,  1.0f / 3.0f, 0.0f, 0.0f, 0.0f};
+  expected[12] = 1.0f;
+  expected[44] = 512.0f / 1023.0f;
+  expected[45] = 512.0f / 1023.0f;
+  expected[46] = 767.0f / 1023.0f;
+  expected[47] = 123456.75f;
+  expected[48] = 0.5f;
+  expected[49] = 0.4f;
+  expected[51] = 1.0f;
+  for (size_t index = 0; index < value_count; ++index)
+    EXPECT_NEAR(values[index], expected[index], 1e-4f) << index;
+}
+
 TEST(GpuService, LinearSweptSphereCapabilityMatchesShaderDefine) {
   ScopedGpuPlatform platform(true);
   const bool enabled = Platform::RayTracingLinearSweptSpheresEnabled();
@@ -4120,6 +4167,28 @@ TEST(GpuService, LinearSweptSphereCameraShadersCompile) {
   EXPECT_TRUE(
       closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.slang"));
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
+}
+
+TEST(GpuService, RgbNrdCameraShadersCompile) {
+  ScopedGpuPlatform platform(true);
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto header = Platform::GetShaderGlobalDefines() +
+                      "\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n#define EE_ENABLE_NRD_SIGNALS 1\n";
+  Shader raygen;
+  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.slang"));
+  for (const auto name :
+       {"RayQueryCamera", "RestirPtCandidate", "RestirPtResolve", "RestirPtSpatial", "RestirPtSpatialHybrid",
+        "RestirPtSpatialCombine", "RestirPtSpatialResolve", "RestirPtEnhancedSpatialHybrid", "RestirPtEnhancedCombine",
+        "RestirPtTemporalForward", "RestirPtTemporalForwardHybrid", "RestirPtTemporalBackward",
+        "RestirPtTemporalBackwardHybrid", "RestirPtTemporalCombine", "RestirPtNrdGuides", "RestirPtNrdReblurPack",
+        "RestirPtNrdComposite", "NrdTemporalAa", "NrdTemporalAaResolve"}) {
+    SCOPED_TRACE(name);
+    Shader shader;
+    EXPECT_TRUE(
+        shader.TryCompile(ShaderType::Compute, header, shader_root / "Compute" / (std::string(name) + ".slang")));
+  }
 }
 
 TEST(GpuService, EnvironmentLightingShadersCompile) {

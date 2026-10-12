@@ -990,6 +990,27 @@ scene_camera_position: [4.0, 5.0, 6.0]
 scene_camera_rotation: [0.0, 0.0, 0.0, 1.0]
 scene_camera_settings:
   nrd_denoising: false
+  nrd_reblur: true
+  nrd_temporal_aa: false
+  nrd_relax_diffuse_prepass_radius: 3.5
+  nrd_relax_specular_prepass_radius: 12.0
+  nrd_relax_diffuse_history_frames: 16
+  nrd_relax_specular_history_frames: 24
+  nrd_relax_atrous_iterations: 4
+  nrd_relax_lobe_angle_fraction: 0.3
+  nrd_relax_roughness_fraction: 0.2
+  nrd_relax_diffuse_luminance_sensitivity: 1.5
+  nrd_relax_specular_luminance_sensitivity: 2.5
+  nrd_relax_depth_threshold: 0.01
+  nrd_relax_anti_firefly: true
+  nrd_relax_roughness_edge_stopping: false
+  nrd_reblur_min_blur_radius: 0.5
+  nrd_reblur_max_blur_radius: 12
+  nrd_reblur_diffuse_prepass_radius: 0
+  nrd_reblur_specular_prepass_radius: 8
+  nrd_reblur_history_frames: 4
+  nrd_reblur_lobe_angle_fraction: 0.3
+  nrd_reblur_roughness_fraction: 0.25
 editor_camera_control_key_bindings:
   rotate_mouse_button: 0
   focus_selection_key: 268
@@ -1016,11 +1037,55 @@ editor_camera_control_key_bindings:
   EXPECT_FLOAT_EQ(rotation.w, 1.0f);
   ASSERT_TRUE(scene_camera);
   EXPECT_FALSE(scene_camera->camera_settings.nrd_denoising);
+  EXPECT_FALSE(scene_camera->camera_settings.nrd_temporal_aa);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_diffuse_prepass_radius, 3.5f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_specular_prepass_radius, 12.0f);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_relax_diffuse_history_frames, 16);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_relax_specular_history_frames, 24);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_relax_atrous_iterations, 4);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_lobe_angle_fraction, 0.3f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_roughness_fraction, 0.2f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_diffuse_luminance_sensitivity, 1.5f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_specular_luminance_sensitivity, 2.5f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_relax_depth_threshold, 0.01f);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_relax_anti_firefly, true);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_relax_roughness_edge_stopping, false);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_min_blur_radius, 0.5f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_max_blur_radius, 12.0f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_specular_prepass_radius, 8.0f);
+  EXPECT_EQ(scene_camera->camera_settings.nrd_reblur_history_frames, 4);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_lobe_angle_fraction, 0.3f);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.nrd_reblur_roughness_fraction, 0.25f);
   YAML::Emitter serialized;
   serialized << YAML::BeginMap;
   editor_layer.Serialize(serialized);
   serialized << YAML::EndMap;
   EXPECT_FALSE(YAML::Load(serialized.c_str())["scene_camera_settings"]["nrd_denoising"].as<bool>());
+  EditorLayer restored_layout;
+  const auto restored_camera = RegisterDefaultEditorSceneCamera(restored_layout);
+  restored_layout.Deserialize(YAML::Load(serialized.c_str()));
+  ASSERT_TRUE(restored_camera);
+  EXPECT_FALSE(restored_camera->camera_settings.nrd_temporal_aa);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_diffuse_prepass_radius, 3.5f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_specular_prepass_radius, 12.0f);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_relax_diffuse_history_frames, 16);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_relax_specular_history_frames, 24);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_relax_atrous_iterations, 4);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_lobe_angle_fraction, 0.3f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_roughness_fraction, 0.2f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_diffuse_luminance_sensitivity, 1.5f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_specular_luminance_sensitivity, 2.5f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_relax_depth_threshold, 0.01f);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_relax_anti_firefly, true);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_relax_roughness_edge_stopping, false);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_min_blur_radius, 0.5f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_max_blur_radius, 12.0f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_specular_prepass_radius, 8.0f);
+  EXPECT_EQ(restored_camera->camera_settings.nrd_reblur_history_frames, 4);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_lobe_angle_fraction, 0.3f);
+  EXPECT_FLOAT_EQ(restored_camera->camera_settings.nrd_reblur_roughness_fraction, 0.25f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_LEFT);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.focus_selection_key, GLFW_KEY_HOME);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_UP);

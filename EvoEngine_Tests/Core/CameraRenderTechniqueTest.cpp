@@ -124,6 +124,19 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(default_settings.shader_execution_reordering_mode,
             CameraSettings::ShaderExecutionReorderingMode::Automatic);
   EXPECT_EQ(default_settings.sample_size, 1);
+  EXPECT_TRUE(default_settings.nrd_denoising);
+  EXPECT_TRUE(default_settings.nrd_reblur);
+  EXPECT_FLOAT_EQ(default_settings.nrd_relax_diffuse_prepass_radius, 0.0f);
+  EXPECT_FLOAT_EQ(default_settings.nrd_relax_specular_prepass_radius, 0.0f);
+  EXPECT_EQ(default_settings.nrd_relax_atrous_iterations, 2);
+  EXPECT_TRUE(default_settings.nrd_temporal_aa);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_min_blur_radius, 1.0f);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_max_blur_radius, 10.0f);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_specular_prepass_radius, 0.0f);
+  EXPECT_EQ(default_settings.nrd_reblur_history_frames, 30);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_lobe_angle_fraction, 0.15f);
+  EXPECT_FLOAT_EQ(default_settings.nrd_reblur_roughness_fraction, 0.15f);
   EXPECT_FLOAT_EQ(default_settings.firefly_clamp_threshold, 10.0f);
 
   const auto& debug_views = Camera::GetRayDebugViewNames();
@@ -211,14 +224,14 @@ TEST(CameraRenderTechnique, RigidInstanceComparisonRejectsMaterialChanges) {
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
-  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 812u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 816u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_neighbors), 820u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_hybrid), 824u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_enhanced_mode), 828u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap), 832u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 848u);
-  EXPECT_EQ(sizeof(CameraInfoBlock), 864u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 796u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 800u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_neighbors), 804u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_hybrid), 808u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_enhanced_mode), 812u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap), 816u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 832u);
+  EXPECT_EQ(sizeof(CameraInfoBlock), 848u);
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   const auto cameras_header =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
@@ -239,18 +252,14 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, gamma), offsetof(CameraInfoBlock, sample_size));
   EXPECT_LT(offsetof(CameraInfoBlock, sample_size), offsetof(CameraInfoBlock, bounce));
   EXPECT_LT(offsetof(CameraInfoBlock, bounce), offsetof(CameraInfoBlock, firefly_clamp_threshold));
-  EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_threshold), offsetof(CameraInfoBlock, auto_spp_enabled));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_enabled), offsetof(CameraInfoBlock, auto_spp_min_samples));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_min_samples), offsetof(CameraInfoBlock, auto_spp_max_samples));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_max_samples), offsetof(CameraInfoBlock, auto_spp_convergence_threshold));
-  EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold), offsetof(CameraInfoBlock, accumulate_samples));
+  EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_threshold), offsetof(CameraInfoBlock, accumulate_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, accumulate_samples), offsetof(CameraInfoBlock, ray_debug_view));
   EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
 }
 
 TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane) {
   EXPECT_EQ(CameraInfoBlock::kRasterLightingGtaoVisibility, 1u);
-  CameraInfoBlock first;
+  CameraInfoBlock first{};
   CameraInfoBlock second = first;
   second.ray_output_flags = 1u;
   EXPECT_TRUE(first != second);
@@ -320,7 +329,7 @@ TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
   EXPECT_NE(storage.find("camera_info_block.shadow_split_distances ="), std::string::npos);
   EXPECT_NE(storage.find("camera_info_blocks_[camera_index].shadow_split_distances"), std::string::npos);
 
-  CameraInfoBlock first;
+  CameraInfoBlock first{};
   CameraInfoBlock second = first;
   EXPECT_FALSE(first != second);
   second.shadow_split_distances = glm::vec4(20.0f, 60.0f, 150.0f, 400.0f);
@@ -359,6 +368,9 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
 
+  Camera default_camera;
+  EXPECT_EQ(default_camera.camera_render_mode, Camera::CameraRenderMode::RayQuery);
+
   for (const auto render_mode : {Camera::CameraRenderMode::Rasterization, Camera::CameraRenderMode::RayTracing,
                                  Camera::CameraRenderMode::RayQuery}) {
     Camera camera;
@@ -366,17 +378,35 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
+    camera.camera_settings.nrd_denoising = false;
+    camera.camera_settings.nrd_reblur = false;
+    camera.camera_settings.nrd_temporal_aa = false;
+    camera.camera_settings.nrd_relax_diffuse_prepass_radius = 3.5f;
+    camera.camera_settings.nrd_relax_specular_prepass_radius = 12.0f;
+    camera.camera_settings.nrd_relax_diffuse_history_frames = 16;
+    camera.camera_settings.nrd_relax_specular_history_frames = 24;
+    camera.camera_settings.nrd_relax_atrous_iterations = 4;
+    camera.camera_settings.nrd_relax_lobe_angle_fraction = 0.3f;
+    camera.camera_settings.nrd_relax_roughness_fraction = 0.2f;
+    camera.camera_settings.nrd_relax_diffuse_luminance_sensitivity = 1.5f;
+    camera.camera_settings.nrd_relax_specular_luminance_sensitivity = 2.5f;
+    camera.camera_settings.nrd_relax_depth_threshold = 0.01f;
+    camera.camera_settings.nrd_relax_anti_firefly = true;
+    camera.camera_settings.nrd_relax_roughness_edge_stopping = false;
+    camera.camera_settings.nrd_reblur_min_blur_radius = 0.5f;
+    camera.camera_settings.nrd_reblur_max_blur_radius = 12.0f;
+    camera.camera_settings.nrd_reblur_diffuse_prepass_radius = 0.0f;
+    camera.camera_settings.nrd_reblur_specular_prepass_radius = 8.0f;
+    camera.camera_settings.nrd_reblur_history_frames = 4;
+    camera.camera_settings.nrd_reblur_lobe_angle_fraction = 0.3f;
+    camera.camera_settings.nrd_reblur_roughness_fraction = 0.25f;
     camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::SpecularF0;
-    camera.camera_settings.auto_spp_enabled = true;
     camera.camera_settings.accumulate_samples = false;
     camera.camera_settings.restir_spatial_neighbors = 16;
     camera.camera_settings.restir_spatial_hybrid = true;
     camera.camera_settings.restir_temporal_history_cap = 32;
     EXPECT_TRUE(camera.camera_settings.restir_temporal_adaptive_cap);
     camera.camera_settings.restir_temporal_adaptive_cap = false;
-    camera.camera_settings.auto_spp_min_samples = 8;
-    camera.camera_settings.auto_spp_max_samples = 64;
-    camera.camera_settings.auto_spp_convergence_threshold = 0.025f;
     camera.camera_settings.ray_outputs.albedo = true;
     camera.camera_settings.ray_outputs.debug = true;
 
@@ -384,7 +414,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     emitter << YAML::BeginMap;
     Serialization::SerializeObject(emitter, static_cast<IPrivateComponent&>(camera));
     emitter << YAML::EndMap;
-    const auto node = YAML::Load(emitter.c_str());
+    auto node = YAML::Load(emitter.c_str());
     EXPECT_EQ(node["render_mode"].as<std::string>(), Camera::GetCameraRenderModeName(render_mode));
     Camera restored;
     Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
@@ -393,17 +423,65 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_EQ(restored.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
     EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_FALSE(restored.camera_settings.nrd_denoising);
+    EXPECT_FALSE(restored.camera_settings.nrd_reblur);
+    EXPECT_FALSE(restored.camera_settings.nrd_temporal_aa);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_diffuse_prepass_radius, 3.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_specular_prepass_radius, 12.0f);
+    EXPECT_EQ(restored.camera_settings.nrd_relax_diffuse_history_frames, 16);
+    EXPECT_EQ(restored.camera_settings.nrd_relax_specular_history_frames, 24);
+    EXPECT_EQ(restored.camera_settings.nrd_relax_atrous_iterations, 4);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_lobe_angle_fraction, 0.3f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_roughness_fraction, 0.2f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_diffuse_luminance_sensitivity, 1.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_specular_luminance_sensitivity, 2.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_depth_threshold, 0.01f);
+    EXPECT_EQ(restored.camera_settings.nrd_relax_anti_firefly, true);
+    EXPECT_EQ(restored.camera_settings.nrd_relax_roughness_edge_stopping, false);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_min_blur_radius, 0.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_max_blur_radius, 12.0f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_specular_prepass_radius, 8.0f);
+    EXPECT_EQ(restored.camera_settings.nrd_reblur_history_frames, 4);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_lobe_angle_fraction, 0.3f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.nrd_reblur_roughness_fraction, 0.25f);
     EXPECT_EQ(restored.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
-    EXPECT_TRUE(restored.camera_settings.auto_spp_enabled);
     EXPECT_FALSE(restored.camera_settings.accumulate_samples);
     EXPECT_EQ(restored.camera_settings.restir_spatial_neighbors, 16);
     EXPECT_TRUE(restored.camera_settings.restir_spatial_hybrid);
     EXPECT_EQ(restored.camera_settings.restir_temporal_history_cap, 32);
     EXPECT_FALSE(restored.camera_settings.restir_temporal_adaptive_cap);
-    EXPECT_EQ(restored.camera_settings.auto_spp_min_samples, 8);
-    EXPECT_EQ(restored.camera_settings.auto_spp_max_samples, 64);
-    EXPECT_FLOAT_EQ(restored.camera_settings.auto_spp_convergence_threshold, 0.025f);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.albedo);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.debug);
+    for (const auto key :
+         {"nrd_denoising", "nrd_reblur", "nrd_temporal_aa", "nrd_reblur_min_blur_radius", "nrd_reblur_max_blur_radius",
+          "nrd_reblur_diffuse_prepass_radius", "nrd_reblur_specular_prepass_radius", "nrd_reblur_history_frames",
+          "nrd_reblur_lobe_angle_fraction", "nrd_reblur_roughness_fraction"}) {
+      node.remove(key);
+    }
+    node.remove("nrd_relax_diffuse_prepass_radius");
+    node.remove("nrd_relax_specular_prepass_radius");
+    node.remove("nrd_relax_diffuse_history_frames");
+    node.remove("nrd_relax_specular_history_frames");
+    node.remove("nrd_relax_atrous_iterations");
+    node.remove("nrd_relax_lobe_angle_fraction");
+    node.remove("nrd_relax_roughness_fraction");
+    node.remove("nrd_relax_diffuse_luminance_sensitivity");
+    node.remove("nrd_relax_specular_luminance_sensitivity");
+    node.remove("nrd_relax_depth_threshold");
+    node.remove("nrd_relax_anti_firefly");
+    node.remove("nrd_relax_roughness_edge_stopping");
+    Camera legacy;
+    Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(legacy));
+    EXPECT_TRUE(legacy.camera_settings.nrd_denoising);
+    EXPECT_TRUE(legacy.camera_settings.nrd_reblur);
+    EXPECT_TRUE(legacy.camera_settings.nrd_temporal_aa);
+    EXPECT_EQ(legacy.camera_settings.nrd_relax_atrous_iterations, 2);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.nrd_relax_diffuse_prepass_radius, 0.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.nrd_relax_specular_prepass_radius, 0.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.nrd_reblur_specular_prepass_radius, 0.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.nrd_reblur_max_blur_radius, 10.0f);
+    EXPECT_EQ(legacy.camera_settings.nrd_reblur_history_frames, 30);
   }
 }

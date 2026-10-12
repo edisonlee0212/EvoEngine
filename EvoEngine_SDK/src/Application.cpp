@@ -201,6 +201,42 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "bounce" << YAML::Value << camera.camera_settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
+  out << YAML::Key << "nrd_denoising" << YAML::Value << camera.camera_settings.nrd_denoising;
+  out << YAML::Key << "nrd_reblur" << YAML::Value << camera.camera_settings.nrd_reblur;
+  out << YAML::Key << "nrd_temporal_aa" << YAML::Value << camera.camera_settings.nrd_temporal_aa;
+  out << YAML::Key << "nrd_relax_diffuse_prepass_radius" << YAML::Value
+      << camera.camera_settings.nrd_relax_diffuse_prepass_radius;
+  out << YAML::Key << "nrd_relax_specular_prepass_radius" << YAML::Value
+      << camera.camera_settings.nrd_relax_specular_prepass_radius;
+  out << YAML::Key << "nrd_relax_diffuse_history_frames" << YAML::Value
+      << camera.camera_settings.nrd_relax_diffuse_history_frames;
+  out << YAML::Key << "nrd_relax_specular_history_frames" << YAML::Value
+      << camera.camera_settings.nrd_relax_specular_history_frames;
+  out << YAML::Key << "nrd_relax_atrous_iterations" << YAML::Value
+      << camera.camera_settings.nrd_relax_atrous_iterations;
+  out << YAML::Key << "nrd_relax_lobe_angle_fraction" << YAML::Value
+      << camera.camera_settings.nrd_relax_lobe_angle_fraction;
+  out << YAML::Key << "nrd_relax_roughness_fraction" << YAML::Value
+      << camera.camera_settings.nrd_relax_roughness_fraction;
+  out << YAML::Key << "nrd_relax_diffuse_luminance_sensitivity" << YAML::Value
+      << camera.camera_settings.nrd_relax_diffuse_luminance_sensitivity;
+  out << YAML::Key << "nrd_relax_specular_luminance_sensitivity" << YAML::Value
+      << camera.camera_settings.nrd_relax_specular_luminance_sensitivity;
+  out << YAML::Key << "nrd_relax_depth_threshold" << YAML::Value << camera.camera_settings.nrd_relax_depth_threshold;
+  out << YAML::Key << "nrd_relax_anti_firefly" << YAML::Value << camera.camera_settings.nrd_relax_anti_firefly;
+  out << YAML::Key << "nrd_relax_roughness_edge_stopping" << YAML::Value
+      << camera.camera_settings.nrd_relax_roughness_edge_stopping;
+  out << YAML::Key << "nrd_reblur_min_blur_radius" << YAML::Value << camera.camera_settings.nrd_reblur_min_blur_radius;
+  out << YAML::Key << "nrd_reblur_max_blur_radius" << YAML::Value << camera.camera_settings.nrd_reblur_max_blur_radius;
+  out << YAML::Key << "nrd_reblur_diffuse_prepass_radius" << YAML::Value
+      << camera.camera_settings.nrd_reblur_diffuse_prepass_radius;
+  out << YAML::Key << "nrd_reblur_specular_prepass_radius" << YAML::Value
+      << camera.camera_settings.nrd_reblur_specular_prepass_radius;
+  out << YAML::Key << "nrd_reblur_history_frames" << YAML::Value << camera.camera_settings.nrd_reblur_history_frames;
+  out << YAML::Key << "nrd_reblur_lobe_angle_fraction" << YAML::Value
+      << camera.camera_settings.nrd_reblur_lobe_angle_fraction;
+  out << YAML::Key << "nrd_reblur_roughness_fraction" << YAML::Value
+      << camera.camera_settings.nrd_reblur_roughness_fraction;
   out << YAML::Key << "ray_integrator" << YAML::Value
       << Camera::GetRayIntegratorName(camera.camera_settings.ray_integrator);
   out << YAML::Key << "ray_debug_view" << YAML::Value
@@ -214,7 +250,6 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "time" << YAML::Value << ray_outputs.time;
   out << YAML::Key << "debug" << YAML::Value << ray_outputs.debug;
   out << YAML::EndMap;
-  out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
   out << YAML::Key << "accumulate_samples" << YAML::Value << camera.camera_settings.accumulate_samples;
   out << YAML::Key << "restir_spatial_neighbors" << YAML::Value << camera.camera_settings.restir_spatial_neighbors;
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << camera.camera_settings.restir_spatial_hybrid;
@@ -222,10 +257,6 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
       << camera.camera_settings.restir_temporal_history_cap;
   out << YAML::Key << "restir_temporal_adaptive_cap" << YAML::Value
       << camera.camera_settings.restir_temporal_adaptive_cap;
-  out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
-  out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
-  out << YAML::Key << "auto_spp_convergence_threshold" << YAML::Value
-      << camera.camera_settings.auto_spp_convergence_threshold;
   out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
       << Camera::GetShaderExecutionReorderingModeName(camera.camera_settings.shader_execution_reordering_mode);
   camera.skybox.Save("skybox", out);
@@ -270,6 +301,52 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.gamma = in["gamma"].as<float>();
   if (in["firefly_clamp_threshold"])
     camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
+  if (in["nrd_denoising"])
+    camera.camera_settings.nrd_denoising = in["nrd_denoising"].as<bool>();
+  if (in["nrd_reblur"])
+    camera.camera_settings.nrd_reblur = in["nrd_reblur"].as<bool>();
+  if (in["nrd_temporal_aa"])
+    camera.camera_settings.nrd_temporal_aa = in["nrd_temporal_aa"].as<bool>();
+  if (in["nrd_relax_diffuse_prepass_radius"])
+    camera.camera_settings.nrd_relax_diffuse_prepass_radius = in["nrd_relax_diffuse_prepass_radius"].as<float>();
+  if (in["nrd_relax_specular_prepass_radius"])
+    camera.camera_settings.nrd_relax_specular_prepass_radius = in["nrd_relax_specular_prepass_radius"].as<float>();
+  if (in["nrd_relax_diffuse_history_frames"])
+    camera.camera_settings.nrd_relax_diffuse_history_frames = in["nrd_relax_diffuse_history_frames"].as<int>();
+  if (in["nrd_relax_specular_history_frames"])
+    camera.camera_settings.nrd_relax_specular_history_frames = in["nrd_relax_specular_history_frames"].as<int>();
+  if (in["nrd_relax_atrous_iterations"])
+    camera.camera_settings.nrd_relax_atrous_iterations = in["nrd_relax_atrous_iterations"].as<int>();
+  if (in["nrd_relax_lobe_angle_fraction"])
+    camera.camera_settings.nrd_relax_lobe_angle_fraction = in["nrd_relax_lobe_angle_fraction"].as<float>();
+  if (in["nrd_relax_roughness_fraction"])
+    camera.camera_settings.nrd_relax_roughness_fraction = in["nrd_relax_roughness_fraction"].as<float>();
+  if (in["nrd_relax_diffuse_luminance_sensitivity"])
+    camera.camera_settings.nrd_relax_diffuse_luminance_sensitivity =
+        in["nrd_relax_diffuse_luminance_sensitivity"].as<float>();
+  if (in["nrd_relax_specular_luminance_sensitivity"])
+    camera.camera_settings.nrd_relax_specular_luminance_sensitivity =
+        in["nrd_relax_specular_luminance_sensitivity"].as<float>();
+  if (in["nrd_relax_depth_threshold"])
+    camera.camera_settings.nrd_relax_depth_threshold = in["nrd_relax_depth_threshold"].as<float>();
+  if (in["nrd_relax_anti_firefly"])
+    camera.camera_settings.nrd_relax_anti_firefly = in["nrd_relax_anti_firefly"].as<bool>();
+  if (in["nrd_relax_roughness_edge_stopping"])
+    camera.camera_settings.nrd_relax_roughness_edge_stopping = in["nrd_relax_roughness_edge_stopping"].as<bool>();
+  if (in["nrd_reblur_min_blur_radius"])
+    camera.camera_settings.nrd_reblur_min_blur_radius = in["nrd_reblur_min_blur_radius"].as<float>();
+  if (in["nrd_reblur_max_blur_radius"])
+    camera.camera_settings.nrd_reblur_max_blur_radius = in["nrd_reblur_max_blur_radius"].as<float>();
+  if (in["nrd_reblur_diffuse_prepass_radius"])
+    camera.camera_settings.nrd_reblur_diffuse_prepass_radius = in["nrd_reblur_diffuse_prepass_radius"].as<float>();
+  if (in["nrd_reblur_specular_prepass_radius"])
+    camera.camera_settings.nrd_reblur_specular_prepass_radius = in["nrd_reblur_specular_prepass_radius"].as<float>();
+  if (in["nrd_reblur_history_frames"])
+    camera.camera_settings.nrd_reblur_history_frames = in["nrd_reblur_history_frames"].as<int>();
+  if (in["nrd_reblur_lobe_angle_fraction"])
+    camera.camera_settings.nrd_reblur_lobe_angle_fraction = in["nrd_reblur_lobe_angle_fraction"].as<float>();
+  if (in["nrd_reblur_roughness_fraction"])
+    camera.camera_settings.nrd_reblur_roughness_fraction = in["nrd_reblur_roughness_fraction"].as<float>();
   if (in["ray_integrator"])
     camera.camera_settings.ray_integrator =
         Camera::ParseRayIntegrator(in["ray_integrator"].as<std::string>(), camera.camera_settings.ray_integrator);
@@ -291,8 +368,6 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     if (ray_outputs_node["debug"])
       ray_outputs.debug = ray_outputs_node["debug"].as<bool>();
   }
-  if (in["auto_spp_enabled"])
-    camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
   if (in["accumulate_samples"])
     camera.camera_settings.accumulate_samples = in["accumulate_samples"].as<bool>();
   if (in["restir_spatial_neighbors"])
@@ -304,12 +379,6 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.restir_temporal_history_cap = glm::clamp(in["restir_temporal_history_cap"].as<int>(), 1, 32);
   if (in["restir_temporal_adaptive_cap"])
     camera.camera_settings.restir_temporal_adaptive_cap = in["restir_temporal_adaptive_cap"].as<bool>();
-  if (in["auto_spp_min_samples"])
-    camera.camera_settings.auto_spp_min_samples = in["auto_spp_min_samples"].as<int>();
-  if (in["auto_spp_max_samples"])
-    camera.camera_settings.auto_spp_max_samples = in["auto_spp_max_samples"].as<int>();
-  if (in["auto_spp_convergence_threshold"])
-    camera.camera_settings.auto_spp_convergence_threshold = in["auto_spp_convergence_threshold"].as<float>();
   if (in["shader_execution_reordering_mode"])
     camera.camera_settings.shader_execution_reordering_mode =
         Camera::ParseShaderExecutionReorderingMode(in["shader_execution_reordering_mode"].as<std::string>(),

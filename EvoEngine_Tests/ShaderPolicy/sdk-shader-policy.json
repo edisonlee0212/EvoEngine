@@ -1,13 +1,41 @@
 {
   "counts": {
-    "files": 183,
-    "imports": 328,
-    "macro_control_files": 31
+    "files": 247,
+    "imports": 439,
+    "macro_control_files": 57
   },
   "macro_adapters": [
     {
       "macro_controls": 27,
       "path": "Compute/DDGIProbeUpdate.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Compute/DeferredComputeLighting.slang"
+    },
+    {
+      "macro_controls": 8,
+      "path": "Compute/HddagiDirectLight.slang"
+    },
+    {
+      "macro_controls": 5,
+      "path": "Compute/HddagiGatherAbi.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/HddagiLightStore.slang"
+    },
+    {
+      "macro_controls": 4,
+      "path": "Compute/HddagiOcclusion.slang"
+    },
+    {
+      "macro_controls": 9,
+      "path": "Compute/HddagiReflectionFilter.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/HddagiTransportStatus.slang"
     },
     {
       "macro_controls": 3,
@@ -22,8 +50,76 @@
       "path": "Compute/PostProcessing/BloomUpsampling.slang"
     },
     {
-      "macro_controls": 3,
+      "macro_controls": 7,
       "path": "Compute/RayQueryCamera.slang"
+    },
+    {
+      "macro_controls": 15,
+      "path": "Compute/RestirPtCandidate.slang"
+    },
+    {
+      "macro_controls": 14,
+      "path": "Compute/RestirPtEnhancedCombine.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtEnhancedSpatialHybrid.slang"
+    },
+    {
+      "macro_controls": 5,
+      "path": "Compute/RestirPtResolve.slang"
+    },
+    {
+      "macro_controls": 6,
+      "path": "Compute/RestirPtSpatial.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Compute/RestirPtSpatialCombine.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtSpatialHybrid.slang"
+    },
+    {
+      "macro_controls": 13,
+      "path": "Compute/RestirPtSpatialResolve.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtTemporalBackward.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtTemporalBackwardHybrid.slang"
+    },
+    {
+      "macro_controls": 6,
+      "path": "Compute/RestirPtTemporalCombine.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtTemporalForward.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RestirPtTemporalForwardHybrid.slang"
+    },
+    {
+      "macro_controls": 17,
+      "path": "Compute/SdfgiDirectLight.slang"
+    },
+    {
+      "macro_controls": 7,
+      "path": "Compute/SdfgiGatherAbi.slang"
+    },
+    {
+      "macro_controls": 29,
+      "path": "Compute/SdfgiIntegrate.slang"
+    },
+    {
+      "macro_controls": 45,
+      "path": "Compute/SdfgiPreprocess.slang"
     },
     {
       "macro_controls": 5,
@@ -32,6 +128,10 @@
     {
       "macro_controls": 5,
       "path": "Graphics/Fragment/PostProcessing/SMAAEdge.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang"
     },
     {
       "macro_controls": 4,
@@ -102,6 +202,10 @@
       "path": "Graphics/Vertex/PostProcessing/SMAABlendWeight.slang"
     },
     {
+      "macro_controls": 6,
+      "path": "Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang"
+    },
+    {
       "macro_controls": 2,
       "path": "Modules/EvoEngine/CameraRayGeometry.slang"
     },
@@ -126,7 +230,7 @@
       "path": "RayTracing/ClosestHit/Camera.slang"
     },
     {
-      "macro_controls": 3,
+      "macro_controls": 7,
       "path": "RayTracing/RayGen/Camera.slang"
     }
   ],
@@ -146,14 +250,6 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.DDGIProbeUpdate",
       "path": "Compute/DDGIProbeUpdate.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeVariabilityExtraReduce",
-      "path": "Compute/DDGIProbeVariabilityExtraReduce.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeVariabilityReduce",
-      "path": "Compute/DDGIProbeVariabilityReduce.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.DeferredComputeLighting",
@@ -180,8 +276,80 @@
       "path": "Compute/GaussianSplatRadixUpsweep.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiCameraGather",
+      "path": "Compute/HddagiCameraGather.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiDirectLight",
+      "path": "Compute/HddagiDirectLight.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiFilterProbes",
+      "path": "Compute/HddagiFilterProbes.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiGatherAbi",
+      "path": "Compute/HddagiGatherAbi.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiIntegrate",
+      "path": "Compute/HddagiIntegrate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiLightScroll",
+      "path": "Compute/HddagiLightScroll.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiLightStore",
+      "path": "Compute/HddagiLightStore.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiOcclusion",
+      "path": "Compute/HddagiOcclusion.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiProbeMetadata",
+      "path": "Compute/HddagiProbeMetadata.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiReflectionFilter",
+      "path": "Compute/HddagiReflectionFilter.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiRegionStore",
+      "path": "Compute/HddagiRegionStore.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiResetProbes",
+      "path": "Compute/HddagiResetProbes.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiSurface",
+      "path": "Compute/HddagiSurface.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiTraceCachedRays",
+      "path": "Compute/HddagiTraceCachedRays.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiTraceRays",
+      "path": "Compute/HddagiTraceRays.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.HddagiTransportStatus",
+      "path": "Compute/HddagiTransportStatus.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Compute.MotionVectors",
       "path": "Compute/MotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.NrdTemporalAa",
+      "path": "Compute/NrdTemporalAa.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.NrdTemporalAaResolve",
+      "path": "Compute/NrdTemporalAaResolve.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.AmbientOcclusionBlur",
@@ -248,6 +416,102 @@
       "path": "Compute/RayQueryCamera.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtCandidate",
+      "path": "Compute/RestirPtCandidate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtDuplication",
+      "path": "Compute/RestirPtDuplication.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtEnhancedCombine",
+      "path": "Compute/RestirPtEnhancedCombine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtEnhancedSpatialHybrid",
+      "path": "Compute/RestirPtEnhancedSpatialHybrid.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdComposite",
+      "path": "Compute/RestirPtNrdComposite.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdGuides",
+      "path": "Compute/RestirPtNrdGuides.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdReblurPack",
+      "path": "Compute/RestirPtNrdReblurPack.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtResolve",
+      "path": "Compute/RestirPtResolve.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtSpatial",
+      "path": "Compute/RestirPtSpatial.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtSpatialCombine",
+      "path": "Compute/RestirPtSpatialCombine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtSpatialHybrid",
+      "path": "Compute/RestirPtSpatialHybrid.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtSpatialResolve",
+      "path": "Compute/RestirPtSpatialResolve.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtTemporalBackward",
+      "path": "Compute/RestirPtTemporalBackward.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtTemporalBackwardHybrid",
+      "path": "Compute/RestirPtTemporalBackwardHybrid.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtTemporalCombine",
+      "path": "Compute/RestirPtTemporalCombine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtTemporalForward",
+      "path": "Compute/RestirPtTemporalForward.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirPtTemporalForwardHybrid",
+      "path": "Compute/RestirPtTemporalForwardHybrid.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiDebug",
+      "path": "Compute/SdfgiDebug.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiDirectLight",
+      "path": "Compute/SdfgiDirectLight.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiGatherAbi",
+      "path": "Compute/SdfgiGatherAbi.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiIntegrate",
+      "path": "Compute/SdfgiIntegrate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiPayloadRefresh",
+      "path": "Compute/SdfgiPayloadRefresh.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiPreprocess",
+      "path": "Compute/SdfgiPreprocess.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SdfgiPublish",
+      "path": "Compute/SdfgiPublish.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Compute.Trace",
       "path": "Compute/Trace.slang"
     },
@@ -282,6 +546,10 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Gizmos.GizmosColored",
       "path": "Graphics/Fragment/Gizmos/GizmosColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.HDDAGI.HddagiVoxelize",
+      "path": "Graphics/Fragment/HDDAGI/HddagiVoxelize.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.AlphaMaskedShadow",
@@ -350,6 +618,18 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SSRReflect",
       "path": "Graphics/Fragment/PostProcessing/SSRReflect.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.RuntimeGuiComposite",
+      "path": "Graphics/Fragment/RuntimeGuiComposite.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.SDFGI.SdfgiDebugProbes",
+      "path": "Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.SDFGI.SdfgiVoxelize",
+      "path": "Graphics/Fragment/SDFGI/SdfgiVoxelize.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.SkinnedMotionVectors",
@@ -532,6 +812,14 @@
       "path": "Graphics/Vertex/PostProcessing/SMAANeighborhood.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.SDFGI.SdfgiDebugProbes",
+      "path": "Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.SDFGI.SdfgiVoxelize",
+      "path": "Graphics/Vertex/SDFGI/SdfgiVoxelize.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.SkinnedMotionVectors",
       "path": "Graphics/Vertex/Standard/SkinnedMotionVectors.slang"
     },
@@ -628,6 +916,10 @@
       "path": "Modules/EvoEngine/DDGIGatherSingle.slang"
     },
     {
+      "module": "EvoEngine.DDGIProbeHistory",
+      "path": "Modules/EvoEngine/DDGIProbeHistory.slang"
+    },
+    {
       "module": "EvoEngine.DDGIProbeRayConstants",
       "path": "Modules/EvoEngine/DDGIProbeRayConstants.slang"
     },
@@ -688,6 +980,34 @@
       "path": "Modules/EvoEngine/GltfRayTracingMath.slang"
     },
     {
+      "module": "EvoEngine.HddagiCache",
+      "path": "Modules/EvoEngine/HddagiCache.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiCamera",
+      "path": "Modules/EvoEngine/HddagiCamera.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiGather",
+      "path": "Modules/EvoEngine/HddagiGather.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiLighting",
+      "path": "Modules/EvoEngine/HddagiLighting.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiProbe",
+      "path": "Modules/EvoEngine/HddagiProbe.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiTrace",
+      "path": "Modules/EvoEngine/HddagiTrace.slang"
+    },
+    {
+      "module": "EvoEngine.HddagiVoxel",
+      "path": "Modules/EvoEngine/HddagiVoxel.slang"
+    },
+    {
       "module": "EvoEngine.InstancedData",
       "path": "Modules/EvoEngine/InstancedData.slang"
     },
@@ -722,6 +1042,14 @@
     {
       "module": "EvoEngine.MeshletCulling",
       "path": "Modules/EvoEngine/MeshletCulling.slang"
+    },
+    {
+      "module": "EvoEngine.Nrd",
+      "path": "Modules/EvoEngine/Nrd.slang"
+    },
+    {
+      "module": "EvoEngine.NrdTemporalAa",
+      "path": "Modules/EvoEngine/NrdTemporalAa.slang"
     },
     {
       "module": "EvoEngine.PerFrame",
@@ -766,6 +1094,38 @@
     {
       "module": "EvoEngine.RenderInfo",
       "path": "Modules/EvoEngine/RenderInfo.slang"
+    },
+    {
+      "module": "EvoEngine.RestirPt",
+      "path": "Modules/EvoEngine/RestirPt.slang"
+    },
+    {
+      "module": "EvoEngine.RestirPtPreviousSurface",
+      "path": "Modules/EvoEngine/RestirPtPreviousSurface.slang"
+    },
+    {
+      "module": "EvoEngine.RestirPtTemporal",
+      "path": "Modules/EvoEngine/RestirPtTemporal.slang"
+    },
+    {
+      "module": "EvoEngine.Sdfgi",
+      "path": "Modules/EvoEngine/Sdfgi.slang"
+    },
+    {
+      "module": "EvoEngine.SdfgiDebug",
+      "path": "Modules/EvoEngine/SdfgiDebug.slang"
+    },
+    {
+      "module": "EvoEngine.SdfgiLighting",
+      "path": "Modules/EvoEngine/SdfgiLighting.slang"
+    },
+    {
+      "module": "EvoEngine.SdfgiTypes",
+      "path": "Modules/EvoEngine/SdfgiTypes.slang"
+    },
+    {
+      "module": "EvoEngine.SdfgiVoxel",
+      "path": "Modules/EvoEngine/SdfgiVoxel.slang"
     },
     {
       "module": "EvoEngine.ShadowRaster",

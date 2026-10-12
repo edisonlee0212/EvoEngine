@@ -131,6 +131,56 @@ class RayCameraShaderVariantCacheTestAccess {
 
 using namespace evo_engine;
 
+TEST(RayCameraShaderVariantCache, PrewarmDoesNotActivateBeautyOrDebugVariants) {
+  const auto cache = RayCameraShaderVariantCacheTestAccess::Create();
+  const auto active = cache->GetRayQueryPipeline();
+  const auto active_mask = cache->GetStats(RayCameraShaderTechnique::RayQuery).active_mask;
+  const auto beauty = RayCameraShaderVariantCacheTestAccess::AddSuccess(*cache, 0u, 1u);
+  const auto debug = RayCameraShaderVariantCacheTestAccess::AddSuccess(*cache, kRayCameraDebugViewsFeature, 2u);
+  EXPECT_TRUE(cache->Prewarm(0u, RayCameraShaderTechnique::RayQuery).ready);
+  EXPECT_TRUE(cache->Prewarm(0u, RayCameraShaderTechnique::RayQuery, true).ready);
+  EXPECT_EQ(cache->GetRayQueryPipeline(), active);
+  EXPECT_EQ(cache->GetStats(RayCameraShaderTechnique::RayQuery).active_mask, active_mask);
+  uint32_t builds = 0;
+  RayCameraShaderVariantCacheTestAccess::SetFactory(*cache, [&](uint32_t) {
+    ++builds;
+    return std::make_shared<ComputePipeline>();
+  });
+  cache->Update(0u, false, true);
+  EXPECT_EQ(cache->GetRayQueryPipeline(), beauty);
+  cache->Update(0u, false, true, false, true);
+  EXPECT_EQ(cache->GetRayQueryPipeline(), debug);
+  EXPECT_EQ(builds, 0u);
+}
+
+TEST(RayCameraShaderVariantCache, PrewarmDistinguishesPendingAndFailedBuilds) {
+  const auto cache = RayCameraShaderVariantCacheTestAccess::Create();
+  RayCameraShaderVariantCacheTestAccess::AddPending(*cache, 0u);
+  auto status = cache->Prewarm(0u, RayCameraShaderTechnique::RayQuery);
+  EXPECT_TRUE(status.pending);
+  EXPECT_FALSE(status.ready);
+  EXPECT_FALSE(status.failed);
+  RayCameraShaderVariantCacheTestAccess::AddFailure(*cache, 0u, 1u);
+  status = cache->Prewarm(0u, RayCameraShaderTechnique::RayQuery);
+  EXPECT_FALSE(status.pending);
+  EXPECT_FALSE(status.ready);
+  EXPECT_TRUE(status.failed);
+}
+
+TEST(RayCameraShaderVariantCache, PrewarmReusesAllFeatureFallbackWithoutBuilding) {
+  const auto cache = RayCameraShaderVariantCacheTestAccess::Create();
+  uint32_t builds = 0;
+  RayCameraShaderVariantCacheTestAccess::SetFactory(*cache, [&](uint32_t) {
+    ++builds;
+    return std::make_shared<ComputePipeline>();
+  });
+  EXPECT_TRUE(cache->Prewarm(kGltfSceneAllFeatures, RayCameraShaderTechnique::RayQuery, true).ready);
+  EXPECT_EQ(builds, 0u);
+  const auto unavailable = cache->Prewarm(0u, RayCameraShaderTechnique::RayTracing);
+  EXPECT_TRUE(unavailable.failed);
+  EXPECT_FALSE(unavailable.pending);
+}
+
 TEST(RayCameraShaderVariantCache, BoundsSuccessfulVariantsWithDeterministicLruAndPreservesActive) {
   const auto cache = RayCameraShaderVariantCacheTestAccess::Create();
   std::shared_ptr<ComputePipeline> active;

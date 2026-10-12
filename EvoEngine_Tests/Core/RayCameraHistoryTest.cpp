@@ -74,8 +74,6 @@ RayCameraHistoryResources MakeFakeHistory(const VkExtent3D extent) {
   result.extent = extent;
   result.radiance_image = MakeFakeResource<Image>();
   result.radiance_view = MakeFakeImageView(result.radiance_image);
-  result.convergence_image = MakeFakeResource<Image>();
-  result.convergence_view = MakeFakeImageView(result.convergence_image);
   return result;
 }
 
@@ -96,6 +94,27 @@ std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
 }
 }  // namespace
+
+TEST(RayCameraHistory, SharedScratchSurvivesUntilBothSubmittedFramesRetire) {
+  Camera camera;
+  auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 11, {64, 32, 1},
+                                                      MakeFakeHistory);
+  history.restir_candidate_buffers.emplace_back(MakeFakeResource<Buffer>());
+  const std::weak_ptr<Buffer> scratch = history.restir_candidate_buffers.front();
+  RenderGraphTransientResourceStore first_frame, second_frame;
+  {
+    RenderGraphResourceRegistry resources;
+    resources.BindBuffer("scratch", history.restir_candidate_buffers.front());
+    first_frame.Bind(resources);
+    second_frame.Bind(resources);
+  }
+  RayCameraHistoryTestAccess::Release(camera);
+  EXPECT_FALSE(scratch.expired());
+  first_frame.Clear();
+  EXPECT_FALSE(scratch.expired());
+  second_frame.Clear();
+  EXPECT_TRUE(scratch.expired());
+}
 
 TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   Camera camera;
@@ -145,10 +164,8 @@ TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   EXPECT_EQ(stats.live_ray_query_history_count, 0u);
   EXPECT_EQ(stats.valid_history_count, 0u);
   EXPECT_EQ(stats.radiance_image_count, 1u);
-  EXPECT_EQ(stats.convergence_image_count, 1u);
   EXPECT_EQ(stats.radiance_view_count, 1u);
-  EXPECT_EQ(stats.convergence_view_count, 1u);
-  EXPECT_EQ(stats.live_byte_size, 64u * 32u * sizeof(glm::vec4) * 2u);
+  EXPECT_EQ(stats.live_byte_size, 64u * 32u * sizeof(glm::vec4));
   EXPECT_EQ(stats.creation_count, 1u);
   EXPECT_EQ(stats.reuse_count, 3u);
   EXPECT_EQ(stats.invalidation_count, 2u);
@@ -167,7 +184,9 @@ TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
   history.restir_nrd_history_valid = true;
   history.restir_nrd_history_frame_count = 5;
 
+  history.nrd_taa_history_valid = true;
   RayCameraHistoryTestAccess::Invalidate(camera, false);
+  EXPECT_TRUE(history.nrd_taa_history_valid);
   EXPECT_FALSE(history.valid);
   EXPECT_EQ(history.frame_id, 0u);
   EXPECT_TRUE(history.restir_history_valid);
@@ -176,10 +195,30 @@ TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
   EXPECT_EQ(history.restir_nrd_history_frame_count, 5u);
 
   RayCameraHistoryTestAccess::Invalidate(camera);
+  EXPECT_FALSE(history.nrd_taa_history_valid);
   EXPECT_FALSE(history.restir_history_valid);
   EXPECT_EQ(history.restir_history_frame_id, 0u);
   EXPECT_FALSE(history.restir_nrd_history_valid);
   EXPECT_EQ(history.restir_nrd_history_frame_count, 0u);
+}
+
+TEST(RayCameraHistory, NrdTemporalHistoryMemoryAndResolutionReset) {
+  Camera camera;
+  auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, {64, 32, 1},
+                                                      MakeFakeHistory);
+  for (uint32_t slot = 0; slot < 2; ++slot) {
+    history.nrd_taa_color_images[slot] = MakeFakeResource<Image>();
+    history.nrd_taa_color_views[slot] = MakeFakeImageView(history.nrd_taa_color_images[slot]);
+    history.nrd_taa_geometry_images[slot] = MakeFakeResource<Image>();
+    history.nrd_taa_geometry_views[slot] = MakeFakeImageView(history.nrd_taa_geometry_images[slot]);
+  }
+  history.nrd_taa_history_valid = true;
+  EXPECT_EQ(camera.GetRayCameraHistoryStats().live_byte_size, 64u * 32u * (16u + 32u));
+  auto& resized = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, {32, 16, 1},
+                                                      MakeFakeHistory);
+  EXPECT_FALSE(resized.nrd_taa_history_valid);
+  EXPECT_FALSE(resized.nrd_taa_color_images[0]);
+  EXPECT_EQ(camera.GetRayCameraHistoryStats().live_byte_size, 32u * 16u * 16u);
 }
 
 TEST(RayCameraHistory, SwitchingRestirModesInvalidatesAccumulation) {
@@ -342,16 +381,16 @@ TEST(RayCameraHistory, ResizeAndReleaseRemainBoundedDuringCameraChurn) {
 
 TEST(RayCameraHistory, CameraDestructionReleasesOwnedHistory) {
   std::weak_ptr<Image> radiance;
-  std::weak_ptr<ImageView> convergence_view;
+  std::weak_ptr<ImageView> radiance_view;
   {
     Camera camera;
     auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayTracing, 1, {16, 16, 1},
                                                         MakeFakeHistory);
     radiance = history.radiance_image;
-    convergence_view = history.convergence_view;
+    radiance_view = history.radiance_view;
   }
   EXPECT_TRUE(radiance.expired());
-  EXPECT_TRUE(convergence_view.expired());
+  EXPECT_TRUE(radiance_view.expired());
 }
 
 TEST(RayCameraHistory, RenderLayerPreservesCumulativeCountersAfterPruneAndClear) {
@@ -370,7 +409,7 @@ TEST(RayCameraHistory, RenderLayerPreservesCumulativeCountersAfterPruneAndClear)
   EXPECT_EQ(stats.live_camera_count, 2u);
   EXPECT_EQ(stats.live_history_count, 2u);
   EXPECT_EQ(stats.peak_live_history_count, 2u);
-  EXPECT_EQ(stats.peak_live_byte_size, 2u * 16u * 16u * sizeof(glm::vec4) * 2u);
+  EXPECT_EQ(stats.peak_live_byte_size, 2u * 16u * 16u * sizeof(glm::vec4));
   EXPECT_EQ(stats.creation_count, 2u);
 
   RayCameraHistoryTestAccess::Clear(render_layer);
@@ -378,7 +417,7 @@ TEST(RayCameraHistory, RenderLayerPreservesCumulativeCountersAfterPruneAndClear)
   EXPECT_EQ(stats.live_camera_count, 0u);
   EXPECT_EQ(stats.live_history_count, 0u);
   EXPECT_EQ(stats.peak_live_history_count, 2u);
-  EXPECT_EQ(stats.peak_live_byte_size, 2u * 16u * 16u * sizeof(glm::vec4) * 2u);
+  EXPECT_EQ(stats.peak_live_byte_size, 2u * 16u * 16u * sizeof(glm::vec4));
   EXPECT_EQ(stats.creation_count, 2u);
   EXPECT_EQ(stats.retirement_count, 2u);
 
@@ -400,23 +439,16 @@ TEST(RayCameraHistory, TransientStoreKeepsSubmittedViewsAliveAfterCameraRelease)
   auto& history =
       RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayTracing, 1, {16, 16, 1}, factory);
   std::weak_ptr<Image> radiance_image = history.radiance_image;
-  std::weak_ptr<Image> convergence_image = history.convergence_image;
   std::weak_ptr<ImageView> radiance_view = history.radiance_view;
-  std::weak_ptr<ImageView> convergence_view = history.convergence_view;
   RenderGraphTransientResourceStore submitted_resources;
   submitted_resources.RetainImageView(history.radiance_view);
-  submitted_resources.RetainImageView(history.convergence_view);
 
   RayCameraHistoryTestAccess::Release(camera);
   EXPECT_FALSE(radiance_image.expired());
-  EXPECT_FALSE(convergence_image.expired());
   EXPECT_FALSE(radiance_view.expired());
-  EXPECT_FALSE(convergence_view.expired());
   submitted_resources.Clear();
   EXPECT_TRUE(radiance_image.expired());
-  EXPECT_TRUE(convergence_image.expired());
   EXPECT_TRUE(radiance_view.expired());
-  EXPECT_TRUE(convergence_view.expired());
 }
 
 TEST(RayCameraHistory, TransientStoreKeepsImportedImageAliveIndependentlyOfItsView) {
@@ -437,6 +469,41 @@ TEST(RayCameraHistory, TransientStoreKeepsImportedImageAliveIndependentlyOfItsVi
   EXPECT_TRUE(weak_view.expired());
 }
 
+TEST(RayCameraHistory, NrdDepthMotionReconstructsPositivePreviousDepth) {
+  const auto guides =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RestirPtNrdGuides.slang"));
+  EXPECT_NE(guides.find("abs(previous_view_z) - abs(view_z)"), std::string::npos);
+
+  const glm::vec4 surface(2.0f, 1.0f, -10.0f, 1.0f);
+  const auto previous_view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+  for (const glm::vec3 translation :
+       {glm::vec3(0.2f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, -0.2f), glm::vec3(0.0f, 0.0f, 0.2f)}) {
+    const auto view = glm::lookAt(translation, translation + glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    const float current_z = (view * surface).z;
+    const float previous_z = (previous_view * surface).z;
+    const float depth_motion = glm::abs(previous_z) - glm::abs(current_z);
+    EXPECT_NEAR(glm::abs(current_z) + depth_motion, glm::abs(previous_z), 1e-6f);
+    if (translation.z != 0.0f)
+      EXPECT_GT(glm::abs(glm::abs(current_z) + previous_z - current_z - glm::abs(previous_z)), 0.3f);
+  }
+}
+
+TEST(RayCameraHistory, NrdProjectionMatchesRayImageUvOrientation) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/NrdRayCameraDenoiser.cpp"));
+  EXPECT_NE(source.find("image_orientation * camera.projection"), std::string::npos);
+  EXPECT_NE(source.find("image_orientation * glm::inverse(camera.previous_inverse_projection)"), std::string::npos);
+
+  const auto projection = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
+  const auto nrd_projection = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f)) * projection;
+  for (const glm::vec2 uv : {glm::vec2(0.1f, 0.2f), glm::vec2(0.5f), glm::vec2(0.8f, 0.9f)}) {
+    const auto view_position = glm::inverse(projection) * glm::vec4(uv * 2.0f - 1.0f, -1.0f, 1.0f);
+    const auto nrd_clip = nrd_projection * view_position;
+    const auto nrd_uv = glm::vec2(nrd_clip) / nrd_clip.w * glm::vec2(0.5f, -0.5f) + 0.5f;
+    EXPECT_NEAR(nrd_uv.x, uv.x, 1e-6f);
+    EXPECT_NEAR(nrd_uv.y, uv.y, 1e-6f);
+  }
+}
+
 TEST(RayCameraHistory, RuntimeWiringHasNoStaticHistoryMapAndClearsAfterGpuDrain) {
   const auto camera_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Camera.hpp"));
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
@@ -452,7 +519,6 @@ TEST(RayCameraHistory, RuntimeWiringHasNoStaticHistoryMapAndClearsAfterGpuDrain)
   EXPECT_NE(render_layer_source.find("camera->SynchronizeRayCameraOptionalOutputs"), std::string::npos);
   EXPECT_EQ(pass_source.find("static std::unordered_map"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImageView(history_resources.radiance_view)"), std::string::npos);
-  EXPECT_NE(pass_source.find("RetainImageView(history_resources.convergence_view)"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainRayCameraOptionalOutputViews"), std::string::npos);
   EXPECT_NE(pass_source.find("UpdateRayCameraOptionalOutputDescriptors"), std::string::npos);
   EXPECT_NE(pass_source.find("kRayCameraOutputDescriptorBaseBindingCount + index"), std::string::npos);

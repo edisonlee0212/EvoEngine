@@ -95,6 +95,8 @@ struct RayTracingCameraPushConstant {
   uint32_t frame_samples = 1;  ///< Samples accumulated by this dispatch.
   uint32_t shader_execution_reordering = 0;
   uint32_t max_directional_light_size = 0;
+  uint32_t nrd_reblur = 0;
+  uint32_t nrd_path_tracing = 0;
 };
 
 struct DdgiProbeRayTracingPushConstant {

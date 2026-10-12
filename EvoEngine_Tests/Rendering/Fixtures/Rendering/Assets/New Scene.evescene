@@ -39,10 +39,6 @@ entity_metadata_list:
           path_length: false
           time: false
           debug: false
-        auto_spp_enabled: false
-        auto_spp_min_samples: 16
-        auto_spp_max_samples: 256
-        auto_spp_convergence_threshold: 0.01
         shader_execution_reordering_mode: Automatic
         skybox:
           asset_handle_: 14

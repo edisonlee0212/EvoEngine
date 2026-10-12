@@ -23,7 +23,7 @@ class InstallRuntimeTemplateTest(unittest.TestCase):
         self.assertEqual(rename.call_count, 2)
         sleep.assert_called_once_with(0.1)
 
-    def test_identity_options_and_immutable_publication(self) -> None:
+    def test_identity_options_and_current_publication(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             payload = root / "runtime.dll"
@@ -70,7 +70,33 @@ class InstallRuntimeTemplateTest(unittest.TestCase):
                 template["template_id"],
             )
             self.assertEqual(publish_runtime_template(template_dir, install_dir), published)
-            (published / "unknown.txt").write_text("unknown", encoding="utf-8")
+
+            unknown = published.parent / ("a" * 64)
+            unknown.mkdir()
+            (unknown / ".evoengine-runtime-template.json").write_text("{}", encoding="utf-8")
+            other_configuration = published.parent.parent / "Debug" / published.name
+            other_configuration.mkdir(parents=True)
+            payload.write_bytes(b"new runtime")
+            new_template = build_template(layout, template_dir)
+            with patch("install_apps.os.replace", side_effect=OSError("pointer publication failed")):
+                with self.assertRaisesRegex(OSError, "pointer publication failed"):
+                    publish_runtime_template(template_dir, install_dir)
+            self.assertTrue(published.exists())
+            self.assertEqual(
+                json.loads((published.parent / "current.json").read_text(encoding="utf-8"))["template_id"],
+                template["template_id"],
+            )
+
+            current = publish_runtime_template(template_dir, install_dir)
+            self.assertEqual(current.name, new_template["template_id"])
+            self.assertFalse(published.exists())
+            self.assertTrue(unknown.exists())
+            self.assertTrue(other_configuration.exists())
+            self.assertEqual(
+                json.loads((current.parent / "current.json").read_text(encoding="utf-8"))["template_id"],
+                new_template["template_id"],
+            )
+            (current / "unknown.txt").write_text("unknown", encoding="utf-8")
             with self.assertRaises(SystemExit):
                 publish_runtime_template(template_dir, install_dir)
 
