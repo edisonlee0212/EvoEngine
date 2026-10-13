@@ -3606,6 +3606,12 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
     EVOENGINE_ERROR("Intersect: strand tree is missing.");
     return false;
   }
+  if (!kinDS::MeshIntersection::IsCgalAvailable()) {
+    EVOENGINE_ERROR(
+        "Intersect: CGAL is not available in this build. Meshlet intersection requires CGAL; "
+        "install/link CGAL and rebuild kinDS (USE_CGAL). Skipping intersection.");
+    return false;
+  }
 
   // Meshlets live in tree-local space (the kinDS algorithm produces geometry relative to the tree
   // origin, before any world transform is applied). The boundary entity's GlobalTransform is in world

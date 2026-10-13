@@ -639,6 +639,11 @@ void ApplyRenderingDemoEditorSetup() {
 void ApplyEcoSysLabDemoEditorSetup() {
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->RequestEditorLayout(CreateEcoSysLabDemoEditorLayout());
+    // Kinetic/Alpha meshlets use deferred mesh shaders; RayQuery/ReSTIR cameras skip that path.
+    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+      scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      scene_camera->ResetFrameCount();
+    }
   }
 }
 

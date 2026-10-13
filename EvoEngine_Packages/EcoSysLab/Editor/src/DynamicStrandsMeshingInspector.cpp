@@ -13,8 +13,18 @@ void DynamicStrandsMeshingInspector::DrawStats(const DsAlphaShapeMeshing& target
   ImGui::Text((std::string("Uniform particles count: ") + std::to_string(target.uniform_particles.size())).c_str());
   ImGui::Text((std::string("Meshlet count: ") + std::to_string(target.delaunay_tetrahedrons.size())).c_str());
 }
-void DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(const std::shared_ptr<EditorLayer>& editor_layer) {
+void DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(const std::shared_ptr<EditorLayer>& editor_layer,
+                                                                    const bool lock_primary_enable) {
+  if (lock_primary_enable) {
+    ImGui::BeginDisabled();
+  }
   ImGui::Checkbox("Render branches", &DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled);
+  if (lock_primary_enable) {
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+      ImGui::SetTooltip("Controlled by Active mesh visualization above (both meshing backends are present).");
+    }
+  }
   if (DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled) {
     if (ImGui::TreeNodeEx("Branch render settings")) {
       if (ImGui::Button("Rebuild branches pipelines")) {
@@ -83,9 +93,18 @@ void DynamicStrandsMeshingInspector::DrawStats(const DsKineticVoronoiMeshing& ta
       (std::string("Segment Meshlets Triangles: ") + std::to_string(target.segment_meshlet_triangles.size())).c_str());
 }
 void DynamicStrandsMeshingInspector::DrawDsKineticVoronoiMeshingSettings(
-    const std::shared_ptr<EditorLayer>& editor_layer) {
+    const std::shared_ptr<EditorLayer>& editor_layer, const bool lock_primary_enable) {
   auto& render_settings = DsKineticVoronoiMeshing::RefRenderSettings();
+  if (lock_primary_enable) {
+    ImGui::BeginDisabled();
+  }
   ImGui::Checkbox("Render Segment Meshlets", &render_settings.segment_meshlet_render_parameters.enabled);
+  if (lock_primary_enable) {
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+      ImGui::SetTooltip("Controlled by Active mesh visualization above (both meshing backends are present).");
+    }
+  }
   ImGui::Checkbox("Volume measure → CSV (download+smooth)", &render_settings.enable_volume_measure);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(

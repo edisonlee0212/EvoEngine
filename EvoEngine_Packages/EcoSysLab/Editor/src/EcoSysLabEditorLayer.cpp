@@ -329,9 +329,14 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           ImGui::Checkbox("Background", &enable_visualization_background);
           uint32_t mode = static_cast<uint32_t>(visualization_camera_->camera_render_mode);
-          if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
-            visualization_camera_->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
+          if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
+            visualization_camera_->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
             visualization_camera_->ResetFrameCount();
+          }
+          if (Camera::IsRayCameraRenderMode(visualization_camera_->camera_render_mode) && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Kinetic Voronoi / Alpha Shape meshlets only draw in Rasterization. RayQuery/RayTracing skip the "
+                "deferred mesh-shader path, so those meshes disappear and you mainly see ray/ReSTIR lighting.");
           }
         }
         ImGui::EndChild();
@@ -471,20 +476,42 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
       }
     }
   }
+  const bool dual_mesh_visualization = has_kinetic_meshing && has_alpha_meshing;
+  // Apply radio → enable flags before drawing checkboxes so dual-mode UI does not fight ImGui.
+  // Only the primary meshes are exclusive; splinters/strands stay gated by secondary_rendering_allowed.
+  if (dual_mesh_visualization) {
+    const bool show_kinetic = active_mesh_visualization == static_cast<int>(ActiveMeshVisualization::Kinetic);
+    DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.enabled = show_kinetic;
+    DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled = !show_kinetic;
+    DsAlphaShapeMeshing::RefRenderSettings().secondary_rendering_allowed = !show_kinetic;
+  }
   if (ImGui::TreeNode("Rendering settings")) {
-    if (has_kinetic_meshing && has_alpha_meshing) {
+    if (const auto scene_camera = editor_layer->GetSceneCamera();
+        scene_camera && Camera::IsRayCameraRenderMode(scene_camera->camera_render_mode)) {
+      ImGui::TextColored(ImVec4(1.f, 0.7f, 0.2f, 1.f),
+                         "Scene camera is %s — Kinetic/Alpha meshlets only draw in Rasterization.",
+                         Camera::GetCameraRenderModeName(scene_camera->camera_render_mode));
+      if (ImGui::Button("Switch scene camera to Rasterization")) {
+        scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+        scene_camera->ResetFrameCount();
+      }
+    }
+    if (dual_mesh_visualization) {
       ImGui::TextUnformatted("Active mesh visualization");
       ImGui::RadioButton("Kinetic Voronoi", &active_mesh_visualization,
                          static_cast<int>(ActiveMeshVisualization::Kinetic));
       ImGui::SameLine();
       ImGui::RadioButton("Alpha Shape", &active_mesh_visualization, static_cast<int>(ActiveMeshVisualization::Alpha));
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Only one primary mesh backend draws at a time when both are present.");
+      }
     }
     if (ImGui::TreeNode("Alpha Shape Meshing Settings")) {
-      DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(editor_layer);
+      DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(editor_layer, dual_mesh_visualization);
       ImGui::TreePop();
     }
     if (ImGui::TreeNode("Kinetic Voronoi Meshing Settings")) {
-      DynamicStrandsMeshingInspector::DrawDsKineticVoronoiMeshingSettings(editor_layer);
+      DynamicStrandsMeshingInspector::DrawDsKineticVoronoiMeshingSettings(editor_layer, dual_mesh_visualization);
       ImGui::TreePop();
     }
 
@@ -512,17 +539,6 @@ void EcoSysLabEditorLayer::DrawDynamicStrandsSettingsGui(const std::shared_ptr<E
     }
 
     ImGui::TreePop();
-  }
-
-  // Keep draw enable flags aligned with the selected visualization whenever both
-  // backends are active (not only on radio click — otherwise both render at startup).
-  // Only toggle the primary meshes here; splinters/strands/visualization checkboxes
-  // keep their own state and are gated via secondary_rendering_allowed.
-  if (has_kinetic_meshing && has_alpha_meshing) {
-    const bool show_kinetic = active_mesh_visualization == static_cast<int>(ActiveMeshVisualization::Kinetic);
-    DsKineticVoronoiMeshing::RefRenderSettings().segment_meshlet_render_parameters.enabled = show_kinetic;
-    DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled = !show_kinetic;
-    DsAlphaShapeMeshing::RefRenderSettings().secondary_rendering_allowed = !show_kinetic;
   }
 
   ImGui::Checkbox("Visualization", &dynamic_strands_settings_.enable_visualization);
@@ -817,11 +833,18 @@ void EcoSysLabEditorLayer::OnCreate() {
   visualization_camera_ = Serialization::ProduceSerializable<Camera>();
 
   visualization_camera_->OnCreate();
+  // Mesh-shader Kinetic/Alpha draws only run on Rasterization cameras. The SDK default is RayQuery
+  // (ReSTIR), which skips deferred geometry and leaves denoising artifacts with no meshlets.
+  visualization_camera_->camera_render_mode = Camera::CameraRenderMode::Rasterization;
   visualization_camera_->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
   visualization_camera_->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
 #pragma endregion
 
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->RegisterEditorCamera(visualization_camera_);
+    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+      scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      scene_camera->ResetFrameCount();
+    }
   }
 }
