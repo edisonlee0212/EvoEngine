@@ -13,6 +13,10 @@ EcoSysLab is EvoEngine's digital forestry and ecosystem simulation runtime packa
 - Copies resources from `EvoEngine_Packages/EcoSysLab/Internals`.
 - Emits `EcoSysLab.evepackage` beside the package binary for runtime dependency discovery.
 - Tries to link `CGAL::CGAL`; if CGAL is missing, the package still configures but warns that some features may be disabled.
+  Scripted Windows configures pass the vcpkg toolchain only when `cgal:x64-windows` is present under `VCPKG_ROOT` /
+  `C:\src\vcpkg`; otherwise they leave configure unchanged and rely on the existing CGAL-not-found WARNING.
+  When CGAL is linked on Windows, `gmp-10.dll` and `mpfr-6.dll` are deployed next to the host executable and into
+  runtime templates (required because package DLLs are shadow-copied alone before `LoadLibrary`).
 
 ## Main Responsibilities
 

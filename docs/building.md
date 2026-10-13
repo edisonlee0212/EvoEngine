@@ -21,6 +21,25 @@ git submodule update --init --recursive
 - CMake
 - Vulkan SDK
 - An NRD source checkout at `out/deps/NRD` for the `vs2026-x64` preset (including its NRI dependency)
+- Optional: [vcpkg](https://github.com/microsoft/vcpkg) with CGAL for EcoSysLab meshlet intersection (`VCPKG_ROOT`, default lookup `C:\src\vcpkg`)
+
+### Optional vcpkg / CGAL
+
+EcoSysLab meshlet intersection needs CGAL. Install it once into vcpkg:
+
+```bat
+set VCPKG_ROOT=C:\src\vcpkg
+%VCPKG_ROOT%\vcpkg install cgal:x64-windows
+```
+
+`Scripts\build_project.py` and `Scripts\install_apps.py` inject the vcpkg toolchain **only when** `VCPKG_ROOT` /
+`C:\src\vcpkg` exists **and** `cgal:x64-windows` is installed there. If vcpkg or CGAL is missing, configure is
+unchanged; EcoSysLab/kinDS still emit their usual `find_package(CGAL)` WARNING and intersection stays disabled.
+
+If an existing build tree was configured without CGAL, the install script forces a reconfigure when CGAL later appears
+in vcpkg. For IDE configures, copy `CMakeUserPresets.json.example` to `CMakeUserPresets.json` and point `VCPKG_ROOT`
+at your vcpkg install. Linked CGAL also deploys `gmp-10.dll` / `mpfr-6.dll` beside installed app binaries so
+shadow-loaded `EcoSysLabPackage.dll` can resolve them.
 
 Generate the Visual Studio build tree:
 

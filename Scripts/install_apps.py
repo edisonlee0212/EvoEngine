@@ -15,6 +15,13 @@ import time
 from pathlib import Path
 from typing import Any
 
+from vcpkg_utils import (
+    cmake_cache_needs_cgal_reconfigure,
+    prepare_build_dir_for_toolchain,
+    resolve_optional_cgal_vcpkg,
+    vcpkg_toolchain_file,
+)
+
 DEFAULT_DISABLED_DEMO_APP_ARGS = [
     "-DEvoEngine_App-DemoApp=OFF",
     "-DEvoEngine_App-DDGIApp=OFF",
@@ -353,15 +360,40 @@ def main() -> int:
     if not build_preset_exists(presets, build_preset):
         raise SystemExit(f"Build preset not found: {build_preset}")
 
-    if args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists():
+    # Only inject vcpkg when CGAL is actually installed there. Otherwise leave configure alone;
+    # EcoSysLab/kinDS already emit their find_package(CGAL) WARNING if CGAL is missing.
+    vcpkg_root, vcpkg_configure_args = resolve_optional_cgal_vcpkg()
+    if vcpkg_root is not None:
+        os.environ.setdefault("VCPKG_ROOT", str(vcpkg_root))
+
+    skip_configure = (
+        args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists()
+    )
+    if skip_configure and cmake_cache_needs_cgal_reconfigure(build_dir, vcpkg_root):
+        print(
+            "CGAL is installed in vcpkg but missing from the existing CMake cache; "
+            "forcing reconfigure with the vcpkg toolchain.",
+            flush=True,
+        )
+        skip_configure = False
+
+    if skip_configure:
         print(f"Skipping configure; reusing {build_dir / 'CMakeCache.txt'}", flush=True)
     else:
+        if vcpkg_root is not None:
+            toolchain = vcpkg_toolchain_file(vcpkg_root)
+            if prepare_build_dir_for_toolchain(build_dir, toolchain):
+                print(
+                    f"Removed stale CMakeCache.txt so CMAKE_TOOLCHAIN_FILE can switch to {toolchain}",
+                    flush=True,
+                )
         configure_command = [
             "cmake",
             "--preset",
             args.preset,
             "-DBUILD_TESTING=OFF",
             *DEFAULT_DISABLED_DEMO_APP_ARGS,
+            *vcpkg_configure_args,
         ]
         if args.verbose:
             configure_command.append("--log-level=VERBOSE")

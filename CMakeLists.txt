@@ -109,7 +109,12 @@ set(EVOENGINE_RESOURCES ${EVOENGINE_SDK_RESOURCES} ${EVOENGINE_SERVICES_RESOURCE
 # EvoEngine SDK - Copy resources
 # ------------------------------------------------------------------
 function(evoengine_copy_resources dst_target dst_dir)
-	foreach (file_i ${EVOENGINE_RUNTIME_LIBRARIES})
+	set(_evo_runtime_files ${EVOENGINE_RUNTIME_LIBRARIES})
+	get_property(_evo_extra_runtime_files GLOBAL PROPERTY EVOENGINE_EXTRA_RUNTIME_PAYLOAD_LIBRARIES)
+	if(_evo_extra_runtime_files)
+		list(APPEND _evo_runtime_files ${_evo_extra_runtime_files})
+	endif()
+	foreach (file_i ${_evo_runtime_files})
 		add_custom_command(TARGET ${dst_target} POST_BUILD
 			COMMAND ${CMAKE_COMMAND}
 				"-DSOURCE=${file_i}"

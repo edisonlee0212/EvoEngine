@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "vs2026-x64-local",
+      "displayName": "Visual Studio 2026 x64 + local vcpkg",
+      "inherits": "vs2026-x64",
+      "environment": {
+        "VCPKG_ROOT": "C:/src/vcpkg"
+      },
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "install-vs2026-x64-local-RelWithDebInfo",
+      "configurePreset": "vs2026-x64-local",
+      "configuration": "RelWithDebInfo",
+      "targets": ["INSTALL"]
+    }
+  ]
+}

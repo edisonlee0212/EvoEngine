@@ -28,6 +28,10 @@ function(evoengine_runtime_payload)
 	foreach(source IN LISTS EVOENGINE_RUNTIME_PAYLOAD_LIBRARIES)
 		list(APPEND files "{\"source\":\"${source}\"}")
 	endforeach()
+	get_property(_evo_extra_runtime_payload GLOBAL PROPERTY EVOENGINE_EXTRA_RUNTIME_PAYLOAD_LIBRARIES)
+	foreach(source IN LISTS _evo_extra_runtime_payload)
+		list(APPEND files "{\"source\":\"${source}\"}")
+	endforeach()
 	if(EVOENGINE_ENABLE_NRD)
 		list(APPEND files
 			"{\"source\":\"${EVOENGINE_NRD_SOURCE_DIR}/LICENSE.txt\",\"destination\":\"licenses/NVIDIA-NRD-LICENSE.txt\"}"

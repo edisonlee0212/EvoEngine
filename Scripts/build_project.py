@@ -13,6 +13,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from vcpkg_utils import (
+    prepare_build_dir_for_toolchain,
+    resolve_optional_cgal_vcpkg,
+    vcpkg_toolchain_file,
+)
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -128,7 +134,14 @@ def main() -> int:
     if args.clean:
         clean_build_dir(root, build_dir)
 
-    command = ["cmake", "--preset", args.preset, "-DBUILD_TESTING=ON"]
+    # Only inject vcpkg when CGAL is present; otherwise configure unchanged and CMake warns as before.
+    vcpkg_root, vcpkg_configure_args = resolve_optional_cgal_vcpkg()
+    if vcpkg_root is not None:
+        os.environ.setdefault("VCPKG_ROOT", str(vcpkg_root))
+        if prepare_build_dir_for_toolchain(build_dir, vcpkg_toolchain_file(vcpkg_root)):
+            print("Removed stale CMakeCache.txt so CMAKE_TOOLCHAIN_FILE can switch to vcpkg.", flush=True)
+
+    command = ["cmake", "--preset", args.preset, "-DBUILD_TESTING=ON", *vcpkg_configure_args]
     if args.verbose:
         command.append("--log-level=VERBOSE")
     command.extend(args.cmake_arg)
