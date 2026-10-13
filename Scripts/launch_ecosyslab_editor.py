@@ -1,13 +1,22 @@
 #!/usr/bin/env python3
-"""Launch EvoEngineEditor with EcoSysLabProject/test.eveproj and a visible OS console."""
+"""Launch EvoEngineEditor with EcoSysLabProject/test.eveproj and a visible OS console.
+
+The project file must declare EcoSysLab under startup_runtime_packages so the
+editor loads EcoSysLabPackage.dll before opening the start scene. Without that
+entry, package-backed components (DynamicStrandsDemo, DynamicTreeStrands, …)
+deserialize as UnknownPrivateComponent.
+"""
 
 from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+REQUIRED_PACKAGE = "EcoSysLab"
 
 
 def repo_root() -> Path:
@@ -37,9 +46,59 @@ def resolve_editor(root: Path, explicit: Path | None) -> Path:
     )
 
 
+def read_startup_runtime_packages(project: Path) -> list[str]:
+    """Parse startup_runtime_packages from a .eveproj without requiring PyYAML."""
+    lines = project.read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r"^startup_runtime_packages:\s*(.*)$", line)
+        if not match:
+            continue
+
+        inline = match.group(1).strip()
+        if inline.startswith("[") and inline.endswith("]"):
+            inner = inline[1:-1].strip()
+            if not inner:
+                return []
+            return [item.strip().strip("'\"") for item in inner.split(",") if item.strip()]
+        if inline:
+            return [inline.strip("'\"")]
+
+        packages: list[str] = []
+        for continuation in lines[index + 1 :]:
+            if not continuation.strip():
+                continue
+            if re.match(r"^\S", continuation):
+                break
+            item = re.match(r"^\s*-\s+(.+?)\s*$", continuation)
+            if item:
+                packages.append(item.group(1).strip().strip("'\""))
+        return packages
+    return []
+
+
+def require_ecosyslab_package(project: Path) -> None:
+    packages = read_startup_runtime_packages(project)
+    if REQUIRED_PACKAGE in packages:
+        return
+    raise SystemExit(
+        f"{project} must list '{REQUIRED_PACKAGE}' under startup_runtime_packages "
+        "so EvoEngineEditor loads the EcoSysLab package before the start scene.\n"
+        f"Found startup_runtime_packages: {packages or '(missing)'}\n"
+        "Example:\n"
+        "  application_name: EcoSysLab\n"
+        "  preferred_editor: EvoEngineEditor\n"
+        "  startup_runtime_packages:\n"
+        f"    - {REQUIRED_PACKAGE}\n"
+        "  start_scene_handle: <handle>"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Launch EvoEngineEditor on Resources/EcoSysLabProject/test.eveproj with a console window."
+        description=(
+            "Launch EvoEngineEditor on Resources/EcoSysLabProject/test.eveproj with a console "
+            "window. Requires the project to declare EcoSysLab in startup_runtime_packages."
+        )
     )
     parser.add_argument(
         "--editor",
@@ -86,7 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "editor_args",
         nargs=argparse.REMAINDER,
-        help="Extra arguments forwarded to EvoEngineEditor after --. Example: -- --demo ecosyslab",
+        help="Extra arguments forwarded to EvoEngineEditor after --. Example: -- --console",
     )
     return parser.parse_args()
 
@@ -127,6 +186,7 @@ def main() -> int:
     project = project.resolve()
     if not project.is_file():
         raise SystemExit(f"Project not found: {project}")
+    require_ecosyslab_package(project)
 
     command = [str(editor), "--project", str(project)]
     if not args.no_console:
