@@ -24,6 +24,8 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsProfiler.hpp"
@@ -148,6 +150,16 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
         return state->Inspect(context, target);
       },
       "DsCylinderCollider");
+  registered &= registrar.RegisterInspector<DsIntersectionBoundaryMesh>(
+      [](InspectorContext& context, DsIntersectionBoundaryMesh& target) {
+        return target.OnInspect(context.editor_layer);
+      },
+      "DsIntersectionBoundaryMesh");
+  registered &= registrar.RegisterInspector<DsIntersectionBoundaryMeshGroup>(
+      [](InspectorContext& context, DsIntersectionBoundaryMeshGroup& target) {
+        return target.OnInspect(context.editor_layer);
+      },
+      "DsIntersectionBoundaryMeshGroup");
   registered &= registrar.RegisterInspector<DynamicTreeStrands>(
       [state = std::make_shared<DynamicTreeStrandsInspector>()](InspectorContext& context, DynamicTreeStrands& target) {
         return state->Inspect(context, target);

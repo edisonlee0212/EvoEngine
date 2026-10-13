@@ -20,6 +20,8 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
@@ -128,6 +130,8 @@ void EcoSysLabLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider");
   application.RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider");
   application.RegisterPrivateComponent<DsCylinderCollider>("DsCylinderCollider");
+  application.RegisterPrivateComponent<DsIntersectionBoundaryMesh>("DsIntersectionBoundaryMesh");
+  application.RegisterPrivateComponent<DsIntersectionBoundaryMeshGroup>("DsIntersectionBoundaryMeshGroup");
   application.RegisterPrivateComponent<DynamicTreeStrands>("DynamicTreeStrands");
 #ifdef BILLBOARD_CLOUDS_PACKAGE
   application.RegisterPrivateComponent<BillboardCloudsConverter>("BillboardCloudsConverter");

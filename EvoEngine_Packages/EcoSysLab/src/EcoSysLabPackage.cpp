@@ -11,6 +11,8 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsProfiler.hpp"
@@ -177,6 +179,8 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider") &&
       registrar->RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider") &&
       registrar->RegisterPrivateComponent<DsCylinderCollider>("DsCylinderCollider") &&
+      registrar->RegisterPrivateComponent<DsIntersectionBoundaryMesh>("DsIntersectionBoundaryMesh") &&
+      registrar->RegisterPrivateComponent<DsIntersectionBoundaryMeshGroup>("DsIntersectionBoundaryMeshGroup") &&
       registrar->RegisterPrivateComponent<DynamicTreeStrands>("DynamicTreeStrands") &&
       registrar->RegisterPrivateComponent<ObjectRotator>("ObjectRotator") &&
       registrar->RegisterPrivateComponent<Physics2DDemo>("Physics2DDemo") &&
