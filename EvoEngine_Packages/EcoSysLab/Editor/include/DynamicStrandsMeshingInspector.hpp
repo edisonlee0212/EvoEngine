@@ -15,6 +15,6 @@ struct DynamicStrandsMeshingInspector {
   static void DrawDsAlphaShapeMeshingSettings(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer,
                                               bool lock_primary_enable = false);
   static void DrawDsKineticVoronoiMeshingSettings(const std::shared_ptr<evo_engine::EditorLayer>& editor_layer,
-                                                   bool lock_primary_enable = false);
+                                                  bool lock_primary_enable = false);
 };
 }  // namespace eco_sys_lab_package

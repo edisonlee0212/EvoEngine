@@ -14,7 +14,7 @@ void DynamicStrandsMeshingInspector::DrawStats(const DsAlphaShapeMeshing& target
   ImGui::Text((std::string("Meshlet count: ") + std::to_string(target.delaunay_tetrahedrons.size())).c_str());
 }
 void DynamicStrandsMeshingInspector::DrawDsAlphaShapeMeshingSettings(const std::shared_ptr<EditorLayer>& editor_layer,
-                                                                    const bool lock_primary_enable) {
+                                                                     const bool lock_primary_enable) {
   if (lock_primary_enable) {
     ImGui::BeginDisabled();
   }
