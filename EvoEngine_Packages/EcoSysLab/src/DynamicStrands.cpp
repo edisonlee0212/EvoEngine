@@ -470,11 +470,9 @@ glm::vec3 DynamicStrands::GpuSegment::GetCenterX0() const {
   return (particle0.x0 + particle1.x0) * .5f;
 }
 
-void DynamicStrands::Upload() {
+void DynamicStrands::UploadPhysics() {
   device_strands_buffer->UploadVector(strands);
   device_strands_buffer->SetDebugName("Strands Buffer");
-  device_nodes_buffer->UploadVector(nodes);
-  device_nodes_buffer->SetDebugName("Nodes Buffer");
   const auto packed_segments = PackSegments(segments);
   device_segments_buffer->UploadData(packed_segments.segments.size(), packed_segments.segments.data());
   device_segments_buffer->SetDebugName("Segments Buffer");
@@ -491,6 +489,41 @@ void DynamicStrands::Upload() {
   device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
   device_segment_connection_handles_buffer->UploadVector(packed_segment_data.connection_handles);
   device_segment_connection_handles_buffer->SetDebugName("Segment Connection Handles Buffer");
+  device_foliage_buffer->UploadVector(foliage);
+  device_foliage_buffer->SetDebugName("Foliage Buffer");
+}
+
+void DynamicStrands::DownloadPhysics() {
+  if (!strands.empty()) {
+    device_strands_buffer->DownloadVector(strands, strands.size());
+  }
+  if (!segments.empty()) {
+    auto packed_segments = MakePackedSegments(segments.size());
+    device_segments_buffer->DownloadData(packed_segments.segments.size(), packed_segments.segments.data());
+    device_segment_biology_buffer->DownloadData(packed_segments.biology.size(), packed_segments.biology.data());
+    device_segment_particle0_buffer->DownloadVector(packed_segments.particle0s, packed_segments.particle0s.size());
+    device_segment_particle1_buffer->DownloadVector(packed_segments.particle1s, packed_segments.particle1s.size());
+    UnpackSegments(segments, packed_segments);
+  }
+  if (!segment_pairs.empty()) {
+    device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
+  }
+  if (!segment_data_list.empty()) {
+    auto packed_segment_data = MakePackedSegmentData(segment_data_list.size());
+    device_segment_data_list_buffer->DownloadData(packed_segment_data.data.size(), packed_segment_data.data.data());
+    device_segment_connection_handles_buffer->DownloadVector(packed_segment_data.connection_handles,
+                                                             packed_segment_data.connection_handles.size());
+    UnpackSegmentData(segment_data_list, packed_segment_data);
+  }
+  if (!foliage.empty()) {
+    device_foliage_buffer->DownloadVector(foliage, foliage.size());
+  }
+}
+
+void DynamicStrands::Upload() {
+  UploadPhysics();
+  device_nodes_buffer->UploadVector(nodes);
+  device_nodes_buffer->SetDebugName("Nodes Buffer");
 
   ForEachMeshing([](DsMeshing& m) {
     m.Upload();
@@ -500,8 +533,6 @@ void DynamicStrands::Upload() {
   device_hashed_grid_elements_buffer->SetDebugName("Hashed Grid Elements Buffer");
   device_hashed_grid_cell_starts_buffer->UploadVector(hashed_grid_cell_starts);
   device_hashed_grid_cell_starts_buffer->SetDebugName("Hashed Grid Cell Starts Buffer");
-  device_foliage_buffer->UploadVector(foliage);
-  device_foliage_buffer->SetDebugName("Foliage Buffer");
   for (const auto& c : constraints) {
     c->UploadData();
   }
@@ -510,38 +541,21 @@ void DynamicStrands::Upload() {
 }
 
 void DynamicStrands::Download() {
-  if (!strands.empty())
-    device_strands_buffer->DownloadVector(strands, strands.size());
-  if (!nodes.empty())
+  DownloadPhysics();
+  if (!nodes.empty()) {
     device_nodes_buffer->DownloadVector(nodes, nodes.size());
-  if (!segments.empty()) {
-    auto packed_segments = MakePackedSegments(segments.size());
-    device_segments_buffer->DownloadData(packed_segments.segments.size(), packed_segments.segments.data());
-    device_segment_biology_buffer->DownloadData(packed_segments.biology.size(), packed_segments.biology.data());
-    device_segment_particle0_buffer->DownloadVector(packed_segments.particle0s, packed_segments.particle0s.size());
-    device_segment_particle1_buffer->DownloadVector(packed_segments.particle1s, packed_segments.particle1s.size());
-    UnpackSegments(segments, packed_segments);
-  }
-  if (!segment_pairs.empty())
-    device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
-  if (!segment_data_list.empty()) {
-    auto packed_segment_data = MakePackedSegmentData(segment_data_list.size());
-    device_segment_data_list_buffer->DownloadData(packed_segment_data.data.size(), packed_segment_data.data.data());
-    device_segment_connection_handles_buffer->DownloadVector(packed_segment_data.connection_handles,
-                                                             packed_segment_data.connection_handles.size());
-    UnpackSegmentData(segment_data_list, packed_segment_data);
   }
 
   ForEachMeshing([](DsMeshing& m) {
     m.Download();
   });
 
-  if (!hashed_grid_elements.empty())
+  if (!hashed_grid_elements.empty()) {
     device_hashed_grid_elements_buffer->DownloadVector(hashed_grid_elements, hashed_grid_elements.size());
-  if (!hashed_grid_cell_starts.empty())
+  }
+  if (!hashed_grid_cell_starts.empty()) {
     device_hashed_grid_cell_starts_buffer->DownloadVector(hashed_grid_cell_starts, hashed_grid_cell_starts.size());
-  if (!foliage.empty())
-    device_foliage_buffer->DownloadVector(foliage, foliage.size());
+  }
   for (const auto& c : constraints) {
     c->DownloadData();
   }

@@ -3697,6 +3697,13 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   Upload();  // remapped / rebuilt meshlet segment / neighbor / pair indices
   UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
+  // Intersection only rewrites Kinetic meshlets. With MeshingType::Both, Alpha still draws the
+  // uncut log unless EcoSysLab Layer's dual-viz radio is open — mirror that exclusivity here.
+  if (dynamic_strands && dynamic_strands->GetAlphaShapeMeshing()) {
+    RefRenderSettings().segment_meshlet_render_parameters.enabled = true;
+    DsAlphaShapeMeshing::RefRenderSettings().branches_render_parameters.enabled = false;
+    DsAlphaShapeMeshing::RefRenderSettings().secondary_rendering_allowed = false;
+  }
   EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated ("
                 << segment_meshlet_vertices.size() << " vertices, " << segment_meshlet_triangles.size()
                 << " triangles). Physics segments after compact: " << dynamic_strands->segments.size()
@@ -3738,40 +3745,16 @@ void DsKineticVoronoiMeshing::DownloadPhysicsSegmentsAndPairs() {
   if (!dynamic_strands) {
     return;
   }
-  if (!dynamic_strands->segments.empty()) {
-    dynamic_strands->device_segments_buffer->DownloadVector(dynamic_strands->segments,
-                                                            dynamic_strands->segments.size());
-  }
-  if (!dynamic_strands->segment_pairs.empty()) {
-    dynamic_strands->device_segment_pairs_buffer->DownloadVector(dynamic_strands->segment_pairs,
-                                                                 dynamic_strands->segment_pairs.size());
-  }
-  if (!dynamic_strands->segment_data_list.empty()) {
-    dynamic_strands->device_segment_data_list_buffer->DownloadVector(dynamic_strands->segment_data_list,
-                                                                     dynamic_strands->segment_data_list.size());
-  }
-  if (!dynamic_strands->strands.empty()) {
-    dynamic_strands->device_strands_buffer->DownloadVector(dynamic_strands->strands, dynamic_strands->strands.size());
-  }
-  if (!dynamic_strands->foliage.empty()) {
-    dynamic_strands->device_foliage_buffer->DownloadVector(dynamic_strands->foliage, dynamic_strands->foliage.size());
-  }
+  // Must use packed layout download: pair_handles live in device_segment_connection_handles_buffer,
+  // not inside device_segment_data_list_buffer. A raw DownloadVector of GpuSegmentData corrupts them.
+  dynamic_strands->DownloadPhysics();
 }
 
 void DsKineticVoronoiMeshing::UploadPhysicsSegmentsAndPairs() {
   if (!dynamic_strands) {
     return;
   }
-  dynamic_strands->device_segments_buffer->UploadVector(dynamic_strands->segments);
-  dynamic_strands->device_segments_buffer->SetDebugName("Segments Buffer");
-  dynamic_strands->device_segment_pairs_buffer->UploadVector(dynamic_strands->segment_pairs);
-  dynamic_strands->device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
-  dynamic_strands->device_segment_data_list_buffer->UploadVector(dynamic_strands->segment_data_list);
-  dynamic_strands->device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
-  dynamic_strands->device_strands_buffer->UploadVector(dynamic_strands->strands);
-  dynamic_strands->device_strands_buffer->SetDebugName("Strands Buffer");
-  dynamic_strands->device_foliage_buffer->UploadVector(dynamic_strands->foliage);
-  dynamic_strands->device_foliage_buffer->SetDebugName("Foliage Buffer");
+  dynamic_strands->UploadPhysics();
 }
 
 void DsKineticVoronoiMeshing::FinalizeStrandConnectivityAndPairMaterials() {
@@ -5277,6 +5260,12 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
       const auto& mesh = meshes[meshing_segment_id];
       const int physics_segment_id = physics_strand_to_segment_indices[strand_id][segment_no];
 
+      // truncateToBoundary replaces OUTSIDE meshlets with an empty default VoronoiMesh (NoNormals).
+      // CompactSurvivingPhysicsSegments drops those slots afterward; until then, skip silently.
+      if (mesh.getTriangleCount() == 0) {
+        continue;
+      }
+
       if (mesh.getNormalMode() != kinDS::NormalMode::PerTriangleCorner ||
           mesh.getNormals().size() != mesh.getTriangles().size()) {
         EVOENGINE_ERROR("PopulateGpuMeshletBuffers: meshlet "
@@ -5341,18 +5330,31 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
 
         triangle.segment_pair_index = -1;
         if (triangle.neighbor_segment_index >= 0) {
-          for (int pair_handle : dynamic_strands->segment_data_list[physics_segment_id].pair_handles) {
-            if (pair_handle == -1) {
-              continue;
-            }
-            if (dynamic_strands->segment_pairs[pair_handle].segment0_handle != physics_segment_id &&
-                dynamic_strands->segment_pairs[pair_handle].segment1_handle != physics_segment_id) {
-              EVOENGINE_ERROR("Segment pair incorrectly referenced!");
-            }
-            if (dynamic_strands->segment_pairs[pair_handle].segment0_handle == triangle.neighbor_segment_index ||
-                dynamic_strands->segment_pairs[pair_handle].segment1_handle == triangle.neighbor_segment_index) {
-              triangle.segment_pair_index = static_cast<int>(pair_handle);
-              break;
+          if (physics_segment_id < 0 ||
+              static_cast<size_t>(physics_segment_id) >= dynamic_strands->segment_data_list.size()) {
+            EVOENGINE_ERROR("PopulateGpuMeshletBuffers: physics_segment_id " << physics_segment_id
+                                                                             << " out of range for segment_data_list.");
+          } else {
+            for (int pair_handle :
+                 dynamic_strands->segment_data_list[static_cast<size_t>(physics_segment_id)].pair_handles) {
+              if (pair_handle < 0) {
+                continue;
+              }
+              if (static_cast<size_t>(pair_handle) >= dynamic_strands->segment_pairs.size()) {
+                EVOENGINE_ERROR("PopulateGpuMeshletBuffers: pair_handle "
+                                << pair_handle
+                                << " out of range (segment_pairs=" << dynamic_strands->segment_pairs.size() << ").");
+                continue;
+              }
+              const auto& pair = dynamic_strands->segment_pairs[static_cast<size_t>(pair_handle)];
+              if (pair.segment0_handle != physics_segment_id && pair.segment1_handle != physics_segment_id) {
+                EVOENGINE_ERROR("Segment pair incorrectly referenced!");
+              }
+              if (pair.segment0_handle == triangle.neighbor_segment_index ||
+                  pair.segment1_handle == triangle.neighbor_segment_index) {
+                triangle.segment_pair_index = pair_handle;
+                break;
+              }
             }
           }
         }
@@ -6286,6 +6288,41 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::InspectSharedMeshingSettings(
         "Also enables post-intersection splitting of INTERSECT meshlets that have multiple connected components "
         "(length-fitted; radius unchanged).");
   }
+  {
+    float alpha_cutoff = static_cast<float>(meshing_settings.alpha_cutoff);
+    if (ImGui::DragFloat("Alpha cutoff (Kinetic)", &alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
+      meshing_settings.alpha_cutoff = static_cast<double>(glm::max(0.0f, alpha_cutoff));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Kinetic Voronoi only — kinDS radius cutoff for inside-outside classification "
+          "(TreeMesher alpha_cutoff). Not the Alpha Shape meshing Alpha. "
+          "Smaller values tighten the surface and can open holes. Affects radius events, boundary meshing, "
+          "and the meshing buffer hash.");
+    }
+  }
+  {
+    float branch_alpha_cutoff = static_cast<float>(meshing_settings.branch_alpha_cutoff);
+    if (ImGui::DragFloat("Branch alpha cutoff (Kinetic)", &branch_alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
+      meshing_settings.branch_alpha_cutoff = static_cast<double>(glm::max(0.0f, branch_alpha_cutoff));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Kinetic Voronoi only — radius cutoff for Delaunay triangles whose three strands are not on the same "
+          "input branch (TreeMesher branch_alpha_cutoff). Disabled when equal to Alpha cutoff (Kinetic).");
+    }
+  }
+  {
+    int look_ahead = static_cast<int>(meshing_settings.look_ahead);
+    if (ImGui::DragInt("Look ahead", &look_ahead, 1, 0, 1024)) {
+      meshing_settings.look_ahead = static_cast<size_t>(glm::max(0, look_ahead));
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Extra sections above floor(t)+1 when deciding whether a triangle's strands share an input branch "
+          "for Branch alpha cutoff (0 = default). Out-of-range heights clamp to the last valid index.");
+    }
+  }
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Export kinDS segment-builder debug SVGs during meshing.");
@@ -6374,39 +6411,6 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::InspectSharedMeshingSettings(
         "Co-smooth bark corner UVs with the same iterations and strength as positions. Circumferential wrap "
         "discontinuities are lifted into a continuous chart before averaging, then each bark triangle is "
         "re-unwrapped. Affects meshing buffer hash when iterations > 0 and this is unchecked.");
-  }
-  {
-    float alpha_cutoff = static_cast<float>(meshing_settings.alpha_cutoff);
-    if (ImGui::DragFloat("Alpha cutoff", &alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
-      meshing_settings.alpha_cutoff = static_cast<double>(glm::max(0.0f, alpha_cutoff));
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip(
-          "kinDS alpha / radius cutoff for inside-outside classification (TreeMesher alpha_cutoff). "
-          "Affects radius events and boundary meshing.");
-    }
-  }
-  {
-    float branch_alpha_cutoff = static_cast<float>(meshing_settings.branch_alpha_cutoff);
-    if (ImGui::DragFloat("Branch alpha cutoff", &branch_alpha_cutoff, 0.1f, 0.0f, 1e6f, "%.3f")) {
-      meshing_settings.branch_alpha_cutoff = static_cast<double>(glm::max(0.0f, branch_alpha_cutoff));
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip(
-          "kinDS radius cutoff for Delaunay triangles whose three strands are not on the same input branch "
-          "(TreeMesher branch_alpha_cutoff). Disabled when equal to Alpha cutoff.");
-    }
-  }
-  {
-    int look_ahead = static_cast<int>(meshing_settings.look_ahead);
-    if (ImGui::DragInt("Look ahead", &look_ahead, 1, 0, 1024)) {
-      meshing_settings.look_ahead = static_cast<size_t>(glm::max(0, look_ahead));
-    }
-    if (ImGui::IsItemHovered()) {
-      ImGui::SetTooltip(
-          "Extra sections above floor(t)+1 when deciding whether a triangle's strands share an input branch "
-          "for Branch alpha cutoff (0 = default). Out-of-range heights clamp to the last valid index.");
-    }
   }
 
   ImGui::DragFloat("UV height factor", &render_settings.segment_meshlet_render_parameters.uv_height_factor, 0.001f,
@@ -6793,7 +6797,16 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
     }
 
     const char* color_modes[] = {
-        "Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags", "Volume change heatmap"};
+        "Standard",
+        "Normals",
+        "UVs",
+        "Pair",
+        "Neighbor connectivity",
+        "Neighbor tags",
+        "Volume change heatmap",
+        "Meshlet index",
+        "Triangle buffer index",
+    };
     ImGui::Combo("Color mode", &render_settings.segment_meshlet_render_parameters.color_mode, color_modes,
                  IM_ARRAYSIZE(color_modes));
     if (ImGui::IsItemHovered()) {
@@ -6801,7 +6814,10 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
           "Neighbor tags: brown = -2 (bark), blue = -1 (interior/open), green = >=0 (lateral), "
           "magenta = <-2 (out of range).\n"
           "Volume change heatmap: white = 0%%, red = loss, blue = gain (clamped to +-30%%); "
-          "CPU volumes after download+smooth, updated every Volume measure interval frames while Playing.");
+          "CPU volumes after download+smooth, updated every Volume measure interval frames while Playing.\n"
+          "Meshlet index: rainbow by owning segment/meshlet id (golden-ratio hues).\n"
+          "Triangle buffer index: rainbow by GPU triangle slot (0=front → end of push-constant count). "
+          "A leftover buffer tail that is still drawn appears as the high-index end of the spectrum.");
     }
 
     ImGui::Checkbox("Debug neighbor connectivity",

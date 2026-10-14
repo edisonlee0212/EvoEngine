@@ -33,37 +33,14 @@ bool eco_sys_lab_package::InspectSettings(BranchesRenderParameters& target,
   if (ImGui::Checkbox("Use cubic Hermite spline", &target.use_cubic_hermite_spline))
     changed = true;
 
-  if (ImGui::TreeNodeEx("Use normal attribute for debugging")) {
-    if (ImGui::RadioButton("Disabled", (int*)&target.vertex_colors, BranchesRenderParameters::Default))
-      changed = true;
-    if (ImGui::RadioButton("Absolute Normals", (int*)&target.vertex_colors, BranchesRenderParameters::Normals))
-      changed = true;
-    if (ImGui::RadioButton("Tangents", (int*)&target.vertex_colors, BranchesRenderParameters::Tangents))
-      changed = true;
-    if (ImGui::RadioButton("Groups", (int*)&target.vertex_colors, BranchesRenderParameters::Groups))
-      changed = true;
-    if (ImGui::RadioButton("Degree", (int*)&target.vertex_colors, BranchesRenderParameters::Degree))
-      changed = true;
-    if (ImGui::RadioButton("Bark", (int*)&target.vertex_colors, BranchesRenderParameters::Bark))
-      changed = true;
-    if (ImGui::RadioButton("Normal Quaternion", (int*)&target.vertex_colors,
-                           BranchesRenderParameters::NormalQuaternion))
-      changed = true;
-    if (ImGui::RadioButton("Up", (int*)&target.vertex_colors, BranchesRenderParameters::Up))
-      changed = true;
-    if (ImGui::RadioButton("Initial Up", (int*)&target.vertex_colors, BranchesRenderParameters::InitUp))
-      changed = true;
-    if (ImGui::RadioButton("Axis", (int*)&target.vertex_colors, BranchesRenderParameters::Axis))
-      changed = true;
-    if (ImGui::RadioButton("Initial Axis", (int*)&target.vertex_colors, BranchesRenderParameters::InitAxis))
-      changed = true;
-    if (ImGui::RadioButton("Initial Angle", (int*)&target.vertex_colors, BranchesRenderParameters::InitAngle))
-      changed = true;
-    if (ImGui::RadioButton("Volume change heatmap", (int*)&target.vertex_colors,
-                           BranchesRenderParameters::VolumeChangeHeatmap))
-      changed = true;
-
-    ImGui::TreePop();
+  // Must match BranchesRenderParameters::VertexColors order.
+  int color_mode = static_cast<int>(target.vertex_colors);
+  if (ImGui::Combo("Color mode",
+                   {"Disabled", "Absolute Normals", "Tangents", "Groups", "Degree", "Bark", "Normal Quaternion", "Up",
+                    "Initial Up", "Axis", "Initial Axis", "Initial Angle", "Volume change heatmap"},
+                   color_mode)) {
+    target.vertex_colors = static_cast<BranchesRenderParameters::VertexColors>(color_mode);
+    changed = true;
   }
 
   if (ImGui::Checkbox("Use polar coordinates for UV", &target.use_polar_coordinates_for_uv)) {

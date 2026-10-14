@@ -20,3 +20,5 @@ public static const uint COLOR_NEIGHBORS = 3u;
 public static const uint COLOR_NEIGHBOR_CONNECTIVITY = 4u;
 public static const uint COLOR_NEIGHBOR_TAGS = 5u;
 public static const uint COLOR_VOLUME_CHANGE_HEATMAP = 6u;
+public static const uint COLOR_MESHLET_INDEX = 7u;
+public static const uint COLOR_TRIANGLE_BUFFER_INDEX = 8u;

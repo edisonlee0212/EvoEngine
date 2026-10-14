@@ -110,6 +110,25 @@ float4 NeighborTagColor(SegmentMeshletTriangle tri) {
   return float4(0.95, 0.15, 0.85, 1.0);
 }
 
+// HSV (h in [0,1), s=v=1) → RGB for debug index rainbows.
+float3 IndexRainbowColor(float t) {
+  float h = frac(t);
+  float3 k = float3(1.0, 2.0 / 3.0, 1.0 / 3.0);
+  float3 p = abs(frac(h + k) * 6.0 - 3.0);
+  return saturate(p - 1.0);
+}
+
+float4 MeshletIndexColor(int segment_index) {
+  // Distinct hues for adjacent ids (golden-ratio hash); not normalized by segment count.
+  float hue = frac(float(max(segment_index, 0)) * 0.61803398875);
+  return float4(IndexRainbowColor(hue), 1.0);
+}
+
+float4 TriangleBufferIndexColor(uint triangle_index) {
+  float denom = max(float(triangle_count) - 1.0, 1.0);
+  return float4(IndexRainbowColor(float(triangle_index) / denom), 1.0);
+}
+
 float3 SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, MAX_VERTEX_COUNT> vertices, uint vertex_index,
                            in float3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex, in float2 uv_coords,
                            in bool is_bark, in float4 debug_color) {
@@ -169,7 +188,9 @@ float3 SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, MAX_VERTEX_COUNT>
     }
     case COLOR_NEIGHBORS:
     case COLOR_NEIGHBOR_CONNECTIVITY:
-    case COLOR_NEIGHBOR_TAGS: {
+    case COLOR_NEIGHBOR_TAGS:
+    case COLOR_MESHLET_INDEX:
+    case COLOR_TRIANGLE_BUFFER_INDEX: {
       float4 color = debug_color;
       if (selection_overlay.a > 0.0) {
         color.rgb = lerp(color.rgb, selection_overlay.rgb, selection_overlay.a);
@@ -207,12 +228,17 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
       } else if (color_mode == COLOR_NEIGHBORS) {
         debug_color =
             tri.segment_pair_index != -1 ? float4(0.0, 1.0, 0.0, 1.0) : float4(1.0, 0.0, 0.0, 1.0);
+      } else if (color_mode == COLOR_TRIANGLE_BUFFER_INDEX) {
+        debug_color = TriangleBufferIndexColor(tri_id);
       }
 
       [[unroll]]
       for (int j = 0; j < 3; j++) {
         uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
+        if (color_mode == COLOR_MESHLET_INDEX) {
+          debug_color = MeshletIndexColor(int(segment_meshlet_vertex.segment_index));
+        }
         SetUpTriangleVertex(vertices, j, tri.normal[j].xyz, segment_meshlet_vertex, tri.uv[j].xy,
                             tri.neighbor_segment_index == -2, debug_color);
       }

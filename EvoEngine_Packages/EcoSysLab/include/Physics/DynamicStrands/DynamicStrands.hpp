@@ -538,6 +538,13 @@ class DynamicStrands {
 
   void Upload();
   void Download();
+  /// Upload strands / segments / pairs / segment data / foliage using the packed GPU layouts.
+  /// Does not touch meshing, hashed-grid, or constraint buffers.
+  void UploadPhysics();
+  /// Download the same physics buffers @ref UploadPhysics writes. Pair handles live in a separate
+  /// device buffer from @c GpuSegmentData and must not be read via a raw @c DownloadVector of
+  /// @c segment_data_list (that produces garbage handles and crashes pair lookups).
+  void DownloadPhysics();
 
   void CalculateGroups(const PhysicsParameters& physics_parameters) const;
   void Clear();

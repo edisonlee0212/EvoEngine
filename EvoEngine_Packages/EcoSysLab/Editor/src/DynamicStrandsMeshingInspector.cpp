@@ -126,16 +126,18 @@ void DynamicStrandsMeshingInspector::DrawDsKineticVoronoiMeshingSettings(
       DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines();
     }
 
-    ImGui::Combo(
-        "Color mode",
-        {"Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags", "Volume change heatmap"},
-        render_settings.segment_meshlet_render_parameters.color_mode);
+    ImGui::Combo("Color mode",
+                 {"Standard", "Normals", "UVs", "Pair", "Neighbor connectivity", "Neighbor tags",
+                  "Volume change heatmap", "Meshlet index", "Triangle buffer index"},
+                 render_settings.segment_meshlet_render_parameters.color_mode);
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Neighbor tags: brown = -2 (bark), blue = -1 (interior/open), green = >=0 (lateral), "
           "magenta = <-2 (out of range).\n"
           "Volume change heatmap: white = 0%%, red = loss, blue = gain (clamped to +-30%%); "
-          "CPU volumes after download+smooth, updated every Volume measure interval frames while Playing.");
+          "CPU volumes after download+smooth, updated every Volume measure interval frames while Playing.\n"
+          "Meshlet index: rainbow by owning segment/meshlet id.\n"
+          "Triangle buffer index: rainbow by GPU triangle slot (0=front).");
     }
 
     ImGui::Checkbox("Debug neighbor connectivity",

@@ -58,7 +58,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       Pair = 3,
       NeighborConnectivity = 4,
       NeighborTags = 5,
-      VolumeChangeHeatmap = 6
+      VolumeChangeHeatmap = 6,
+      /// Rainbow by owning physics segment / meshlet id (`GpuSegmentMeshletVertex::segment_index`).
+      MeshletIndex = 7,
+      /// Rainbow by triangle index in the GPU buffer (0 = front). Leftover tail draws as high-index hues.
+      TriangleBufferIndex = 8,
     };
     int color_mode = 0;
     float uv_height_factor = 0.025f;
@@ -112,7 +116,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float spline_tension = 1.0f;
     /// Laplacian smoothing iterations on welded bark triangles before GPU upload (0 = disabled).
     /// Reuses @ref StrandModelMeshGenerator::MeshSmoothing (no ground-plane lock).
-    int bark_smooth_iterations = 1;
+    int bark_smooth_iterations = 0;
     /// Per-iteration blend toward the neighbor average: 0 = no move, 1 = full Laplacian step.
     float bark_smooth_strength = 0.5f;
     /// When true, vertices on the bark manifold boundary (edges with only one bark triangle) keep

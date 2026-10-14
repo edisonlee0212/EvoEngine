@@ -85,7 +85,7 @@ bool DynamicStrandsInitializationInspector::Inspect(InspectorContext& context,
 
   editor_layer->DragAndDropButton<BasicFoliageDescriptor>(target.foliage_descriptor, "Foliage Descriptor");
 
-  if (ImGui::TreeNode("Meshing Properties")) {
+  if (ImGui::TreeNode("Meshing Properties (Alpha Shape)")) {
 #ifdef USE_CGAL
     if (ImGui::Checkbox("Use CGAL", &target.use_cgal))
       changed = true;
@@ -94,8 +94,14 @@ bool DynamicStrandsInitializationInspector::Inspect(InspectorContext& context,
       changed = true;
     if (ImGui::DragFloat("Alpha", &target.alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
       changed = true;
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Used at Alpha Shape initialization only. Not Kinetic Voronoi Alpha cutoff.");
+    }
     if (ImGui::DragFloat("Bifurcation Alpha", &target.bifurcation_alpha, 0.000001f, 0.0f, 1.0f, "%.6f"))
       changed = true;
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("Used at Alpha Shape initialization only. Not Kinetic Voronoi Branch alpha cutoff.");
+    }
     if (ImGui::DragFloat("Max Distance Squared", &target.max_dist_squared, 0.000001f, 0.0f, 1.0f, "%.6f"))
       changed = true;
     if (ImGui::Checkbox("Use cubic Hermite spline", &target.use_cubic_hermite_spline))
