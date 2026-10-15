@@ -27,6 +27,7 @@
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabPaths.hpp"
 #include "KineticMeshCachePipeline.hpp"
+#include "Platform.hpp"
 #include "PrecomputeWorkerProcess.hpp"
 #include "ProjectManager.hpp"
 #include "SceneCameraBridge.hpp"
@@ -1049,6 +1050,10 @@ void DynamicStrandsDemo::ResetEnvironment() {
   const auto owner = GetOwner();
   const auto scene = GetScene();
   const auto children = scene->GetChildren(owner);
+
+  // Frames in flight still bind DynamicTreeStrands GPU buffers. Destroying them mid-submit causes
+  // VK_ERROR_DEVICE_LOST on the next experiment's Buffer::UploadDataAsync.
+  Platform::DrainGpuResourceWork();
 
   // Preserve meshing mode across DTS recreate (e.g. Both) so PhysicsDemo experiments do not reset it.
   MeshingType preserved_meshing_type = MeshingType::Both;

@@ -5149,8 +5149,6 @@ bool DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       EVOENGINE_WARNING("Meshing succeeded but debug mesh export failed with an unknown error.");
     }
     last_meshing_succeeded_ = true;
-    CaptureInitialMeshletVolumes();
-    return true;
   } catch (const std::exception& exception) {
     EVOENGINE_ERROR("Kinetic Voronoi meshing failed: " << exception.what()
                                                        << "; cancelling update, previous mesh buffers kept.");
@@ -5167,6 +5165,16 @@ bool DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     last_meshing_succeeded_ = false;
     return false;
   }
+
+  // Volume capture uploads are independent of meshing success; do not roll back mesh buffers on GPU errors.
+  try {
+    CaptureInitialMeshletVolumes();
+  } catch (const std::exception& exception) {
+    EVOENGINE_WARNING("Meshing succeeded but initial meshlet volume capture failed: " << exception.what());
+  } catch (...) {
+    EVOENGINE_WARNING("Meshing succeeded but initial meshlet volume capture failed with an unknown error.");
+  }
+  return true;
 }
 
 void DsKineticVoronoiMeshing::PrepareSegmentMeshletsForGpu(
