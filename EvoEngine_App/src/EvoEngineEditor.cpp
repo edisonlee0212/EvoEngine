@@ -98,6 +98,8 @@ struct EditorCommandLine {
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   bool preview_capture_full_ray_variant = false;
   std::optional<float> preview_capture_firefly_clamp_threshold;
+  std::optional<float> preview_capture_display_firefly_strength;
+  std::optional<float> preview_capture_display_firefly_ratio;
   std::optional<bool> preview_capture_accumulate_samples;
   std::optional<bool> preview_capture_sss_delayed;
   std::optional<std::pair<size_t, float>> preview_sss_profile_scale_edit;
@@ -680,6 +682,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
       }
       command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-display-firefly-strength") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-display-firefly-strength requires a value from 0 to 1.");
+      command_line.preview_capture_display_firefly_strength = std::clamp(std::stof(argv[++arg_index]), 0.0f, 1.0f);
+    } else if (argument == "--preview-display-firefly-ratio") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-display-firefly-ratio requires a value from 1 to 20.");
+      command_line.preview_capture_display_firefly_ratio = std::clamp(std::stof(argv[++arg_index]), 1.0f, 20.0f);
     } else if (argument == "--preview-accumulate-samples") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-accumulate-samples requires enabled or disabled.");
@@ -1005,6 +1015,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_accumulate_samples && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-accumulate-samples requires --capture-demo-preview.");
   }
+  if ((command_line.preview_capture_display_firefly_strength || command_line.preview_capture_display_firefly_ratio) &&
+      !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("Display firefly overrides require --capture-demo-preview.");
   if (command_line.preview_sss_profile_scale_edit &&
       (!command_line.demo_preview_capture_path ||
        (command_line.demo_profile_id != DemoProfileId::SubsurfaceScattering && !command_line.preview_sss_fixture)))
@@ -2534,7 +2547,9 @@ void CaptureDemoPreview(
     const std::optional<bool>& preview_restir_temporal_adaptive_cap,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
-    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_accumulate_samples,
+    const std::optional<float>& preview_firefly_clamp_threshold,
+    const std::optional<float>& preview_display_firefly_strength,
+    const std::optional<float>& preview_display_firefly_ratio, const std::optional<bool>& preview_accumulate_samples,
     const std::optional<bool>& preview_sss_delayed,
     const std::optional<std::pair<size_t, float>>& preview_sss_profile_scale_edit,
     const std::optional<bool>& preview_nrd_denoising, const std::optional<bool>& preview_nrd_reblur,
@@ -2653,6 +2668,10 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
     scene_camera->ResetFrameCount();
   }
+  if (preview_display_firefly_strength)
+    scene_camera->camera_settings.pt_display_firefly_strength = *preview_display_firefly_strength;
+  if (preview_display_firefly_ratio)
+    scene_camera->camera_settings.pt_display_firefly_ratio = *preview_display_firefly_ratio;
   if (preview_accumulate_samples) {
     scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
     scene_camera->ResetFrameCount();
@@ -3564,6 +3583,7 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_restir_temporal_history_cap,
               command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
+              command_line.preview_capture_display_firefly_strength, command_line.preview_capture_display_firefly_ratio,
               command_line.preview_capture_accumulate_samples, command_line.preview_capture_sss_delayed,
               command_line.preview_sss_profile_scale_edit, command_line.preview_capture_nrd_denoising,
               command_line.preview_capture_nrd_reblur, command_line.preview_capture_nrd_temporal_aa,

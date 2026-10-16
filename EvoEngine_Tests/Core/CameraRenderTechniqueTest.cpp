@@ -138,6 +138,8 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_FLOAT_EQ(default_settings.nrd_reblur_lobe_angle_fraction, 0.15f);
   EXPECT_FLOAT_EQ(default_settings.nrd_reblur_roughness_fraction, 0.15f);
   EXPECT_FLOAT_EQ(default_settings.firefly_clamp_threshold, 10.0f);
+  EXPECT_FLOAT_EQ(default_settings.pt_display_firefly_strength, 0.0f);
+  EXPECT_FLOAT_EQ(default_settings.pt_display_firefly_ratio, 4.0f);
 
   const auto& debug_views = Camera::GetRayDebugViewNames();
   ASSERT_EQ(debug_views.size(), Camera::kRayDebugViewCount);
@@ -255,6 +257,9 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_threshold), offsetof(CameraInfoBlock, accumulate_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, accumulate_samples), offsetof(CameraInfoBlock, ray_debug_view));
   EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
+  EXPECT_LT(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap),
+            offsetof(CameraInfoBlock, pt_display_firefly_strength));
+  EXPECT_LT(offsetof(CameraInfoBlock, pt_display_firefly_ratio), offsetof(CameraInfoBlock, shadow_split_distances));
 }
 
 TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane) {
@@ -378,6 +383,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
+    camera.camera_settings.pt_display_firefly_strength = 0.75f;
+    camera.camera_settings.pt_display_firefly_ratio = 6.0f;
     camera.camera_settings.restir_sss_delayed_reconnection = true;
     camera.camera_settings.nrd_denoising = false;
     camera.camera_settings.nrd_reblur = false;
@@ -424,6 +431,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_EQ(restored.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
     EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.pt_display_firefly_strength, 0.75f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.pt_display_firefly_ratio, 6.0f);
     EXPECT_TRUE(restored.camera_settings.restir_sss_delayed_reconnection);
     EXPECT_FALSE(restored.camera_settings.nrd_denoising);
     EXPECT_FALSE(restored.camera_settings.nrd_reblur);
@@ -473,6 +482,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     node.remove("nrd_relax_depth_threshold");
     node.remove("nrd_relax_anti_firefly");
     node.remove("nrd_relax_roughness_edge_stopping");
+    node.remove("pt_display_firefly_strength");
+    node.remove("pt_display_firefly_ratio");
     node.remove("restir_sss_delayed_reconnection");
     node["indirect_sss"] = true;
     Camera legacy;
@@ -484,6 +495,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     rewritten << YAML::EndMap;
     EXPECT_FALSE(YAML::Load(rewritten.c_str())["indirect_sss"]);
     EXPECT_TRUE(legacy.camera_settings.nrd_denoising);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.pt_display_firefly_strength, 0.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.pt_display_firefly_ratio, 4.0f);
     EXPECT_TRUE(legacy.camera_settings.nrd_reblur);
     EXPECT_TRUE(legacy.camera_settings.nrd_temporal_aa);
     EXPECT_EQ(legacy.camera_settings.nrd_relax_atrous_iterations, 2);

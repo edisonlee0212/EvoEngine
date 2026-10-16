@@ -216,6 +216,8 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t restir_spatial_hybrid = 0;
   uint32_t restir_enhanced_mode = 0;
   uint32_t restir_temporal_adaptive_cap = 1;
+  float pt_display_firefly_strength = 0.0f;
+  float pt_display_firefly_ratio = 4.0f;
   alignas(16) glm::vec4 shadow_split_distances = {};
 
   /**

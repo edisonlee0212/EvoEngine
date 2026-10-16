@@ -61,3 +61,6 @@
 [submodule "Resources/EvoEngine-DemoProjects"]
 	path = Resources/EvoEngine-DemoProjects
 	url = https://github.com/edisonlee0212/EvoEngine-DemoProjects.git
+[submodule "Extern/3rdParty/NRD/NRD"]
+	path = Extern/3rdParty/NRD/NRD
+	url = https://github.com/NVIDIA-RTX/NRD.git

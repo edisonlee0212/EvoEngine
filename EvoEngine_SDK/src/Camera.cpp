@@ -721,6 +721,8 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.bounce = camera_settings.bounce;
   camera_info_block.gamma = camera_settings.gamma;
   camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
+  camera_info_block.pt_display_firefly_strength = glm::clamp(camera_settings.pt_display_firefly_strength, 0.0f, 1.0f);
+  camera_info_block.pt_display_firefly_ratio = glm::max(camera_settings.pt_display_firefly_ratio, 1.0f);
   camera_info_block.ray_debug_view =
       static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
   auto ray_outputs = camera_settings.ray_outputs;

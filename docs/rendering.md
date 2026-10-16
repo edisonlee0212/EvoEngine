@@ -83,6 +83,16 @@ uses a dedicated closest-hit group in Ray Tracing; RayQuery evaluates it in comp
 Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
 unchanged cameras continue accumulating.
 
+For Path Tracing with NRD disabled, **Firefly threshold** clamps each path sample before it enters the camera's
+radiance history. **Display firefly strength** (default 0, off) separately suppresses isolated bright pixels in the
+displayed average; **Display firefly ratio** (default 4) sets how much brighter a pixel must be than its brightest
+3×3 neighbor before suppression. The display filter reads the accumulated history but writes only the current
+result, so adjusting either display control does not restart accumulation. It runs only in the Beauty view and can
+also suppress legitimate one-pixel highlights. Compare against the unfiltered view when judging final image quality.
+Setting **Firefly threshold** to 0 disables the sample clamp, including its bias and protection against outliers.
+Preview captures accept `--preview-display-firefly-strength 0..1` and `--preview-display-firefly-ratio 1..20` for
+matched filtered and unfiltered comparisons without editing the scene.
+
 ### ReSTIR PT ray integrators
 
 **Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.

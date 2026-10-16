@@ -3370,11 +3370,18 @@ void RenderLayer::PrepareSceneForRendering(
       bool need_ray_tracing_debug_views = false;
       bool need_ray_query_debug_views = false;
       bool need_nrd = false;
+      bool need_pt_display_filter = false;
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
         const auto mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
         need_nrd |= Camera::IsRayCameraRenderMode(mode) && camera->camera_settings.nrd_denoising;
+        need_pt_display_filter |=
+            Camera::IsRayCameraRenderMode(mode) &&
+            camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing &&
+            (!Camera::NrdDenoisingAvailable() || !camera->camera_settings.nrd_denoising) &&
+            camera->camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty &&
+            camera->camera_settings.pt_display_firefly_strength > 0.0f;
         const bool restir_pt_requested =
             Camera::IsRayCameraRenderMode(mode) &&
             camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
@@ -3407,6 +3414,7 @@ void RenderLayer::PrepareSceneForRendering(
       }
       if (optional) {
         need_nrd = true;
+        need_pt_display_filter = true;
         need_ray_tracing |= Platform::RayTracingEnabled();
         need_ray_query |= Platform::RayQueryEnabled();
         if (Platform::RayQueryEnabled()) {
@@ -3421,6 +3429,9 @@ void RenderLayer::PrepareSceneForRendering(
       const bool sss_spatial_requested = need_restir_pt_spatial;
       PrepareRayCameraFallbacks(need_ray_tracing, need_ray_query, has_sss && need_restir_pt,
                                 need_restir_pt_temporal || need_restir_pt_enhanced, need_restir_pt_spatial);
+      if (need_pt_display_filter && !pt_display_firefly_pipeline_)
+        pt_display_firefly_pipeline_ = RequestRestirPipeline(
+            per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, "PtDisplayFirefly.slang");
       const auto variant_update =
           ray_camera_shader_variant_cache_->Update(feature_mask, need_ray_tracing, need_ray_query,
                                                    need_ray_tracing_debug_views || force_full_ray_camera_shader_variant,
@@ -3574,6 +3585,7 @@ void RenderLayer::PrepareSceneForRendering(
       }
       if (optional) {
         bool ready = true;
+        ready &= pt_display_firefly_pipeline_ && pt_display_firefly_pipeline_->Initialized();
         const auto check_variant = [&](const RayCameraShaderVariantStats& stats) {
           ready &= stats.ready;
           if (stats.failed && scene_shader_prewarm_error_.empty())
@@ -9925,6 +9937,30 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       }
     }
 #endif
+    if (camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing &&
+        (!Camera::NrdDenoisingAvailable() || !camera->camera_settings.nrd_denoising) &&
+        camera->camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty &&
+        camera->camera_settings.pt_display_firefly_strength > 0.0f && pt_display_firefly_pipeline_ &&
+        pt_display_firefly_pipeline_->Initialized()) {
+      auto filter_pass = RayQueryCameraPass::CreateDescriptor({}, "PT Display Firefly Filter");
+      filter_pass.dependencies.push_back(post_ray_tracing_dependency);
+      camera_render_graph.AddPass(filter_pass, [&](const RenderGraphExecutionContext& context) {
+        RayQueryCameraPass::Parameters parameters{
+            camera,
+            pt_display_firefly_pipeline_,
+            per_frame_descriptor_sets_[current_frame_index],
+            ray_tracing_descriptor_sets_[current_frame_index],
+            camera_index,
+            record_commands,
+            camera->AcquireRayCameraOutputDescriptor(current_frame_index, Platform::GetFrameCount(),
+                                                     ray_tracing_camera_output_layout_),
+            active_camera_transient_resources,
+            &ray_camera_history};
+        parameters.commit_history = false;
+        RayQueryCameraPass::Execute(context, parameters);
+      });
+      post_ray_tracing_dependency = filter_pass.name;
+    }
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
           VolumetricCloudsPass::CreateRayTracingDescriptor(post_ray_tracing_dependency.c_str()),
@@ -10171,6 +10207,7 @@ void RenderLayer::OnDestroy() {
   ray_tracing_camera_fallback_pipeline_.reset();
   ray_query_camera_pipeline_.reset();
   restir_pt_nrd_guides_pipeline_.reset();
+  pt_display_firefly_pipeline_.reset();
   restir_pt_nrd_composite_pipeline_.reset();
   nrd_temporal_aa_pipeline_.reset();
   nrd_temporal_aa_resolve_pipeline_.reset();

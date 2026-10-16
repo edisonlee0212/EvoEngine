@@ -4576,12 +4576,26 @@ TEST(GpuService, RgbNrdCameraShadersCompile) {
                       "\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n#define EE_ENABLE_NRD_SIGNALS 1\n";
   Shader raygen;
   EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.slang"));
-  for (const auto name :
-       {"RayQueryCamera", "RestirPtCandidate", "RestirPtResolve", "RestirPtSpatial", "RestirPtSpatialHybrid",
-        "RestirPtSpatialCombine", "RestirPtSpatialResolve", "RestirPtEnhancedSpatialHybrid", "RestirPtEnhancedCombine",
-        "RestirPtTemporalForward", "RestirPtTemporalForwardHybrid", "RestirPtTemporalBackward",
-        "RestirPtTemporalBackwardHybrid", "RestirPtTemporalCombine", "RestirPtNrdGuides", "RestirPtNrdReblurPack",
-        "RestirPtNrdComposite", "NrdTemporalAa", "NrdTemporalAaResolve"}) {
+  for (const auto name : {"RayQueryCamera",
+                          "RestirPtCandidate",
+                          "RestirPtResolve",
+                          "RestirPtSpatial",
+                          "RestirPtSpatialHybrid",
+                          "RestirPtSpatialCombine",
+                          "RestirPtSpatialResolve",
+                          "RestirPtEnhancedSpatialHybrid",
+                          "RestirPtEnhancedCombine",
+                          "RestirPtTemporalForward",
+                          "RestirPtTemporalForwardHybrid",
+                          "RestirPtTemporalBackward",
+                          "RestirPtTemporalBackwardHybrid",
+                          "RestirPtTemporalCombine",
+                          "RestirPtNrdGuides",
+                          "RestirPtNrdReblurPack",
+                          "RestirPtNrdComposite",
+                          "NrdTemporalAa",
+                          "NrdTemporalAaResolve",
+                          "PtDisplayFirefly"}) {
     SCOPED_TRACE(name);
     Shader shader;
     EXPECT_TRUE(

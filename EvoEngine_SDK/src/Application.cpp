@@ -208,6 +208,9 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "bounce" << YAML::Value << camera.camera_settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
+  out << YAML::Key << "pt_display_firefly_strength" << YAML::Value
+      << camera.camera_settings.pt_display_firefly_strength;
+  out << YAML::Key << "pt_display_firefly_ratio" << YAML::Value << camera.camera_settings.pt_display_firefly_ratio;
   out << YAML::Key << "nrd_denoising" << YAML::Value << camera.camera_settings.nrd_denoising;
   out << YAML::Key << "nrd_reblur" << YAML::Value << camera.camera_settings.nrd_reblur;
   out << YAML::Key << "nrd_temporal_aa" << YAML::Value << camera.camera_settings.nrd_temporal_aa;
@@ -312,6 +315,10 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.gamma = in["gamma"].as<float>();
   if (in["firefly_clamp_threshold"])
     camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
+  if (in["pt_display_firefly_strength"])
+    camera.camera_settings.pt_display_firefly_strength = in["pt_display_firefly_strength"].as<float>();
+  if (in["pt_display_firefly_ratio"])
+    camera.camera_settings.pt_display_firefly_ratio = in["pt_display_firefly_ratio"].as<float>();
   if (in["nrd_denoising"])
     camera.camera_settings.nrd_denoising = in["nrd_denoising"].as<bool>();
   if (in["nrd_reblur"])

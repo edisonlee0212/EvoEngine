@@ -90,6 +90,42 @@ def install_dir_for_preset(root: Path, presets: dict[str, Any], preset_name: str
     return expand_preset_path(install_dir, root)
 
 
+def nrd_source_for_install(
+    root: Path, preset: dict[str, Any], build_dir: Path, cmake_args: list[str], reuse_cache: bool
+) -> Path | None:
+    values = dict(preset.get("cacheVariables", {}))
+    if reuse_cache:
+        for line in (build_dir / "CMakeCache.txt").read_text(encoding="utf-8").splitlines():
+            if ":" in line and "=" in line:
+                key, value = line.split("=", 1)
+                values[key.split(":", 1)[0]] = value
+    else:
+        for argument in cmake_args:
+            if argument.startswith("-D") and "=" in argument:
+                key, value = argument[2:].split("=", 1)
+                values[key.split(":", 1)[0]] = value
+    if str(values.get("EVOENGINE_ENABLE_NRD", "OFF")).upper() not in {"ON", "TRUE", "YES", "1"}:
+        return None
+    source = values.get("EVOENGINE_NRD_SOURCE_DIR", "")
+    if not source:
+        raise SystemExit("NRD is enabled but EVOENGINE_NRD_SOURCE_DIR is empty.")
+    return expand_preset_path(str(source), root)
+
+
+def ensure_nrd_source(root: Path, source_dir: Path, default_dir: Path) -> None:
+    if (source_dir / "Include" / "NRD.h").is_file():
+        return
+    if source_dir != default_dir:
+        raise SystemExit(f"NRD source checkout is missing or incomplete: {source_dir}")
+    try:
+        relative = source_dir.relative_to(root.resolve())
+    except ValueError:
+        raise SystemExit(f"NRD submodule path is outside the repository: {source_dir}") from None
+    run_step("Initialize NRD submodule", ["git", "submodule", "update", "--init", "--", relative.as_posix()])
+    if not (source_dir / "Include" / "NRD.h").is_file():
+        raise SystemExit(f"NRD submodule is incomplete after initialization: {source_dir}")
+
+
 def clean_install_dir(root: Path, install_dir: Path) -> None:
     if not install_dir.exists():
         return
@@ -353,7 +389,17 @@ def main() -> int:
     if not build_preset_exists(presets, build_preset):
         raise SystemExit(f"Build preset not found: {build_preset}")
 
-    if args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists():
+    reuse_cache = args.incremental and not args.cmake_arg and (build_dir / "CMakeCache.txt").exists()
+    preset = configure_preset(presets, args.preset)
+    source_dir = nrd_source_for_install(root, preset, build_dir, args.cmake_arg, reuse_cache)
+    if source_dir is not None:
+        default_value = preset.get("cacheVariables", {}).get("EVOENGINE_NRD_SOURCE_DIR")
+        if not default_value:
+            raise SystemExit("NRD-enabled preset must define EVOENGINE_NRD_SOURCE_DIR.")
+        default_source = expand_preset_path(default_value, root)
+        ensure_nrd_source(root, source_dir, default_source)
+
+    if reuse_cache:
         print(f"Skipping configure; reusing {build_dir / 'CMakeCache.txt'}", flush=True)
     else:
         configure_command = [

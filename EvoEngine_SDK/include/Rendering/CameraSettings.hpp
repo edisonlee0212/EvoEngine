@@ -111,6 +111,8 @@ struct CameraSettings {
    * \brief Luminance threshold used to clamp high-energy ray tracing samples before accumulation.
    */
   float firefly_clamp_threshold = 10.0f;
+  float pt_display_firefly_strength = 0.0f;
+  float pt_display_firefly_ratio = 4.0f;
 
   /** @brief Selects a shared RTX/RayQuery diagnostic output. */
   RayDebugView ray_debug_view = RayDebugView::Beauty;

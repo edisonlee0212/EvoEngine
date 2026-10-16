@@ -746,6 +746,17 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
+    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing &&
+        (!Camera::NrdDenoisingAvailable() || !camera.camera_settings.nrd_denoising) &&
+        camera.camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty) {
+      changed |= ImGui::SliderFloat("Display firefly strength", &camera.camera_settings.pt_display_firefly_strength,
+                                    0.0f, 1.0f);
+      changed |=
+          ImGui::SliderFloat("Display firefly ratio", &camera.camera_settings.pt_display_firefly_ratio, 1.0f, 20.0f);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Suppress isolated bright pixels relative to their eight neighbors; accumulation is unchanged.");
+    }
     if (ImGui::Checkbox("Accumulate Samples", &camera.camera_settings.accumulate_samples)) {
       camera.ResetFrameCount();
       changed = true;

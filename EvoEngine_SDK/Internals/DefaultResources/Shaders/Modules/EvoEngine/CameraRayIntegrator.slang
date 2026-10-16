@@ -303,6 +303,7 @@ float3 EE_CAMERA_REJECT_INVALID_RADIANCE(const float3 radiance, inout uint inval
 }
 float3 EE_CAMERA_APPLY_FIREFLY_CLAMP(const Camera camera, const float3 radiance, inout uint firefly_clamps) {
   const float threshold = max(camera.firefly_clamp_threshold, 0.0f);
+  if (threshold == 0.0f) return radiance;
   const float luminance = dot(radiance, float3(1.0f / 3.0f));
   if (luminance > threshold) {
     firefly_clamps += 1u;

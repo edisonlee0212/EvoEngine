@@ -2525,6 +2525,8 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "bounce" << YAML::Value << settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
+  out << YAML::Key << "pt_display_firefly_strength" << YAML::Value << settings.pt_display_firefly_strength;
+  out << YAML::Key << "pt_display_firefly_ratio" << YAML::Value << settings.pt_display_firefly_ratio;
   out << YAML::Key << "ray_integrator" << YAML::Value << Camera::GetRayIntegratorName(settings.ray_integrator);
   out << YAML::Key << "nrd_denoising" << YAML::Value << settings.nrd_denoising;
   out << YAML::Key << "nrd_reblur" << YAML::Value << settings.nrd_reblur;
@@ -2577,6 +2579,8 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "bounce", settings.bounce);
   ReadYamlValue(in, "gamma", settings.gamma);
   ReadYamlValue(in, "firefly_clamp_threshold", settings.firefly_clamp_threshold);
+  ReadYamlValue(in, "pt_display_firefly_strength", settings.pt_display_firefly_strength);
+  ReadYamlValue(in, "pt_display_firefly_ratio", settings.pt_display_firefly_ratio);
   if (const auto integrator = in["ray_integrator"]) {
     settings.ray_integrator = Camera::ParseRayIntegrator(integrator.as<std::string>(), settings.ray_integrator);
   }

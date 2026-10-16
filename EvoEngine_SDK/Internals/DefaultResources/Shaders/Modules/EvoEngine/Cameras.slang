@@ -35,6 +35,8 @@ public struct Camera {
   public uint restir_spatial_hybrid;
   public uint restir_enhanced_mode;
   public uint restir_temporal_adaptive_cap;
+  public float pt_display_firefly_strength;
+  public float pt_display_firefly_ratio;
   public float4 shadow_split_distances;
 };
 
