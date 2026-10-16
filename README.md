@@ -48,6 +48,8 @@ generated demo resources and missing launcher thumbnails.
 
 For detailed setup, platform requirements, Linux commands, VSCode notes, and install layout, see [docs/building.md](docs/building.md).
 
+See [shader preparation](docs/shader-preparation.md) for editor startup progress, background camera-mode compilation and persistent shader caches.
+
 ## What Is In The Framework?
 
 | Area | Purpose |

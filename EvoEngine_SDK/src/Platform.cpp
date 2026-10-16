@@ -8,6 +8,7 @@
 #include "Console.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuService.hpp"
+#include "ImGuiLayer.hpp"
 #include "Mesh.hpp"
 #include "Profiler.hpp"
 #include "RenderLayer.hpp"
@@ -1666,7 +1667,9 @@ void Platform::CreateInstance() {
     window_layer->primary_monitor_ = glfwGetPrimaryMonitor();
     glfwSetMonitorCallback(window_layer->SetMonitorCallback);
 
-    window_layer->window_size_ = application_info.default_window_size;
+    const bool startup_window = application_info.application_mode == ApplicationMode::Editor &&
+                                ApplicationContext::Get().GetLayer<ImGuiLayer>();
+    window_layer->window_size_ = startup_window ? glm::ivec2(640, 240) : application_info.default_window_size;
     window_layer->window_resizable_ = application_info.window_resizable;
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     glfwWindowHint(GLFW_RESIZABLE, application_info.window_resizable ? GLFW_TRUE : GLFW_FALSE);
@@ -1688,10 +1691,10 @@ void Platform::CreateInstance() {
     }
 #endif
 
-    if (application_info.full_screen)
+    if (application_info.full_screen && !startup_window)
       glfwMaximizeWindow(window_layer->window_);
     window_layer->InstallCustomTitleBar();
-    if (application_info.window_mode) {
+    if (application_info.window_mode && !startup_window) {
       window_layer->InitializeDisplayPolicy(*application_info.window_mode, application_info.default_window_size,
                                             application_info.window_resizable,
                                             application_info.allow_resolution_change);
@@ -1756,9 +1759,11 @@ void Platform::CreateInstance() {
   required_extensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #endif
 
+  if (vk_supported_instance_extensions_.count(VK_EXT_DEBUG_UTILS_EXTENSION_NAME) != 0) {
+    required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    required_instance_extension_names_.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  }
 #ifdef GRAPHICS_VALIDATION
-  required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  required_instance_extension_names_.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   required_extensions.emplace_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
   required_instance_extension_names_.emplace_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
 #endif
@@ -1927,6 +1932,10 @@ void Platform::SelectPhysicalDevice() {
   };
   const auto effective_api_version =
       std::min(volkGetInstanceVersion(), selected_physical_device->properties.apiVersion);
+#ifdef EVOENGINE_ENABLE_NRD
+  if (selected_physical_device->CheckExtensionSupport(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME))
+    require_device_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+#endif
   if (effective_api_version < VK_API_VERSION_1_3) {
     require_device_extension(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
   }

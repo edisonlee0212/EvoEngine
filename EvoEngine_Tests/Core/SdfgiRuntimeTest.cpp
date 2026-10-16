@@ -358,6 +358,7 @@ TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   const auto entity = scene->CreateEntity("SDFGI receiver camera");
   const auto camera = scene->GetOrSetPrivateComponent<Camera>(entity).lock();
   auto utility = std::make_shared<Camera>();
+  camera->camera_render_mode = utility->camera_render_mode = Camera::CameraRenderMode::Rasterization;
   EXPECT_TRUE(IsSdfgiCameraEligible(scene, camera, utility, false, false, false));
   EXPECT_TRUE(IsSdfgiCameraEligible(scene, utility, utility, false, false, false));
   EXPECT_FALSE(IsSdfgiCameraEligible(scene, utility, {}, false, false, false));

@@ -13,6 +13,10 @@ ComputePipeline::~ComputePipeline() {
 }
 
 void ComputePipeline::Initialize() {
+  if (Shader::RunPreparationTask("Vulkan compute pipeline: " + Shader::GetCurrentPreparation(), [this] {
+        Initialize();
+      }))
+    return;
   creation_feedback_ = {};
   if (!Platform::Initialized())
     return;

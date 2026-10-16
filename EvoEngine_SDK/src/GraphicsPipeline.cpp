@@ -6,6 +6,10 @@
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {
+  if (Shader::RunPreparationTask("Vulkan graphics pipeline: " + Shader::GetCurrentPreparation(), [this] {
+        Initialize();
+      }))
+    return;
   creation_feedback_ = {};
   if (!Platform::Initialized())
     return;

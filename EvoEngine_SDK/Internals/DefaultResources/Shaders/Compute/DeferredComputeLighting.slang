@@ -27,6 +27,11 @@ Texture2D<uint4> inMetadata;
 [[vk::binding(5, 4)]]
 [vk::image_format("rgba32f")] RWTexture2D<float4> outColor;
 
+[[vk::binding(6, 4)]]
+[vk::image_format("rgba16f")] RWTexture2D<float4> outSubsurfaceDiffuse;
+
+[[vk::binding(7, 4)]] Texture2D<float4> inSubsurfaceBackface;
+
 [shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint width;
   uint height;
@@ -36,6 +41,8 @@ Texture2D<uint4> inMetadata;
     return;
   }
 
+  const bool subsurface_enabled = (EE_BASIC_CONSTANTS.meshlet_culling_flags & 2u) != 0u;
+  if (subsurface_enabled) outSubsurfaceDiffuse[pixel] = float4(0);
   const int camera_index = EE_BASIC_CONSTANTS.camera_index;
   const int indirect_lighting_debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   const uint sdfgi_debug_view = EE_BASIC_CONSTANTS.meshlet_culling_flags >> 8u;
@@ -135,9 +142,11 @@ Texture2D<uint4> inMetadata;
 
   float3 output_color = indirect_lighting_debug_view == 0 ? albedo : float3(0.0f);
   if (encoded_specular_f90 >= 0.0f) {
+    float3 direct_diffuse;
+    float3 ambient_diffuse;
     const float3 direct =
         EE_FUNC_CALCULATE_LIGHTS(true, albedo, 1.0f, linear_depth, shading_normal, view_direction, world_position,
-                                 surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90);
+                                 surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90, direct_diffuse);
 #ifdef EE_AUTOMATIC_SDFGI
     const float3 ambient = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
 #elif defined(EE_AUTOMATIC_HDDAGI)
@@ -148,12 +157,75 @@ Texture2D<uint4> inMetadata;
 #endif
         albedo, shading_normal, view_direction, world_position, surface.metallic, surface.roughness,
         surface.specular_f0, encoded_specular_f90, resolved_material_ao,
-        inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);
+        inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r, ambient_diffuse);
     if (indirect_lighting_debug_view != 0) {
       outColor[pixel] = float4(ambient, 1.0f);
       return;
     }
     output_color = direct + coated_emissive + ambient;
+    if (subsurface_enabled && surface.subsurface_weight > 0.0f) {
+      const GltfShadeMaterial material = EE_GLTF_MATERIALS[metadata.material_index];
+      const float3 diffuse = direct_diffuse + ambient_diffuse;
+      outSubsurfaceDiffuse[pixel] = float4(diffuse, saturate(surface.subsurface_weight));
+      const bool thin_surface = material.subsurface_mode == 1u;
+      const float3 transmission = thin_surface
+          ? EE_SSS_THIN_TRANSMISSION(surface.subsurface_thickness, material.subsurface_distance)
+          : EE_SSS_SOLID_TRANSMISSION(surface.subsurface_thickness, 0.0f, material.subsurface_distance);
+      float3 unused_diffuse;
+      const float3 back_direct = thin_surface
+          ? transmission * EE_FUNC_CALCULATE_LIGHTS(true, albedo, 0.0f, linear_depth, -shading_normal,
+              -view_direction, world_position, surface.metallic, surface.roughness, surface.specular_f0,
+              encoded_specular_f90, unused_diffuse)
+          : EE_FUNC_CALCULATE_SOLID_TRANSMISSION(albedo, shading_normal, view_direction, world_position,
+              surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90,
+              material.subsurface_distance, surface.subsurface_thickness);
+      float3 back_position = world_position;
+      float3 back_normal = -shading_normal;
+      float3 back_view = -view_direction;
+      float3 indirect_transmission = transmission;
+      bool valid_backface = thin_surface;
+      if (!thin_surface && (EE_BASIC_CONSTANTS.meshlet_culling_flags & 4u) != 0u) {
+        const float4 backface = inSubsurfaceBackface.Load(int3(pixel, 0));
+        valid_backface = backface.w > 0 && isfinite(backface.x) && backface.x > depth && backface.x < 1;
+        if (valid_backface) {
+          back_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, backface.x);
+          back_normal = EE_GBUFFER_OCT_DECODE(backface.yz);
+          // The back surface's camera direction points inside the solid; bias outwards instead.
+          back_view = back_normal;
+          indirect_transmission = EE_SSS_SOLID_TRANSMISSION(surface.subsurface_thickness,
+              EE_SSS_BACKFACE_THICKNESS(world_position, back_position, geometric_normal), material.subsurface_distance);
+        }
+      }
+      if (valid_backface) {
+#ifdef EE_AUTOMATIC_HDDAGI
+        unused_diffuse = EE_FUNC_CALCULATE_HDDAGI_BACKFACE_DIFFUSE(pixel, albedo, back_normal, back_view,
+            back_position, surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90,
+            thin_surface ? resolved_material_ao : 1, metadata.instance_index);
+#else
+#ifdef EE_AUTOMATIC_SDFGI
+        EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
+#else
+        EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+#endif
+            albedo, back_normal, back_view, back_position, surface.metallic, surface.roughness,
+            surface.specular_f0, encoded_specular_f90, thin_surface ? resolved_material_ao : 1,
+            thin_surface ? inAmbientOcclusion.SampleLevel(tex_coord, 0).r : 1, unused_diffuse);
+#endif
+      } else {
+        unused_diffuse = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(albedo, back_normal, back_normal, world_position,
+            surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90, 1, 1, 1).diffuse *
+            EE_RENDER_INFO.indirect_lighting_intensity;
+      }
+      const float3 back_diffuse = back_direct + indirect_transmission * unused_diffuse;
+      if (thin_surface) {
+        output_color += surface.subsurface_weight * material.subsurface_albedo * back_diffuse;
+        outSubsurfaceDiffuse[pixel] = float4(diffuse * (1.0f - transmission), saturate(surface.subsurface_weight));
+        output_color -= surface.subsurface_weight * diffuse * transmission;
+      } else {
+        outSubsurfaceDiffuse[pixel] = float4(diffuse + back_diffuse, saturate(surface.subsurface_weight));
+        output_color += surface.subsurface_weight * back_diffuse;
+      }
+    }
   }
   if (indirect_lighting_debug_view != 0) {
     outColor[pixel] = float4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -167,6 +239,10 @@ Texture2D<uint4> inMetadata;
   if (linear_depth > fade_start) {
     const float fade = (linear_depth - fade_start) / (far_distance * (1.0f - fade_ratio));
     output_color = lerp(output_color, sky_color, scene_camera ? clamp(fade, 0.0f, 1.0f) : fade);
+    if (subsurface_enabled) {
+      const float4 signal = outSubsurfaceDiffuse[pixel];
+      outSubsurfaceDiffuse[pixel] = float4(signal.rgb * (1.0f - saturate(fade)), signal.a);
+    }
   }
   outColor[pixel] = float4(output_color, 1.0f);
 }

@@ -22,7 +22,8 @@ enum class DemoProfileId {
   ProceduralGalaxy,
   GaussianSplat,
   Bicycle,
-  Bistro
+  Bistro,
+  SubsurfaceScattering
 };
 
 struct DemoProfileDescriptor {

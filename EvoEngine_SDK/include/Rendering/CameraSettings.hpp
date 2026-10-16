@@ -96,6 +96,8 @@ struct CameraSettings {
    * \brief Ray tracing sample per pixel
    */
   int sample_size = 1;
+  int subsurface_samples = 16;
+  bool restir_sss_delayed_reconnection = false;
   /**
    * \brief Ray tracing bounces
    */

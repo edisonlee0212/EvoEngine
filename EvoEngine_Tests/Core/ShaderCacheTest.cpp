@@ -395,6 +395,29 @@ void ExpectSlangStageFilesCompile(const std::filesystem::path& root, const std::
 
 }  // namespace
 
+TEST(ShaderCache, WorkerOverrideAcceptsOneThroughEightAndInvalidValuesUseStableHardwareDefault) {
+  constexpr auto variable = "EVOENGINE_SHADER_COMPILER_WORKERS";
+  std::optional<std::string> previous;
+  if (const auto* value = std::getenv(variable))
+    previous = value;
+  ClearEnvironment(variable);
+  const auto hardware_default = Shader::GetPreparationWorkerCount();
+  RecordProperty("default_workers", static_cast<int>(hardware_default));
+  EXPECT_TRUE(hardware_default == 1 || hardware_default == 2 || hardware_default == 4);
+  for (size_t workers = 1; workers <= 8; ++workers) {
+    SetEnvironment(variable, std::to_string(workers));
+    EXPECT_EQ(Shader::GetPreparationWorkerCount(), workers);
+  }
+  for (const auto* invalid : {"0", "9", "16", "4x", "-1"}) {
+    SetEnvironment(variable, invalid);
+    EXPECT_EQ(Shader::GetPreparationWorkerCount(), hardware_default);
+  }
+  ClearEnvironment(variable);
+  EXPECT_EQ(Shader::GetPreparationWorkerCount(), hardware_default);
+  if (previous)
+    SetEnvironment(variable, *previous);
+}
+
 TEST(ShaderCache, RejectsLegacyShaderInputsBeforeNativeFrontendInvocation) {
   ShaderCacheScope scope;
   constexpr std::string_view diagnostic = "GLSL is unsupported; migrate the shader to native Slang.";
@@ -595,6 +618,37 @@ void main() { outputBuffer[0] = mutableValue(); }
   }
 }
 
+TEST(ShaderCache, ReusesCompatibleSessionsAndInvalidatesChangedSourcesAndImports) {
+  ShaderCacheScope scope;
+  const auto module_root = scope.Root() / "SessionModules";
+  const auto imported = module_root / "SessionValue.slang";
+  Shader::RegisterShaderIncludePath(module_root);
+  WriteTextFile(imported, "public float sessionValue() { return 1.0; }\n");
+  const std::string source = R"(
+import SessionValue;
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> outputBuffer;
+[shader("compute")] [numthreads(1, 1, 1)]
+void main() { outputBuffer[0] = sessionValue(); }
+)";
+  const auto first_path = module_root / "First.slang";
+  const auto second_path = module_root / "Second.slang";
+  std::vector<uint32_t> first, second, edited, imported_edit;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, first, first_path));
+  const auto second_source = source + "\n// Distinct root source for session reuse.\n";
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, second_source, second, second_path));
+  EXPECT_EQ(Shader::GetCompileCacheStats().slang_session_creations, 1u);
+  EXPECT_EQ(Shader::GetCompileCacheStats().slang_session_reuses, 1u);
+  auto changed = source;
+  changed.replace(changed.find("sessionValue();"), std::string("sessionValue();").size(), "sessionValue() + 5.0;");
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, changed, edited, second_path));
+  EXPECT_NE(second, edited);
+  EXPECT_EQ(Shader::GetCompileCacheStats().slang_session_creations, 2u);
+  WriteTextFile(imported, "public float sessionValue() { return 2.0; }\n");
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, changed, imported_edit, second_path));
+  EXPECT_NE(edited, imported_edit);
+  EXPECT_EQ(Shader::GetCompileCacheStats().slang_session_creations, 3u);
+}
+
 TEST(ShaderCache, RemainingSharedSamplingModulesCompileAndMatchNumericalContracts) {
   ShaderCacheScope scope;
   const auto module_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
@@ -646,14 +700,14 @@ void main()
 {
     static_assert(sizeof(RenderInfo, Std140DataLayout) == 6032, "RenderInfo layout");
     static_assert(sizeof(Environment, Std140DataLayout) == 64, "Environment layout");
-    static_assert(sizeof(Camera, Std430DataLayout) == 976, "Camera layout");
-    static_assert(sizeof(Instance, Std430DataLayout) == 96, "Instance layout");
+    static_assert(sizeof(Camera, Std430DataLayout) == 848, "Camera layout");
+    static_assert(sizeof(Instance, Std430DataLayout) == 144, "Instance layout");
     static_assert(sizeof(EeKernelBlock, Std140DataLayout) == 2048, "Kernel layout");
     static_assert(sizeof(DirectionalLight, Std430DataLayout) == 384, "DirectionalLight layout");
     static_assert(sizeof(PointLight, Std430DataLayout) == 480, "PointLight layout");
     static_assert(sizeof(SpotLight, Std430DataLayout) == 176, "SpotLight layout");
     static_assert(sizeof(GltfTextureInfo, ScalarDataLayout) == 40, "GltfTextureInfo layout");
-    static_assert(sizeof(GltfShadeMaterial, ScalarDataLayout) == 288, "GltfShadeMaterial layout");
+    static_assert(sizeof(GltfShadeMaterial, ScalarDataLayout) == 304, "GltfShadeMaterial layout");
 
     float4 value = float4(EE_RENDER_INFO.shadow_split_0, EE_ENVIRONMENT.gamma,
                           EE_CAMERAS[0].resolution_x, float(EE_INSTANCES[0].entity_index));
@@ -672,6 +726,16 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "SharedGpuAbiProbe.slang"))
       << diagnostics;
+  // Slang evaluates layout assertions during code generation, not reflection.
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, module_root / "SharedGpuAbiProbe.slang"));
+  ASSERT_FALSE(binaries.empty());
+  auto invalid_source = source;
+  const std::string material_size = "sizeof(GltfShadeMaterial, ScalarDataLayout) == 304";
+  invalid_source.replace(invalid_source.find(material_size), material_size.size(),
+                         "sizeof(GltfShadeMaterial, ScalarDataLayout) == 288");
+  EXPECT_FALSE(
+      Shader::CompileToSpirv(ShaderType::Compute, invalid_source, binaries, module_root / "InvalidGpuAbiProbe.slang"));
   ASSERT_EQ(reflection.descriptor_bindings.size(), 14u);
 
   const std::array<VkDescriptorType, 15> expected_types = {
@@ -759,7 +823,7 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "EcoSysLabGpuAbiProbe.slang"))
       << diagnostics;
-  ASSERT_EQ(reflection.descriptor_bindings.size(), 18u);
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 19u);
   for (uint32_t binding = 0; binding < 8; ++binding) {
     const auto entry = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
                                     [binding](const auto& candidate) {
@@ -768,7 +832,7 @@ void main()
     ASSERT_NE(entry, reflection.descriptor_bindings.end()) << binding;
     EXPECT_EQ(entry->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   }
-  for (uint32_t binding = 10; binding < 13; ++binding) {
+  for (uint32_t binding = 10; binding < 14; ++binding) {
     const auto entry = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
                                     [binding](const auto& candidate) {
                                       return candidate.set == 0 && candidate.binding == binding;
@@ -776,29 +840,29 @@ void main()
     ASSERT_NE(entry, reflection.descriptor_bindings.end()) << binding;
     EXPECT_EQ(entry->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   }
-  for (uint32_t binding = 8; binding < 10; ++binding) {
-    const auto set0 = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+  for (uint32_t binding = 0; binding < 2; ++binding) {
+    const auto set3 = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
                                    [binding](const auto& candidate) {
-                                     return candidate.set == 0 && candidate.binding == binding;
+                                     return candidate.set == 3 && candidate.binding == binding;
                                    });
     const auto set1 = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
                                    [binding](const auto& candidate) {
                                      return candidate.set == 1 && candidate.binding == binding;
                                    });
-    ASSERT_NE(set0, reflection.descriptor_bindings.end()) << binding;
+    ASSERT_NE(set3, reflection.descriptor_bindings.end()) << binding;
     ASSERT_NE(set1, reflection.descriptor_bindings.end()) << binding;
-    EXPECT_EQ(set0->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    EXPECT_EQ(set3->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
     EXPECT_EQ(set1->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
   }
   EXPECT_TRUE(reflection.push_constant_ranges.empty());
   EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
 
   const std::array<std::pair<const char*, uint32_t>, 5> push_constant_cases = {{
-      {"EcoSysLab.AlphaShapeRenderingConstants", 64},
+      {"EcoSysLab.AlphaShapeRenderingConstants", 68},
       {"EcoSysLab.DynamicStrandsFoliageRenderingConstants", 12},
-      {"EcoSysLab.DynamicStrandsSmallSegmentsRenderingConstants", 36},
+      {"EcoSysLab.DynamicStrandsSmallSegmentsRenderingConstants", 40},
       {"EcoSysLab.DynamicStrandsSmallSegmentsRenderingVisualizationConstants", 76},
-      {"EcoSysLab.KineticVoronoiRenderingConstants", 40},
+      {"EcoSysLab.KineticVoronoiRenderingConstants", 44},
   }};
   for (const auto& [module, expected_size] : push_constant_cases) {
     const std::string push_source = "import " + std::string(module) +
@@ -854,7 +918,16 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "RayTracingFoundationProbe.slang"))
       << diagnostics;
-  ASSERT_EQ(reflection.descriptor_bindings.size(), 30u);
+  for (const auto key : std::array<std::pair<uint32_t, uint32_t>, 4>{{{1, 0}, {1, 1}, {1, 2}, {2, 16}}}) {
+    const auto binding = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+                                      [&](const auto& value) {
+                                        return value.set == key.first && value.binding == key.second;
+                                      });
+    ASSERT_NE(binding, reflection.descriptor_bindings.end());
+    EXPECT_EQ(binding->descriptor_type, key.first == 1 && key.second == 2
+                                            ? VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR
+                                            : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  }
   EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
 
   std::vector<uint32_t> binaries;
@@ -1397,7 +1470,7 @@ TEST(ShaderCache, ProductionEcoSysLabNativeSlangInventoryCompiles) {
   EXPECT_EQ(sdk_glsl_count, 0u);
   const auto shader_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders");
   const auto stage_count = CollectSlangStageFiles(shader_root).size();
-  EXPECT_EQ(stage_count, 123u);
+  EXPECT_EQ(stage_count, 135u);
   ExpectSlangStageFilesCompile(shader_root);
   auto stats = Shader::GetCompileCacheStats();
   EXPECT_EQ(stats.native_slang_frontend_invocations, stage_count);
@@ -1531,6 +1604,76 @@ TEST(ShaderCache, ProductionRayQueryCameraSlangThreadGroupMatchesHostDispatch) {
   const auto local_size = FindSpirvLocalSizeExecutionMode(binaries);
   ASSERT_TRUE(local_size.has_value());
   EXPECT_EQ(*local_size, (std::array<uint32_t, 3>{8, 8, 1}));
+}
+
+TEST(ShaderCache, RayTracingSerCapabilityMatchesCameraDispatch) {
+  ShaderCacheScope scope;
+  for (const auto stage : {ShaderType::RayGen, ShaderType::Compute}) {
+    for (const bool lss : {false, true}) {
+      const std::string source =
+          "#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED 1\n"
+          "#define EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED " +
+          std::to_string(lss) + "\n" +
+          (stage == ShaderType::RayGen ? "[shader(\"raygeneration\")] "
+                                       : "[shader(\"compute\")] [numthreads(1, 1, 1)] ") +
+          "void main() {}";
+      ShaderReflectionInfo reflection;
+      std::string diagnostics;
+      ASSERT_TRUE(Shader::ReflectSlang(stage, source, reflection, diagnostics)) << diagnostics;
+      EXPECT_NE(diagnostics.find(std::string("shader invocation reorder EXT: ") +
+                                 (stage == ShaderType::RayGen && !lss ? "on" : "off")),
+                std::string::npos)
+          << diagnostics;
+      std::vector<uint32_t> binaries;
+      ASSERT_TRUE(Shader::CompileToSpirv(stage, source, binaries));
+    }
+  }
+}
+
+TEST(ShaderCache, RayTracingSubsurfaceTemporalUsesRayQueryCapabilities) {
+  ShaderCacheScope scope;
+  RegisterDefaultShaderIncludePath();
+  const auto path = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RestirSssTemporal.slang");
+  const auto source = std::string(kComputeShaderGlobalDefines) +
+                      "\n#define EE_SHADER_HIGH_OPTIMIZATION 1\n"
+                      "#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED 1\n"
+                      "#define EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED 1\n"
+                      "#define EE_ENABLE_NRD_SIGNALS 1\n"
+                      "#define EE_GLTF_COMPILED_FEATURE_MASK 20480u\n" +
+                      ReadTextFile(path);
+  ShaderReflectionInfo reflection;
+  std::string diagnostics;
+  ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics, path)) << diagnostics;
+  EXPECT_NE(diagnostics.find("shader invocation reorder EXT: off"), std::string::npos) << diagnostics;
+}
+
+TEST(ShaderCache, SubsurfacePayloadConfigurationIsIsolatedAcrossCompilerSessions) {
+  ShaderCacheScope scope;
+  RegisterDefaultShaderIncludePath();
+  uint32_t index = 0;
+  for (const bool subsurface : {true, false, true}) {
+    const auto source = std::string("#define EE_CAMERA_SUBSURFACE_HIT_GROUP ") + (subsurface ? "1\n" : "0\n") + R"(
+import EvoEngine.CameraRayTracingPayload;
+[[vk::push_constant]] ConstantBuffer<CameraRayTracingPayload> payload;
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> result;
+[shader("compute")][numthreads(1, 1, 1)]
+void main() {
+  result[0] = payload.hit_t;
+#if EE_CAMERA_SUBSURFACE_HIT_GROUP
+  result[0] += payload.sss_radiance.x + float(payload.sss_ray_count);
+#endif
+}
+)";
+    const auto path = scope.Root() / ("Payload" + std::to_string(index++) + ".slang");
+    ShaderReflectionInfo reflection;
+    std::string diagnostics;
+    ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics, path)) << diagnostics;
+    ASSERT_EQ(reflection.push_constant_ranges.size(), 1u);
+    EXPECT_EQ(reflection.push_constant_ranges[0].size, subsurface ? 112u : 68u);
+    std::vector<uint32_t> binaries;
+    ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, path));
+    ASSERT_FALSE(binaries.empty());
+  }
 }
 
 TEST(ShaderCache, ProductionGaussianSplatComputeSlangThreadGroupsMatchHostDispatch) {

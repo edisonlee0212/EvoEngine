@@ -19,6 +19,20 @@ std::vector<GltfTextureInfo> TextureInfos() {
 }
 }  // namespace
 
+TEST(GltfSceneFeatures, SubsurfaceIsOptInAndItsMasksPreserveTextureTransforms) {
+  GltfShadeMaterial material;
+  material.pbr_metallic_factor = 0.0f;
+  auto infos = TextureInfos();
+  EXPECT_EQ(DetectGltfSceneFeatures({material}, infos) & Bit(GltfSceneFeature::Subsurface), 0u);
+  material.subsurface_weight = 1.0f;
+  EXPECT_NE(DetectGltfSceneFeatures({material}, infos) & Bit(GltfSceneFeature::Subsurface), 0u);
+  material.subsurface_mask_texture = 1;
+  infos[1].uv_transform[2].x = 0.5f;
+  const auto features = DetectGltfSceneFeatures({material}, infos);
+  EXPECT_NE(features & Bit(GltfSceneFeature::TextureTransform), 0u);
+  EXPECT_NE(BuildGltfSceneFeatureDefines(features).find("EE_GLTF_USE_SUBSURFACE 1"), std::string::npos);
+}
+
 TEST(GltfSceneFeatures, DefaultMaterialUsesSparseVariant) {
   EXPECT_EQ(DetectGltfSceneFeatures({GltfShadeMaterial{}}, {GltfTextureInfo{}}), 0u);
 }

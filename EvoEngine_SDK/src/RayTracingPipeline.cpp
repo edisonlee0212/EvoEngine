@@ -141,6 +141,24 @@ void RayTracingPipeline::Initialize() {
     shader_groups.push_back(closest_hit_group_ci);
   }
 
+  if (primary_closest_hit_shader) {
+    if (!primary_closest_hit_shader->Compiled())
+      primary_closest_hit_shader->TryCompile();
+    if (!primary_closest_hit_shader->Compiled()) {
+      EVOENGINE_ERROR("Failed to build ray tracing pipeline: uncompiled primary closest-hit shader.");
+      return;
+    }
+    VkPipelineShaderStageCreateInfo stage{};
+    stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stage.stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+    stage.module = primary_closest_hit_shader->GetShaderModule()->GetVkShaderModule();
+    stage.pName = "main";
+    shader_stages.push_back(stage);
+    auto group = shader_groups.back();
+    group.closestHitShader = static_cast<uint32_t>(shader_stages.size()) - 1;
+    shader_groups.push_back(group);
+  }
+
   std::vector<VkDescriptorSetLayout> set_layouts = {};
   set_layouts.reserve(descriptor_set_layouts.size());
   for (const auto& i : descriptor_set_layouts) {
@@ -204,7 +222,7 @@ void RayTracingPipeline::Initialize() {
   handle_size_aligned_ = aligned_size(ray_tracing_pipeline_properties.shaderGroupHandleSize,
                                       ray_tracing_pipeline_properties.shaderGroupHandleAlignment);
   auto group_count = static_cast<uint32_t>(shader_groups.size());
-  const uint32_t sbt_size = group_count * handle_size_aligned_;
+  const uint32_t sbt_size = group_count * handle_size;
 
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -219,7 +237,8 @@ void RayTracingPipeline::Initialize() {
   // Create binding table buffers for each shader type
   auto raygen_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   auto miss_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  const uint32_t hit_record_count = linear_swept_spheres_enabled_ ? 2u : 1u;
+  // Keep TLAS triangle/LSS offsets 0/1; primary camera rays add two for their shading group.
+  const uint32_t hit_record_count = primary_closest_hit_shader ? 4u : (linear_swept_spheres_enabled_ ? 2u : 1u);
   buffer_create_info.size = handle_size_aligned_ * hit_record_count;
   auto closest_hit_shader_binding_table =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
@@ -239,11 +258,11 @@ void RayTracingPipeline::Initialize() {
   }
   // Copy the shader handles from the host buffer to the binding tables
   raygen_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data());
-  miss_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_);
+  miss_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size);
   std::vector<uint8_t> hit_shader_handles(handle_size_aligned_ * hit_record_count);
   for (uint32_t record = 0; record < hit_record_count; ++record) {
     memcpy(hit_shader_handles.data() + record * handle_size_aligned_,
-           shader_handle_storage.data() + handle_size_aligned_ * 2, handle_size);
+           shader_handle_storage.data() + handle_size * (record < 2u ? 2u : 3u), handle_size);
   }
   closest_hit_shader_binding_table_->UploadData(hit_shader_handles.size(), hit_shader_handles.data());
 }

@@ -67,8 +67,9 @@ class EVOENGINE_API RayTracingPipeline final : public IGraphicsResource {
   /**
    * @brief Various shaders used in the ray tracing pipeline.
    */
-  std::shared_ptr<Shader> raygen_shader;        ///< Ray generation shader.
-  std::shared_ptr<Shader> miss_shader;          ///< Miss shader.
+  std::shared_ptr<Shader> raygen_shader;  ///< Ray generation shader.
+  std::shared_ptr<Shader> miss_shader;    ///< Miss shader.
+  std::shared_ptr<Shader> primary_closest_hit_shader;
   std::shared_ptr<Shader> closest_hit_shader;   ///< Closest-hit shader.
   std::shared_ptr<Shader> any_hit_shader;       ///< Any-hit shader.
   std::shared_ptr<Shader> intersection_shader;  ///< Intersection shader.

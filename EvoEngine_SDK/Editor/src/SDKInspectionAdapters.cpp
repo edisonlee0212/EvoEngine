@@ -51,6 +51,7 @@
 #include "SkyIllumination.hpp"
 #include "Strands.hpp"
 #include "StrandsRenderer.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 #include "Transform.hpp"
@@ -550,6 +551,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
   }
 
   bool changed = false;
+  changed = ImGui::SliderInt("Raster SSS samples", &camera.camera_settings.subsurface_samples, 1, 64) || changed;
   uint32_t mode = static_cast<uint32_t>(camera.camera_render_mode);
   if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
     camera.camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
@@ -570,6 +572,14 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
+    if (ImGui::Checkbox("SSS delayed reconnection", &camera.camera_settings.restir_sss_delayed_reconnection)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip(
+          "Replay the SSS disk/intersection and reconnect to the same light. Direct BSDF hits and finite-radius "
+          "punctual lights use fixed-point reuse.");
     if (Camera::NrdDenoisingAvailable() && ImGui::Checkbox("NRD Denoising", &camera.camera_settings.nrd_denoising)) {
       camera.ResetFrameCount();
       changed = true;
@@ -3435,6 +3445,14 @@ bool InspectGaussianSplat(InspectorContext&, GaussianSplat& gaussian_splat) {
   return false;
 }
 
+bool InspectSubsurfaceProfile(InspectorContext&, SubsurfaceProfile& profile) {
+  bool changed = ImGui::ColorEdit3("Scattering albedo", &profile.albedo.x);
+  changed =
+      ImGui::DragFloat3("Scattering distance (m)", &profile.scattering_distance.x, 0.0001f, 1e-6f, 100.0f) || changed;
+  changed = ImGui::DragFloat("Surface IOR", &profile.ior, 0.01f, 1.0f, 3.0f) || changed;
+  return changed;
+}
+
 bool InspectMaterial(InspectorContext& context, Material& material) {
   const auto& editor_layer = context.editor_layer;
   if (!editor_layer) {
@@ -3546,6 +3564,32 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
       changed = true;
     }
 
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNodeEx("Subsurface scattering##Material")) {
+    auto& shade = material.material_data.shade_material;
+    changed = editor_layer->DragAndDropButton<SubsurfaceProfile>(material.subsurface_profile, "Profile") || changed;
+    changed = ImGui::SliderFloat("Weight##SSS", &shade.subsurface_weight, 0.0f, 1.0f) || changed;
+    changed =
+        ImGui::DragFloat("Distance scale##SSS", &material.subsurface_distance_scale, 0.01f, 0.001f, 1000.0f) || changed;
+    int mode = static_cast<int>(shade.subsurface_mode);
+    if (ImGui::Combo("Geometry##SSS", &mode, "Closed solid\0Thin surface\0")) {
+      shade.subsurface_mode = static_cast<uint32_t>(mode);
+      changed = true;
+    }
+    changed = ImGui::DragFloat("Thickness (m)##SSS", &shade.subsurface_thickness, 0.0001f, 0.0f, 100.0f) || changed;
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip(
+          shade.subsurface_mode == 0u
+              ? "Minimum raster transmission thickness. Point/spot shadows and back-face GI estimate additional "
+                "thickness. Directional/unshadowed direct light and missing exits use this value. PT uses geometry."
+              : "Authored sheet thickness, multiplied by the thickness texture's red channel.");
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::subsurface_mask_texture,
+                                         "SSS weight mask (R)") ||
+              changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::subsurface_thickness_texture,
+                                         "SSS thickness multiplier (R)") ||
+              changed;
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Others##Material")) {
@@ -4434,6 +4478,8 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<Strands>(InspectStrands, {}, "Strands");
   InspectorRegistry::GetInstance().RegisterInspector<StrandsRenderer>(InspectStrandsRenderer, {}, "StrandsRenderer");
   InspectorRegistry::GetInstance().RegisterInspector<LodGroup>(InspectLodGroup, {}, "LodGroup");
+  InspectorRegistry::GetInstance().RegisterInspector<SubsurfaceProfile>(InspectSubsurfaceProfile, {},
+                                                                        "SubsurfaceProfile");
   InspectorRegistry::GetInstance().RegisterInspector<Material>(InspectMaterial, {}, "Material");
   InspectorRegistry::GetInstance().RegisterInspector<Texture2D>(InspectTexture2D, {}, "Texture2D");
   InspectorRegistry::GetInstance().RegisterInspector<UnknownAsset>(InspectUnknownAsset, {}, "UnknownAsset");

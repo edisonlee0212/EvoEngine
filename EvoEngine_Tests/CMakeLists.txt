@@ -65,6 +65,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/GltfMaterialLayoutTest.cpp
 	Core/GltfMaterialConversionTest.cpp
 	Core/GltfSceneFeaturesTest.cpp
+	Core/SubsurfaceProfileTest.cpp
 	Core/GltfRasterMaterialShaderTest.cpp
 	Core/GltfRayTracingMaterialShaderTest.cpp
 	Core/ShaderCacheTest.cpp

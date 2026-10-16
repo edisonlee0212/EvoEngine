@@ -1,0 +1,3 @@
+albedo: [0.95, 0.9, 0.85]
+scattering_distance: [0.0012, 0.0005, 0.00025]
+ior: 1.4

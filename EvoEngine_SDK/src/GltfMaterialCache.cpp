@@ -194,6 +194,8 @@ void RemapSlot(uint16_t& slot, const std::vector<uint16_t>& remap) {
 }
 
 void RemapTextureSlots(GltfShadeMaterial& material, const std::vector<uint16_t>& remap) {
+  RemapSlot(material.subsurface_mask_texture, remap);
+  RemapSlot(material.subsurface_thickness_texture, remap);
   RemapSlot(material.pbr_base_color_texture, remap);
   RemapSlot(material.normal_texture, remap);
   RemapSlot(material.pbr_metallic_roughness_texture, remap);

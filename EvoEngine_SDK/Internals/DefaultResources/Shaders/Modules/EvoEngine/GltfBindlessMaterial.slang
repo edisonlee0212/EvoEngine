@@ -1,5 +1,6 @@
 __exported import EvoEngine.GltfMaterial;
 import EvoEngine.Textures;
+__exported import EvoEngine.Subsurface;
 public
 static const float EE_GLTF_MICROFACET_MIN_ROUGHNESS = 0.0014142;
 public
@@ -62,6 +63,8 @@ struct GltfRasterMaterial {
   float3 scatter_coefficient;
  public
   float scatter_anisotropy;
+ public float subsurface_weight;
+ public float subsurface_thickness;
 };
 public
 struct GltfTexCoords {
@@ -293,6 +296,13 @@ float3 EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO(float3 rho_ms) {
   return 1.0 - t * t;
 }
 public
+float EE_GLTF_EFFECTIVE_IOR<let feature_mask : uint>(GltfShadeMaterial material, float subsurface_weight) {
+  const float base_ior = (feature_mask & EE_GLTF_FEATURE_IOR) != 0u
+      ? (material.ior == 0.0f ? 0.0f : max(material.ior, 1.0f)) : 1.5f;
+  return (feature_mask & EE_GLTF_FEATURE_SUBSURFACE) != 0u && subsurface_weight > 0.0f
+      ? max(lerp(base_ior, material.subsurface_ior, subsurface_weight), 1.0f) : base_ior;
+}
+public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<let feature_mask : uint>(uint material_index,
                                                                                         GltfTexCoords tex_coords,
                                                                                         float4 vertex_color) {
@@ -327,10 +337,17 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<let feature_mask 
   surface.metallic *= metallic_roughness.b;
   surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
   surface.metallic = clamp(surface.metallic, 0.0, 1.0);
+  surface.subsurface_weight = (feature_mask & EE_GLTF_FEATURE_SUBSURFACE) != 0u ? saturate(material.subsurface_weight) : 0.0f;
+  surface.subsurface_thickness = max(material.subsurface_thickness, 0.0f);
+  if (surface.subsurface_weight > 0.0f) {
+    surface.subsurface_weight = saturate(surface.subsurface_weight *
+        EE_GLTF_SAMPLE_TEXTURE_SPECIALIZED<feature_mask>(material.subsurface_mask_texture, tex_coords, float4(1)).r);
+    surface.subsurface_thickness *= EE_GLTF_SAMPLE_TEXTURE_SPECIALIZED<feature_mask>(material.subsurface_thickness_texture, tex_coords, float4(1)).r;
+  }
   float dielectric_f0 = 0.04;
   float dielectric_specular_f90 = 1.0;
-  if ((feature_mask & EE_GLTF_FEATURE_IOR) != 0u) {
-    const float material_ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
+  if ((feature_mask & (EE_GLTF_FEATURE_IOR | EE_GLTF_FEATURE_SUBSURFACE)) != 0u) {
+    const float material_ior = EE_GLTF_EFFECTIVE_IOR<feature_mask>(material, surface.subsurface_weight);
     dielectric_f0 = pow((material_ior - 1.0) / max(material_ior + 1.0, 0.000001), 2.0);
   }
   float3 dielectric_specular_f0 = float3(dielectric_f0);
@@ -701,10 +718,11 @@ float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<let feature_mask : ui
   if (max(specular_transmission, effective_diffuse_transmission) <= min_transmission) {
     return float3(0.0);
   }
-  float ior = 1.5;
-  if ((feature_mask & EE_GLTF_FEATURE_IOR) != 0u) {
-    ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
-  }
+  float subsurface_weight = 0.0f;
+  if ((feature_mask & EE_GLTF_FEATURE_SUBSURFACE) != 0u && material.subsurface_weight > 0.0f)
+    subsurface_weight = saturate(saturate(material.subsurface_weight) *
+        EE_GLTF_SAMPLE_TEXTURE_LOD0_SPECIALIZED<feature_mask>(material.subsurface_mask_texture, tex_coords, float4(1)).r);
+  const float ior = EE_GLTF_EFFECTIVE_IOR<feature_mask>(material, subsurface_weight);
   float ior_f0 = (ior - 1.0) / max(ior + 1.0, 0.000001);
   ior_f0 *= ior_f0;
   float specular_weight = 1.0;

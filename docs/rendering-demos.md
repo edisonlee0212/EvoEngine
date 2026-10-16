@@ -17,6 +17,7 @@ out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering
 | `ddgi` | Cornell-box application focused on DDGI placement, update, and gather behavior. | Generated application scene. |
 | `rendering-regression` | Cross-technique material, light, skinning, temporal, and path-tracing fixtures. | Generated local project. |
 | `bistro` | Large glTF scene used for import and path-tracing validation. | Generated local project using an external Bistro checkout. |
+| `sss` | Male head sculpt with a shared skin diffusion profile and studio key/fill/rim lights. | Generated local project using bundled licensed assets. |
 | `3dgs` | Spatial Dragon Gaussian-splat scene. | Script-generated project. |
 | `bicycle` | INRIA Bicycle Gaussian-splat scene. | Script-generated project with a downloaded point cloud. |
 | `ecosyslab` | EcoSysLab package scene with an animated Acacia tree and split Scene/Plant Visual editor layout. | Tracked package demo project. |

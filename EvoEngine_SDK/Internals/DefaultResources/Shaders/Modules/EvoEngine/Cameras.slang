@@ -38,6 +38,7 @@ public struct Camera {
   public float4 shadow_split_distances;
 };
 
+
 public static const uint EE_CAMERA_RAY_OUTPUT_ALBEDO = 1u << 0u;
 public static const uint EE_CAMERA_RAY_OUTPUT_NORMAL = 1u << 1u;
 public static const uint EE_CAMERA_RAY_OUTPUT_RAY_COUNT = 1u << 2u;
@@ -120,3 +121,5 @@ public float EE_PIXEL_DISTANCE(int camera_index, in float3 worldPosA, in float3 
   coordB = coordB / coordB.w;
   return distance(coordA.xy * screenSize / 2.0, coordB.xy * screenSize / 2.0);
 }
+
+public bool EE_CAMERA_DELAYED_SSS_ENABLED(Camera camera) { return (camera.ray_output_flags & (1u << 7u)) != 0u; }

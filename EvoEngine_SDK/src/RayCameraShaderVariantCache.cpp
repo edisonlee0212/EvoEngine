@@ -1,9 +1,11 @@
 #include "RayCameraShaderVariantCache.hpp"
 
+#include "ApplicationContext.hpp"
 #include "ComputePipeline.hpp"
 #include "Platform.hpp"
 #include "RayTracingPipeline.hpp"
 #include "Shader.hpp"
+#include "ShaderPreparationQueue.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -13,6 +15,10 @@ using namespace evo_engine;
 namespace {
 constexpr uint32_t kRayCameraFallbackMask = kGltfSceneAllFeatures | kRayCameraDebugViewsFeature;
 constexpr uint32_t kRayCameraVariantCapacity = 8;
+
+uint32_t RayCameraVariantMask(const uint32_t features, const bool debug_views) {
+  return PromoteGltfSceneFeatures(features) | (debug_views ? kRayCameraDebugViewsFeature : 0u);
+}
 
 std::string VariantKey(const RayCameraShaderTechnique technique, const uint32_t mask) {
   return std::string(technique == RayCameraShaderTechnique::RayTracing ? "rtx:" : "rq:") +
@@ -33,16 +39,24 @@ std::string CacheSource(const ShaderCompileCacheStats& before, const ShaderCompi
 RayCameraShaderVariantCache::RayCameraShaderVariantCache(std::shared_ptr<RayTracingPipeline> ray_tracing_fallback,
                                                          std::shared_ptr<ComputePipeline> ray_query_fallback,
                                                          RayTracingFactory ray_tracing_factory,
-                                                         RayQueryFactory ray_query_factory)
-    : ray_tracing_factory_(std::move(ray_tracing_factory)), ray_query_factory_(std::move(ray_query_factory)) {
+                                                         RayQueryFactory ray_query_factory,
+                                                         ShaderPreparationQueue* preparation, std::string label)
+    : preparation_(preparation),
+      label_(std::move(label)),
+      ray_tracing_factory_(std::move(ray_tracing_factory)),
+      ray_query_factory_(std::move(ray_query_factory)) {
   ray_tracing_.fallback = std::move(ray_tracing_fallback);
   ray_tracing_.active = ray_tracing_.fallback;
+  ray_tracing_.stats.ready = ray_tracing_.fallback != nullptr;
+  ray_tracing_.stats.pending = !ray_tracing_.stats.ready;
   ray_tracing_.stats.requested_mask = kRayCameraFallbackMask;
   ray_tracing_.stats.active_mask = kRayCameraFallbackMask;
   ray_tracing_.stats.requested_key = VariantKey(RayCameraShaderTechnique::RayTracing, kRayCameraFallbackMask);
   ray_tracing_.stats.active_key = ray_tracing_.stats.requested_key;
   ray_query_.fallback = std::move(ray_query_fallback);
   ray_query_.active = ray_query_.fallback;
+  ray_query_.stats.ready = ray_query_.fallback != nullptr;
+  ray_query_.stats.pending = !ray_query_.stats.ready;
   ray_query_.stats.requested_mask = kRayCameraFallbackMask;
   ray_query_.stats.active_mask = kRayCameraFallbackMask;
   ray_query_.stats.requested_key = VariantKey(RayCameraShaderTechnique::RayQuery, kRayCameraFallbackMask);
@@ -53,7 +67,35 @@ RayCameraShaderVariantCache::~RayCameraShaderVariantCache() {
   WaitForJobs();
 }
 
+void RayCameraShaderVariantCache::SetFallbacks(std::shared_ptr<RayTracingPipeline> ray_tracing,
+                                               std::shared_ptr<ComputePipeline> ray_query) {
+  const std::lock_guard lock(mutex_);
+  if (!ray_tracing_.fallback && ray_tracing)
+    ray_tracing_.active = ray_tracing_.fallback = std::move(ray_tracing);
+  if (!ray_query_.fallback && ray_query)
+    ray_query_.active = ray_query_.fallback = std::move(ray_query);
+}
+
 void RayCameraShaderVariantCache::PollCompletedJobs() {
+  if (preparation_) {
+    const auto poll = [this](auto& state, const RayCameraShaderTechnique technique) {
+      for (auto& [mask, entry] : state.entries) {
+        const auto key = label_ + VariantKey(technique, mask);
+        if (!entry->published && preparation_->IsDone(key)) {
+          using Pipeline = typename decltype(entry->pipeline)::element_type;
+          entry->pipeline = preparation_->GetResult<Pipeline>(key);
+          entry->success = entry->pipeline && entry->pipeline->Initialized();
+          entry->published = true;
+          entry->cache_source = "prepared";
+          entry->error = entry->success ? "" : "Pipeline initialization failed";
+          preparation_->ReleaseResult(key);
+        }
+      }
+    };
+    poll(ray_tracing_, RayCameraShaderTechnique::RayTracing);
+    poll(ray_query_, RayCameraShaderTechnique::RayQuery);
+    return;
+  }
   const auto poll = [](auto& state) {
     for (auto& [mask, entry] : state.entries) {
       if (entry->job.Valid() && Jobs::IsCompleted(entry->job)) {
@@ -147,6 +189,16 @@ void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask)
   entry->mask = feature_mask;
   TouchEntry(entry);
   const auto factory = ray_tracing_factory_;
+  if (preparation_) {
+    auto* application = ApplicationContext::TryGet();
+    preparation_->Request<RayTracingPipeline>(label_ + VariantKey(RayCameraShaderTechnique::RayTracing, feature_mask),
+                                              [application, factory, feature_mask] {
+                                                const ApplicationContextScope scope(*application);
+                                                return factory(feature_mask);
+                                              });
+    ray_tracing_.entries.emplace(feature_mask, entry);
+    return;
+  }
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
     try {
@@ -181,6 +233,16 @@ void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
   entry->mask = feature_mask;
   TouchEntry(entry);
   const auto factory = ray_query_factory_;
+  if (preparation_) {
+    auto* application = ApplicationContext::TryGet();
+    preparation_->Request<ComputePipeline>(label_ + VariantKey(RayCameraShaderTechnique::RayQuery, feature_mask),
+                                           [application, factory, feature_mask] {
+                                             const ApplicationContextScope scope(*application);
+                                             return factory(feature_mask);
+                                           });
+    ray_query_.entries.emplace(feature_mask, entry);
+    return;
+  }
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
     try {
@@ -204,13 +266,18 @@ void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
 }
 
 bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) {
+  if (preparation_)
+    preparation_->Require(label_ + VariantKey(RayCameraShaderTechnique::RayTracing, feature_mask));
   auto& stats = ray_tracing_.stats;
   stats.requested_mask = feature_mask;
   stats.requested_key = VariantKey(RayCameraShaderTechnique::RayTracing, feature_mask);
   stats.failed = false;
   stats.last_error.clear();
-  if (!ray_tracing_.fallback)
+  if (!ray_tracing_.fallback) {
+    stats.pending = true;
+    stats.ready = false;
     return false;
+  }
   if (feature_mask == kRayCameraFallbackMask) {
     const bool changed = ray_tracing_.active != ray_tracing_.fallback;
     ray_tracing_.active = ray_tracing_.fallback;
@@ -275,13 +342,18 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
 }
 
 bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
+  if (preparation_)
+    preparation_->Require(label_ + VariantKey(RayCameraShaderTechnique::RayQuery, feature_mask));
   auto& stats = ray_query_.stats;
   stats.requested_mask = feature_mask;
   stats.requested_key = VariantKey(RayCameraShaderTechnique::RayQuery, feature_mask);
   stats.failed = false;
   stats.last_error.clear();
-  if (!ray_query_.fallback)
+  if (!ray_query_.fallback) {
+    stats.pending = true;
+    stats.ready = false;
     return false;
+  }
   if (feature_mask == kRayCameraFallbackMask) {
     const bool changed = ray_query_.active != ray_query_.fallback;
     ray_query_.active = ray_query_.fallback;
@@ -355,15 +427,14 @@ RayCameraShaderVariantUpdate RayCameraShaderVariantCache::Update(const uint32_t 
   ReleaseCompletedSubmissions(ray_tracing_);
   ReleaseCompletedSubmissions(ray_query_);
   RayCameraShaderVariantUpdate result;
-  const auto promoted_mask = PromoteGltfSceneFeatures(feature_mask);
+  const auto ray_tracing_mask = RayCameraVariantMask(feature_mask, need_ray_tracing_debug_views);
+  const auto ray_query_mask = RayCameraVariantMask(feature_mask, need_ray_query_debug_views);
   if (need_ray_tracing)
-    result.ray_tracing_activated =
-        UpdateRayTracing(promoted_mask | (need_ray_tracing_debug_views ? kRayCameraDebugViewsFeature : 0u));
+    result.ray_tracing_activated = UpdateRayTracing(ray_tracing_mask);
   if (need_ray_query)
-    result.ray_query_activated =
-        UpdateRayQuery(promoted_mask | (need_ray_query_debug_views ? kRayCameraDebugViewsFeature : 0u));
-  PruneEntries(ray_tracing_, promoted_mask | (need_ray_tracing_debug_views ? kRayCameraDebugViewsFeature : 0u));
-  PruneEntries(ray_query_, promoted_mask | (need_ray_query_debug_views ? kRayCameraDebugViewsFeature : 0u));
+    result.ray_query_activated = UpdateRayQuery(ray_query_mask);
+  PruneEntries(ray_tracing_, ray_tracing_mask);
+  PruneEntries(ray_query_, ray_query_mask);
   return result;
 }
 
@@ -372,7 +443,7 @@ RayCameraShaderVariantStats RayCameraShaderVariantCache::Prewarm(const uint32_t 
                                                                  const bool debug_views) {
   const std::lock_guard lock(mutex_);
   PollCompletedJobs();
-  const auto mask = PromoteGltfSceneFeatures(feature_mask) | (debug_views ? kRayCameraDebugViewsFeature : 0u);
+  const auto mask = RayCameraVariantMask(feature_mask, debug_views);
   if (mask != kRayCameraFallbackMask) {
     if (technique == RayCameraShaderTechnique::RayTracing)
       RequestRayTracing(mask);
@@ -387,7 +458,7 @@ RayCameraShaderVariantStats RayCameraShaderVariantCache::Prewarm(const uint32_t 
     result.pending = !result.ready;
     result.failed = false;
     result.last_error.clear();
-    if (!state.fallback) {
+    if (!state.fallback && !preparation_) {
       result.pending = false;
       result.failed = true;
       result.last_error = "Ray camera pipeline is unavailable.";

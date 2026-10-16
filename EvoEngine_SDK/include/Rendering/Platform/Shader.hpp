@@ -4,6 +4,8 @@
 #include "IAsset.hpp"
 
 #include <array>
+#include <functional>
+#include <mutex>
 #include <optional>
 
 namespace evo_engine {
@@ -39,6 +41,8 @@ struct ShaderCompileCacheStats {
   uint64_t corrupt_entries = 0;
   uint64_t failures = 0;
   uint64_t native_slang_frontend_invocations = 0;
+  uint64_t slang_session_creations = 0;
+  uint64_t slang_session_reuses = 0;
 };
 
 struct ShaderReflectionDescriptorBinding {
@@ -128,6 +132,10 @@ class EVOENGINE_API Shader final : public IAsset {
                                   const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
+  static void SetPreparationPump(std::function<void()> pump);
+  static bool RunPreparationTask(const std::string& name, const std::function<void()>& task);
+  [[nodiscard]] static std::string GetCurrentPreparation();
+
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Shader");
 
   [[nodiscard]] const std::string& PeekShaderCode() const;
@@ -166,6 +174,7 @@ class EVOENGINE_API Shader final : public IAsset {
   [[nodiscard]] static ShaderCompileCacheStats GetCompileCacheStats();
   static void ResetCompileCacheStats();
   static void ClearInMemoryCompileCache();
+  [[nodiscard]] static size_t GetPreparationWorkerCount();
 
   /**
    * @brief Checks whether the shader is compiled successfully.

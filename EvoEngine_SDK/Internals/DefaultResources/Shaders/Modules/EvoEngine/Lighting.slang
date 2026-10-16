@@ -2,6 +2,7 @@ __exported import EvoEngine.PerFrame;
 __exported import EvoEngine.DDGIGatherMulti;
 __exported import EvoEngine.BasicConstants;
 import EvoEngine.VogelDisk;
+import EvoEngine.Subsurface;
 
 static const int EE_SHADOW_PCF_SAMPLE_COUNT = 8;
 
@@ -140,11 +141,20 @@ public
 float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 viewDir, float metallic,
                                  float roughness, float3 F0, float F90);
 public
+float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 viewDir, float metallic,
+                                 float roughness, float3 F0, float F90, out float3 diffuse_radiance);
+public
 float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
                            float metallic, float roughness, float3 F0, float F90);
 public
+float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
+                           float metallic, float roughness, float3 F0, float F90, out float3 diffuse_radiance);
+public
 float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
                           float metallic, float roughness, float3 F0, float F90);
+public
+float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
+                          float metallic, float roughness, float3 F0, float F90, out float3 diffuse_radiance);
 public
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, float3 fragPos, float3 normal, float cameraFragDistance);
 public
@@ -411,7 +421,8 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
                                                                           float3 viewDir, float3 fragPos,
                                                                           float metallic, float roughness, float3 F0,
                                                                           float F90, float materialOcclusion,
-                                                                          float screenSpaceVisibility) {
+                                                                          float screenSpaceVisibility, out float3 diffuse_radiance) {
+  diffuse_radiance = float3(0);
   const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, debugView == 5);
   const float gather_weight = EE_DDGI_GATHER_WEIGHT(gather);
@@ -430,6 +441,7 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
   }
   const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f);
   const float3 diffuseIndirect = diffuse * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
+  diffuse_radiance = diffuseIndirect;
   const float3 unoccludedSpecular = environment.unoccluded_specular;
   const float3 specular = environment.specular;
   if (debugView == 1)
@@ -446,8 +458,17 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
 }
 
 public
+float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T resources, float3 albedo, float3 normal,
+                                                                          float3 viewDir, float3 fragPos,
+                                                                          float metallic, float roughness, float3 F0,
+                                                                          float F90, float materialOcclusion,
+                                                                          float screenSpaceVisibility) { float3 diffuse_radiance; return EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance); }
+
+public
 float3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, float3 albedo, float specular, float dist, float3 normal,
-                                float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90) {
+                                float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90, out float3 diffuse_radiance) {
+  diffuse_radiance = float3(0);
+  float3 light_diffuse;
   float3 result = float3(0.0, 0.0, 0.0f);
   float3 fragToCamera = fragPos - EE_CAMERA_POSITION(EE_BASIC_CONSTANTS.camera_index);
   float cameraFragDistance = length(fragToCamera);
@@ -464,7 +485,8 @@ float3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, float3 albedo, float specu
                                                         directionalShadowCameraFragDistance);
     }
     result +=
-        EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0, F90) * shadow;
+        EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0, F90, light_diffuse) * shadow;
+    diffuse_radiance += light_diffuse * shadow;
   }
   // phase 2: point lights
   for (int i = 0; i < EE_RENDER_INFO.point_light_size; i++) {
@@ -472,7 +494,8 @@ float3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, float3 albedo, float specu
     if (calculateShadow && EE_POINT_LIGHTS[i].diffuse.w == 1.0f) {
       shadow = EE_FUNC_POINT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
     }
-    result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
+    result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90, light_diffuse) * shadow;
+    diffuse_radiance += light_diffuse * shadow;
   }
   // phase 3: spot light
   for (int i = 0; i < EE_RENDER_INFO.spot_light_size; i++) {
@@ -480,15 +503,20 @@ float3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, float3 albedo, float specu
     if (calculateShadow && EE_SPOT_LIGHTS[i].diffuse.w == 1.0f) {
       shadow = EE_FUNC_SPOT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
     }
-    result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
+    result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90, light_diffuse) * shadow;
+    diffuse_radiance += light_diffuse * shadow;
   }
   return result;
 }
 
+public
+float3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, float3 albedo, float specular, float dist, float3 normal,
+                                float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90) { float3 diffuse_radiance; return EE_FUNC_CALCULATE_LIGHTS(calculateShadow, albedo, specular, dist, normal, viewDir, fragPos, metallic, roughness, F0, F90, diffuse_radiance); }
+
 // calculates the color when using a directional light.
 public
 float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 viewDir, float metallic,
-                                 float roughness, float3 F0, float F90) {
+                                 float roughness, float3 F0, float F90, out float3 diffuse_radiance) {
   DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
   float3 lightDir = normalize(-light.direction);
   float3 H = normalize(viewDir + lightDir);
@@ -505,13 +533,18 @@ float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 no
   const float3 kD =
       (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
-  return (kD * albedo / PI + spec) * radiance * NdotL;
+  diffuse_radiance = kD * albedo / PI * radiance * NdotL;
+  return diffuse_radiance + spec * radiance * NdotL;
 }
+
+public
+float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 viewDir, float metallic,
+                                 float roughness, float3 F0, float F90) { float3 diffuse_radiance; return EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, i, normal, viewDir, metallic, roughness, F0, F90, diffuse_radiance); }
 
 // calculates the color when using a point light.
 public
 float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
-                           float metallic, float roughness, float3 F0, float F90) {
+                           float metallic, float roughness, float3 F0, float F90, out float3 diffuse_radiance) {
   PointLight light = EE_POINT_LIGHTS[i];
   float3 lightDir = normalize(light.position - fragPos);
   float3 H = normalize(viewDir + lightDir);
@@ -531,13 +564,18 @@ float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, 
   const float3 kD =
       (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
-  return (kD * albedo / PI + spec) * radiance * NdotL;
+  diffuse_radiance = kD * albedo / PI * radiance * NdotL;
+  return diffuse_radiance + spec * radiance * NdotL;
 }
+
+public
+float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
+                           float metallic, float roughness, float3 F0, float F90) { float3 diffuse_radiance; return EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90, diffuse_radiance); }
 
 // calculates the color when using a spot light.
 public
 float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
-                          float metallic, float roughness, float3 F0, float F90) {
+                          float metallic, float roughness, float3 F0, float F90, out float3 diffuse_radiance) {
   SpotLight light = EE_SPOT_LIGHTS[i];
   float3 lightDir = normalize(light.position - fragPos);
   float3 H = normalize(viewDir + lightDir);
@@ -562,8 +600,13 @@ float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, f
   const float3 kD =
       (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
-  return (kD * albedo / PI + spec) * radiance * NdotL;
+  diffuse_radiance = kD * albedo / PI * radiance * NdotL;
+  return diffuse_radiance + spec * radiance * NdotL;
 }
+
+public
+float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, float3 fragPos, float3 viewDir,
+                          float metallic, float roughness, float3 F0, float F90) { float3 diffuse_radiance; return EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90, diffuse_radiance); }
 
 public
 int EE_FUNC_DIRECTIONAL_SHADOW_CAMERA_INDEX() {
@@ -890,12 +933,7 @@ float EE_FUNC_SPOT_LIGHT_SHADOW(int i, float3 fragPos, float cameraFragDistance)
   return shadow / float(EE_SHADOW_PCF_SAMPLE_COUNT);
 }
 
-public
-float EE_FUNC_POINT_LIGHT_SHADOW(int i, float3 fragPos, float cameraFragDistance) {
-  PointLight light = EE_POINT_LIGHTS[i];
-  // get vector between fragment position and light position
-  float3 fragToLight = fragPos - light.position;
-  float shadow = 0.0f;
+int EE_FUNC_POINT_SHADOW_SLICE(float3 fragToLight) {
   int slice = 0;
   if (abs(fragToLight.x) >= abs(fragToLight.y) && abs(fragToLight.x) >= abs(fragToLight.z)) {
     if (fragToLight.x > 0) {
@@ -916,6 +954,16 @@ float EE_FUNC_POINT_LIGHT_SHADOW(int i, float3 fragPos, float cameraFragDistance
       slice = 5;
     }
   }
+  return slice;
+}
+
+public
+float EE_FUNC_POINT_LIGHT_SHADOW(int i, float3 fragPos, float cameraFragDistance) {
+  PointLight light = EE_POINT_LIGHTS[i];
+  // get vector between fragment position and light position
+  float3 fragToLight = fragPos - light.position;
+  float shadow = 0.0f;
+  const int slice = EE_FUNC_POINT_SHADOW_SLICE(fragToLight);
   float4 fragPosLightSpace = mul(float4(fragPos, 1.0f), light.light_space_matrix[slice]);
   if (abs(fragPosLightSpace.w) < 0.000001f) {
     return 1.0f;
@@ -942,4 +990,121 @@ float EE_FUNC_POINT_LIGHT_SHADOW(int i, float3 fragPos, float cameraFragDistance
     shadow += EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
   }
   return shadow / float(EE_SHADOW_PCF_SAMPLE_COUNT);
+}
+
+float3 EE_FUNC_SOLID_SHADOW_TRANSMISSION(float4x4 matrix, float3 position, float light_distance,
+    float closest_depth, float thickness, float3 distance) {
+  const float4 clip = mul(float4(position, 1), matrix);
+  return EE_SSS_SOLID_TRANSMISSION(thickness,
+      EE_SSS_SHADOW_THICKNESS(matrix, clip.w, light_distance, closest_depth), distance);
+}
+
+bool EE_FUNC_SOLID_SHADOW_UV(float4x4 matrix, float3 position, out float2 uv) {
+  const float4 clip = mul(float4(position, 1), matrix);
+  const float3 projected = clip.xyz / clip.w;
+  uv = projected.xy * 0.5f + 0.5f;
+  return clip.w > 0.0f && all(uv >= float2(0)) && all(uv <= float2(1)) &&
+      projected.z >= 0.0f && projected.z <= 1.0f;
+}
+
+
+float3 EE_FUNC_FILTERED_SOLID_TRANSMISSION(PointLight light, int slice, float2 uv, float3 position,
+    float thickness, float3 distance) {
+  const float2 size = max(float2(light.viewport_x_size, light.viewport_y_size), float2(1));
+  const float2 pixel = uv * size - 0.5f;
+  const int2 center = clamp(int2(floor(pixel + 0.5f)), int2(0), int2(size) - 1);
+  const float2 sample_uv = (float2(center) + 0.5f) / size;
+  // Sample texel centers so depth is reconstructed before transmission is filtered.
+  const float center_depth = EE_FUNC_POINT_SHADOW_DEPTH(light, slice, sample_uv);
+  const float light_distance = length(position - light.position);
+  if (center_depth >= 1.0f)
+    return EE_SSS_SOLID_TRANSMISSION(thickness, 0, distance);
+  float3 sum = float3(0);
+  float total = 0;
+  for (int y = -1; y <= 1; ++y)
+    for (int x = -1; x <= 1; ++x) {
+      const int2 tap = center + int2(x, y);
+      if (any(tap < int2(0)) || any(tap >= int2(size))) continue;
+      const float2 sample_uv = (float2(tap) + 0.5f) / size;
+      const float depth = EE_FUNC_POINT_SHADOW_DEPTH(light, slice, sample_uv);
+      const float weight = EE_SSS_SHADOW_FILTER_WEIGHT(float2(tap) - pixel, depth);
+      sum += weight * EE_FUNC_SOLID_SHADOW_TRANSMISSION(light.light_space_matrix[slice], position,
+          light_distance, depth, thickness, distance);
+      total += weight;
+    }
+  return sum / total;
+}
+
+float3 EE_FUNC_FILTERED_SOLID_TRANSMISSION(SpotLight light, float2 uv, float3 position,
+    float thickness, float3 distance) {
+  const float2 size = max(float2(light.viewport_x_size, light.viewport_y_size), float2(1));
+  const float2 pixel = uv * size - 0.5f;
+  const int2 center = clamp(int2(floor(pixel + 0.5f)), int2(0), int2(size) - 1);
+  const float2 sample_uv = (float2(center) + 0.5f) / size;
+  // Sample texel centers so depth is reconstructed before transmission is filtered.
+  const float center_depth = EE_FUNC_SPOT_SHADOW_DEPTH(light, sample_uv);
+  const float light_distance = length(position - light.position);
+  if (center_depth >= 1.0f)
+    return EE_SSS_SOLID_TRANSMISSION(thickness, 0, distance);
+  float3 sum = float3(0);
+  float total = 0;
+  for (int y = -1; y <= 1; ++y)
+    for (int x = -1; x <= 1; ++x) {
+      const int2 tap = center + int2(x, y);
+      if (any(tap < int2(0)) || any(tap >= int2(size))) continue;
+      const float2 sample_uv = (float2(tap) + 0.5f) / size;
+      const float depth = EE_FUNC_SPOT_SHADOW_DEPTH(light, sample_uv);
+      const float weight = EE_SSS_SHADOW_FILTER_WEIGHT(float2(tap) - pixel, depth);
+      sum += weight * EE_FUNC_SOLID_SHADOW_TRANSMISSION(light.light_space_matrix, position,
+          light_distance, depth, thickness, distance);
+      total += weight;
+    }
+  return sum / total;
+}
+
+public float3 EE_FUNC_CALCULATE_SOLID_TRANSMISSION(float3 albedo, float3 normal, float3 view_dir,
+    float3 position, float metallic, float roughness, float3 f0, float f90, float3 distance, float thickness) {
+  const float3 authored = EE_SSS_SOLID_TRANSMISSION(thickness, 0.0f, distance);
+  const float camera_distance = length(position - EE_CAMERA_POSITION(EE_BASIC_CONSTANTS.camera_index));
+  const int shadow_camera = EE_FUNC_DIRECTIONAL_SHADOW_CAMERA_INDEX();
+  const float directional_distance = length(position - EE_CAMERA_POSITION(shadow_camera));
+  const float directional_depth = abs(mul(float4(position, 1), EE_CAMERAS[shadow_camera].view).z);
+  float3 result = float3(0);
+  float3 diffuse;
+  for (int i = 0; i < EE_RENDER_INFO.directional_light_size; ++i) {
+    const int index = shadow_camera * int(EeMaxDirectionalLightsPerCamera()) + i;
+    float visibility = 1.0f;
+    if (EE_DIRECTIONAL_LIGHTS[index].diffuse.w == 1.0f)
+      visibility = EE_FUNC_DIRECTIONAL_LIGHT_CASCADE_SHADOW(index, directional_depth, position, normal, directional_distance);
+    EE_FUNC_DIRECTIONAL_LIGHT(albedo, 0.0f, index, -normal, -view_dir, metallic, roughness, f0, f90, diffuse);
+    result += diffuse * authored * visibility;
+  }
+  for (int i = 0; i < EE_RENDER_INFO.point_light_size; ++i) {
+    const PointLight light = EE_POINT_LIGHTS[i];
+    if (dot(normal, light.position - position) >= 0.0f) continue;
+    float3 transmission = authored;
+    if (light.diffuse.w == 1.0f) {
+      const int slice = EE_FUNC_POINT_SHADOW_SLICE(position - light.position);
+      float2 uv;
+      if (EE_FUNC_SOLID_SHADOW_UV(light.light_space_matrix[slice], position, uv))
+        transmission = EE_FUNC_FILTERED_SOLID_TRANSMISSION(light, slice, uv, position, thickness, distance);
+      else transmission *= EE_FUNC_POINT_LIGHT_SHADOW(i, position, camera_distance);
+    }
+    EE_FUNC_POINT_LIGHT(albedo, 0.0f, i, -normal, position, -view_dir, metallic, roughness, f0, f90, diffuse);
+    result += diffuse * transmission;
+  }
+  for (int i = 0; i < EE_RENDER_INFO.spot_light_size; ++i) {
+    const SpotLight light = EE_SPOT_LIGHTS[i];
+    if (dot(normal, light.position - position) >= 0.0f) continue;
+    float3 transmission = authored;
+    if (light.diffuse.w == 1.0f) {
+      float2 uv;
+      if (EE_FUNC_SOLID_SHADOW_UV(light.light_space_matrix, position, uv))
+        transmission = EE_FUNC_FILTERED_SOLID_TRANSMISSION(light, uv, position, thickness, distance);
+      else transmission *= EE_FUNC_SPOT_LIGHT_SHADOW(i, position, camera_distance);
+    }
+    EE_FUNC_SPOT_LIGHT(albedo, 0.0f, i, -normal, position, -view_dir, metallic, roughness, f0, f90, diffuse);
+    result += diffuse * transmission;
+  }
+  return result;
 }

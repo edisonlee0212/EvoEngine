@@ -3,6 +3,7 @@
 #include "ComputePipeline.hpp"
 #include "Platform.hpp"
 #include "RayCameraShaderVariantCache.hpp"
+#include "ShaderPreparationQueue.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,6 +11,194 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+TEST(ShaderPreparation, PrioritizesRequiredWorkAndPublishesOnlyWhenPolled) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  const auto owner = std::this_thread::get_id();
+  std::thread::id worker;
+  queue.BeginRequests();
+  queue.SetOptional(true);
+  queue.Request<int>("optional", [] {
+    return std::make_shared<int>(2);
+  });
+  queue.SetOptional(false);
+  queue.Request<int>("selected", [&] {
+    worker = std::this_thread::get_id();
+    return std::make_shared<int>(1);
+  });
+  EXPECT_FALSE(queue.RequiredReady());
+  queue.Tick();
+  EXPECT_EQ(queue.GetProgress().current, "selected");
+  EXPECT_FALSE(queue.GetResult<int>("selected"));
+  queue.Wait();
+  EXPECT_NE(owner, worker);
+  ASSERT_TRUE(queue.GetResult<int>("selected"));
+  EXPECT_EQ(*queue.GetResult<int>("selected"), 1);
+  EXPECT_TRUE(queue.RequiredReady());
+  EXPECT_EQ(queue.GetProgress().completed, 1u);
+  queue.Tick();
+  queue.Wait();
+  EXPECT_EQ(queue.GetProgress().completed, 2u);
+}
+
+TEST(ShaderPreparation, PromotesModeChangesAndReportsFailuresWithoutRetryLoops) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  queue.BeginRequests();
+  queue.SetOptional(true);
+  queue.Request<int>("previous", [] {
+    return std::make_shared<int>(1);
+  });
+  queue.Request<int>("new camera", []() -> std::shared_ptr<int> {
+    throw std::runtime_error("compile failed");
+  });
+  queue.BeginRequests();
+  queue.SetOptional(false);
+  queue.Require("new camera");
+  queue.Tick();
+  EXPECT_EQ(queue.GetProgress().current, "new camera");
+  queue.Wait();
+  EXPECT_TRUE(queue.IsDone("new camera"));
+  EXPECT_NE(queue.GetProgress().error.find("compile failed"), std::string::npos);
+  queue.Tick();
+  EXPECT_EQ(queue.GetProgress().current, "previous");
+  queue.Wait();
+  EXPECT_EQ(queue.GetProgress().completed, queue.GetProgress().total);
+}
+
+TEST(ShaderPreparation, CancellationDropsUnstartedWorkAndEvictionReleasesResults) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  const auto factory = [] {
+    return std::make_shared<int>(7);
+  };
+  queue.Request<int>("variant", factory);
+  queue.Tick();
+  queue.Wait();
+  std::weak_ptr<int> lifetime = queue.GetResult<int>("variant");
+  EXPECT_FALSE(lifetime.expired());
+  queue.ReleaseResult("variant");
+  EXPECT_TRUE(lifetime.expired());
+  queue.Request<int>("variant", factory);
+  queue.Tick();
+  queue.Wait();
+  ASSERT_TRUE(queue.GetResult<int>("variant"));
+  bool unused_built = false;
+  queue.Request<int>("unused", [&] {
+    unused_built = true;
+    return factory();
+  });
+  queue.Clear();
+  EXPECT_FALSE(unused_built);
+  EXPECT_EQ(queue.GetProgress().total, 0u);
+}
+
+TEST(ShaderPreparation, RuntimeRequestsRemainSynchronous) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  queue.SetSynchronous(true);
+  const auto owner = std::this_thread::get_id();
+  const auto result = queue.Request<int>("runtime", [owner] {
+    EXPECT_EQ(owner, std::this_thread::get_id());
+    return std::make_shared<int>(3);
+  });
+  ASSERT_TRUE(result);
+  EXPECT_EQ(*result, 3);
+  EXPECT_TRUE(queue.RequiredReady());
+}
+
+TEST(ShaderPreparation, QueuedFallbackIsPendingRatherThanUnavailable) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  evo_engine::RayCameraShaderVariantCache cache(nullptr, nullptr, nullptr, nullptr, &queue, "Camera ");
+  for (const auto technique :
+       {evo_engine::RayCameraShaderTechnique::RayTracing, evo_engine::RayCameraShaderTechnique::RayQuery}) {
+    EXPECT_FALSE(cache.IsReady(technique));
+    EXPECT_TRUE(cache.GetStats(technique).pending);
+  }
+  cache.Update(0, true, true);
+  EXPECT_FALSE(cache.IsReady(evo_engine::RayCameraShaderTechnique::RayTracing));
+  EXPECT_FALSE(cache.IsReady(evo_engine::RayCameraShaderTechnique::RayQuery));
+  const auto progress = cache.Prewarm(0, evo_engine::RayCameraShaderTechnique::RayQuery);
+  EXPECT_FALSE(progress.ready);
+  EXPECT_TRUE(progress.pending);
+  EXPECT_FALSE(progress.failed);
+  EXPECT_TRUE(progress.last_error.empty());
+}
+
+TEST(ShaderPreparation, RunsTwoBuildsConcurrentlyAndBoundsOutstandingWork) {
+  evo_engine::ShaderPreparationQueue queue(2);
+  std::promise<void> release;
+  auto gate = release.get_future().share();
+  std::array<std::promise<void>, 2> started;
+  std::atomic<int> third_started = 0;
+  for (size_t i = 0; i < started.size(); ++i)
+    queue.Request<int>(std::to_string(i), [&, i] {
+      started[i].set_value();
+      gate.wait();
+      return std::make_shared<int>(static_cast<int>(i));
+    });
+  queue.Request<int>("third", [&] {
+    ++third_started;
+    return std::make_shared<int>(3);
+  });
+  queue.Tick();
+  for (auto& signal : started)
+    EXPECT_EQ(signal.get_future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_EQ(third_started.load(), 0);
+  EXPECT_FALSE(queue.GetResult<int>("0"));
+  EXPECT_NE(queue.GetProgress().current.find(" | "), std::string::npos);
+  release.set_value();
+  queue.Wait();
+  EXPECT_EQ(queue.GetProgress().completed, 2u);
+  queue.Tick();
+  queue.Wait();
+  EXPECT_EQ(third_started.load(), 1);
+  EXPECT_TRUE(queue.RequiredReady());
+}
+
+TEST(ShaderPreparation, EightWorkerLimitRunsConcurrentlyAndLeavesExcessWorkQueued) {
+  evo_engine::ShaderPreparationQueue queue(99);
+  std::promise<void> release;
+  auto gate = release.get_future().share();
+  std::array<std::promise<void>, 8> started;
+  std::atomic<bool> excess_started = false;
+  for (size_t i = 0; i < started.size(); ++i)
+    queue.Request<int>(std::to_string(i), [&, i] {
+      started[i].set_value();
+      gate.wait();
+      return std::make_shared<int>(static_cast<int>(i));
+    });
+  queue.Request<int>("excess", [&] {
+    excess_started = true;
+    return std::make_shared<int>(9);
+  });
+  queue.Tick();
+  for (auto& signal : started)
+    EXPECT_EQ(signal.get_future().wait_for(std::chrono::seconds(5)), std::future_status::ready);
+  EXPECT_FALSE(excess_started.load());
+  release.set_value();
+  queue.Wait();
+  EXPECT_EQ(queue.GetProgress().completed, 8u);
+  queue.Tick();
+  queue.Wait();
+  EXPECT_TRUE(excess_started.load());
+}
+
+TEST(ShaderPreparation, DoesNotStartOptionalWorkWhileRequiredWorkIsPending) {
+  evo_engine::ShaderPreparationQueue queue(2);
+  queue.Request<int>("required", [] {
+    return std::make_shared<int>(1);
+  });
+  queue.SetOptional(true);
+  std::atomic<bool> optional_started = false;
+  queue.Request<int>("optional", [&] {
+    optional_started = true;
+    return std::make_shared<int>(2);
+  });
+  queue.Tick();
+  queue.Wait();
+  EXPECT_FALSE(optional_started.load());
+  queue.Tick();
+  queue.Wait();
+  EXPECT_TRUE(optional_started.load());
+}
 
 namespace evo_engine {
 class RayCameraShaderVariantCacheTestAccess {
@@ -273,4 +462,34 @@ TEST(RayCameraShaderVariantCache, RetainsEvictedPipelineUntilSubmissionResolves)
   submission->status = FrameSubmissionState::Status::Submitted;
   RayCameraShaderVariantCacheTestAccess::Release(*cache);
   EXPECT_TRUE(retained.expired());
+}
+
+TEST(RayCameraShaderVariantCache, SssAndOrdinaryPtRemainSpecializedForBothTechniques) {
+  RayCameraShaderVariantCache cache(nullptr, nullptr, nullptr, nullptr);
+  const auto sss = static_cast<uint32_t>(GltfSceneFeature::Subsurface);
+  cache.Update(sss, true, true);
+  EXPECT_EQ(cache.GetStats(RayCameraShaderTechnique::RayTracing).requested_key, "rtx:0x4000");
+  EXPECT_EQ(cache.GetStats(RayCameraShaderTechnique::RayQuery).requested_key, "rq:0x4000");
+  EXPECT_EQ(cache.Prewarm(sss, RayCameraShaderTechnique::RayTracing).requested_key, "rtx:0x4000");
+  EXPECT_EQ(cache.Prewarm(sss, RayCameraShaderTechnique::RayQuery).requested_key, "rq:0x4000");
+  cache.Update(0u, true, true);
+  EXPECT_EQ(cache.GetStats(RayCameraShaderTechnique::RayTracing).requested_key, "rtx:0x0000");
+  EXPECT_EQ(cache.GetStats(RayCameraShaderTechnique::RayQuery).requested_key, "rq:0x0000");
+}
+
+TEST(RayCameraShaderVariantCache, DebugViewsSelectIndependentVariantsForEachTechnique) {
+  RayCameraShaderVariantCache cache(nullptr, nullptr, nullptr, nullptr);
+  for (const bool ray_tracing_debug : {false, true}) {
+    for (const bool ray_query_debug : {false, true}) {
+      cache.Update(0u, true, true, ray_tracing_debug, ray_query_debug);
+      for (const auto technique : {RayCameraShaderTechnique::RayTracing, RayCameraShaderTechnique::RayQuery}) {
+        const bool ray_tracing = technique == RayCameraShaderTechnique::RayTracing;
+        const bool debug = ray_tracing ? ray_tracing_debug : ray_query_debug;
+        const std::string expected = std::string(ray_tracing ? "rtx:0x0000" : "rq:0x0000") + (debug ? ":debug" : "");
+        EXPECT_EQ(cache.GetStats(technique).requested_key, expected);
+        EXPECT_EQ(cache.GetStats(technique).requested_mask, 0u);
+        EXPECT_EQ(cache.Prewarm(0u, technique, debug).requested_key, expected);
+      }
+    }
+  }
 }

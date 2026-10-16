@@ -50,6 +50,8 @@ bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t heigh
   if (width == 0u || height == 0u || width > std::numeric_limits<uint16_t>::max() ||
       height > std::numeric_limits<uint16_t>::max())
     return false;
+  if (!Platform::GetSelectedPhysicalDevice()->CheckExtensionSupport(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME))
+    return false;
   const auto* library = nrd::GetLibraryDesc();
   if (library->normalEncoding != nrd::NormalEncoding::R10_G10_B10_A2_UNORM ||
       library->roughnessEncoding != nrd::RoughnessEncoding::LINEAR)
@@ -65,8 +67,13 @@ bool NrdRayCameraDenoiser::Initialize(const uint32_t width, const uint32_t heigh
   device.vkDevice = Platform::GetVkDevice();
   device.queueFamilies = &queue_family;
   device.queueFamilyNum = 1u;
-  device.minorVersion =
-      static_cast<uint8_t>(VK_API_VERSION_MINOR(Platform::GetSelectedPhysicalDevice()->properties.apiVersion));
+  const char* extensions[] = {VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME};
+  device.vkExtensions.deviceExtensions = extensions;
+  device.vkExtensions.deviceExtensionNum = 1u;
+  // Platform enables features through Vulkan 1.3; physical support alone does not enable 1.4 features.
+  device.minorVersion = static_cast<uint8_t>(VK_API_VERSION_MINOR(
+      std::min(VK_API_VERSION_1_3,
+               std::min(volkGetInstanceVersion(), Platform::GetSelectedPhysicalDevice()->properties.apiVersion))));
 
   const nrd::DenoiserDesc denoiser{
       kDenoiser, reblur ? nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR : nrd::Denoiser::RELAX_DIFFUSE_SPECULAR};

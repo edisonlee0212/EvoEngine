@@ -2,8 +2,7 @@
 
 [Back to README](../README.md)
 
-EvoEngine uses a Vulkan renderer built around `RenderLayer`. This page explains how scene data becomes a rendered camera
-image and where each rendering responsibility lives.
+EvoEngine uses a Vulkan renderer built around `RenderLayer`.
 
 Focused guides:
 
@@ -56,14 +55,9 @@ compatibility syntax, and textual `#include` are rejected. Third-party `Extern/`
 
 ## Frame Flow
 
-1. The application updates the project, scene, transforms, and layers.
-2. `RenderLayer::PrepareForRendering` gathers render instances and resolves lighting state.
-3. Geometry and textures complete pending uploads; acceleration structures and per-frame descriptors are prepared.
-4. Shared work such as shadows, selected GI field updates, and reflection-probe captures is recorded.
-5. Each camera executes its raster, ray-tracing, or ray-query graph.
-6. Post-processing writes the final camera image for the editor, application window, render texture, or capture path.
-
-Frame-slot fences keep transient resources and replaced renderer objects alive until submitted GPU work finishes.
+After scene updates, `RenderLayer::PrepareForRendering` gathers instances and lighting, uploads geometry/textures, and
+prepares acceleration structures and descriptors. Shared shadows, GI and probe work precede camera graphs and
+post-processing. Frame-slot fences retain resources until submitted GPU work finishes.
 
 ## Static Scene Contract
 
@@ -83,124 +77,55 @@ stale. Unchanged TLAS inputs reuse existing acceleration structures; changed inp
 | Ray query | Compute pipeline using inline ray queries with the shared path-tracing integrator. | Falls back to ray tracing when available, otherwise rasterization. |
 
 The resolved technique is reported when it differs from the camera request. Ray tracing and ray query share material
-evaluation, BSDF logic, environment and emissive sampling, path controls, debug views, and optional outputs. Only their
-traversal adapters differ.
+evaluation, BSDF logic, environment and emissive sampling, path controls, debug views, and optional outputs. Solid SSS
+uses a dedicated closest-hit group in Ray Tracing; RayQuery evaluates it in compute.
 
 Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
 unchanged cameras continue accumulating.
 
 ### ReSTIR PT ray integrators
 
-Under **Ray Integrator**, choose **Path Tracing**, **ReSTIR PT Candidate Only**, **ReSTIR PT Spatial Only**,
-**ReSTIR PT Temporal Only**, or **ReSTIR PT Enhanced**.
-ReSTIR uses compute shaders with inline RayQuery. Candidate Only samples a path reservoir; Spatial Only also replays
-candidates at reciprocal neighboring pixels and sums their pairwise MIS-weighted RGB contributions. It uses no
-previous-frame reservoirs. Spatial resolve stores only the 16-byte RGB result; with 1–16 pairs, ReSTIR uses 224–704
-bytes per pixel for its candidate, surface, shift, and resolved buffers.
-ReSTIR material texture gradients grow with ray travel distance. After diffuse or glossy scattering, a capped
-roughness-aware cone spread carries that footprint along later path segments; sharp specular paths retain their
-existing detail. Alpha, shadow, and emissive visibility sampling remains at its existing LOD.
-Changing the integrator or reuse settings resets accumulation.
+**Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
+ReSTIR runs through inline RayQuery. Candidate Only generates a path reservoir; Spatial Only adds same-frame reuse;
+Temporal Only reprojects previous-frame reservoirs; Enhanced combines temporal and spatial reuse. These reuse modes
+remain experimental and have not established a broad equal-GPU-time quality advantage over ordinary PT.
 
-**Temporal history cap** in Temporal Only and Enhanced limits the effective count credited to a reused previous-frame
-reservoir. It is adjustable from 1 to 32 and defaults to 20. New cameras enable **Adaptive duplication cap** by default; saved camera
-settings retain their explicit value. The duplication map lowers the cap toward 1 where neighboring pixels share a path
-seed. In a matched 1920x1080 Sponza Enhanced capture after 1024 accumulated frames, enabling it changed mean linear
-luminance by -0.10% and left the brightest pixels in the same locations. On a separate 256x144 static indirect fixture
-without accumulation, it lost about 24%
-mean brightness after 1024 frames; the uniform cap stayed within 3% of a PT4096 reference. Lower caps can shorten
-persistent fireflies but may add variance. Preview captures can set the cap with
-`--preview-restir-temporal-history-cap 1` or disable the adaptive policy with
-`--preview-restir-temporal-adaptive-cap disabled`. Uniform mode skips the duplication GPU pass and binds a four-byte
-buffer instead of a full-resolution duplication map; the profile's storage estimate excludes that small buffer.
+- **Spatial neighbors:** 1–16 reciprocal pairs, default 3, using approximately 16-pixel Gaussian offsets. More pairs
+  increase replay work and memory. Material, normal and distance checks reject incompatible neighbors.
+- **Temporal history cap:** 1–32, default 20. **Adaptive duplication cap**, enabled for new cameras, lowers confidence
+  toward 1 where nearby pixels share a path seed. It may reduce persistent fireflies but can increase variance or
+  change brightness; compare against PT. Disabling it skips the duplication pass and full-resolution duplication map.
+- **Hybrid shifts:** off by default. Spatial Only reconnects eligible three-vertex diffuse/emissive paths. Enhanced
+  also supports eligible longer opaque paths using footprint-selected reconnection vertices. Unsupported endpoints,
+  moving reconnection geometry, delta, transmission and volume events require full replay or remain unsupported.
+- **Accumulate Samples:** averages resolved radiance across frames. Disabling it preserves same-frame reuse.
+  Temporal modes also replace bright outliers with fresh candidates and increase fresh-sample shading to 50% after
+  160 accumulated samples. **Firefly Clamp** zero disables this replacement, decorrelation and the global clamp.
 
-Temporal Only adds a previous-frame reservoir, surface reprojection, optional duplication-aware temporal confidence,
-forward and backward replay shifts, and a history resolve without spatial pairs. Enhanced also adds count-aware spatial
-resampling. Both Spatial Only and Enhanced use reciprocal paper-scale reuse maps with approximately 16-pixel Gaussian
-offsets. Spatial pairs use material, normal, planar-distance, and
-world-distance checks. Temporal Only and Enhanced retain reservoir history across camera motion and rigid mesh
-transforms using previous-instance matrices, while restarting radiance accumulation. Other scene changes clear history.
-Spatial Only, Temporal Only and Enhanced share one scratch-buffer set per camera across frames.
-Temporal Only and Enhanced keep two reservoir/surface history slots. Temporal Only's candidate uses the current
-reservoir-history slot, which is updated in place after temporal replay; Enhanced keeps its candidate separate.
-Main graphics-queue memory dependencies order reuse, and submitted frames retain their resources until completion.
-This reduces allocations without changing reservoir precision, temporal history limits, or samples per frame.
-Both temporal modes store screen motion with each primary surface and use the prior occluder's motion as a fallback when
-direct history reprojection fails. In an earlier Enhanced eight-frame continuous camera-motion fixture at 256×144,
-this estimate supplied 151 valid forward shifts; single-step motion fixtures did not exercise it. Both temporal modes
-remain experimental. With Enhanced's optional **Temporal hybrid shifts** enabled, eligible static opaque paths reconnect at the second vertex
-for three-vertex diffuse-to-emissive paths, or at the first footprint-selected vertex on longer non-delta NEE and
-BSDF-terminated emissive or environment paths. Longer NEE and BSDF paths also reconnect when that vertex immediately
-precedes an emissive or environment endpoint; punctual endpoints use NEE. Eligible temporal and spatial shifts replay
-the camera prefix, evaluate the target BSDF and connection visibility, and retain a refreshed cached Jacobian on
-shifted winners. Masked, blended, and transmissive materials may coexist in the scene; reconnection paths must use
-opaque surfaces. `k=d` endpoint paths and other unsupported reconnections use full replay. Hybrid shifts remain
-incomplete for moving reconnection geometry and delta, transmission, or volume events. A 256×144 masked-roulette capture improves
-equal-frame error but fails the equal-GPU-time quality gate; quality across scenes remains unverified.
-Preview captures select temporal reuse with `--preview-ray-integrator temporal` or `enhanced` and include
-`restir_pt_temporal` diagnostics in the ray profile report.
-When accumulating samples, Temporal Only and Enhanced preserve each fresh candidate's radiance and replace unusually
-bright resolved pixels with that fresh sample. They also randomly shade the fresh sample on an increasing fraction of pixels as
-accumulation proceeds, reaching 50% after 160 accumulated samples. This reduces correlation from paths that persist in
-the reservoir. The local outlier threshold uses the camera's **Firefly Clamp** value; setting it to zero disables
-replacement, decorrelation, and the global clamp. Both temporal modes allocate 16 extra bytes per pixel per frame in
-flight while these features are active.
+Every sample per frame runs an independent candidate/reuse/resolve estimate. Temporal estimates read the previous
+frame's reservoir and publish the last estimate for the next frame. All pixels continue sampling; adaptive stopping
+is unsupported. Ray debug views must be off for reuse.
 
-**Spatial neighbors** selects 1–16 pairs per pixel and defaults to 3, matching the ReSTIR PT Enhanced paper's
-spatial-pair count. Each pair has a distinct reciprocal reuse map. More pairs cost more GPU time and shift-buffer
-memory; quality above three pairs has not passed an equal-GPU-time gate. In earlier matched Sponza trials, paper-scale
-pairs increased near-black fresh-frame pixels and image error relative to the former shorter-range and local patterns.
-**Hybrid shifts** is off by default in Spatial Only. It reconnects eligible three-vertex diffuse
-emissive-light paths; other paths use full replay, including paths that traverse transmission.
-Preview captures accept `--preview-restir-spatial-neighbors 1..16` and
-`--preview-restir-spatial-hybrid enabled|disabled`. The latter selects temporal hybrid shifts in Enhanced mode.
+Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
+accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch
+buffers synchronized by the render graph. ReSTIR texture footprints grow with path distance and capped roughness-aware
+spread; alpha, shadow and emissive visibility retain their existing LOD rules.
 
-**Accumulate Samples** averages radiance across frames by default. Disable it for a fresh random sample each frame;
-same-frame spatial reuse still works. Preview captures use `--preview-accumulate-samples enabled|disabled`.
-All ReSTIR modes accept multiple samples per frame. Each sample runs a complete, independently seeded candidate,
-reuse, and resolve sequence; the resolved radiance is averaged. Temporal modes read the previous frame's reservoir
-for every estimate and publish the final estimate's reservoir for the next frame. More samples increase GPU work
-roughly in proportion to the sample count. Ray debug views must be off for ReSTIR.
-All pixels continue sampling each frame; adaptive per-pixel stopping is not supported.
-Temporal Only specializes its candidate and temporal replay shaders for the scene's material features in the background.
-The editor prepares the loaded scene's supported PT backends, beauty/debug variants, ReSTIR modes (including hybrid
-shifts and diagnostics), and NRD signal passes during scene loading. The loading modal stays open until preparation
-finishes. Temporal Only's raw and NRD variants are prepared together. This uses the scene's material feature set,
-not every possible feature combination. New scenes or changed material feature sets trigger preparation again.
-Shader/pipeline caches accelerate subsequent loads. NRD denoiser contexts and camera history buffers are still
-created only when used. Runtime applications retain demand-driven preparation.
-The all-feature shaders render until the specialized pipelines are ready; activation resets temporal history.
-Temporal replay evaluates the matched path contribution and primary surface without selecting another reservoir;
-spatial replay still selects a reservoir for its pairwise weight.
-With NRD disabled, Temporal Only also switches its candidate, combine, and resolve passes together to variants that omit
-NRD signal work. NRD-enabled rendering keeps the signal-producing shaders.
-All six optional ray outputs are available in ReSTIR modes. They describe locally traced candidate paths before
-temporal or spatial reuse: albedo and signed world-space normal come from the first primary hit. The normal image's
-alpha stores linear roughness (the geometric mean of anisotropic roughness axes, or 1 for a miss). Ray count and path
-length cover candidate tracing, and debug shows candidate radiance rather than the resolved reused result. Time currently
-reports zero, as it does for Path Tracing. Unsupported scene features leave ReSTIR unavailable without switching
-integrators.
-The standard Windows build includes optional camera NRD denoising; its input contract and remaining quality work are described in [ray-camera denoising](ray-camera-denoising.md).
+Triangle meshes, supported strands, unlit/emissive/environment/punctual lighting, reflection, transmission, absorption
+and homogeneous scattering are supported. Dispersion and Gaussian splats are unavailable. Unsupported ordinary ReSTIR
+scenes report an error. SSS uses [dedicated direct reuse](subsurface-scattering.md) with its own eligibility and fallback
+rules. Inspect raw rendering separately from [NRD denoising](ray-camera-denoising.md).
 
-Supported paths include triangle meshes (instanced, skinned, and alpha masked), device-supported linear swept sphere
-strands, unlit surfaces, environment and emissive lighting, punctual lights, specular reflection, thin and closed
-transmission, absorption, and homogeneous scattering. Dispersion and Gaussian splats are unavailable. Spatial Only
-has not passed the equal-GPU-time quality gate against conventional RayQuery Path Tracing.
+The six optional ray outputs describe fresh candidates before reuse: primary albedo/normal/roughness, candidate ray
+count/path length and candidate debug radiance. Timing currently reports zero. Temporal Only omits NRD signal work
+when denoising is disabled. Scene-specific shader activation resets history. The editor prioritizes selected camera
+modes and prepares other variants in the background; see [shader preparation](shader-preparation.md).
 
-Preview captures disable the unused scene main camera before waiting for preview readiness, avoiding a second
-ray history and denoiser allocation during capture startup.
-Preview captures can write `--preview-ray-profile-report <path>.json` with per-pair shift outcomes, ray counts, and a
-`*-shift.ppm` heatmap. The heatmap shows the first pair; JSON covers every pair. Add
-`--preview-restir-generated-profile` to record candidate path types and target weights. The
-Enhanced report also records the 32 brightest pixels in the final unaccumulated ReSTIR radiance buffer, with their
-reservoir seed, path type, effective count, selected weight, and target density. Its pixel coordinates match the saved
-HDR image.
-The `restir-diffuse-visible`, `restir-diffuse-occluded`, `restir-glossy`, `restir-roulette`, `restir-mixed-roulette`,
-`restir-mixed`, `restir-edges`, and `restir-indirect-upward` fixtures exercise spatial reuse.
-`restir-indirect-upward-textured` adds a minified opaque ceiling texture for reconnection LOD checks.
-`restir-indirect-upward-moving` animates the indirect ceiling for temporal reconnection checks;
-`restir-indirect-upward-static-pose` holds its frame-64 pose for path-tracing comparisons.
-Use `--preview-fixture-advance-after-frame 0` to reset the moving fixture at capture start.
+Captures accept `--preview-ray-integrator`, `--preview-restir-spatial-neighbors`, `--preview-restir-spatial-hybrid`,
+`--preview-restir-temporal-history-cap`, `--preview-restir-temporal-adaptive-cap`, and `--preview-accumulate-samples`.
+`--preview-ray-profile-report` records shift outcomes, timing, memory and bright-pixel diagnostics;
+`--preview-restir-generated-profile` adds candidate statistics. Capture startup disables the unused scene main camera
+before waiting for readiness. See [validation](rendering-validation.md) for comparison procedures.
 
 ### Ray-camera pass flow
 
@@ -211,28 +136,16 @@ albedo, normals, ray counts, path lengths, timing, and debug data.
 
 ## Raster Path
 
-### Raster camera pass flow
+The camera graph records raw GBuffer/depth, motion vectors, depth pyramid, optional GTAO, deferred material evaluation
+and lighting, forward/transparent geometry, optional splats/overlays and post-processing. Opaque geometry writes raw
+attributes and IDs; masked geometry also samples alpha. GTAO uses geometric normals before material evaluation.
 
-The selected DDGI, SDFGI, or HDDAGI provider updates its shared field before camera rendering. The camera graph then
-records shadows, raw GBuffer and depth, motion vectors, depth pyramid, optional GTAO, deferred material evaluation and
-lighting, forward and transparent geometry, optional splats and overlays, and post-processing. HDDAGI prepares
-full-resolution camera GI images before deferred composition.
+GI field updates and point/spot shadows are shared across cameras. HDDAGI prepares full-resolution camera GI before
+composition. DDGI uses HDDAGI voxel visibility only when occlusion is enabled; it has no SDF/HDDAGI transport history.
+Reflection captures use a reduced diffuse-only GI path. Disabled stages are skipped.
 
-GI updates and point/spot shadows are shared across cameras. DDGI reuses HDDAGI's voxel visibility structures only with
-occlusion enabled; it builds no SDF or HDDAGI transport history. Classification remains optional and independent.
-`DeferredCamera` branches run within one pass; HDDAGI first prepares camera images. Disabled stages are skipped.
-Reflection captures use a reduced, diffuse-only GI path.
-
-Opaque geometry writes raw attributes and IDs; masked geometry additionally samples base-color alpha for coverage.
-GTAO uses geometric normals before deferred compute evaluates materials, resolves the GBuffer, and combines direct
-lighting, shadows, GI, reflection probes, and AO. Forward/transparent geometry follows, then optional overlays and
-post-processing.
-
-Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
-environment, and reflection-probe assets share bindless 2D and cubemap index spaces across raster and ray paths;
-attachments, histories, and other pass-owned images retain explicit descriptors. See
-[Texture access](rendering-texture-access.md) for the ownership rules and [Materials and geometry](rendering-materials.md)
-for material behavior and geometry participation.
+Material/environment/probe assets share bindless 2D and cubemap arrays; attachments and histories retain explicit
+bindings. See [Texture access](rendering-texture-access.md) and [Materials and geometry](rendering-materials.md).
 
 ## Lighting
 
@@ -283,21 +196,16 @@ tracing and ray query while raster strand rendering remains available. DDGI does
 
 ## Extending Rendering
 
-Packages and services extend rendering through explicit APIs rather than by modifying built-in pass internals:
-
-- register logical resources and frame- or camera-level render-graph passes;
-- register external render instances and, when applicable, compatible acceleration-structure metadata;
-- use raw opaque or alpha-only masked deferred callbacks, forward/transparent callbacks, explicit opaque or alpha-only
-  masked shadow callbacks, and gizmo callbacks exposed by `RenderLayer`;
-- provide package-owned shaders, descriptors, and resources for package-specific rendering.
-
-External geometry participates only in the paths for which it supplies the required draw or traversal contract. For
-example, DDGI requires compatible triangle acceleration-structure and offset data.
+Packages register render-graph resources/passes, render instances, shaders and descriptors through public APIs.
+`RenderLayer` exposes deferred, forward/transparent, shadow and gizmo callbacks. Opaque and alpha-only masked callbacks
+have separate contracts. External geometry participates only where it supplies the required draw/traversal data;
+DDGI requires triangle acceleration structures and offsets.
 
 ## Source Entry Points
 
 Start with `RenderLayer`, `Camera`, `RenderGraph`, and `RenderInstanceStorage` in `EvoEngine_SDK`. Material and lighting
 shader modules live under `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine`.
 
-The camera flows follow `RenderLayer::RenderToCamera`, `RenderLayer::RenderToCameraRayTracing`,
-`HddagiCameraFrame::AddPasses`, and `PostProcessingStack::Process` / `ProcessRayCamera`.
+## Subsurface scattering
+
+Opt-in `.evesss` profiles, deferred radial diffusion, solid PT diffusion, and thin-sheet transport are under validation. See [subsurface scattering](subsurface-scattering.md) for authoring, transport semantics, and current limitations.

@@ -1980,24 +1980,13 @@ struct ComponentHeaderState {
 
 ComponentHeaderState DrawComponentHeader(const std::string& name, const std::shared_ptr<Texture2D>& icon,
                                          const std::shared_ptr<Texture2D>& gear_icon, bool* enabled = nullptr,
-                                         const bool enabled_mixed = false,
-                                         const std::optional<ImU32>& background_color = std::nullopt) {
+                                         const bool enabled_mixed = false) {
   constexpr float icon_size = 14.0f;
   constexpr float edge_padding = 6.0f;
   constexpr float gear_size = 18.0f;
   const auto flags = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen;
   ComponentHeaderState result;
-  if (background_color) {
-    const bool light_theme = UsesLightTheme();
-    ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(*background_color));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(
-                                                      MultiplyColor(*background_color, light_theme ? 0.95f : 1.12f)));
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(
-                                                     MultiplyColor(*background_color, light_theme ? 0.90f : 1.20f)));
-  }
   result.open = ImGui::CollapsingHeader("##ComponentHeader", flags);
-  if (background_color)
-    ImGui::PopStyleColor(3);
   const bool right_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
   const ImRect header(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
 
@@ -2564,6 +2553,7 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "nrd_reblur_roughness_fraction" << YAML::Value << settings.nrd_reblur_roughness_fraction;
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "accumulate_samples" << YAML::Value << settings.accumulate_samples;
+  out << YAML::Key << "restir_sss_delayed_reconnection" << YAML::Value << settings.restir_sss_delayed_reconnection;
   out << YAML::Key << "restir_spatial_neighbors" << YAML::Value << settings.restir_spatial_neighbors;
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << settings.restir_spatial_hybrid;
   out << YAML::Key << "restir_temporal_history_cap" << YAML::Value << settings.restir_temporal_history_cap;
@@ -2616,6 +2606,7 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }
   ReadYamlValue(in, "accumulate_samples", settings.accumulate_samples);
+  ReadYamlValue(in, "restir_sss_delayed_reconnection", settings.restir_sss_delayed_reconnection);
   ReadYamlValue(in, "restir_spatial_neighbors", settings.restir_spatial_neighbors);
   settings.restir_spatial_neighbors =
       glm::clamp(settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors);
@@ -3083,7 +3074,8 @@ void EditorLayer::PreUpdate() {
     build_manager_panel_->Tick();
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const bool use_custom_title_bar = window_layer && window_layer->UsesCustomTitleBar();
-  DrawDockspace(use_custom_title_bar ? kCustomTitleBarHeight : 0.0f);
+  const auto status_bar_height = DrawStatusBar();
+  DrawDockspace(use_custom_title_bar ? kCustomTitleBarHeight : 0.0f, status_bar_height);
   if (use_custom_title_bar) {
     DrawCustomTitleBar();
   } else {
@@ -3289,6 +3281,9 @@ void EditorLayer::DrawProjectLoadingPopup() {
   const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
   const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto shader_progress =
+      render_layer ? render_layer->GetShaderPreparationProgress() : ShaderPreparationProgress{};
+  const auto gui = ApplicationContext::Get().GetLayer<ImGuiLayer>();
   const bool scene_ready = project_manager.start_scene_ != nullptr;
   const bool pending_scene_load = !project_manager.new_project_path_.empty() && !scene_ready &&
                                   ApplicationContext::Get().GetApplicationInfo().load_project_start_scene;
@@ -3317,8 +3312,9 @@ void EditorLayer::DrawProjectLoadingPopup() {
   }
 
   const auto draw_loading_status = [&]() {
-    if (scene_ready && render_layer && !render_layer->IsSceneShaderPrewarmComplete(scene))
-      ImGui::TextUnformatted("Preparing rendering shaders...");
+    if (scene_ready && gui && render_layer && !render_layer->IsSceneShaderPrewarmComplete(scene))
+      gui->DrawShaderPreparationProgress(shader_progress.completed, shader_progress.total, shader_progress.current,
+                                         shader_progress.error);
     else
       ImGui::Text("%s", project_manager.loading_status_.empty() ? "Busy..." : project_manager.loading_status_.c_str());
   };
@@ -3904,11 +3900,6 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
   const auto generic_component_icon = FindIconInMap(editor_icons_, "ComponentGeneric");
   const auto component_settings_icon = FindIconInMap(editor_icons_, "SceneSettings");
   const auto data_components_icon = FindIconInMap(editor_icons_, "DataComponents");
-  const bool light_theme = UsesLightTheme();
-  const ImU32 data_section_color = light_theme ? IM_COL32(216, 233, 247, 255) : IM_COL32(58, 110, 154, 255);
-  const ImU32 data_component_color = light_theme ? IM_COL32(190, 219, 242, 255) : IM_COL32(38, 82, 120, 255);
-  const ImU32 private_section_color = light_theme ? IM_COL32(236, 218, 198, 255) : IM_COL32(138, 103, 72, 255);
-  const ImU32 private_component_color = light_theme ? IM_COL32(222, 198, 174, 255) : IM_COL32(112, 83, 58, 255);
   const auto find_component_icon = [&](const size_t type_index, const std::shared_ptr<Texture2D>& fallback) {
     if (const auto search = component_icon_map_.find(type_index); search != component_icon_map_.end())
       return search->second;
@@ -3916,8 +3907,8 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
   };
 
   ImGui::PushID("DataComponentsSection");
-  const auto data_components_header = DrawComponentHeader("Data Components", data_components_icon,
-                                                          component_settings_icon, nullptr, false, data_section_color);
+  const auto data_components_header =
+      DrawComponentHeader("Data Components", data_components_icon, component_settings_icon);
   if (ImGui::BeginPopup("ComponentSettings")) {
     if (ImGui::BeginMenu("Add Component")) {
       bool has_available_component = false;
@@ -3954,7 +3945,7 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
       ImGui::PushID(static_cast<int>(component.type_index));
       const auto header =
           DrawComponentHeader(component.type_name, find_component_icon(component.type_index, data_components_icon),
-                              component_settings_icon, nullptr, false, data_component_color);
+                              component_settings_icon);
       bool removed = false;
       if (ImGui::BeginPopup("ComponentSettings")) {
         const bool protected_component = component.type_index == typeid(Transform).hash_code();
@@ -4004,8 +3995,8 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
   ImGui::PopID();
 
   ImGui::PushID("PrivateComponentsSection");
-  const auto private_components_header = DrawComponentHeader(
-      "Private Components", generic_component_icon, component_settings_icon, nullptr, false, private_section_color);
+  const auto private_components_header =
+      DrawComponentHeader("Private Components", generic_component_icon, component_settings_icon);
   if (ImGui::BeginPopup("ComponentSettings")) {
     if (ImGui::BeginMenu("Add Component")) {
       bool has_available_component = false;
@@ -4053,7 +4044,7 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
       });
       const auto header =
           DrawComponentHeader(component.type_name, find_component_icon(component.type_index, generic_component_icon),
-                              component_settings_icon, &enabled, mixed, private_component_color);
+                              component_settings_icon, &enabled, mixed);
       if (header.enabled_changed) {
         for (const auto& instance : instances)
           instance->SetEnabled(enabled);
@@ -4288,6 +4279,10 @@ void EditorLayer::DrawConsoleWindow() {
   if (!show_console_window)
     return;
 
+  if (console_focus_requested_) {
+    ImGui::SetNextWindowFocus();
+    console_focus_requested_ = false;
+  }
   bool open_details = false;
   if (ImGui::Begin("Console")) {
     constexpr float toolbar_height = 28.0f;
@@ -6988,7 +6983,7 @@ void EditorLayer::SetSceneCameraResolutionOverride(const std::optional<glm::uvec
   }
 }
 
-void EditorLayer::DrawDockspace(const float top_offset) {
+void EditorLayer::DrawDockspace(const float top_offset, const float bottom_offset) {
 #pragma region Dock
   static bool opt_fullscreen_persistent = true;
   const bool opt_fullscreen = opt_fullscreen_persistent;
@@ -7000,8 +6995,9 @@ void EditorLayer::DrawDockspace(const float top_offset) {
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   if (opt_fullscreen) {
     const ImVec2 pos = top_offset > 0.0f ? ImVec2(viewport->Pos.x, viewport->Pos.y + top_offset) : viewport->WorkPos;
-    const ImVec2 size = top_offset > 0.0f ? ImVec2(viewport->Size.x, std::max(1.0f, viewport->Size.y - top_offset))
-                                          : viewport->WorkSize;
+    const ImVec2 size = top_offset > 0.0f
+                            ? ImVec2(viewport->Size.x, std::max(1.0f, viewport->Size.y - top_offset - bottom_offset))
+                            : ImVec2(viewport->WorkSize.x, std::max(1.0f, viewport->WorkSize.y - bottom_offset));
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowViewport(viewport->ID);

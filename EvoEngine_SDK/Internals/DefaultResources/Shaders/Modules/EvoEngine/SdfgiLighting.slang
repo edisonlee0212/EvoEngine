@@ -4,7 +4,8 @@ import EvoEngine.Sdfgi;
 
 public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
     float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
-    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility) {
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+  diffuse_radiance = float3(0);
   EeLightingResources resources;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
@@ -25,6 +26,7 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float screen_visibility = gtao_available ? screenSpaceVisibility : 1.0f;
   const float3 diffuse = diffuse_weight * albedo * irradiance * clamp(materialOcclusion * screen_visibility, 0.0f, 1.0f) *
       EE_RENDER_INFO.indirect_lighting_intensity;
+  diffuse_radiance = diffuse;
   if (reflection_capture) return diffuse;
   if (sdfgi_debug_view == 7u) return diffuse_weight * albedo * field.diffuse * field.weight *
       clamp(materialOcclusion * screen_visibility, 0.0f, 1.0f) * EE_RENDER_INFO.indirect_lighting_intensity;
@@ -49,3 +51,8 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   if (debug_view == 5) return float3(field.weight);
   return diffuse + specular;
 }
+
+public
+float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
+    float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility) { float3 diffuse_radiance; return EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance); }

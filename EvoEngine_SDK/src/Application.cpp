@@ -4,6 +4,7 @@
 
 #include "ApplicationContext.hpp"
 
+#include <imgui.h>
 #include "Animation.hpp"
 #include "AnimationPlayer.hpp"
 #include "Animator.hpp"
@@ -16,6 +17,7 @@
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "ImGuiLayer.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
 #include "Json.hpp"
@@ -47,6 +49,7 @@
 #include "SkinnedMeshRenderer.hpp"
 #include "Strands.hpp"
 #include "StrandsRenderer.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "Texture2D.hpp"
 #include "Times.hpp"
 #include "TransformGraph.hpp"
@@ -149,6 +152,7 @@ void RegisterBuiltInAssetIoHandlers() {
   RegisterYamlStagedAssetIoHandler<PostProcessingStack>("PostProcessingStack");
   RegisterYamlStagedAssetIoHandler<UnknownAsset>("UnknownAsset");
   RegisterYamlStagedAssetIoHandler<Material>("Material");
+  RegisterYamlStagedAssetIoHandler<SubsurfaceProfile>("SubsurfaceProfile");
   RegisterYamlStagedAssetIoHandler<procedural_noise::ProceduralNoise2D>("ProceduralNoise2D");
   RegisterYamlStagedAssetIoHandler<procedural_noise::ProceduralNoise3D>("ProceduralNoise3D");
   RegisterYamlStagedAssetIoHandler<procedural_noise::ProceduralNoise4D>("ProceduralNoise4D");
@@ -197,6 +201,9 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "background_intensity" << YAML::Value << camera.camera_settings.background_intensity;
   out << YAML::Key << "fade_ratio" << YAML::Value << camera.camera_settings.fade_ratio;
   out << YAML::Key << "fade_factor" << YAML::Value << camera.camera_settings.fade_factor;
+  out << YAML::Key << "subsurface_samples" << YAML::Value << camera.camera_settings.subsurface_samples;
+  out << YAML::Key << "restir_sss_delayed_reconnection" << YAML::Value
+      << camera.camera_settings.restir_sss_delayed_reconnection;
   out << YAML::Key << "sample_size" << YAML::Value << camera.camera_settings.sample_size;
   out << YAML::Key << "bounce" << YAML::Value << camera.camera_settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
@@ -293,6 +300,10 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
   camera.ResetRenderState();
   if (in["background_intensity"])
     camera.camera_settings.background_intensity = in["background_intensity"].as<float>();
+  if (in["restir_sss_delayed_reconnection"])
+    camera.camera_settings.restir_sss_delayed_reconnection = in["restir_sss_delayed_reconnection"].as<bool>();
+  if (in["subsurface_samples"])
+    camera.camera_settings.subsurface_samples = std::clamp(in["subsurface_samples"].as<int>(), 1, 64);
   if (in["sample_size"])
     camera.camera_settings.sample_size = in["sample_size"].as<uint32_t>();
   if (in["bounce"])
@@ -739,6 +750,11 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
   out << YAML::Key << "multiscatter_color_factor" << YAML::Value << material.multiscatter_color_factor;
   out << YAML::Key << "scatter_anisotropy" << YAML::Value << material.scatter_anisotropy;
 #endif
+  out << YAML::Key << "subsurface_weight" << YAML::Value << material.subsurface_weight;
+  out << YAML::Key << "subsurface_thickness" << YAML::Value << material.subsurface_thickness;
+  out << YAML::Key << "subsurface_mode" << YAML::Value << material.subsurface_mode;
+  out << YAML::Key << "subsurface_mask_texture" << YAML::Value << material.subsurface_mask_texture;
+  out << YAML::Key << "subsurface_thickness_texture" << YAML::Value << material.subsurface_thickness_texture;
   out << YAML::Key << "pbr_base_color_texture" << YAML::Value << material.pbr_base_color_texture;
   out << YAML::Key << "normal_texture" << YAML::Value << material.normal_texture;
   out << YAML::Key << "pbr_metallic_roughness_texture" << YAML::Value << material.pbr_metallic_roughness_texture;
@@ -782,6 +798,17 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 }
 
 void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
+  if (in["subsurface_weight"])
+    material.subsurface_weight = in["subsurface_weight"].as<float>();
+  if (in["subsurface_thickness"])
+    material.subsurface_thickness = in["subsurface_thickness"].as<float>();
+  if (in["subsurface_mode"])
+    material.subsurface_mode = in["subsurface_mode"].as<uint32_t>();
+  if (in["subsurface_mask_texture"])
+    material.subsurface_mask_texture = in["subsurface_mask_texture"].as<uint16_t>();
+  if (in["subsurface_thickness_texture"])
+    material.subsurface_thickness_texture = in["subsurface_thickness_texture"].as<uint16_t>();
+
   if (!in) {
     return;
   }
@@ -993,7 +1020,24 @@ void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vec
   }
 }
 
+void SerializeSubsurfaceProfile(YAML::Emitter& out, const SubsurfaceProfile& profile) {
+  out << YAML::Key << "albedo" << YAML::Value << profile.albedo;
+  out << YAML::Key << "scattering_distance" << YAML::Value << profile.scattering_distance;
+  out << YAML::Key << "ior" << YAML::Value << profile.ior;
+}
+
+void DeserializeSubsurfaceProfile(const YAML::Node& in, SubsurfaceProfile& profile) {
+  if (in["albedo"])
+    profile.albedo = glm::clamp(in["albedo"].as<glm::vec3>(), glm::vec3(0.0f), glm::vec3(1.0f));
+  if (in["scattering_distance"])
+    profile.scattering_distance = glm::max(in["scattering_distance"].as<glm::vec3>(), glm::vec3(1e-6f));
+  if (in["ior"])
+    profile.ior = std::max(in["ior"].as<float>(), 1.0f);
+}
+
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
+  material.subsurface_profile.Save("subsurface_profile", out);
+  out << YAML::Key << "subsurface_distance_scale" << YAML::Value << material.subsurface_distance_scale;
   out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "schema_version" << YAML::Value << 3;
   SaveGltfShadeMaterial(material.material_data.shade_material, out);
@@ -1004,6 +1048,9 @@ void SerializeMaterial(YAML::Emitter& out, const Material& material) {
 }
 
 void DeserializeMaterial(const YAML::Node& in, Material& material) {
+  material.subsurface_profile.Load("subsurface_profile", in);
+  if (in["subsurface_distance_scale"])
+    material.subsurface_distance_scale = in["subsurface_distance_scale"].as<float>();
   if (in["gltf_material"]) {
     auto data = GltfMaterialData{};
     std::vector<AssetRef> texture_refs;
@@ -2112,6 +2159,8 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<Animator>(SerializeAnimator, DeserializeAnimator, {}, "Animator");
   Serialization::RegisterSerializationHandler<PostProcessingStack>(
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
+  Serialization::RegisterSerializationHandler<SubsurfaceProfile>(SerializeSubsurfaceProfile,
+                                                                 DeserializeSubsurfaceProfile, {}, "SubsurfaceProfile");
   Serialization::RegisterSerializationHandler<Material>(SerializeMaterial, DeserializeMaterial, {}, "Material");
   Serialization::RegisterSerializationHandler<Cubemap>(SerializeCubemap, DeserializeCubemap, {}, "Cubemap");
   Serialization::RegisterSerializationHandler<GlobalReflectionProbe>(
@@ -2563,6 +2612,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<RuntimeDebugGui>("RuntimeDebugGui", {".everuntimegui"});
   RegisterAsset<UnknownAsset>("UnknownAsset", {".eveunknownasset"});
   RegisterAsset<Material>("Material", {".evematerial"});
+  RegisterAsset<SubsurfaceProfile>("SubsurfaceProfile", {".evesss"});
   RegisterAsset<procedural_noise::ProceduralNoise2D>("ProceduralNoise2D", {".evenoise2d"});
   RegisterAsset<procedural_noise::ProceduralNoise3D>("ProceduralNoise3D", {".evenoise3d"});
   RegisterAsset<procedural_noise::ProceduralNoise4D>("ProceduralNoise4D", {".evenoise4d"});
@@ -2613,6 +2663,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     return;
   }
   MergeProjectLaunchMetadata(this->initialization_settings);
+  const bool startup_window =
+      window_layer && GetLayer<ImGuiLayer>() && initialization_settings.application_mode == ApplicationMode::Editor;
   const auto hardware_thread_size = std::thread::hardware_concurrency();
   const size_t default_thread_size = hardware_thread_size > 2 ? hardware_thread_size - 2 : 1;
   for (const auto& layer : this->layers_) {
@@ -2630,6 +2682,37 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     platform_milliseconds = ElapsedMilliseconds(stage_begin);
     if (this->initialization_settings.enable_gpu_timestamp_capture) {
       Platform::SetGpuTimestampCaptureEnabled(true);
+    }
+  }
+  struct PreparationPumpScope {
+    ~PreparationPumpScope() {
+      Shader::SetPreparationPump({});
+    }
+  } preparation_pump_scope;
+  if (startup_window) {
+    if (const auto gui = GetLayer<ImGuiLayer>()) {
+      window_layer->CenterWindow();
+      window_layer->ShowWindow();
+      const auto draw_progress = [gui] {
+        glfwPollEvents();
+        Platform::PreUpdate();
+        const auto window = ApplicationContext::Get().GetLayer<WindowLayer>();
+        if (window->window_size_.x == 0 || window->window_size_.y == 0)
+          return;
+        gui->BeginStartupFrame();
+        const auto viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(viewport->Pos);
+        ImGui::SetNextWindowSize(viewport->Size);
+        ImGui::Begin("Starting EvoEngine", nullptr,
+                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
+        gui->DrawShaderPreparationProgress(Shader::GetCompileCacheStats().compilations, 0,
+                                           Shader::GetCurrentPreparation());
+        ImGui::End();
+        WindowLayer::Render();
+        Platform::LateUpdate();
+      };
+      Shader::SetPreparationPump(draw_progress);
+      draw_progress();
     }
   }
   if (this->initialization_settings.load_default_resources) {
@@ -2652,11 +2735,19 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   }
   if (window_layer) {
     const auto stage_begin = std::chrono::steady_clock::now();
-    if (!this->initialization_settings.window_mode) {
+    if (startup_window && this->initialization_settings.window_mode) {
+      glfwSetWindowSize(window_layer->window_, initialization_settings.default_window_size.x,
+                        initialization_settings.default_window_size.y);
+      window_layer->InitializeDisplayPolicy(
+          *initialization_settings.window_mode, initialization_settings.default_window_size,
+          initialization_settings.window_resizable, initialization_settings.allow_resolution_change);
+    } else if (!this->initialization_settings.window_mode) {
       window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
                                  this->initialization_settings.default_window_size.y);
       if (!this->initialization_settings.full_screen) {
         window_layer->CenterWindow();
+      } else if (startup_window) {
+        glfwMaximizeWindow(window_layer->window_);
       }
     }
     // Texture loading flips STB globally; GLFW window icons need image-space orientation.
@@ -2694,6 +2785,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
     show_window_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   this->execution_status_ = ExecutionStatus::NotPlaying;
+  Shader::SetPreparationPump({});
 
   if (this->initialization_settings.strict_runtime) {
     const auto loaded = PackageManager::GetLoadedPackages();

@@ -97,8 +97,8 @@ TEST(VulkanPipelineCache, RejectsCorruptAndIncompatibleFilesBeforeDriverUse) {
   EXPECT_EQ(VulkanPipelineCache::LoadFile(scope.Path(), other_driver, loaded), PipelineCacheLoadResult::Incompatible);
 }
 
-TEST(VulkanPipelineCache, ValidatesRawHeaderAndEnforcesReferenceSizeCap) {
-  EXPECT_EQ(VulkanPipelineCache::kMaxCacheFileBytes, 512ull * 1024ull * 1024ull);
+TEST(VulkanPipelineCache, ValidatesRawHeaderAndEnforcesSizeCap) {
+  EXPECT_EQ(VulkanPipelineCache::kMaxCacheFileBytes, 1024ull * 1024ull * 1024ull);
   PipelineCacheFileScope scope;
   const auto identity = TestIdentity();
   auto payload = TestPayload(identity);

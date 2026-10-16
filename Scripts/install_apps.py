@@ -103,11 +103,11 @@ def clean_install_dir(root: Path, install_dir: Path) -> None:
         )
 
     print(f"Cleaning {install_dir}")
-    preserved_templates = install_dir / "bin" / "RuntimeTemplates"
+    preserved_bin_directories = {"RuntimeTemplates", "ShaderBinaries", "PipelineCache"}
     for child in install_dir.iterdir():
-        if child == preserved_templates.parent:
+        if child == install_dir / "bin":
             for bin_child in child.iterdir():
-                if bin_child != preserved_templates:
+                if bin_child.name not in preserved_bin_directories or not bin_child.is_dir():
                     if bin_child.is_dir():
                         shutil.rmtree(bin_child)
                     else:

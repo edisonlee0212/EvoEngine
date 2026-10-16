@@ -120,6 +120,11 @@ struct GltfRayTracingPbrMaterial {
   float sheen_roughness;
  public
   float diffuse_transmission_factor;
+ public float subsurface_weight;
+ public float3 subsurface_distance;
+ public float3 subsurface_albedo;
+ public uint subsurface_mode;
+ public float3 subsurface_reflection_tint;
  public
   float3 diffuse_transmission_color;
  public
@@ -813,11 +818,8 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<
     pbr.attenuation_distance = material.attenuation_distance;
     pbr.thickness = material.thickness_factor;
   }
-  float dielectric_ior = 1.5f;
-  if ((feature_mask & EE_GLTF_FEATURE_IOR) != 0u) {
-    dielectric_ior = material.ior == 0.0f ? 0.0f : max(material.ior, 1.0f);
-    pbr.ior2 = material.ior == 0.0f ? EE_GLTF_RT_IOR_INFINITY_SURROGATE : max(material.ior, 1.0f);
-  }
+  const float dielectric_ior = EE_GLTF_EFFECTIVE_IOR<feature_mask>(material, surface.subsurface_weight);
+  pbr.ior2 = dielectric_ior == 0.0f ? EE_GLTF_RT_IOR_INFINITY_SURROGATE : dielectric_ior;
   const float dielectric_f0 = EE_GLTF_RT_IOR_TO_F0(pbr.ior1, dielectric_ior);
   pbr.specular_f0 = float3(dielectric_f0);
   if (is_inside && pbr.thickness > 0.0f) {
@@ -923,7 +925,7 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<
     }
   }
   if ((feature_mask & EE_GLTF_FEATURE_DISPERSION) != 0u &&
-      ((feature_mask & EE_GLTF_FEATURE_IOR) == 0u || material.ior != 0.0f)) {
+      dielectric_ior != 0.0f) {
     pbr.dispersion = max(material.dispersion, 0.0f);
   }
   if ((feature_mask & EE_GLTF_FEATURE_DIFFUSE_TRANSMISSION) != 0u) {
@@ -957,6 +959,23 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<
       const float3 attenuation_coefficient = EE_GLTF_RT_VOLUME_EXTINCTION_COEFFICIENT(pbr);
       pbr.scatter_coefficient = attenuation_coefficient * single_scatter_albedo;
     }
+  }
+  pbr.subsurface_weight = surface.subsurface_weight;
+  pbr.subsurface_distance = max(material.subsurface_distance, float3(1e-6f));
+  pbr.subsurface_albedo = saturate(material.subsurface_albedo);
+  pbr.subsurface_mode = material.subsurface_mode;
+  pbr.subsurface_reflection_tint = float3(1);
+  if (pbr.subsurface_weight > 0.0f && pbr.subsurface_mode == 1u) {
+    const float3 transmission = EE_SSS_THIN_TRANSMISSION(surface.subsurface_thickness, pbr.subsurface_distance);
+    const float old_transmission = saturate(pbr.diffuse_transmission_factor);
+    const float w = saturate(pbr.subsurface_weight);
+    const float p = (1.0f - w) * old_transmission + w * (transmission.r + transmission.g + transmission.b) / 3.0f;
+    pbr.subsurface_reflection_tint = ((1.0f - w) * (1.0f - old_transmission) +
+        w * pbr.subsurface_albedo * (1.0f - transmission)) / max(1.0f - p, 1e-7f);
+    pbr.diffuse_transmission_color = ((1.0f - w) * old_transmission * pbr.diffuse_transmission_color +
+        w * pbr.base_color * pbr.subsurface_albedo * transmission) / max(p, 1e-7f);
+    pbr.diffuse_transmission_factor = p;
+    pbr.thickness = 0.0f;
   }
   return pbr;
 }
@@ -1034,7 +1053,8 @@ void EE_GLTF_RT_EVALUATE_DIFFUSE_REFLECTION(inout GltfRayTracingBsdfEvaluateData
   if (n_dot_l <= 0.0f) {
     return;
   }
-  data.pdf = n_dot_l / EE_GLTF_RT_BSDF_PI;
+  const float local_weight = material.subsurface_weight > 0.0f && material.subsurface_mode == 0u ? 1.0f - saturate(material.subsurface_weight) : 1.0f;
+  data.pdf = n_dot_l / EE_GLTF_RT_BSDF_PI * local_weight;
   data.bsdf_diffuse = tint * data.pdf;
   data.event_type = EE_GLTF_RT_BSDF_EVENT_DIFFUSE_REFLECTION;
 }
@@ -1250,7 +1270,7 @@ public
 void EE_GLTF_RT_BSDF_EVALUATE_LOBE(inout GltfRayTracingBsdfEvaluateData data, const GltfRayTracingPbrMaterial material,
                                    const int lobe, const GltfRayTracingBsdfLobeWeights weights) {
   if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_REFLECTION) {
-    EE_GLTF_RT_EVALUATE_DIFFUSE_REFLECTION(data, material, weights.tint);
+    EE_GLTF_RT_EVALUATE_DIFFUSE_REFLECTION(data, material, weights.tint * (material.subsurface_weight > 0.0f ? material.subsurface_reflection_tint : float3(1)));
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_TRANSMISSION) {
     EE_GLTF_RT_EVALUATE_DIFFUSE_TRANSMISSION(data, material, material.diffuse_transmission_color);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_REFLECTION) {
@@ -1327,7 +1347,7 @@ void EE_GLTF_RT_BSDF_SAMPLE_LOBE(inout GltfRayTracingBsdfSampleData data, const 
   data.bsdf_over_pdf = float3(0.0f);
   data.event_type = EE_GLTF_RT_BSDF_EVENT_ABSORB;
   if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_REFLECTION) {
-    EE_GLTF_RT_SAMPLE_DIFFUSE_REFLECTION(data, material, weights.tint);
+    EE_GLTF_RT_SAMPLE_DIFFUSE_REFLECTION(data, material, weights.tint * (material.subsurface_weight > 0.0f ? material.subsurface_reflection_tint : float3(1)));
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_DIFFUSE_TRANSMISSION) {
     EE_GLTF_RT_SAMPLE_DIFFUSE_TRANSMISSION(data, material, material.diffuse_transmission_color);
   } else if (lobe == EE_GLTF_RT_BSDF_LOBE_SPECULAR_REFLECTION) {

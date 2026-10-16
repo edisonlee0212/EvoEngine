@@ -2,6 +2,15 @@ __exported import EvoEngine.CameraRayConstants;
 __exported import EvoEngine.CameraRayTracingPayload;
 __exported import EvoEngine.RayTracingBasic;
 
+uint EE_CAMERA_RT_HIT_RECORD_OFFSET(CameraRayTracingPayload payload) {
+#if EE_CAMERA_SUBSURFACE_HIT_GROUP
+  return payload.sss_request != 0u ? 2u : 0u;
+#else
+  return 0u;
+#endif
+}
+
+
 public float3 EE_CAMERA_RT_SHADOW_TRANSMISSION(const float3 origin, const float3 direction,
                                                const float max_distance, inout uint seed,
                                                const bool initial_inside,
@@ -34,7 +43,7 @@ bool EE_CAMERA_RT_TRACE_SURFACE_SER(const RayDesc ray, const bool shader_executi
     case spvShaderInvocationReorderEXT:
       if (shader_execution_reordering) {
         HitObject hit_object = HitObject::TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-                                                   EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray,
+                                                   EE_CAMERA_RAY_MASK_GEOMETRY, EE_CAMERA_RT_HIT_RECORD_OFFSET(hit_value), 0, 0, ray,
                                                    hit_value);
         ReorderThread(hit_object);
         HitObject::Invoke(EE_TLAS, hit_object, hit_value);
@@ -56,6 +65,6 @@ public void EE_CAMERA_RT_TRACE_SURFACE(const float3 origin, const float3 directi
     return;
   }
   TraceRay(EE_TLAS, is_inside ? RAY_FLAG_NONE : RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-           EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray, hit_value);
+           EE_CAMERA_RAY_MASK_GEOMETRY, EE_CAMERA_RT_HIT_RECORD_OFFSET(hit_value), 0, 0, ray, hit_value);
   seed = hit_value.seed;
 }

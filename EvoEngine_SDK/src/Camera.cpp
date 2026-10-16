@@ -144,6 +144,15 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
       byte_size += buffer->GetSize();
     }
   }
+  if (history.restir_sss_candidate_buffer)
+    byte_size += history.restir_sss_candidate_buffer->GetSize();
+  for (const auto& buffer : history.restir_sss_history_buffers)
+    if (buffer)
+      byte_size += buffer->GetSize();
+  if (history.restir_sss_residual_buffer)
+    byte_size += history.restir_sss_residual_buffer->GetSize();
+  if (history.restir_sss_duplication_buffer)
+    byte_size += history.restir_sss_duplication_buffer->GetSize();
   for (const auto& buffer : history.restir_nrd_accumulation_buffers) {
     if (buffer)
       byte_size += buffer->GetSize();
@@ -718,7 +727,9 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
 #ifdef EVOENGINE_ENABLE_NRD
   ray_outputs.normal |= camera_settings.nrd_denoising;
 #endif
-  camera_info_block.ray_output_flags = RayCameraOptionalOutputMask(ray_outputs);
+  camera_info_block.ray_output_flags =
+      RayCameraOptionalOutputMask(ray_outputs) |
+      (camera_settings.restir_sss_delayed_reconnection ? CameraInfoBlock::kDelayedSss : 0u);
   camera_info_block.raster_lighting_flags = 0u;
   if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
       post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
@@ -1049,6 +1060,21 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
   return stats;
 }
 
+std::array<uint64_t, 3> Camera::DownloadRestirSssSpatialStats() const {
+  std::array<uint64_t, 3> stats{};
+  if (!ray_camera_history_.valid || !ray_camera_history_.restir_sss_residual_buffer)
+    return stats;
+  const size_t count = static_cast<size_t>(ray_camera_history_.extent.width) * ray_camera_history_.extent.height;
+  std::vector<glm::uvec4> words;
+  ray_camera_history_.restir_sss_residual_buffer->DownloadVector(words, count * 4u);
+  for (size_t i = 0; i < count; ++i) {
+    stats[0] += words[i * 4u + 3u].w;
+    stats[1] += words[i * 4u + 1u].w;
+    stats[2] += words[i * 4u + 2u].w;
+  }
+  return stats;
+}
+
 bool Camera::DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& candidates,
                                           std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const {
   const auto& history = ray_camera_history_;
@@ -1205,6 +1231,8 @@ void Camera::InvalidateRayCameraHistory(const bool invalidate_restir_history) {
     ray_camera_history_.restir_last_shift_slot = UINT32_MAX;
     ray_camera_history_.restir_last_generated_slot = UINT32_MAX;
     if (invalidate_restir_history) {
+      ray_camera_history_.restir_sss_history_valid = false;
+      ray_camera_history_.restir_sss_frame_id = 0;
       ray_camera_history_.restir_history_frame_id = 0;
       ray_camera_history_.restir_history_valid = false;
       ray_camera_history_.nrd_taa_history_valid = false;
@@ -1231,6 +1259,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
     }
     history.technique = technique;
     history.integrator = camera_settings.ray_integrator;
+    history.restir_sss_delayed_reconnection = camera_settings.restir_sss_delayed_reconnection;
     history.scene_handle = scene_handle;
     history.temporal_history_version = temporal_history_version_;
     history.frame_id = 0;
@@ -1241,13 +1270,16 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
     ++ray_camera_history_counters_.reuse_count;
     const bool technique_changed = history.technique != technique;
     const bool integrator_changed = history.integrator != camera_settings.ray_integrator;
-    if (technique_changed || integrator_changed || history.scene_handle != scene_handle ||
+    const bool sss_reconnection_changed =
+        history.restir_sss_delayed_reconnection != camera_settings.restir_sss_delayed_reconnection;
+    if (technique_changed || integrator_changed || sss_reconnection_changed || history.scene_handle != scene_handle ||
         history.temporal_history_version != temporal_history_version_) {
-      if (technique_changed || integrator_changed) {
+      if (technique_changed || integrator_changed || sss_reconnection_changed) {
         frame_count_ = 0;
       }
       history.technique = technique;
       history.integrator = camera_settings.ray_integrator;
+      history.restir_sss_delayed_reconnection = camera_settings.restir_sss_delayed_reconnection;
       history.scene_handle = scene_handle;
       history.temporal_history_version = temporal_history_version_;
       history.frame_id = 0;
@@ -1256,6 +1288,8 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.restir_last_generated_slot = UINT32_MAX;
       history.restir_history_frame_id = 0;
       history.restir_history_valid = false;
+      history.restir_sss_history_valid = false;
+      history.restir_sss_frame_id = 0;
       history.nrd_taa_history_valid = false;
       history.restir_nrd_history_valid = false;
       history.restir_nrd_history_frame_count = 0;

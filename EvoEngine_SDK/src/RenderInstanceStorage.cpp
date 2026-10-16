@@ -2337,6 +2337,7 @@ void RenderInstanceStorage::InvalidateStaticEntityCache(const std::shared_ptr<Sc
 }
 
 const GltfMaterialData& RenderInstanceStorage::ResolveMaterialData(const std::shared_ptr<Material>& material) {
+  material->RefreshSubsurfaceProfile();
   const auto handle = material->GetHandle();
   const auto version = material->GetVersion();
   if (const auto found = material_data_cache_.find(handle);
@@ -4352,6 +4353,7 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
 int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& material) {
   if (!material)
     return -1;
+  material->RefreshSubsurfaceProfile();
   const auto handle = material->GetHandle();
   if (const auto found = material_indices_.find(handle);
       found != material_indices_.end() && material_versions_[handle] == material->GetVersion()) {
@@ -4649,6 +4651,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   const auto source_owner = mesh_renderer->GetOwner();
   const auto entity_handle = target_scene->GetEntityHandle(owner);
   const auto mesh_version = mesh->GetVersion();
+  material->RefreshSubsurfaceProfile();
   const auto material_version = material->GetVersion();
   const bool cacheable = target_scene->IsEntityStatic(source_owner) && renderer_handle != 0;
   std::shared_ptr<MeshRenderInstance> render_instance;

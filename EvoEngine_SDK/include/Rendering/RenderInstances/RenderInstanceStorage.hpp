@@ -23,6 +23,7 @@ class EVOENGINE_API BottomLevelAccelerationStructure;
 class EVOENGINE_API DescriptorSet;
 class EVOENGINE_API DescriptorSetLayout;
 class EVOENGINE_API DeferredGeometryPass;
+class EVOENGINE_API SubsurfaceBackfacePass;
 class EVOENGINE_API DirectionalLightShadowPass;
 class EVOENGINE_API GaussianSplatCullPass;
 class EVOENGINE_API GaussianSplatSortPass;
@@ -1394,6 +1395,7 @@ class EVOENGINE_API RenderInstanceStorage {
   friend class TopLevelAccelerationStructure;
   friend class RenderLayer;
   friend class DeferredGeometryPass;
+  friend class SubsurfaceBackfacePass;
   friend class DirectionalLightShadowPass;
   friend class GaussianSplatCullPass;
   friend class GaussianSplatSortPass;
