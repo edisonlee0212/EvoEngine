@@ -128,12 +128,18 @@ class InstallRuntimeTemplateTest(unittest.TestCase):
             (templates / "old-version.txt").write_text("old", encoding="utf-8")
             (install / "bin" / "editor.exe").write_text("editor", encoding="utf-8")
             (install / "stale.txt").write_text("stale", encoding="utf-8")
+            for name in ("ShaderBinaries", "PipelineCache"):
+                cache = install / "bin" / name
+                cache.mkdir()
+                (cache / "entry.bin").write_bytes(b"cached")
 
             clean_install_dir(root, install)
 
             self.assertEqual((templates / "old-version.txt").read_text(encoding="utf-8"), "old")
             self.assertFalse((install / "bin" / "editor.exe").exists())
             self.assertFalse((install / "stale.txt").exists())
+            for name in ("ShaderBinaries", "PipelineCache"):
+                self.assertEqual((install / "bin" / name / "entry.bin").read_bytes(), b"cached")
 
 
 if __name__ == "__main__":

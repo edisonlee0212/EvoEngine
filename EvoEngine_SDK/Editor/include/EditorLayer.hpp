@@ -915,6 +915,7 @@ class EVOENGINE_EDITOR_API EditorLayer : public ILayer {
 
  private:
   friend struct EditorCameraRebaseTestAccess;
+  friend struct EditorStatusBarTestAccess;
   struct AssetInspectorWindow {
     std::shared_ptr<IAsset> asset;
     bool open = true;
@@ -994,7 +995,13 @@ class EVOENGINE_EDITOR_API EditorLayer : public ILayer {
   /**
    * @brief Draws the root ImGui dockspace for the editor.
    */
-  void DrawDockspace(float top_offset);
+  void DrawDockspace(float top_offset, float bottom_offset);
+  float DrawStatusBar();
+  std::string acknowledged_background_error_;
+  uint64_t status_console_revision_ = ~uint64_t{0};
+  size_t status_warning_count_ = 0;
+  size_t status_error_count_ = 0;
+  bool console_focus_requested_ = false;
 
   /**
    * @brief Draws the editor menu bar.

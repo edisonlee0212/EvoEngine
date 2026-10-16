@@ -10,12 +10,15 @@
 #include "EnvironmentalLighting.hpp"
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
+#include "HddagiResources.hpp"
 #include "IAsset.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
+#include "MeshRenderer.hpp"
 #include "NativeBuildIdentity.hpp"
 #include "PackageManager.hpp"
+#include "Particles.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
@@ -23,10 +26,15 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "RestirSss.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiResources.hpp"
+#include "SdfgiRuntime.hpp"
 #include "Shader.hpp"
+#include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -48,6 +56,8 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -86,8 +96,11 @@ struct EditorCommandLine {
   std::optional<bool> preview_capture_restir_temporal_adaptive_cap;
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
+  bool preview_capture_full_ray_variant = false;
   std::optional<float> preview_capture_firefly_clamp_threshold;
   std::optional<bool> preview_capture_accumulate_samples;
+  std::optional<bool> preview_capture_sss_delayed;
+  std::optional<std::pair<size_t, float>> preview_sss_profile_scale_edit;
   std::optional<bool> preview_capture_nrd_denoising;
   std::optional<bool> preview_capture_nrd_temporal_aa;
   std::optional<bool> preview_capture_nrd_reblur;
@@ -121,6 +134,10 @@ struct EditorCommandLine {
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   std::optional<std::string> preview_ddgi_fixture;
+  std::optional<std::string> preview_sss_fixture;
+  std::optional<float> preview_sss_weight;
+  std::optional<IndirectGiProvider> preview_gi_provider;
+  bool preview_disable_ray_features = false;
   std::optional<std::filesystem::path> preview_ddgi_report_path;
   uint32_t preview_ddgi_seed = 0x6d2b79f5u;
   std::optional<int> preview_ddgi_uniform_ray_count;
@@ -650,6 +667,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument(argument + " requires a comma-separated ray output list or all.");
       }
       command_line.preview_capture_ray_outputs = ParsePreviewRayOutputs(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-full-ray-variant") {
+      command_line.preview_capture_full_ray_variant = true;
     } else if (argument == "--preview-ser") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ser requires disabled, automatic, or enabled.");
@@ -667,6 +686,20 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_accumulate_samples =
           ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
+    } else if (argument == "--preview-sss-profile-scale-after-frame") {
+      if (arg_index + 2 >= argc)
+        throw std::invalid_argument(
+            "--preview-sss-profile-scale-after-frame requires a nonnegative frame and positive scale.");
+      const int frame = std::stoi(argv[++arg_index]);
+      const float scale = std::stof(argv[++arg_index]);
+      if (frame < 0 || !std::isfinite(scale) || scale <= 0)
+        throw std::invalid_argument(
+            "--preview-sss-profile-scale-after-frame requires a nonnegative frame and finite positive scale.");
+      command_line.preview_sss_profile_scale_edit = {static_cast<size_t>(frame), scale};
+    } else if (argument == "--preview-sss-delayed-reconnection") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-sss-delayed-reconnection requires enabled or disabled.");
+      command_line.preview_capture_sss_delayed = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-nrd-denoising") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-nrd-denoising requires enabled or disabled.");
@@ -829,6 +862,42 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
           ParseShadowMapResolutionQualityName(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-deterministic") {
       command_line.preview_capture_deterministic = true;
+    } else if (argument == "--preview-disable-ray-features") {
+      command_line.preview_disable_ray_features = true;
+    } else if (argument == "--preview-gi-provider") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-gi-provider requires sdfgi or hddagi.");
+      const std::string provider = argv[++arg_index];
+      if (provider == "sdfgi")
+        command_line.preview_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+      else if (provider == "hddagi")
+        command_line.preview_gi_provider = IndirectGiProvider::AutomaticHddagi;
+      else
+        throw std::invalid_argument("--preview-gi-provider requires sdfgi or hddagi.");
+    } else if (argument == "--preview-sss-fixture") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-sss-fixture requires a fixture name.");
+      command_line.preview_sss_fixture = argv[++arg_index];
+      if (*command_line.preview_sss_fixture != "mixed" && *command_line.preview_sss_fixture != "solid" &&
+          *command_line.preview_sss_fixture != "thin" && *command_line.preview_sss_fixture != "disabled" &&
+          *command_line.preview_sss_fixture != "mixed-spot" &&
+          *command_line.preview_sss_fixture != "mixed-directional" &&
+          *command_line.preview_sss_fixture != "mixed-unshadowed" &&
+          *command_line.preview_sss_fixture != "mixed-occluded" && *command_line.preview_sss_fixture != "mixed-masks" &&
+          *command_line.preview_sss_fixture != "mixed-boundary" &&
+          *command_line.preview_sss_fixture != "mixed-mirrored" && *command_line.preview_sss_fixture != "mixed-scale" &&
+          *command_line.preview_sss_fixture != "mixed-geometry" &&
+          *command_line.preview_sss_fixture != "mixed-energy" &&
+          *command_line.preview_sss_fixture != "mixed-energy-scale" &&
+          *command_line.preview_sss_fixture != "mixed-emissive")
+        throw std::invalid_argument("Unknown SSS fixture: " + *command_line.preview_sss_fixture);
+    } else if (argument == "--preview-sss-weight") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-sss-weight requires a value from 0 to 1.");
+      command_line.preview_sss_weight = std::stof(argv[++arg_index]);
+      if (!std::isfinite(*command_line.preview_sss_weight) || *command_line.preview_sss_weight < 0 ||
+          *command_line.preview_sss_weight > 1)
+        throw std::invalid_argument("--preview-sss-weight requires a finite value from 0 to 1.");
     } else if (argument == "--preview-ddgi-fixture") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-fixture requires a fixture id.");
@@ -936,6 +1005,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_accumulate_samples && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-accumulate-samples requires --capture-demo-preview.");
   }
+  if (command_line.preview_sss_profile_scale_edit &&
+      (!command_line.demo_preview_capture_path ||
+       (command_line.demo_profile_id != DemoProfileId::SubsurfaceScattering && !command_line.preview_sss_fixture)))
+    throw std::invalid_argument("--preview-sss-profile-scale-after-frame requires an SSS demo or fixture capture.");
+  if (command_line.preview_capture_sss_delayed && !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("--preview-sss-delayed-reconnection requires --capture-demo-preview.");
   if (command_line.preview_capture_nrd_denoising && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-nrd-denoising requires --capture-demo-preview.");
   }
@@ -1018,6 +1093,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
   }
+  if (command_line.preview_sss_fixture && !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("--preview-sss-fixture requires --capture-demo-preview.");
+  if (command_line.preview_sss_weight &&
+      (!command_line.demo_preview_capture_path ||
+       (command_line.demo_profile_id != DemoProfileId::SubsurfaceScattering && !command_line.preview_sss_fixture)))
+    throw std::invalid_argument("--preview-sss-weight requires an SSS demo or fixture and --capture-demo-preview.");
   if (command_line.preview_ddgi_fixture) {
     const std::set<std::string> fixture_ids = {"cornell",
                                                "sponza",
@@ -1206,6 +1287,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
 
 void ApplyGraphicsCommandLineOverrides(const EditorCommandLine& command_line,
                                        ApplicationInitializationSettings& application_info) {
+  if (command_line.preview_disable_ray_features)
+    application_info.graphics_settings.use_ray_tracing = false;
   if (command_line.shadow_map_resolution_quality) {
     application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
   }
@@ -1357,6 +1440,9 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
     case DemoProfileId::Bistro:
       SetupDemoScene(DemoSetup::Bistro, application_info, resource_root, clear_generated_project_files);
       break;
+    case DemoProfileId::SubsurfaceScattering:
+      SetupDemoScene(DemoSetup::SubsurfaceScattering, application_info, resource_root, clear_generated_project_files);
+      break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);
       application_info.application_name = profile.title;
@@ -1428,6 +1514,10 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
     case DemoProfileId::Bistro:
       ApplyBistroDemoEditorCameraDefaults();
       break;
+    case DemoProfileId::SubsurfaceScattering:
+      editor_layer->velocity = 0.15f;
+      editor_layer->apply_transform_to_main_camera = true;
+      break;
     case DemoProfileId::RenderingRegression:
     case DemoProfileId::Rendering:
       editor_layer->apply_transform_to_main_camera = true;
@@ -1460,9 +1550,8 @@ bool DemoPreviewSceneInputsReady() {
 }
 
 void WaitForDemoPreviewSceneInputsReady() {
-  constexpr size_t max_load_frames = 30000;
+  const auto load_deadline = std::chrono::steady_clock::now() + std::chrono::minutes(60);
   constexpr size_t settled_frame_count = 4;
-  size_t load_frame_count = 0;
   size_t stable_frame_count = 0;
   while (stable_frame_count < settled_frame_count) {
     if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
@@ -1481,8 +1570,7 @@ void WaitForDemoPreviewSceneInputsReady() {
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview scene inputs were ready.");
     }
-    ++load_frame_count;
-    if (load_frame_count >= max_load_frames) {
+    if (std::chrono::steady_clock::now() >= load_deadline) {
       throw std::runtime_error("Demo preview scene input readiness timed out.");
     }
   }
@@ -1530,6 +1618,9 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
       break;
     case DemoProfileId::Bistro:
       ConfigureBistroDemoScene(ApplicationContext::Get().GetActiveScene());
+      break;
+    case DemoProfileId::SubsurfaceScattering:
+      ConfigureSubsurfaceDemoScene(ApplicationContext::Get().GetActiveScene());
       break;
   }
 }
@@ -2085,12 +2176,28 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
                                  const ShaderCompileCacheStats& readiness_shader_stats_before,
                                  const ShaderCompileCacheStats& readiness_shader_stats_after) {
   const auto history = camera.GetRayCameraHistoryStats();
+  const auto variant = ApplicationContext::Get().GetLayer<RenderLayer>()->GetRayCameraShaderVariantStats(
+      render_mode == Camera::CameraRenderMode::RayTracing ? RayCameraShaderTechnique::RayTracing
+                                                          : RayCameraShaderTechnique::RayQuery);
   const auto memory = Platform::GetGpuMemorySnapshot();
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto timestamps = Platform::GetGpuTimestampStats();
+  const bool sss_candidate = std::any_of(timestamps.begin(), timestamps.end(), [](const auto& timestamp) {
+    return timestamp.name == "ReSTIR SSS Candidate";
+  });
+  const bool sss_temporal = std::any_of(timestamps.begin(), timestamps.end(), [](const auto& timestamp) {
+    return timestamp.name == "ReSTIR SSS Temporal";
+  });
+  const bool sss_spatial = std::any_of(timestamps.begin(), timestamps.end(), [](const auto& timestamp) {
+    return timestamp.name == "ReSTIR SSS Spatial Generate";
+  });
+  const auto sss_spatial_stats = sss_spatial ? camera.DownloadRestirSssSpatialStats() : std::array<uint64_t, 3>{};
+  const bool restir_pt = std::any_of(timestamps.begin(), timestamps.end(), [](const auto& timestamp) {
+    return timestamp.name.rfind("ReSTIR PT ", 0) == 0;
+  });
   double ray_camera_gpu_average_ms = 0.0;
   for (const auto& timestamp : timestamps) {
-    if (timestamp.name.rfind("Path Trace ", 0) == 0) {
+    if (timestamp.name.rfind("Path Trace ", 0) == 0 || timestamp.name.rfind("ReSTIR SSS ", 0) == 0) {
       ray_camera_gpu_average_ms += timestamp.AverageMilliseconds();
     }
   }
@@ -2101,7 +2208,8 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   const auto restir_generated = CollectRestirPtGeneratedDiagnostics(camera);
   const auto restir_temporal = CollectRestirPtTemporalDiagnostics(camera);
   const auto restir_bytes_per_pixel =
-      camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
+      !restir_pt ? 0u
+      : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
           ? sizeof(RestirPtPathReservoir) * 3u +
                 sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
                                                                   camera.camera_settings.firefly_clamp_threshold > 0.0f
@@ -2144,6 +2252,8 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << (elapsed_seconds > 0.0 ? static_cast<double>(rendered_frames) / elapsed_seconds : 0.0)
          << ", \"gpu_average_ms\": " << ray_camera_gpu_average_ms << "},\n"
          << "  \"variant_readiness\": {\"wait_ms\": " << readiness_wait_milliseconds
+         << ", \"ready\": " << (variant.ready ? "true" : "false") << ", \"requested_key\": \""
+         << JsonEscape(variant.requested_key) << "\", \"active_key\": \"" << JsonEscape(variant.active_key) << "\""
          << ", \"shader_cache_delta\": {\"memory_hits\": "
          << readiness_shader_stats_after.memory_hits - readiness_shader_stats_before.memory_hits
          << ", \"disk_hits\": " << readiness_shader_stats_after.disk_hits - readiness_shader_stats_before.disk_hits
@@ -2161,6 +2271,22 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
          << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"
          << "  \"restir_pt_storage_bytes_per_pixel\": " << restir_bytes_per_pixel << ",\n"
+         << "  \"sss_delayed_reconnection\": "
+         << (camera.camera_settings.restir_sss_delayed_reconnection ? "true" : "false") << ",\n"
+         << "  \"restir_sss_storage_bytes_per_pixel\": "
+         << (sss_spatial
+                 ? kRestirSssHistoryBytes * 2u + kRestirSssResidualBytes +
+                       (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced &&
+                                camera.camera_settings.restir_temporal_adaptive_cap
+                            ? sizeof(float)
+                            : 0u)
+             : sss_temporal ? kRestirSssHistoryBytes * 2u +
+                                  (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(float) : 0u)
+                            : (sss_candidate ? kRestirSssCandidateBytes : 0u))
+         << ",\n"
+         << "  \"restir_sss_spatial\": {\"eligible_receivers\": " << sss_spatial_stats[0]
+         << ", \"accepted_neighbors\": " << sss_spatial_stats[1]
+         << ", \"supported_neighbors\": " << sss_spatial_stats[2] << "},\n"
          << "  \"restir_pt_profile_bytes_per_pixel\": " << restir_profile_bytes_per_pixel << ",\n"
          << "  \"restir_pt_shift\": " << (restir_shift ? restir_shift->dump() : "null") << ",\n"
          << "  \"restir_pt_generated\": " << (restir_generated ? restir_generated->dump() : "null") << ",\n"
@@ -2409,6 +2535,8 @@ void CaptureDemoPreview(
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_accumulate_samples,
+    const std::optional<bool>& preview_sss_delayed,
+    const std::optional<std::pair<size_t, float>>& preview_sss_profile_scale_edit,
     const std::optional<bool>& preview_nrd_denoising, const std::optional<bool>& preview_nrd_reblur,
     const std::optional<bool>& preview_nrd_temporal_aa,
 
@@ -2529,6 +2657,10 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
     scene_camera->ResetFrameCount();
   }
+  if (preview_sss_delayed) {
+    scene_camera->camera_settings.restir_sss_delayed_reconnection = *preview_sss_delayed;
+    scene_camera->ResetFrameCount();
+  }
   if (preview_nrd_denoising) {
     scene_camera->camera_settings.nrd_denoising = *preview_nrd_denoising;
     scene_camera->ResetFrameCount();
@@ -2639,10 +2771,6 @@ void CaptureDemoPreview(
       throw std::runtime_error("Camera profiling requires available and enabled GPU timestamp capture.");
     }
   }
-  if (linear_hdr_output && !Camera::IsRayCameraRenderMode(resolved_render_mode) &&
-      !(preview_ddgi_fixture && preview_ddgi_report_path)) {
-    throw std::invalid_argument("Linear HDR preview capture requires raytracing or rayquery mode.");
-  }
   if (preview_ddgi_reference && resolved_render_mode != Camera::CameraRenderMode::RayTracing) {
     throw std::runtime_error("DDGI quality references require the Vulkan ray-tracing pipeline without fallback.");
   }
@@ -2696,8 +2824,7 @@ void CaptureDemoPreview(
     const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
                                ? RayCameraShaderTechnique::RayQuery
                                : RayCameraShaderTechnique::RayTracing;
-    constexpr size_t max_variant_wait_frames = 30000;
-    size_t wait_frames = 0;
+    const auto variant_deadline = std::chrono::steady_clock::now() + std::chrono::minutes(60);
     while (!render_layer->IsRayCameraShaderVariantReady(technique) ||
            (scene_camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly &&
             !render_layer->IsRestirPtTemporalShaderVariantReady(scene_camera->camera_settings.nrd_denoising))) {
@@ -2712,7 +2839,7 @@ void CaptureDemoPreview(
       if (!ApplicationContext::Get().Loop()) {
         throw std::runtime_error("Application ended before the ray camera shader variant became ready.");
       }
-      if (++wait_frames >= max_variant_wait_frames) {
+      if (std::chrono::steady_clock::now() >= variant_deadline) {
         throw std::runtime_error("Timed out waiting for the ray camera shader variant.");
       }
     }
@@ -2741,6 +2868,25 @@ void CaptureDemoPreview(
        !AdvanceDdgiValidationFixture(ApplicationContext::Get().GetActiveScene(), *preview_ddgi_fixture))) {
     throw std::runtime_error("Preview fixture could not advance before capture.");
   }
+  const auto apply_sss_profile_scale_edit = [&] {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    std::set<SubsurfaceProfile*> profiles;
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>())
+      for (const auto entity : *owners) {
+        const auto material = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+        const auto profile = material ? material->subsurface_profile.Get<SubsurfaceProfile>() : nullptr;
+        if (profile && profiles.insert(profile.get()).second) {
+          profile->scattering_distance *= preview_sss_profile_scale_edit->second;
+          profile->SetUnsaved();
+        }
+      }
+    if (profiles.empty())
+      throw std::runtime_error("SSS profile-edit capture found no profiles.");
+    std::cout << "EVOENGINE_PREVIEW_SSS_EDIT profiles=" << profiles.size()
+              << " scale=" << preview_sss_profile_scale_edit->second << '\n';
+  };
+  if (preview_sss_profile_scale_edit && preview_sss_profile_scale_edit->first == 0u)
+    apply_sss_profile_scale_edit();
   scene_camera->ResetFrameCount();
   const bool moving_restir_fixture = preview_ddgi_fixture && *preview_ddgi_fixture == "restir-indirect-upward-moving";
   const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode) &&
@@ -2778,6 +2924,8 @@ void CaptureDemoPreview(
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
     }
+    if (preview_sss_profile_scale_edit && preview_sss_profile_scale_edit->first == capture_frame_count)
+      apply_sss_profile_scale_edit();
     if (preview_camera_translate_after_frame == capture_frame_count) {
       editor_layer->SetSceneCameraPosition(editor_layer->GetSceneCameraPosition() + preview_camera_translation);
     }
@@ -3342,6 +3490,37 @@ int main(const int argc, char** argv) {
           std::_Exit(1);
         }
         if (command_line.demo_preview_capture_path) {
+          if (command_line.preview_gi_provider) {
+            const auto lighting =
+                ApplicationContext::Get().GetActiveScene()->environmental_lighting.Get<EnvironmentalLighting>();
+            if (!lighting)
+              throw std::runtime_error("GI preview requires EnvironmentalLighting settings.");
+            auto settings = lighting->GetGiSettings();
+            settings.indirect_gi_provider = *command_line.preview_gi_provider;
+            std::string error;
+            if (!lighting->TrySetGiSettings(settings, error))
+              throw std::runtime_error(error);
+          }
+          if (command_line.preview_sss_fixture)
+            ConfigureSubsurfaceValidationFixture(ApplicationContext::Get().GetActiveScene(),
+                                                 *command_line.preview_sss_fixture);
+          if (command_line.preview_sss_weight) {
+            const auto scene = ApplicationContext::Get().GetActiveScene();
+            const auto apply_weight = [&](auto* component) {
+              using T = std::remove_pointer_t<decltype(component)>;
+              if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<T>())
+                for (const auto entity : *owners)
+                  if (const auto material =
+                          scene->GetOrSetPrivateComponent<T>(entity).lock()->material.template Get<Material>()) {
+                    material->material_data.shade_material.subsurface_weight = *command_line.preview_sss_weight;
+                    material->MarkDirty();
+                    material->SetUnsaved();
+                  }
+            };
+            apply_weight(static_cast<MeshRenderer*>(nullptr));
+            apply_weight(static_cast<SkinnedMeshRenderer*>(nullptr));
+            apply_weight(static_cast<Particles*>(nullptr));
+          }
           if (command_line.preview_ddgi_fixture) {
             const auto scene = ApplicationContext::Get().GetActiveScene();
             ConfigureDdgiValidationFixture(scene, *command_line.preview_ddgi_fixture);
@@ -3373,6 +3552,8 @@ int main(const int argc, char** argv) {
               throw std::runtime_error("DDGI reference fixture could not advance its dynamic target.");
             }
           }
+          if (command_line.preview_capture_full_ray_variant)
+            ApplicationContext::Get().GetLayer<RenderLayer>()->force_full_ray_camera_shader_variant = true;
           CaptureDemoPreview(
               *command_line.demo_preview_capture_path, command_line.preview_capture_width,
               command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
@@ -3383,7 +3564,8 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_restir_temporal_history_cap,
               command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_accumulate_samples, command_line.preview_capture_nrd_denoising,
+              command_line.preview_capture_accumulate_samples, command_line.preview_capture_sss_delayed,
+              command_line.preview_sss_profile_scale_edit, command_line.preview_capture_nrd_denoising,
               command_line.preview_capture_nrd_reblur, command_line.preview_capture_nrd_temporal_aa,
 
               command_line.preview_capture_sample_size, command_line.preview_ray_profile_report_path,
@@ -3404,6 +3586,27 @@ int main(const int argc, char** argv) {
               command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_response_frames,
               command_line.preview_ddgi_disabled, command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
               command_line.preview_ddgi_run_index);
+          if (command_line.preview_gi_provider) {
+            const auto scene = ApplicationContext::Get().GetActiveScene();
+            bool ready = false;
+            if (*command_line.preview_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+              const auto runtime = scene->GetHddagiRuntime();
+              ready = runtime && runtime->published && runtime->resources && runtime->resources->transport_ready &&
+                      runtime->resources->failure_flags == 0 && runtime->resources->transport_failure_flags == 0;
+            } else {
+              const auto runtime = scene->GetSdfgiRuntime();
+              ready = runtime && runtime->published && runtime->resources &&
+                      runtime->resources->voxel_failure.empty() && runtime->resources->preprocess_failure.empty() &&
+                      runtime->resources->light_failure.empty() && runtime->resources->transport_failure.empty();
+            }
+            std::cout << "EVOENGINE_PREVIEW_GI provider="
+                      << GetIndirectGiProviderName(*command_line.preview_gi_provider) << " ready=" << ready
+                      << " ray_tracing=" << Platform::RayTracingEnabled()
+                      << " ray_query=" << Platform::RayQueryEnabled()
+                      << " acceleration_structures=" << Platform::RayAccelerationStructureEnabled() << std::endl;
+            if (!ready)
+              throw std::runtime_error("Requested preview GI provider did not publish valid lighting.");
+          }
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

@@ -61,10 +61,10 @@ common component use the same full-width, default-open collapsing-header style. 
 indentation; expanded inspector content receives only a small visual inset and vertical spacing. The two section headers
 have Gear menus with an `Add Component` submenu containing their available Add actions. Data Components uses the
 four-square data icon, while Private Components uses the generic private-component icon. Registered icons override the
-matching category fallback on individual component headers. The Data Components section uses a lighter blue header and its
-entries use stronger blue headers; the Private Components section uses lighter brown and its entries use stronger brown.
-Private-component reference slot buttons share the lighter brown palette. Each palette has light- and dark-theme variants
-with matching hover/active states. Their Gear button and header right-click menu contain the
+matching category fallback on individual component headers. Data Components, Private Components, and their individual
+component headers use the editor theme's standard header colors, including hover and active states.
+Private-component reference slot buttons retain their brown palette, with light- and dark-theme variants and matching
+hover/active states. Component Gear buttons and header right-click menus contain the
 selection-aware removal action, and Transform remains protected. Private-component Enabled state also lives in the header
 and supports mixed multi-selection values. Inspector content and private-component drag-and-drop are available only while
 the header is expanded. With one target, the normal component inspector is preferred,

@@ -15,7 +15,7 @@ bool HasTexture(const uint16_t slot, const std::vector<GltfTextureInfo>& texture
   return slot > 0u && slot < texture_infos.size() && texture_infos[slot].index >= 0;
 }
 
-std::array<uint16_t, 20> GetTextureSlots(const GltfShadeMaterial& material) {
+std::array<uint16_t, 22> GetTextureSlots(const GltfShadeMaterial& material) {
   return {material.pbr_base_color_texture,
           material.normal_texture,
           material.pbr_metallic_roughness_texture,
@@ -35,7 +35,9 @@ std::array<uint16_t, 20> GetTextureSlots(const GltfShadeMaterial& material) {
           material.sheen_roughness_texture,
           material.diffuse_transmission_texture,
           material.diffuse_transmission_color_texture,
-          material.retroreflection_texture};
+          material.retroreflection_texture,
+          material.subsurface_mask_texture,
+          material.subsurface_thickness_texture};
 }
 
 bool UsesTextureTransform(const GltfShadeMaterial& material, const std::vector<GltfTextureInfo>& texture_infos) {
@@ -64,6 +66,8 @@ uint32_t evo_engine::DetectGltfSceneFeatures(const std::vector<GltfShadeMaterial
                                              const std::vector<GltfTextureInfo>& texture_infos) {
   uint32_t result = 0;
   for (const auto& material : materials) {
+    if (material.subsurface_weight > 0.0f)
+      result |= Feature(GltfSceneFeature::Subsurface);
     if (material.transmission_factor != 0.0f || HasTexture(material.transmission_texture, texture_infos))
       result |= Feature(GltfSceneFeature::Transmission);
     if (material.thickness_factor != 0.0f || HasTexture(material.thickness_texture, texture_infos))
@@ -111,7 +115,7 @@ uint32_t evo_engine::DetectGltfSceneFeatures(const std::vector<GltfShadeMaterial
 
 std::string evo_engine::BuildGltfSceneFeatureDefines(const uint32_t feature_mask) {
   const auto mask = PromoteGltfSceneFeatures(feature_mask);
-  const std::array<std::pair<const char*, GltfSceneFeature>, 14> features = {{
+  const std::array<std::pair<const char*, GltfSceneFeature>, 15> features = {{
       {"TRANSMISSION", GltfSceneFeature::Transmission},
       {"VOLUME", GltfSceneFeature::Volume},
       {"VOLUME_SCATTER", GltfSceneFeature::VolumeScatter},
@@ -126,6 +130,7 @@ std::string evo_engine::BuildGltfSceneFeatureDefines(const uint32_t feature_mask
       {"SPECULAR", GltfSceneFeature::Specular},
       {"IOR", GltfSceneFeature::Ior},
       {"TEXTURE_TRANSFORM", GltfSceneFeature::TextureTransform},
+      {"SUBSURFACE", GltfSceneFeature::Subsurface},
   }};
   std::string result = "#define EE_GLTF_COMPILED_FEATURE_MASK " + std::to_string(mask) + "u\n";
   for (const auto& [name, feature] : features) {

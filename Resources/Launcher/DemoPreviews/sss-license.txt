@@ -1,0 +1,10 @@
+Subsurface Scattering preview
+
+Rendered using Infinite, 3D Head Scan by Lee Perry-Smith, based on a work at www.triplegangers.com.
+Model licensed under Creative Commons Attribution 3.0 Unported:
+https://creativecommons.org/licenses/by/3.0/
+
+Mesh source: three.js, revision c47b9048674a43ab83983a64437d0820e0f8e620
+https://github.com/mrdoob/three.js/tree/c47b9048674a43ab83983a64437d0820e0f8e620/examples/models/gltf/LeePerrySmith
+
+The mesh is unchanged; the preview uses EvoEngine's skin material and studio lighting.

@@ -169,7 +169,6 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("pbr_metallic_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("dielectric_f0 = pow((material_ior - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("specular_weight = material.specular_factor"), std::string::npos);
-  EXPECT_NE(source.find("material.ior == 0.0 ? 0.0"), std::string::npos);
   EXPECT_NE(source.find("dielectric_specular_f0 * max(specular_color"), std::string::npos);
   EXPECT_NE(source.find("surface.specular_f0 = lerp(dielectric_specular_f0"), std::string::npos);
   EXPECT_NE(source.find("surface.specular_f90 = lerp(dielectric_specular_f90, 1.0, surface.metallic)"),

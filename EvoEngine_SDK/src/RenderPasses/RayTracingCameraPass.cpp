@@ -261,11 +261,13 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
     const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    const bool restir_pt = history_resources.technique == RayCameraHistoryTechnique::RestirPt;
     push_constant.frame_id =
         (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser)
             ? history_resources.restir_nrd_history_frame_count
-        : (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-           parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+        : (restir_pt &&
+           (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+            parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly))
             ? history_resources.restir_history_frame_id
         : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
                                                                 : static_cast<uint32_t>(Platform::GetFrameCount());
@@ -281,8 +283,7 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     push_constant.nrd_reblur = parameters.camera->camera_settings.nrd_reblur;
-    push_constant.nrd_path_tracing =
-        parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing;
+    push_constant.nrd_path_tracing = !restir_pt;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     {
       const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
@@ -473,7 +474,10 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     bind_restir_buffer(kRayCameraRestirPreviousHistoryBinding, parameters.previous_history_buffer);
     bind_restir_buffer(kRayCameraRestirPreviousSurfaceBinding, parameters.previous_surface_buffer);
     bind_restir_buffer(kRayCameraRestirTemporalForwardBinding, parameters.temporal_forward_buffer);
-    bind_restir_buffer(kRayCameraRestirDuplicationBinding, parameters.duplication_buffer);
+    // SSS references this descriptor statically even when adaptive duplication is disabled.
+    bind_restir_buffer(kRayCameraRestirDuplicationBinding, parameters.duplication_buffer
+                                                               ? parameters.duplication_buffer
+                                                               : parameters.previous_history_buffer);
     bind_restir_buffer(kRayCameraRestirNextHistoryBinding, parameters.next_history_buffer);
     bind_restir_buffer(kRayCameraRestirPairingBinding, parameters.pairing_buffer);
     bind_restir_buffer(kRayCameraRestirPreviousInstanceBinding, parameters.previous_instance_buffer);
@@ -489,15 +493,15 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
     const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
-    const bool restir_pt =
-        parameters.camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
+    const bool restir_pt = history_resources.technique == RayCameraHistoryTechnique::RestirPt;
     const uint32_t samples_per_frame =
         static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     const uint32_t frame_id =
         (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser)
             ? history_resources.restir_nrd_history_frame_count
-        : (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-           parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+        : (restir_pt &&
+           (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+            parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly))
             ? history_resources.restir_history_frame_id
         : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
                                                                 : static_cast<uint32_t>(Platform::GetFrameCount());
@@ -512,11 +516,15 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     push_constant.nrd_reblur = parameters.camera->camera_settings.nrd_reblur;
-    push_constant.nrd_path_tracing =
-        parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing;
+    push_constant.nrd_path_tracing = !restir_pt;
     if (parameters.bind_nrd_temporal_aa)
       push_constant.frame_id =
           history_resources.nrd_taa_history_valid && history_resources.restir_nrd_history_valid ? 1u : 0u;
+    if (parameters.sss_temporal) {
+      // RayQuery has no SER; its SSS pipeline uses that push word for history validity.
+      push_constant.shader_execution_reordering = parameters.sss_history_valid ? 1u : 0u;
+      push_constant.frame_id = history_resources.restir_sss_frame_id;
+    }
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     {
       const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
@@ -536,6 +544,12 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     if (parameters.commit_restir_history) {
       history_resources.restir_history_valid = true;
       ++history_resources.restir_history_frame_id;
+    }
+    if (parameters.sss_temporal && parameters.commit_sss_history) {
+      history_resources.restir_sss_history_valid = true;
+      ++history_resources.restir_sss_frame_id;
+      if (!parameters.sss_spatial_resolve)
+        history_resources.restir_sss_write_slot ^= 1u;
     }
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);

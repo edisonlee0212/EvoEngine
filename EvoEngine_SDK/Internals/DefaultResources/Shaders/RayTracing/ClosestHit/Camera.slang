@@ -1,3 +1,7 @@
+#if EE_CAMERA_SSS_CLOSEST_HIT
+import EvoEngine.CameraRayIntegrator;
+import EvoEngine.CameraRayTraversalPolicies;
+#endif
 import EvoEngine.CameraRayConstants;
 import EvoEngine.CameraRayGeometry;
 import EvoEngine.CameraRayTracingPayload;
@@ -29,10 +33,15 @@ void main(inout CameraRayTracingPayload hit_value, in BuiltInTriangleIntersectio
     hit_value.object_geometric_normal =
         EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(object_hit - center, fallback);
     hit_value.geometry_type = EE_CAMERA_GEOMETRY_LINEAR_SWEPT_SPHERE;
-    return;
-  }
+  } else
 #endif
-  hit_value.barycentrics = attributes.barycentrics;
-  hit_value.object_geometric_normal = float3(0.0f);
-  hit_value.geometry_type = EE_CAMERA_GEOMETRY_TRIANGLE;
+  {
+    hit_value.barycentrics = attributes.barycentrics;
+    hit_value.object_geometric_normal = float3(0.0f);
+    hit_value.geometry_type = EE_CAMERA_GEOMETRY_TRIANGLE;
+  }
+#if EE_CAMERA_SSS_CLOSEST_HIT
+  EE_CAMERA_SHADE_PRIMARY_SUBSURFACE<CameraRayTracingTraversalPolicy, EE_GLTF_COMPILED_FEATURE_MASK>(
+      hit_value, WorldRayOrigin(), WorldRayDirection());
+#endif
 }

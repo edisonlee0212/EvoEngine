@@ -27,6 +27,7 @@
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
+#include "RestirSss.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiDebug.hpp"
@@ -41,6 +42,7 @@
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "Strands.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 
@@ -49,7 +51,9 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <glm/gtc/packing.hpp>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -3152,19 +3156,32 @@ TEST(GpuService, SharedBindlessGltfTextureAccessPreservesIndicesFallbacksAndGrad
   Texture2D red;
   Texture2D green;
   Texture2D pending;
+  Texture2D half_mask;
   const auto red_upload = red.RefTexture2DStorage().SetDataAsync({glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)}, {1, 1});
   const auto green_upload = green.RefTexture2DStorage().SetDataAsync({glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)}, {1, 1});
   ASSERT_TRUE(red_upload.Valid());
   ASSERT_TRUE(green_upload.Valid());
   Platform::GetGpuService().Wait(red_upload);
   Platform::GetGpuService().Wait(green_upload);
+  const auto half_upload = half_mask.RefTexture2DStorage().SetDataAsync({glm::vec4(0.5f)}, {1, 1});
+  ASSERT_TRUE(half_upload.Valid());
+  Platform::GetGpuService().Wait(half_upload);
   TextureStorage::DeviceSync();
 
-  std::array<GltfShadeMaterial, 4> materials{};
+  std::array<GltfShadeMaterial, 5> materials{};
   materials[0].pbr_base_color_texture = 1;
   materials[1].pbr_base_color_texture = 2;
   materials[3].pbr_base_color_texture = 3;
-  std::array<GltfTextureInfo, 4> texture_infos{};
+  for (const size_t index : {0u, 1u, 4u}) {
+    materials[index].pbr_metallic_factor = 0.0f;
+    materials[index].ior = 1.8f;
+    materials[index].subsurface_ior = 1.3f;
+    materials[index].subsurface_weight = 1.0f;
+    materials[index].subsurface_mask_texture = static_cast<uint16_t>(index == 4u ? 4u : index + 1u);
+    materials[index].transmission_factor = 1.0f;
+  }
+  std::array<GltfTextureInfo, 5> texture_infos{};
+  texture_infos[4].index = static_cast<int32_t>(half_mask.GetTextureStorageIndex());
   texture_infos[1].index = static_cast<int32_t>(red.GetTextureStorageIndex());
   texture_infos[1].tex_coord = 1;
   texture_infos[1].uv_transform = glm::mat3x2(glm::vec2(2.0f, 0.0f), glm::vec2(0.0f, 3.0f), glm::vec2(0.25f, 0.5f));
@@ -3172,7 +3189,7 @@ TEST(GpuService, SharedBindlessGltfTextureAccessPreservesIndicesFallbacksAndGrad
   texture_infos[2].tex_coord = 0;
   texture_infos[3].index = static_cast<int32_t>(pending.GetTextureStorageIndex());
 
-  constexpr size_t output_count = 6;
+  constexpr size_t output_count = 13;
   const auto create_storage_buffer = [](const VkDeviceSize size) {
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -3249,6 +3266,22 @@ TEST(GpuService, SharedBindlessGltfTextureAccessPreservesIndicesFallbacksAndGrad
   EXPECT_NEAR(values[5].y, 1.7f, 1.0e-5f);
   EXPECT_NEAR(values[5].z, 0.3f, 1.0e-5f);
   EXPECT_NEAR(values[5].w, 0.4f, 1.0e-5f);
+  for (size_t index = 0; index < 3; ++index) {
+    const float weight = std::array<float, 3>{1.0f, 0.0f, 0.5f}[index];
+    const float ior = glm::mix(1.8f, 1.3f, weight);
+    const float f0 = std::pow((ior - 1.0f) / (ior + 1.0f), 2.0f);
+    EXPECT_NEAR(values[6 + index].x, weight, 1e-6f);
+    EXPECT_NEAR(values[6 + index].y, f0, 1e-6f);
+    EXPECT_NEAR(values[6 + index].z, ior, 1e-6f);
+    EXPECT_NEAR(values[6 + index].w, f0, 1e-6f);
+    EXPECT_NEAR(values[9 + index].x, 0.65f * (1.0f - f0), 1e-6f);
+    const float default_ior = glm::mix(1.5f, 1.3f, weight);
+    const float default_f0 = std::pow((default_ior - 1.0f) / (default_ior + 1.0f), 2.0f);
+    EXPECT_NEAR(values[9 + index].y, default_f0, 1e-6f);
+    EXPECT_NEAR(values[9 + index].z, default_ior, 1e-6f);
+    EXPECT_NEAR(values[9 + index].w, default_f0, 1e-6f);
+  }
+  EXPECT_EQ(values[12], glm::vec4(0.0f, 1.3f, 1.5f, 1.3f));
 }
 
 TEST(GpuService, TextureStorageSlotsRemainStableAndRevisionedAcrossLifecycleStress) {
@@ -3462,7 +3495,7 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   Shader::RegisterShaderIncludePath(shader_root / "Modules");
 
   constexpr uint32_t segment_count = 4;
-  constexpr size_t segment_stride = 480;
+  constexpr size_t segment_stride = 352;
   constexpr size_t segment_group_offset = 316;
   constexpr size_t particle_stride = 96;
   constexpr size_t particle_position_offset = 16;
@@ -3501,7 +3534,7 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
     return value;
   };
 
-  const std::array<size_t, 13> buffer_sizes = {
+  const std::array<size_t, 14> buffer_sizes = {
       48,
       16,
       segment_stride * segment_count,
@@ -3515,8 +3548,9 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
       particle_stride * segment_count,
       particle_stride * segment_count,
       segment_connection_handles_stride * segment_count,
+      144 * segment_count,
   };
-  std::array<std::shared_ptr<Buffer>, 13> buffers;
+  std::array<std::shared_ptr<Buffer>, 14> buffers;
   auto strands_layout = std::make_shared<DescriptorSetLayout>();
   for (uint32_t binding = 0; binding < buffers.size(); ++binding) {
     strands_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -3659,14 +3693,21 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
 
   const auto& uniform_particles = buffers[8];
   const auto& tetrahedrons = buffers[9];
+  auto alpha_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 0; binding < 2; ++binding)
+    alpha_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  alpha_layout->Initialize();
+  auto alpha_set = std::make_shared<DescriptorSet>(alpha_layout);
+  alpha_set->UpdateBufferDescriptorBinding(0, uniform_particles);
+  alpha_set->UpdateBufferDescriptorBinding(1, tetrahedrons);
   std::vector<std::byte> uniform_particle(160 * 4);
   write(uniform_particle, 120, int32_t{2});
   uniform_particles->UploadData(uniform_particle.size(), uniform_particle.data());
   std::array<std::byte, 160> empty_tetrahedron{};
   tetrahedrons->Upload(empty_tetrahedron);
-  const auto normal_pipeline =
-      make_pipeline("Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Normal.slang", {strands_layout}, 4);
-  dispatch(normal_pipeline, SegmentCountConstants{1});
+  const auto normal_pipeline = make_pipeline("Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Normal.slang",
+                                             {strands_layout, alpha_layout}, 4);
+  dispatch(normal_pipeline, SegmentCountConstants{1}, alpha_set);
   uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
   EXPECT_EQ(read_int32(uniform_particle, 120), 0);
   for (size_t offset = 16; offset < 32; offset += sizeof(float))
@@ -3874,32 +3915,34 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   static_assert(sizeof(FungusNodeConstants) == 92);
   segments.assign(segment_stride * segment_count, std::byte{});
   write(segments, 124, 1.0f);
-  write(segments, 356, 0.2f);
-  write(segments, 360, 1.0f);
-  write(segments, 364, 1.0f);
-  write(segments, 368, 0.0f);
-  write(segments, 372, 0.0f);
-  write(segments, 380, 3.0f);
-  write(segments, 384, 4.0f);
-  write(segments, 388, 5.0f);
-  write(segments, 392, int32_t{7});
-  write(segments, 400, 0.5f);
-  write(segments, 404, 6.0f);
   buffers[2]->UploadData(segments.size(), segments.data());
+  std::vector<std::byte> biology(144 * segment_count);
+  write(biology, 20, 0.2f);
+  write(biology, 24, 1.0f);
+  write(biology, 28, 1.0f);
+  write(biology, 32, 0.0f);
+  write(biology, 36, 0.0f);
+  write(biology, 44, 3.0f);
+  write(biology, 48, 4.0f);
+  write(biology, 52, 5.0f);
+  write(biology, 56, int32_t{7});
+  write(biology, 64, 0.5f);
+  write(biology, 68, 6.0f);
+  buffers[13]->UploadData(biology.size(), biology.data());
   const auto fungus_node_pipeline = make_pipeline("Compute/DynamicStrands/Fungus/FungusDiffusion_node.slang",
                                                   {strands_layout}, sizeof(FungusNodeConstants));
   dispatch(fungus_node_pipeline,
            FungusNodeConstants{1,    0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f,
                                0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  for (const size_t offset : {336u, 340u, 344u, 348u, 352u, 396u}) {
-    EXPECT_TRUE(std::isfinite(read_float(segments, offset))) << offset;
-    EXPECT_GE(read_float(segments, offset), 0.0f) << offset;
-    EXPECT_LE(read_float(segments, offset), 1.0f) << offset;
+  buffers[13]->DownloadData(biology.size(), biology.data());
+  for (const size_t offset : {0u, 4u, 8u, 12u, 16u, 60u}) {
+    EXPECT_TRUE(std::isfinite(read_float(biology, offset))) << offset;
+    EXPECT_GE(read_float(biology, offset), 0.0f) << offset;
+    EXPECT_LE(read_float(biology, offset), 1.0f) << offset;
   }
-  for (const size_t offset : {380u, 384u, 388u, 404u})
-    EXPECT_FLOAT_EQ(read_float(segments, offset), 0.0f) << offset;
-  EXPECT_EQ(read_int32(segments, 392), 0);
+  for (const size_t offset : {44u, 48u, 52u, 68u})
+    EXPECT_FLOAT_EQ(read_float(biology, offset), 0.0f) << offset;
+  EXPECT_EQ(read_int32(biology, 56), 0);
 
   struct TetrahedronFilteringConstants {
     uint32_t tetrahedron_size;
@@ -3934,9 +3977,10 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   write(tetrahedron, 152, int32_t{1});
   tetrahedrons->UploadData(tetrahedron.size(), tetrahedron.data());
   const auto tetrahedron_filter_pipeline =
-      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.slang", {strands_layout},
-                    sizeof(TetrahedronFilteringConstants));
-  dispatch(tetrahedron_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0});
+      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.slang",
+                    {strands_layout, alpha_layout}, sizeof(TetrahedronFilteringConstants));
+  dispatch(tetrahedron_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0},
+           alpha_set);
   tetrahedrons->DownloadData(tetrahedron.size(), tetrahedron.data());
   uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
   EXPECT_EQ(read_int32(tetrahedron, 88), 1);
@@ -3944,9 +3988,9 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
     EXPECT_EQ(read_int32(uniform_particle, index * 160 + 112), 1);
 
   const auto triangle_filter_pipeline =
-      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.slang", {strands_layout},
-                    sizeof(TetrahedronFilteringConstants));
-  dispatch(triangle_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0});
+      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.slang",
+                    {strands_layout, alpha_layout}, sizeof(TetrahedronFilteringConstants));
+  dispatch(triangle_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0}, alpha_set);
   tetrahedrons->DownloadData(tetrahedron.size(), tetrahedron.data());
   uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
   for (uint32_t index = 0; index < 4; ++index) {
@@ -4080,6 +4124,360 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
       closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.slang"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.slang"));
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
+  Shader subsurface_candidate;
+  for (const uint32_t mask : {kGltfSceneAllFeatures, static_cast<uint32_t>(GltfSceneFeature::Subsurface),
+                              static_cast<uint32_t>(GltfSceneFeature::Subsurface) |
+                                  static_cast<uint32_t>(GltfSceneFeature::DiffuseTransmission) |
+                                  static_cast<uint32_t>(GltfSceneFeature::Ior)})
+    for (const auto define : {"", "\n#define EE_ENABLE_NRD_SIGNALS 1\n"})
+      for (const auto path : {"Compute/RestirSssCandidate.slang", "Compute/RestirSssTemporal.slang",
+                              "Compute/RestirSssSpatialCandidate.slang", "Compute/RestirSssSpatialResolve.slang"})
+        EXPECT_TRUE(subsurface_candidate.TryCompile(
+            ShaderType::Compute, header + define + BuildGltfSceneFeatureDefines(mask), shader_root / path));
+}
+
+TEST(GpuService, SubsurfaceDuplicationTracksFramePixelOriginsAndClearsInvalidHistory) {
+  ScopedGpuPlatform platform;
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                    "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RestirSssDuplication.slang";
+  std::ifstream input(path);
+  ASSERT_TRUE(input.is_open());
+  std::string source{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+  // Run the production kernel with only its dimensions, validity and buffer bindings replaced.
+  const std::array<std::pair<std::string, std::string>, 5> replacements{{
+      {"import EvoEngine.CameraRayIntegrator;",
+       "import EvoEngine.RestirSss; struct Params { uint width; uint height; uint valid; }; "
+       "[[vk::push_constant]] ConstantBuffer<Params> params;"},
+      {"vk::binding(15, 2)", "vk::binding(0, 0)"},
+      {"vk::binding(18, 2)", "vk::binding(1, 0)"},
+      {"result_image.GetDimensions(width, height);", "width = params.width; height = params.height;"},
+      {"EE_CAMERA_SUBSURFACE_HISTORY_VALID()", "(params.valid != 0u)"},
+  }};
+  for (const auto& replacement : replacements) {
+    const auto offset = source.find(replacement.first);
+    ASSERT_NE(offset, std::string::npos);
+    source.replace(offset, replacement.first.size(), replacement.second);
+  }
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, source));
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 0; binding < 2; ++binding)
+    layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  ComputePipeline pipeline;
+  pipeline.compute_shader = shader;
+  pipeline.descriptor_set_layouts = {layout};
+  pipeline.push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, 12});
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  constexpr uint32_t width = 19, height = 13, count = width * height;
+  constexpr size_t stride = kRestirSssHistoryBytes / sizeof(uint32_t);
+  std::vector<uint32_t> history(count * stride, 0);
+  for (uint32_t i = 0; i < count; ++i) {
+    history[i * stride + 10] = glm::floatBitsToUint(i % 11 == 0 ? 0.0f : 1.0f);
+    history[i * stride + 26] = i % 17 == 0 ? UINT32_MAX : (i % width) / 3;
+    history[i * stride + 27] = (i / width) / 4;
+  }
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = history.size() * sizeof(uint32_t);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto previous = std::make_shared<Buffer>(info);
+  previous->UploadVector(history);
+  info.size = (count + 8) * sizeof(float);
+  auto output = std::make_shared<Buffer>(info);
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, previous);
+  set->UpdateBufferDescriptorBinding(1, output);
+  for (const uint32_t valid_history : {1u, 0u}) {
+    output->UploadVector(std::vector<float>(count + 8, -1.0f));
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+      pipeline.PushConstant(command, 0, glm::uvec3(width, height, valid_history));
+      pipeline.Dispatch(command, (width + 7) / 8, (height + 7) / 8, 1);
+      Platform::BufferMemoryBarrier(command, *output);
+    });
+    std::vector<float> actual;
+    output->DownloadVector(actual, count + 8);
+    for (uint32_t i = 0; i < count; ++i) {
+      uint32_t matches = 0, neighbors = 0;
+      for (int y = -8; y <= 8; ++y)
+        for (int x = -8; x <= 8; ++x) {
+          const int nx = int(i % width) + x, ny = int(i / width) + y;
+          if ((x == 0 && y == 0) || nx < 0 || ny < 0 || nx >= int(width) || ny >= int(height))
+            continue;
+          const auto j = uint32_t(ny) * width + uint32_t(nx);
+          matches += history[j * stride + 26] == history[i * stride + 26] &&
+                     history[j * stride + 27] == history[i * stride + 27];
+          ++neighbors;
+        }
+      const float expected = valid_history && i % 11 != 0 && i % 17 != 0 ? float(matches) / float(neighbors) : 0.0f;
+      EXPECT_FLOAT_EQ(actual[i], expected) << "pixel " << i;
+    }
+    for (uint32_t i = count; i < count + 8; ++i)
+      EXPECT_FLOAT_EQ(actual[i], -1.0f);
+  }
+}
+
+TEST(GpuService, SubsurfaceSamplingAndDirectReservoirMatchExpectedDistributions) {
+  ScopedGpuPlatform platform;
+  constexpr size_t value_count = 163;
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = value_count * sizeof(float);
+  buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_info, allocation_info);
+  RestirSssDirectSample sample;
+  sample.receiver_instance = 0xf1234567u;
+  sample.receiver_primitive = 123u;
+  sample.receiver_barycentrics[0] = 0.25f;
+  sample.receiver_barycentrics[1] = 0.5f;
+  sample.sample_instance = 0xf7654321u;
+  sample.sample_primitive = 456u;
+  sample.sample_barycentrics[0] = 0.125f;
+  sample.sample_barycentrics[1] = 0.75f;
+  sample.sampling_seed = 0xabcdef01u;
+  sample.axis_channel = 6u;
+  sample.intersection_index = 3u;
+  sample.intersection_count = 7u;
+  sample.probe_direction[0] = -0.25f;
+  sample.probe_direction[1] = 0.5f;
+  sample.probe_direction[2] = 0.75f;
+  sample.area_pdf = 17.0f;
+  sample.light_technique = 1u;
+  sample.light_seed = 0xfedcba98u;
+  sample.bsdf_seed = 0x98765432u;
+  sample.shadow_seed = 0x10203040u;
+  sample.throughput[0] = 0.25f;
+  sample.throughput[1] = 0.5f;
+  sample.throughput[2] = 0.75f;
+  sample.resolve_weight = 2.0f;
+  sample.receiver_position[0] = 1.0f;
+  sample.receiver_position[1] = -2.0f;
+  sample.receiver_position[2] = 3.0f;
+  sample.confidence = 11.0f;
+  sample.receiver_normal[0] = -0.25f;
+  sample.receiver_normal[1] = 0.5f;
+  sample.receiver_normal[2] = -0.75f;
+  sample.receiver_material = 0xf0123456u;
+  sample.receiver_tangent[0] = 0.4f;
+  sample.receiver_tangent[1] = -0.2f;
+  sample.receiver_tangent[2] = 0.8f;
+  sample.target_density = 4.0f;
+  sample.origin_pixel = 0x12345678u;
+  sample.origin_frame = 0x87654321u;
+  constexpr size_t record_words = kRestirSssHistoryBytes / sizeof(uint32_t);
+  const std::array<uint32_t, record_words> packed{sample.receiver_instance,
+                                                  sample.sample_instance,
+                                                  sample.sample_primitive,
+                                                  sample.axis_channel | ((sample.light_technique + 1u) << 4u),
+                                                  glm::floatBitsToUint(sample.sample_barycentrics[0]),
+                                                  glm::floatBitsToUint(sample.sample_barycentrics[1]),
+                                                  sample.light_seed,
+                                                  sample.bsdf_seed,
+                                                  sample.receiver_material,
+                                                  glm::floatBitsToUint(sample.confidence),
+                                                  glm::floatBitsToUint(sample.target_density),
+                                                  glm::floatBitsToUint(sample.resolve_weight),
+                                                  glm::floatBitsToUint(sample.throughput[0]),
+                                                  glm::floatBitsToUint(sample.throughput[1]),
+                                                  glm::floatBitsToUint(sample.throughput[2]),
+                                                  glm::floatBitsToUint(sample.receiver_position[0]),
+                                                  glm::floatBitsToUint(sample.receiver_position[1]),
+                                                  glm::floatBitsToUint(sample.receiver_position[2]),
+                                                  glm::floatBitsToUint(sample.receiver_normal[0]),
+                                                  glm::floatBitsToUint(sample.receiver_normal[1]),
+                                                  glm::floatBitsToUint(sample.receiver_normal[2]),
+                                                  glm::floatBitsToUint(sample.receiver_tangent[0]),
+                                                  glm::floatBitsToUint(sample.receiver_tangent[1]),
+                                                  glm::floatBitsToUint(sample.receiver_tangent[2]),
+                                                  sample.sampling_seed,
+                                                  sample.intersection_index,
+                                                  sample.origin_pixel,
+                                                  sample.origin_frame};
+  std::vector<uint32_t> sample_words(8u * record_words, 0xdeadbeefu);
+  std::copy(packed.begin(), packed.end(), sample_words.begin());
+
+  buffer_info.size = sample_words.size() * sizeof(uint32_t);
+  buffer_info.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto samples = std::make_shared<Buffer>(buffer_info, allocation_info);
+  samples->UploadVector(sample_words);
+  constexpr size_t candidate_words_per_record = kRestirSssCandidateBytes / sizeof(uint32_t);
+  std::vector<uint32_t> candidate_words(4u * candidate_words_per_record, 0xdeadbeefu);
+  std::memcpy(candidate_words.data(), &sample, kRestirSssCandidateBytes);
+  buffer_info.size = candidate_words.size() * sizeof(uint32_t);
+  auto candidates = std::make_shared<Buffer>(buffer_info, allocation_info);
+  candidates->UploadVector(candidate_words);
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptors = std::make_shared<DescriptorSet>(layout);
+  descriptors->UpdateBufferDescriptorBinding(0, output);
+  descriptors->UpdateBufferDescriptorBinding(1, samples);
+  descriptors->UpdateBufferDescriptorBinding(2, candidates);
+  auto shader = std::make_shared<Shader>();
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" / "Shaders" /
+                    "Compute" / "SubsurfaceProbe.slang";
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), path));
+  ComputePipeline pipeline;
+  pipeline.compute_shader = shader;
+  pipeline.descriptor_set_layouts.emplace_back(layout);
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline.Bind(command_buffer);
+    pipeline.BindDescriptorSet(command_buffer, 0, descriptors->GetVkDescriptorSet());
+    pipeline.Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+  std::array<float, value_count> values{};
+  output->Download(values);
+  samples->DownloadVector(sample_words, sample_words.size());
+  candidates->DownloadVector(candidate_words, candidate_words.size());
+  EXPECT_EQ(std::memcmp(sample_words.data() + record_words, packed.data(), kRestirSssHistoryBytes), 0);
+  std::array<uint32_t, record_words> empty{};
+  empty[0] = empty[1] = empty[8] = empty[26] = UINT32_MAX;
+  EXPECT_EQ(std::memcmp(sample_words.data() + 2u * record_words, empty.data(), kRestirSssHistoryBytes), 0);
+  EXPECT_EQ(std::memcmp(candidate_words.data() + candidate_words_per_record, &sample, kRestirSssCandidateBytes), 0);
+  auto decoded = sample;
+  decoded.receiver_primitive = decoded.intersection_count = decoded.shadow_seed = 0;
+  decoded.receiver_barycentrics[0] = decoded.receiver_barycentrics[1] = decoded.area_pdf = 0.0f;
+  std::fill(std::begin(decoded.probe_direction), std::end(decoded.probe_direction), 0.0f);
+  EXPECT_EQ(std::memcmp(candidate_words.data() + 2u * candidate_words_per_record, &decoded, kRestirSssCandidateBytes),
+            0);
+  for (size_t i = 3u * candidate_words_per_record; i < candidate_words.size(); ++i)
+    EXPECT_EQ(candidate_words[i], 0xdeadbeefu);
+  EXPECT_FLOAT_EQ(values[150], 1);
+  EXPECT_NEAR(values[151], 8.0f / 9.0f, 1e-6f);
+  EXPECT_NEAR(values[151] * values[152], 1.0f, 1e-6f);
+  EXPECT_NEAR(values[153], 4.0f, 1e-6f);
+  EXPECT_FLOAT_EQ(values[154], 0);
+  EXPECT_FLOAT_EQ(values[155], 0);
+  EXPECT_FLOAT_EQ(values[156], 20);
+  EXPECT_FLOAT_EQ(values[157], 1);
+  EXPECT_NEAR(values[158], 1.0f + 19.0f * (1.0f - std::pow(0.5f, 0.1f)), 1e-5f);
+  EXPECT_FLOAT_EQ(values[159], 1);
+  for (size_t channel = 0; channel < 3; ++channel)
+    EXPECT_NEAR(values[160 + channel], (std::array<float, 3>{1.5f, 1.0f, 2.0f / 3.0f}[channel]), 0.015f);
+  for (size_t i = 7u * record_words; i < sample_words.size(); ++i)
+    EXPECT_EQ(sample_words[i], 0xdeadbeefu);
+  for (size_t channel = 0; channel < 3; ++channel) {
+    EXPECT_FLOAT_EQ(values[61 + channel], sample.receiver_position[channel]);
+    EXPECT_FLOAT_EQ(values[65 + channel], sample.receiver_normal[channel]);
+    EXPECT_FLOAT_EQ(values[69 + channel], sample.receiver_tangent[channel]);
+  }
+  EXPECT_FLOAT_EQ(values[64], sample.confidence);
+  EXPECT_EQ(glm::floatBitsToUint(values[68]), sample.receiver_material);
+  EXPECT_FLOAT_EQ(values[72], sample.target_density);
+  EXPECT_FLOAT_EQ(values[73], 1.0f);
+  for (size_t case_index = 0; case_index < 3; ++case_index)
+    for (size_t channel = 0; channel < 3; ++channel)
+      EXPECT_NEAR(values[74 + case_index * 3 + channel], (std::array<float, 3>{2, 1, 3}[channel]), 1e-5f);
+  for (size_t i = 0; i < 5; ++i)
+    EXPECT_NEAR(values[83 + i], (std::array<float, 5>{19.2f, 9.6f, 30, 5, 5}[i]), 1e-4f);
+  EXPECT_FLOAT_EQ(values[88], 5);
+  EXPECT_FLOAT_EQ(values[89], 0);
+  EXPECT_FLOAT_EQ(values[90], 0);
+  EXPECT_FLOAT_EQ(values[91], 5);
+  EXPECT_NEAR(values[92], 0, 0.05f);
+  EXPECT_NEAR(values[93], 0, 0.05f);
+  EXPECT_NEAR(values[94], 50, 0.4f);
+  EXPECT_FLOAT_EQ(values[95], 1);
+  EXPECT_FLOAT_EQ(values[96], 0);
+  for (size_t channel = 0; channel < 3; ++channel) {
+    const float distance = static_cast<float>(channel + 1);
+    const float authored = 0.25f * std::exp(-3.0f / distance) + 0.75f * std::exp(-1.0f / distance);
+    const float thick = authored * std::exp(-1.0f / distance);
+    EXPECT_FLOAT_EQ(values[97 + channel], 1);
+    EXPECT_NEAR(values[100 + channel], authored, 1e-6f);
+    EXPECT_NEAR(values[103 + channel], thick, 1e-6f);
+    EXPECT_NEAR(values[106 + channel], thick, 1e-6f);
+    EXPECT_NEAR(values[109 + channel], 0, 1e-6f);
+  }
+  for (size_t index = 0; index < 6; ++index)
+    EXPECT_NEAR(values[112 + index], (std::array<float, 6>{2, 2 * std::sqrt(2.0f), 0, 2, 0, 0}[index]), 2e-4f);
+  for (size_t index = 0; index < 9; ++index)
+    EXPECT_FLOAT_EQ(values[118 + index], index == 0 ? 1.0f : 0.0f);
+  EXPECT_FLOAT_EQ(values[127], 2.0f);
+  EXPECT_FLOAT_EQ(values[128], 0.0f);
+  EXPECT_FLOAT_EQ(values[129], 2.0f);
+  const std::array<float, 5> filter_weights{2.25f, 0.25f, 0.0f, 0.5f, 0.0f};
+  for (size_t index = 0; index < filter_weights.size(); ++index)
+    EXPECT_FLOAT_EQ(values[139 + index], filter_weights[index]);
+  for (size_t channel = 0; channel < 3; ++channel) {
+    const float distance = static_cast<float>(channel + 1);
+    EXPECT_NEAR(values[144 + channel], std::exp(-2.0f / (3.0f * distance)), 1e-6f);
+    // Average transmittance rather than reconstructed depth, excluding clear shadow texels.
+    EXPECT_NEAR(values[147 + channel], 0.5f * (std::exp(-1.0f / distance) + std::exp(-1.0f / (3.0f * distance))),
+                2e-5f);
+  }
+  // Constant radiance must mix the surface and tinted SSS estimates once, preserving sharp lighting.
+  const std::array<glm::vec3, 3> expected_colors{glm::vec3(2.1f, 4.2f, 6.3f), glm::vec3(1.85f, 2.95f, 6.675f),
+                                                 glm::vec3(1.6f, 1.7f, 7.05f)};
+  for (size_t sample = 0; sample < expected_colors.size(); ++sample)
+    for (size_t channel = 0; channel < 3; ++channel)
+      EXPECT_NEAR(values[130 + sample * 3 + channel], expected_colors[sample][channel], 1e-6f);
+
+  for (size_t index = 0; index < 16; ++index) {
+    const float u = (static_cast<float>(index) + 0.5f) / 16.0f;
+    EXPECT_NEAR(values[index], SampleSubsurfaceRadius(u, 0.001f), 1e-7f);
+    EXPECT_NEAR(values[index + 16], u, 1e-6f);
+  }
+  EXPECT_FLOAT_EQ(values[32], 0.0f);
+  EXPECT_FLOAT_EQ(values[33], 1.0f);
+  for (size_t channel = 0; channel < 3; ++channel) {
+    constexpr std::array<float, 3> expected{2.0f, 1.0f, 3.0f};
+    EXPECT_NEAR(values[34 + channel], expected[channel], 0.04f);
+    EXPECT_NEAR(values[37 + channel], channel == 2 ? 0.0f : expected[channel], 0.04f);
+  }
+  EXPECT_FLOAT_EQ(values[40], 1.0f);
+  EXPECT_FLOAT_EQ(values[41], 7.0f);
+  const std::array<float, 3> radii{std::hypot(0.004f, 0.012f), std::hypot(0.003f, 0.012f), 0.005f};
+  for (size_t axis = 0; axis < 3; ++axis) {
+    double expected_density = 0;
+    for (const float distance : {0.001f, 0.002f, 0.003f})
+      expected_density += SubsurfaceRadialPdf(radii[axis], distance) / (6.0 * glm::pi<double>() * radii[axis]);
+    expected_density *= axis == 0 ? 0.5 : 0.25;
+    EXPECT_NEAR(values[42 + axis], expected_density, expected_density * 1e-5);
+  }
+  const float tilted_density = (2.0f * values[42] + 3.0f * values[43] + 6.0f * values[44]) / 7.0f;
+  EXPECT_NEAR(values[45], tilted_density, tilted_density * 1e-5f);
+  EXPECT_NEAR(values[46] * 49.0f, tilted_density, tilted_density * 1e-5f);
+  EXPECT_FLOAT_EQ(values[47], values[45]);
+  EXPECT_NEAR(values[48], tilted_density, tilted_density * 1e-5f);
+  EXPECT_FLOAT_EQ(values[49], 0.0f);
+  for (size_t channel = 0; channel < 3; ++channel) {
+    constexpr std::array<float, 3> expected{2.0f, 1.0f, 3.0f};
+    EXPECT_NEAR(values[50 + channel], expected[channel], 0.04f);
+  }
+  EXPECT_FLOAT_EQ(values[53], 0.0f);
+  EXPECT_FLOAT_EQ(values[54], 1.0f);
+  const double component = SubsurfaceRadialPdf(radii[0], 0.003f) / (2.0 * glm::pi<double>() * radii[0]) / 21.0;
+  EXPECT_NEAR(values[55], component, component * 1e-5);
+  EXPECT_FLOAT_EQ(values[56], 0.0f);
+  EXPECT_FLOAT_EQ(values[57], 0.0f);
+  EXPECT_FLOAT_EQ(values[58], 0.0f);
+  EXPECT_NEAR(values[59], 3.0f / values[45], 1e-8f);
+  EXPECT_FLOAT_EQ(values[60], sample.resolve_weight);
+}
+
+TEST(GpuService, SubsurfaceRasterShadersCompileForAllGiProviders) {
+  ScopedGpuPlatform platform;
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader shader;
+  EXPECT_TRUE(shader.TryCompile(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+                                root / "Graphics/Fragment/Standard/SubsurfaceBackface.slang"));
+  EXPECT_TRUE(shader.TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                root / "Compute/SubsurfaceDiffusion.slang"));
+  for (const auto define : {"", "\n#define EE_AUTOMATIC_SDFGI 1\n", "\n#define EE_AUTOMATIC_HDDAGI 1\n"})
+    EXPECT_TRUE(shader.TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines() + define,
+                                  root / "Compute/DeferredComputeLighting.slang"));
 }
 
 TEST(GpuService, NrdSignalPackingAndHistoryMatchPinnedFormulas) {

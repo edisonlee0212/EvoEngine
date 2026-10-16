@@ -172,6 +172,37 @@ TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   EXPECT_EQ(stats.peak_live_history_count, 1u);
 }
 
+TEST(RayCameraHistory, SssTransportChangesInvalidateAllTransportHistoriesWithoutReallocation) {
+  Camera camera;
+  camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
+  auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, {64, 32, 1},
+                                                      MakeFakeHistory);
+  const auto radiance = history.radiance_image;
+  for (const auto setting : {&CameraSettings::restir_sss_delayed_reconnection})
+    for (const bool enabled : {true, false}) {
+      history.valid = history.restir_history_valid = history.restir_sss_history_valid =
+          history.restir_nrd_history_valid = history.nrd_taa_history_valid = true;
+      history.frame_id = history.restir_history_frame_id = history.restir_sss_frame_id =
+          history.restir_nrd_history_frame_count = 7;
+      RayCameraHistoryTestAccess::SetFrameCount(camera, 7);
+      camera.camera_settings.*setting = enabled;
+      auto& acquired = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, {64, 32, 1},
+                                                           MakeFakeHistory);
+      EXPECT_EQ(acquired.radiance_image, radiance);
+      EXPECT_EQ(acquired.restir_sss_delayed_reconnection, camera.camera_settings.restir_sss_delayed_reconnection);
+      EXPECT_FALSE(acquired.valid);
+      EXPECT_FALSE(acquired.restir_history_valid);
+      EXPECT_FALSE(acquired.restir_sss_history_valid);
+      EXPECT_FALSE(acquired.restir_nrd_history_valid);
+      EXPECT_FALSE(acquired.nrd_taa_history_valid);
+      EXPECT_EQ(acquired.frame_id, 0u);
+      EXPECT_EQ(acquired.restir_history_frame_id, 0u);
+      EXPECT_EQ(acquired.restir_sss_frame_id, 0u);
+      EXPECT_EQ(acquired.restir_nrd_history_frame_count, 0u);
+      EXPECT_EQ(camera.GetFrameCount(), 0u);
+    }
+}
+
 TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
   Camera camera;
   camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
@@ -185,7 +216,11 @@ TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
   history.restir_nrd_history_frame_count = 5;
 
   history.nrd_taa_history_valid = true;
+  history.restir_sss_history_valid = true;
+  history.restir_sss_frame_id = 5;
   RayCameraHistoryTestAccess::Invalidate(camera, false);
+  EXPECT_TRUE(history.restir_sss_history_valid);
+  EXPECT_EQ(history.restir_sss_frame_id, 5u);
   EXPECT_TRUE(history.nrd_taa_history_valid);
   EXPECT_FALSE(history.valid);
   EXPECT_EQ(history.frame_id, 0u);
@@ -195,6 +230,8 @@ TEST(RayCameraHistory, CameraMotionKeepsEnhancedReservoirHistory) {
   EXPECT_EQ(history.restir_nrd_history_frame_count, 5u);
 
   RayCameraHistoryTestAccess::Invalidate(camera);
+  EXPECT_FALSE(history.restir_sss_history_valid);
+  EXPECT_EQ(history.restir_sss_frame_id, 0u);
   EXPECT_FALSE(history.nrd_taa_history_valid);
   EXPECT_FALSE(history.restir_history_valid);
   EXPECT_EQ(history.restir_history_frame_id, 0u);

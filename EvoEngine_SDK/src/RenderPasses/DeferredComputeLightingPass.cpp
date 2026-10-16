@@ -9,6 +9,9 @@
 #include "RenderInstanceStorage.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "RenderTexture.hpp"
+
+#include <algorithm>
+#include <stdexcept>
 #include "SdfgiResources.hpp"
 
 using namespace evo_engine;
@@ -83,6 +86,30 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     image_info.imageView = parameters.camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     descriptor_set->UpdateImageDescriptorBinding(5, image_info);
 
+    image_info.imageView = g_buffer_attachments[1].imageView;
+    if (parameters.subsurface_enabled) {
+      const auto binding = context.GetResourceBinding("Camera.Subsurface.Diffuse");
+      if (!binding || !binding->image)
+        throw std::runtime_error("Missing subsurface diffuse resource");
+      VkImageViewCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      info.image = binding->image->GetVkImage();
+      info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      info.format = binding->image->GetFormat();
+      info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      const auto view = std::make_shared<ImageView>(info, binding->image);
+      image_info.imageView = view->GetVkImageView();
+      parameters.transient_resources->RetainImageView(view);
+    }
+    descriptor_set->UpdateImageDescriptorBinding(6, image_info);
+    image_info.imageView = g_buffer_attachments[1].imageView;
+    if (parameters.subsurface_backface_enabled) {
+      const auto binding = context.GetResourceBinding("Camera.Subsurface.Backface");
+      const auto view = CreateGraphImageMipView(binding->image, 0);
+      parameters.transient_resources->RetainImageView(view);
+      image_info.imageView = view->GetVkImageView();
+    }
+    descriptor_set->UpdateImageDescriptorBinding(7, image_info);
+
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
@@ -107,6 +134,10 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     push_constant.light_split_index =
         parameters.directional_shadow_camera_index >= 0 ? -parameters.directional_shadow_camera_index - 1 : 256;
     push_constant.meshlet_culling_flags = (parameters.scene_camera ? 1u : 0u) | (parameters.sdfgi_debug_view << 8u);
+    push_constant.meshlet_culling_flags |= parameters.subsurface_enabled ? 2u : 0u;
+    push_constant.meshlet_culling_flags |= parameters.subsurface_backface_enabled ? 4u : 0u;
+    if (parameters.subsurface_resolve)
+      push_constant.light_split_index = std::clamp(parameters.camera->camera_settings.subsurface_samples, 1, 64);
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto extent = parameters.camera->GetRenderTexture()->GetExtent();
     const auto dimensions = parameters.dispatch_size.x && parameters.dispatch_size.y

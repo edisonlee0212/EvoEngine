@@ -15,6 +15,30 @@
 
 using namespace evo_engine;
 
+void ImGuiLayer::BeginStartupFrame() {
+  {
+    const std::lock_guard lock(Platform::GetQueueHostMutex());
+    ImGui_ImplVulkan_NewFrame();
+  }
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
+}
+
+void ImGuiLayer::DrawShaderPreparationProgress(const size_t completed, const size_t total, const std::string& current,
+                                               const std::string& error) {
+  ImGui::TextUnformatted("Preparing rendering shaders");
+  const auto label =
+      total ? std::to_string(completed) + " / " + std::to_string(total) + " builds" : "Preparing renderer";
+  // The bootstrap has no fixed task list; animate until scene-specific requests establish a total.
+  ImGui::ProgressBar(
+      total ? static_cast<float>(completed) / static_cast<float>(total) : -static_cast<float>(ImGui::GetTime()),
+      ImVec2(420, 0), label.c_str());
+  if (!current.empty())
+    ImGui::TextWrapped("%s", current.c_str());
+  if (!error.empty())
+    ImGui::TextWrapped("Preparation failed: %s", error.c_str());
+}
+
 void ImGuiLayer::OnDestroy() {
   if (const auto window = ApplicationContext::Get().GetLayer<WindowLayer>())
     window->SetPresentationCallbacks({});

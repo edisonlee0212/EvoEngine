@@ -244,6 +244,17 @@ struct alignas(8) GltfShadeMaterial {
   float clearcoat_padding = 0.0f;
 #endif
   uint32_t padding1 = 0;
+  glm::vec3 subsurface_albedo = glm::vec3(1.0f);
+  float subsurface_weight = 0.0f;
+  glm::vec3 subsurface_distance = glm::vec3(0.001f);
+  float subsurface_ior = 1.4f;
+  float subsurface_thickness = 0.0001f;
+  uint32_t subsurface_mode = 0;
+  uint32_t subsurface_profile_lo = 0;
+  uint32_t subsurface_profile_hi = 0;
+  uint16_t subsurface_mask_texture = 0;
+  uint16_t subsurface_thickness_texture = 0;
+  uint32_t subsurface_padding = 0;
 };
 
 inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& material) {
@@ -451,6 +462,26 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
     return true;
 #endif
   if (lhs.padding1 != rhs.padding1)
+    return true;
+  if (lhs.subsurface_albedo != rhs.subsurface_albedo)
+    return true;
+  if (lhs.subsurface_weight != rhs.subsurface_weight)
+    return true;
+  if (lhs.subsurface_distance != rhs.subsurface_distance)
+    return true;
+  if (lhs.subsurface_ior != rhs.subsurface_ior)
+    return true;
+  if (lhs.subsurface_thickness != rhs.subsurface_thickness)
+    return true;
+  if (lhs.subsurface_mode != rhs.subsurface_mode)
+    return true;
+  if (lhs.subsurface_profile_lo != rhs.subsurface_profile_lo)
+    return true;
+  if (lhs.subsurface_profile_hi != rhs.subsurface_profile_hi)
+    return true;
+  if (lhs.subsurface_mask_texture != rhs.subsurface_mask_texture)
+    return true;
+  if (lhs.subsurface_thickness_texture != rhs.subsurface_thickness_texture)
     return true;
   return false;
 }

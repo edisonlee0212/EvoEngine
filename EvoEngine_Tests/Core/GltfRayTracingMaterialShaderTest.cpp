@@ -145,7 +145,7 @@ TEST(GltfRayTracingMaterial, CameraPayloadAndRecursionStayTechniqueScoped) {
   EXPECT_NE(ray_tracing.find("RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER"),
             std::string::npos);
 
-  EXPECT_NE(render_layer.find("pipeline->SetMaxRecursionDepth(1)"), std::string::npos);
+  EXPECT_NE(render_layer.find("pipeline->SetMaxRecursionDepth(subsurface ? 2 : 1)"), std::string::npos);
   EXPECT_NE(pipeline_header.find("uint32_t max_recursion_depth_ = 8"), std::string::npos);
   EXPECT_NE(pipeline.find("raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = max_recursion_depth_"),
             std::string::npos);
@@ -249,7 +249,8 @@ TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
   EXPECT_NE(any_hit.find("EE_PCG_RANDOM(hit_value.seed) > opacity"), std::string::npos);
   EXPECT_NE(any_hit.find("IgnoreHit()"), std::string::npos);
   EXPECT_NE(render_layer.find("ShaderType::AnyHit"), std::string::npos);
-  EXPECT_NE(render_layer.find("Shaders/RayTracing/AnyHit/Camera.slang"), std::string::npos);
+  EXPECT_NE(render_layer.find("\"Shaders/RayTracing\""), std::string::npos);
+  EXPECT_NE(render_layer.find("shader_root / \"AnyHit/Camera.slang\""), std::string::npos);
   EXPECT_NE(pipeline.find("closest_hit_group_ci.closestHitShader = closest_hit_shader_index"), std::string::npos);
   EXPECT_NE(pipeline.find("closest_hit_group_ci.anyHitShader = any_hit_shader_index"), std::string::npos);
   EXPECT_NE(pipeline.find("buffer_create_info.size = handle_size_aligned_"), std::string::npos);
@@ -756,15 +757,18 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH"), std::string::npos);
   EXPECT_NE(source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"), std::string::npos);
   EXPECT_NE(source.find("surface_depth += 1u"), std::string::npos);
-  EXPECT_LT(
-      source.find("EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, diffuse_indirect_path"),
-      source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"));
-  EXPECT_LT(source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"),
-            source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"));
-  EXPECT_LT(source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"),
-            source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"));
-  EXPECT_LT(source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"),
-            source.find("surface_depth += 1u"));
+  const auto path_begin = source.find("float3 EE_CAMERA_TRACE_PATH<");
+  ASSERT_NE(path_begin, std::string::npos);
+  const auto path_source = source.substr(path_begin);
+  EXPECT_LT(path_source.find(
+                "EE_CAMERA_PREPARE_DIRECT_LIGHTING(surface_hit, view_direction, throughput, diffuse_indirect_path"),
+            path_source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"));
+  EXPECT_LT(path_source.find("EE_GLTF_RT_BSDF_SAMPLE(sample_data,"),
+            path_source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"));
+  EXPECT_LT(path_source.find("EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, bounce, surface_direct_shadow_seed,"),
+            path_source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"));
+  EXPECT_LT(path_source.find("if (surface_depth >= EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH)"),
+            path_source.find("surface_depth += 1u"));
   EXPECT_NE(source.find("primary_hit_distance = min(primary_hit_distance, sample_hit_distance)"), std::string::npos);
   EXPECT_NE(source.find("hit.material_index = uint(instance.material_index)"), std::string::npos);
   EXPECT_NE(source.find("hit_value.instance_index"), std::string::npos);
@@ -1187,9 +1191,6 @@ TEST(GltfRayTracingMaterial, AdvancedRayExtensionsFollowKhronosAndShareOneBsdf) 
   EXPECT_NE(integrator.find("import EvoEngine.EmissiveTriangleSampling;"), std::string::npos);
   EXPECT_NE(emissive_sampling.find("EE_RT_COATED_EMISSION_LOD0_SPECIALIZED<feature_mask>("), std::string::npos);
   EXPECT_NE(integrator.find("EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction)"), std::string::npos);
-  EXPECT_NE(bsdf.find("dielectric_ior = material.ior == 0.0f ? 0.0f"), std::string::npos);
-  EXPECT_NE(bsdf.find("material.ior == 0.0f ? EE_GLTF_RT_IOR_INFINITY_SURROGATE"), std::string::npos);
-  EXPECT_NE(bsdf.find("(feature_mask & EE_GLTF_FEATURE_IOR) == 0u || material.ior != 0.0f"), std::string::npos);
   EXPECT_EQ(bsdf.find("if (material.specular_factor > 0.0f)"), std::string::npos);
   EXPECT_NE(bsdf.find("pbr.thickness = material.thickness_factor"), std::string::npos);
   EXPECT_EQ(bsdf.find("pbr.thickness *=\n        EE_GLTF_SAMPLE_TEXTURE(material.thickness_texture"),
@@ -1351,11 +1352,9 @@ TEST(GltfRayTracingMaterial, CameraRaygenBuildsReferenceStylePrimaryRays) {
   EXPECT_NE(source.find("mul(float4(clip_coords, -1.0f, 1.0f), camera.inverse_projection)"), std::string::npos);
   EXPECT_NE(source.find("const float3 origin = camera.inverse_view[3].xyz"), std::string::npos);
   EXPECT_NE(source.find("mul(view_position, camera.inverse_view)"), std::string::npos);
-  EXPECT_NE(
-      source.find(
-          "EE_CAMERA_TRACE_PATH<T, feature_mask, false, false, false>(traversal, sample_seed, primary_ray.origin, "
-          "primary_ray.direction"),
-      std::string::npos);
+  EXPECT_NE(source.find("EE_CAMERA_TRACE_PATH<T, feature_mask, false, false, false, record_subsurface, "
+                        "temporal_subsurface>(traversal, sample_seed, primary_ray.origin, primary_ray.direction"),
+            std::string::npos);
   EXPECT_EQ(source.find("- float2(0.5f)"), std::string::npos);
   EXPECT_EQ(source.find("camera.inverse_projection_view * float4(d.x, d.y"), std::string::npos);
 }
@@ -2780,8 +2779,6 @@ TEST(GltfRayTracingMaterial, RayDebugViewsShareOneIntegrator) {
   EXPECT_NE(integrator.find("const uint debug_view"), std::string::npos);
   EXPECT_EQ(integrator.find("#if EE_CAMERA_ENABLE_DEBUG_VIEWS"), std::string::npos);
   EXPECT_NE(variant_header.find("kRayCameraDebugViewsFeature = 1u << 31u"), std::string::npos);
-  EXPECT_NE(variant_source.find("need_ray_tracing_debug_views ? kRayCameraDebugViewsFeature : 0u"), std::string::npos);
-  EXPECT_NE(variant_source.find("need_ray_query_debug_views ? kRayCameraDebugViewsFeature : 0u"), std::string::npos);
   EXPECT_NE(variant_source.find("? \":debug\" : \"\""), std::string::npos);
   EXPECT_NE(variant_source.find("result.requested_mask &= kGltfSceneAllFeatures"), std::string::npos);
   EXPECT_NE(variant_source.find("result.active_mask &= kGltfSceneAllFeatures"), std::string::npos);

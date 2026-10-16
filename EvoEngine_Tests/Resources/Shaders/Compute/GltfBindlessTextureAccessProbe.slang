@@ -1,4 +1,4 @@
-import EvoEngine.GltfBindlessMaterial;
+import EvoEngine.GltfRayTracingBsdf;
 
 struct PushConstant {
   uint4 material_indices;
@@ -28,6 +28,27 @@ RWStructuredBuffer<float4> values;
     const float4 pending_sample = EE_GLTF_SAMPLE_TEXTURE_SLOT(pending_material.pbr_base_color_texture, 0, tex_coords,
                                                               float4(0.125, 0.25, 0.5, 1.0));
     values[3] = float4(all(!isnan(pending_sample)) && all(!isinf(pending_sample)) ? 1.0 : 0.0);
+
+    for (uint i = 0u; i < 3u; ++i) {
+      const uint index = i == 2u ? 4u : i;
+      const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(index, tex_coords, float4(1));
+      const GltfRayTracingPbrMaterial pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<EE_GLTF_ALL_FEATURES>(
+          index, tex_coords, float4(1), surface, float3(0,0,1), float3(1,0,0), float3(0,1,0), float3(0,0,1), false);
+      values[6u + i] = float4(surface.subsurface_weight, surface.specular_f0.x, pbr.ior2, pbr.specular_f0.x);
+      bool inside = false;
+      const float3 shadow = EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<EE_GLTF_ALL_FEATURES>(
+          index, tex_coords, float3(1), 1, 0, inside, 0);
+      const GltfRasterMaterial default_surface = EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<EE_GLTF_FEATURE_SUBSURFACE>(
+          index, tex_coords, float4(1));
+      const GltfRayTracingPbrMaterial default_pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<EE_GLTF_FEATURE_SUBSURFACE>(
+          index, tex_coords, float4(1), default_surface, float3(0,0,1), float3(1,0,0), float3(0,1,0), float3(0,0,1), false);
+      values[9u + i] = float4(max(shadow.r, max(shadow.g, shadow.b)), default_surface.specular_f0.x, default_pbr.ior2, default_pbr.specular_f0.x);
+    }
+    GltfShadeMaterial sentinel = material;
+    sentinel.ior = 0;
+    values[12] = float4(EE_GLTF_EFFECTIVE_IOR<EE_GLTF_ALL_FEATURES>(sentinel, 0),
+        EE_GLTF_EFFECTIVE_IOR<EE_GLTF_ALL_FEATURES>(sentinel, 1), EE_GLTF_EFFECTIVE_IOR<0u>(sentinel, 1),
+        EE_GLTF_EFFECTIVE_IOR<EE_GLTF_FEATURE_SUBSURFACE>(sentinel, 1));
 
     const GltfTextureInfo texture_info = EE_GLTF_TEXTURE_INFOS[uint(material.pbr_base_color_texture)];
     float2 ddx_uv;

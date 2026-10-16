@@ -20,7 +20,8 @@ enum class DemoSetup {
   RenderingRegression,
   GaussianSplat,
   Bicycle,
-  Bistro
+  Bistro,
+  SubsurfaceScattering
 };
 
 [[nodiscard]] std::filesystem::path FindDemoResourcesRoot(const std::filesystem::path& preferred_root = {});
@@ -31,6 +32,7 @@ void ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureEnvironmentLightingValidationScene(const std::shared_ptr<Scene>& scene);
 void ConfigureReflectionProbeValidationScene(const std::shared_ptr<Scene>& scene);
 void ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id);
+void ConfigureSubsurfaceValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id);
 bool AdvanceDdgiValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id);
 bool RunEnvironmentLightingValidationFromEnvironment(int width, int height);
 bool RunReflectionProbeValidationFromEnvironment(int width, int height);
@@ -45,6 +47,7 @@ void SetRenderingRegressionSecondaryGeometryMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene);
+void ConfigureSubsurfaceDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBistroCaptureView(const std::shared_ptr<Scene>& scene, const std::string& view);
 void ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera);
 void ConfigureBistroParityCapture(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera);

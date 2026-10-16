@@ -29,6 +29,7 @@
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
@@ -48,6 +49,7 @@
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -1483,16 +1485,6 @@ Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string
     physics_demo_transform.SetScale(glm::vec3(3.0f));
     scene->SetDataComponent(collection, physics_demo_transform);
   }
-
-  const auto ground = scene->CreateEntity("Ground");
-  const auto ground_mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground).lock();
-  const auto ground_mat = AssetManager::CreateTemporaryAsset<Material>();
-  ground_mesh_renderer->material = ground_mat;
-  ground_mesh_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
-  Transform ground_transform;
-  ground_transform.SetValue(glm::vec3(0, -2.05f, 0), glm::vec3(0), glm::vec3(30, 1, 60));
-  scene->SetDataComponent(ground, ground_transform);
-  scene->SetParent(ground, base_entity);
 
   const auto sponza =
       std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Sponza_FBX/Sponza.fbx"));
@@ -6182,15 +6174,29 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
     RemoveGeneratedGaussianSplatProjectFiles(resource_root);
   } else if (demo_setup == DemoSetup::Bicycle && clear_generated_project_files) {
     RemoveGeneratedBicycleProjectFiles(resource_root);
-  } else if (demo_setup != DemoSetup::Empty && clear_generated_project_files) {
+  } else if (demo_setup != DemoSetup::Empty && demo_setup != DemoSetup::SubsurfaceScattering &&
+             clear_generated_project_files) {
     ClearGeneratedDemoProjectFiles(resource_root);
   }
 
   if (demo_setup == DemoSetup::RenderingRegression) {
     PrepareRenderingRegressionGeneratedAssets(resource_root);
   }
+  if (demo_setup == DemoSetup::SubsurfaceScattering) {
+    const auto assets = resource_root / ".generated" / "EvoEngine-DemoProjects" / "SubsurfaceScattering" / "Assets";
+    std::filesystem::create_directories(assets);
+    std::filesystem::copy(resource_root / "SubsurfaceScattering" / "Assets", assets,
+                          std::filesystem::copy_options::recursive | std::filesystem::copy_options::skip_existing);
+  }
 
   switch (demo_setup) {
+    case DemoSetup::SubsurfaceScattering: {
+      application_info.application_name = "Subsurface Scattering";
+      application_info.project_path = resource_root / ".generated" / "EvoEngine-DemoProjects" / "SubsurfaceScattering" /
+                                      "SubsurfaceScattering.eveproj";
+      application_info.default_window_size = {1920, 1080};
+      ProjectManager::SetActionAfterNewScene(ConfigureSubsurfaceDemoScene);
+    } break;
     case DemoSetup::Rendering: {
       application_info.application_name = "Rendering Demo";
       application_info.project_path = resource_root / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj";
@@ -6261,4 +6267,301 @@ void evo_engine::SetupDemoScene(const DemoSetup demo_setup, ApplicationInitializ
     default: {
     } break;
   }
+}
+
+void evo_engine::ConfigureSubsurfaceDemoScene(const std::shared_ptr<Scene>& scene) {
+  const glm::vec3 camera_position(0.125f, 0.258f, 0.917f);
+  const auto camera_rotation =
+      glm::quatLookAt(glm::normalize(glm::vec3(0, 0.233f, 0) - camera_position), glm::vec3(0, 1, 0));
+  const auto configure_camera = [&](const std::shared_ptr<Camera>& camera) {
+    camera->Resize({1920, 1080});
+    camera->skybox.Clear();
+    camera->camera_render_mode = Camera::CameraRenderMode::RayQuery;
+    camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
+    camera->camera_settings.clear_color = glm::vec4(0.012f, 0.015f, 0.02f, 1);
+    camera->camera_settings.fov = 60.0f;
+    camera->camera_settings.near_distance = 0.005f;
+    camera->camera_settings.far_distance = 5.0f;
+    camera->camera_settings.ray_integrator = CameraSettings::RayIntegrator::PathTracing;
+    camera->camera_settings.bounce = 4;
+    camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+    ConfigureBistroReferenceToneMapping(camera);
+    camera->post_processing_stack_ref.Get<PostProcessingStack>()->tone_mapping->auto_exposure = false;
+    camera->ResetFrameCount();
+  };
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  configure_camera(main_camera);
+  Transform camera_transform;
+  camera_transform.SetValue(camera_position, camera_rotation, glm::vec3(1));
+  scene->SetDataComponent(main_camera->GetOwner(), camera_transform);
+  if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor->velocity = 0.15f;
+    editor->SetSceneCameraPosition(camera_position);
+    editor->SetSceneCameraRotation(camera_rotation);
+    configure_camera(editor->GetSceneCamera());
+    editor->enable_gizmos = false;
+  }
+  if (FindEntityNamed(scene, "SSS Male Head"))
+    return;
+  DisableSceneDirectionalLights(scene);
+  if (const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene)) {
+    ConfigureEnvironmentalLightingColorSource(*lighting, glm::vec3(0.025f), 1.0f, 1.0f);
+    lighting->ddgi_settings.runtime.enabled = false;
+  }
+  const auto prefab =
+      std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Head/LeePerrySmith.glb"));
+  const auto profile =
+      std::dynamic_pointer_cast<SubsurfaceProfile>(ProjectManager::GetOrCreateAsset("Profiles/Skin.evesss"));
+  if (!prefab || !profile)
+    throw std::runtime_error("Skin SSS demo assets are unavailable.");
+  const auto head = prefab->ToEntity(scene);
+  scene->SetEntityName(head, "SSS Male Head");
+  Transform head_transform;
+  head_transform.SetValue(glm::vec3(0, 0.233f, 0), glm::vec3(0), glm::vec3(0.05f));
+  scene->SetDataComponent(head, head_transform);
+  const auto skin = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(skin, glm::vec3(0.6f, 0.35f, 0.25f), 0.42f, 0.0f);
+  skin->subsurface_profile = profile;
+  skin->material_data.shade_material.ior = profile->ior;
+  skin->material_data.shade_material.subsurface_weight = 1.0f;
+  skin->MarkDirty();
+  auto head_entities = scene->GetDescendants(head);
+  head_entities.push_back(head);
+  for (const auto& entity : head_entities) {
+    if (scene->HasPrivateComponent<MeshRenderer>(entity))
+      scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material = skin;
+  }
+  const auto add_light = [&](const char* name, const glm::vec3& position, const glm::vec3& color,
+                             const float intensity) {
+    const auto entity = scene->CreateEntity(name);
+    const auto light = scene->GetOrSetPrivateComponent<PointLight>(entity).lock();
+    light->diffuse = color;
+    light->diffuse_brightness = intensity;
+    light->constant = 1.0f;
+    light->linear = 0.0f;
+    light->quadratic = 1.44f;
+    light->light_size = 0.042f;
+    light->shadow_distance = 2.0f;
+    light->bias = 0.00002f;
+    Transform transform;
+    transform.SetPosition(position);
+    scene->SetDataComponent(entity, transform);
+  };
+  add_light("Skin Key", glm::vec3(-0.417f, 0.667f, 0.583f), glm::vec3(1, 0.92f, 0.84f), 3.0f);
+  add_light("Skin Fill", glm::vec3(0.467f, 0.3f, 0.5f), glm::vec3(0.75f, 0.85f, 1), 0.6f);
+  add_light("Skin Rim", glm::vec3(-0.3f, 0.417f, -0.333f), glm::vec3(1, 0.85f, 0.7f), 4.0f);
+}
+
+void evo_engine::ConfigureSubsurfaceValidationFixture(const std::shared_ptr<Scene>& scene,
+                                                      const std::string& fixture_id) {
+  if (const auto spheres = FindEntityNamed(scene, "Spheres"))
+    scene->DeleteEntity(*spheres);
+  if (const auto layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    layer->GetDdgiSessionState().show_probes = false;
+    layer->GetDdgiSessionState().show_selected_probe = false;
+  }
+  if (const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene)) {
+    lighting->ddgi_settings.runtime.deterministic_ray_seed_enabled = true;
+    lighting->ddgi_settings.runtime.deterministic_ray_seed = 1337;
+  }
+  const bool energy_fixture = fixture_id == "mixed-energy" || fixture_id == "mixed-energy-scale";
+  if (energy_fixture) {
+    const auto disable_lights = [&](auto* component) {
+      using T = std::remove_pointer_t<decltype(component)>;
+      if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<T>())
+        for (const auto entity : *owners)
+          scene->GetOrSetPrivateComponent<T>(entity).lock()->SetEnabled(false);
+    };
+    disable_lights(static_cast<PointLight*>(nullptr));
+    disable_lights(static_cast<SpotLight*>(nullptr));
+    disable_lights(static_cast<DirectionalLight*>(nullptr));
+    const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);
+    lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+    lighting->environment_lighting_intensity = lighting->diffuse_fallback_intensity =
+        lighting->specular_fallback_intensity = 0.0f;
+    lighting->local_reflection_probes_enabled = false;
+    lighting->ddgi_settings.runtime.enabled = false;
+  }
+  const auto root = scene->CreateEntity("Subsurface Validation");
+  const auto geometry_fixture = fixture_id.substr(0, fixture_id.find('-'));
+  const auto& primitives = Resources::GetInstance().GetPrimitives();
+  const auto solid_profile = AssetManager::CreateTemporaryAsset<SubsurfaceProfile>();
+  solid_profile->albedo = glm::vec3(0.95f, 0.8f, 0.65f);
+  solid_profile->scattering_distance = glm::vec3(0.08f, 0.04f, 0.02f);
+  const auto sheet_profile = AssetManager::CreateTemporaryAsset<SubsurfaceProfile>();
+  sheet_profile->albedo = glm::vec3(0.9f);
+  sheet_profile->scattering_distance = glm::vec3(0.001f, 0.002f, 0.001f);
+  const float scale = fixture_id == "mixed-scale" || fixture_id == "mixed-energy-scale" ? 2.0f : 1.0f;
+  if (energy_fixture)
+    solid_profile->scattering_distance = glm::vec3(0.005f, 0.0025f, 0.00125f);
+  solid_profile->scattering_distance *= scale;
+  sheet_profile->scattering_distance *= scale;
+  const auto alternate_profile = AssetManager::CreateTemporaryAsset<SubsurfaceProfile>();
+  alternate_profile->albedo = glm::vec3(0.65f, 0.95f, 0.75f);
+  alternate_profile->scattering_distance = glm::vec3(0.005f, 0.003f, 0.002f);
+  const auto weight_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  const auto thickness_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  std::vector<glm::vec4> weights(32 * 32), thicknesses(32 * 32);
+  for (int y = 0; y < 32; ++y)
+    for (int x = 0; x < 32; ++x) {
+      weights[y * 32 + x] = glm::vec4(glm::vec3(x < 11 ? 0.0f : x < 21 ? 0.5f : 1.0f), 1.0f);
+      thicknesses[y * 32 + x] = glm::vec4(glm::vec3(0.25f + 0.75f * float(y) / 31.0f), 1.0f);
+    }
+  weight_texture->SetRgbaChannelData(weights, glm::uvec2(32));
+  thickness_texture->SetRgbaChannelData(thicknesses, glm::uvec2(32));
+  const auto quad = CreateRenderingRegressionMaterialQuad({glm::vec4(1), glm::vec4(1), glm::vec4(1), glm::vec4(1)});
+  auto wedge_vertices = primitives.cube->PeekVertices();
+  float min_x = std::numeric_limits<float>::max(), max_x = std::numeric_limits<float>::lowest();
+  for (const auto& vertex : wedge_vertices) {
+    min_x = std::min(min_x, vertex.position.x);
+    max_x = std::max(max_x, vertex.position.x);
+  }
+  for (auto& vertex : wedge_vertices)
+    vertex.position.z *= 0.02f + 0.25f * (vertex.position.x - min_x) / (max_x - min_x);
+  const auto wedge = AssetManager::CreateTemporaryAsset<Mesh>();
+  VertexAttributes attributes;
+  attributes.tex_coord = true;
+  wedge->SetVertices(attributes, wedge_vertices, primitives.cube->PeekTriangles(), 1);
+  const auto leaf_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  std::vector<glm::vec4> mask(32 * 32);
+  for (int y = 0; y < 32; ++y)
+    for (int x = 0; x < 32; ++x) {
+      const float u = (float(x) + 0.5f) / 16.0f - 1.0f;
+      const float v = (float(y) + 0.5f) / 16.0f - 1.0f;
+      mask[y * 32 + x] = glm::vec4(1, 1, 1, u * u + v * v < 0.8f && !(x > 18 && y > 12 && y < 17) ? 1.0f : 0.0f);
+    }
+  leaf_texture->SetRgbaChannelData(mask, glm::uvec2(32));
+  for (int i = 0; i < 5; ++i) {
+    if ((geometry_fixture == "solid" && i >= 3) || (geometry_fixture == "thin" && i < 3))
+      continue;
+    const bool thin = i >= 3;
+    const auto mesh = i == 0 ? primitives.cube : i == 1 ? primitives.sphere : i == 2 ? wedge : quad;
+    const auto entity = CreateRenderingRegressionProbe(
+        scene, root,
+        thin ? (i == 3 ? "SSS Paper" : "SSS Masked Leaf")
+             : (i == 0   ? "SSS Block"
+                : i == 1 ? "SSS Sphere"
+                         : "SSS Wedge"),
+        mesh, glm::vec3(float(i - 2) * 0.4f, 0.0f, -1.5f) * scale, glm::vec3(0.3f * scale),
+        i == 4 ? glm::vec3(0.15f, 0.65f, 0.15f) : glm::vec3(0.8f), energy_fixture ? 0.0f : 0.6f, 0.0f);
+    const auto material = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+    material->subsurface_profile = thin ? sheet_profile : solid_profile;
+    auto& shade = material->material_data.shade_material;
+    shade.subsurface_weight = geometry_fixture == "disabled" ? 0.0f : 1.0f;
+    shade.subsurface_mode = thin ? 1u : 0u;
+    shade.subsurface_thickness = (thin ? 0.001f : 0.003f) * scale;
+    if (thin)
+      shade.double_sided = 1;
+    if (i == 4 && fixture_id != "mixed-boundary") {
+      shade.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+      material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, leaf_texture);
+    }
+    if (fixture_id == "mixed-masks") {
+      material->SetTexture(&GltfShadeMaterial::subsurface_mask_texture, weight_texture);
+      material->SetTexture(&GltfShadeMaterial::subsurface_thickness_texture, thickness_texture);
+    }
+    if (fixture_id == "mixed-mirrored") {
+      Transform transform;
+      transform.SetPosition(glm::vec3(float(i - 2) * 0.4f, 0.0f, -1.5f));
+      transform.SetScale(glm::vec3(-0.3f, 0.3f, 0.3f));
+      scene->SetDataComponent(entity, transform);
+    }
+    if (fixture_id == "mixed-boundary" && thin) {
+      Transform transform;
+      transform.SetPosition(glm::vec3(i == 3 ? 0.35f : 0.75f, 0, -1.5f));
+      transform.SetScale(glm::vec3(0.4f, 0.3f, 0.3f));
+      scene->SetDataComponent(entity, transform);
+      if (i == 4)
+        material->subsurface_profile = alternate_profile;
+    }
+    if (fixture_id == "mixed-geometry" && i == 0) {
+      scene->RemovePrivateComponent<MeshRenderer>(entity);
+      scene->SetDataComponent(entity, Transform{});
+      const auto particles = scene->GetOrSetPrivateComponent<Particles>(entity).lock();
+      particles->mesh = mesh;
+      particles->material = material;
+      std::vector<ParticleInfo> infos(2);
+      infos[0].instance_matrix.SetValue(glm::vec3(-0.9f, 0, -1.5f), glm::vec3(0), glm::vec3(0.15f));
+      infos[1].instance_matrix.SetValue(glm::vec3(-0.7f, 0, -1.5f), glm::vec3(0), glm::vec3(-0.15f, 0.15f, 0.15f));
+      particles->particle_info_list.Get<ParticleInfoList>()->SetParticleInfos(infos);
+      particles->RecalculateBoundingBox();
+    }
+    if (fixture_id == "mixed-geometry" && i == 1) {
+      const auto skinned = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
+      std::vector<SkinnedVertex> vertices;
+      for (const auto& vertex : mesh->PeekVertices()) {
+        SkinnedVertex v;
+        v.position = vertex.position;
+        v.normal = vertex.normal;
+        v.tangent = vertex.tangent;
+        v.vertex_info3 = vertex.vertex_info3;
+        v.tex_coord = vertex.tex_coord;
+        v.color = vertex.color;
+        v.weight.x = 1.0f;
+        vertices.push_back(v);
+      }
+      SkinnedVertexAttributes attributes;
+      attributes.normal = attributes.tangent = attributes.tex_coord = attributes.color = true;
+      skinned->bone_animator_indices = {0};
+      skinned->SetVertices(attributes, vertices, mesh->PeekTriangles());
+      scene->RemovePrivateComponent<MeshRenderer>(entity);
+      const auto renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(entity).lock();
+      renderer->skinned_mesh = skinned;
+      renderer->material = material;
+      const auto animator = scene->GetOrSetPrivateComponent<Animator>(entity).lock();
+      animator->Setup({"Root"}, {glm::mat4(1)});
+      renderer->animator = animator;
+      renderer->bone_matrices->value = {glm::mat4(1)};
+    }
+    material->MarkDirty();
+    material->SetUnsaved();
+  }
+  for (const float z : {-3.5f, 3.0f}) {
+    if (energy_fixture && z < 0)
+      continue;
+    const auto entity = scene->CreateEntity(z < 0 ? "SSS Backlight" : "SSS Frontlight");
+    Transform transform;
+    transform.SetPosition(glm::vec3(0, 0.7f, z) * scale);
+    if (fixture_id == "mixed-spot" || fixture_id == "mixed-directional" || energy_fixture) {
+      const auto direction = glm::normalize(glm::vec3(0, 0, -1.5f) * scale - transform.GetPosition());
+      transform.SetRotation(glm::quatLookAt(fixture_id == "mixed-spot" ? direction : -direction, glm::vec3(0, 1, 0)));
+    }
+    if (fixture_id == "mixed-spot") {
+      const auto light = scene->GetOrSetPrivateComponent<SpotLight>(entity).lock();
+      light->diffuse = glm::vec3(1);
+      light->diffuse_brightness = 6.0f;
+      light->inner_degrees = 35.0f;
+      light->outer_degrees = 50.0f;
+      light->shadow_distance = 10.0f;
+      light->constant = 1.0f;
+      light->linear = 0.0f;
+      light->quadratic = 0.25f / (scale * scale);
+    } else if (fixture_id == "mixed-directional" || energy_fixture) {
+      const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(entity).lock();
+      light->diffuse = glm::vec3(1);
+      light->diffuse_brightness = 1.0f;
+      light->cast_shadow = !energy_fixture;
+    } else if (fixture_id == "mixed-emissive") {
+      const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+      renderer->mesh = primitives.cube;
+      const auto material = AssetManager::CreateTemporaryAsset<Material>();
+      material->material_data.shade_material.emissive_factor = glm::vec3(12);
+      material->MarkDirty();
+      renderer->material = material;
+      transform.SetScale(glm::vec3(0.5f));
+    } else {
+      const auto light = scene->GetOrSetPrivateComponent<PointLight>(entity).lock();
+      light->diffuse = glm::vec3(1);
+      light->diffuse_brightness = 6.0f;
+      light->constant = 1.0f;
+      light->linear = 0.0f;
+      light->quadratic = 0.25f / (scale * scale);
+      light->cast_shadow = fixture_id != "mixed-unshadowed";
+    }
+    scene->SetDataComponent(entity, transform);
+    scene->SetParent(entity, root);
+  }
+  if (fixture_id == "mixed-occluded")
+    CreateRenderingRegressionProbe(scene, root, "SSS Backlight Occluder", primitives.cube, glm::vec3(0, 0.35f, -2.5f),
+                                   glm::vec3(1.2f, 0.8f, 0.1f), glm::vec3(0.1f), 1.0f, 0.0f);
 }

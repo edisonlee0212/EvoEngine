@@ -49,7 +49,9 @@ TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
 
   EXPECT_TRUE(std::is_standard_layout_v<GltfShadeMaterial>);
   EXPECT_GE(alignof(GltfShadeMaterial), 8);
-  EXPECT_EQ(sizeof(GltfShadeMaterial), 248);
+  EXPECT_EQ(sizeof(GltfShadeMaterial), 304);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, subsurface_albedo), 248);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, subsurface_mask_texture), 296);
   EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_base_color_factor), 0);
   EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_roughness_factor), 32);
   EXPECT_EQ(offsetof(GltfShadeMaterial, alpha_mode), 40);

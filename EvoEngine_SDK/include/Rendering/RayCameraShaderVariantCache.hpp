@@ -12,6 +12,7 @@
 #include <vector>
 
 namespace evo_engine {
+class ShaderPreparationQueue;
 
 class EVOENGINE_API ComputePipeline;
 struct FrameSubmissionState;
@@ -53,7 +54,8 @@ class EVOENGINE_API RayCameraShaderVariantCache final {
 
   RayCameraShaderVariantCache(std::shared_ptr<RayTracingPipeline> ray_tracing_fallback,
                               std::shared_ptr<ComputePipeline> ray_query_fallback,
-                              RayTracingFactory ray_tracing_factory, RayQueryFactory ray_query_factory);
+                              RayTracingFactory ray_tracing_factory, RayQueryFactory ray_query_factory,
+                              ShaderPreparationQueue* preparation = nullptr, std::string label = {});
   ~RayCameraShaderVariantCache();
 
   RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query,
@@ -67,6 +69,7 @@ class EVOENGINE_API RayCameraShaderVariantCache final {
   [[nodiscard]] bool IsReady(RayCameraShaderTechnique technique) const;
   void RecordActiveUse(RayCameraShaderTechnique technique);
   void WaitForJobs();
+  void SetFallbacks(std::shared_ptr<RayTracingPipeline> ray_tracing, std::shared_ptr<ComputePipeline> ray_query);
 
  private:
   template <typename Pipeline>
@@ -114,6 +117,8 @@ class EVOENGINE_API RayCameraShaderVariantCache final {
 
   mutable std::mutex mutex_;
   bool shutting_down_ = false;
+  ShaderPreparationQueue* preparation_ = nullptr;
+  std::string label_;
   uint64_t update_serial_ = 0;
   uint64_t access_serial_ = 0;
   TechniqueState<RayTracingPipeline> ray_tracing_;

@@ -88,6 +88,7 @@ struct RayCameraHistoryResources {
   RayCameraOptionalOutputResources optional_outputs;
   RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
   CameraSettings::RayIntegrator integrator = CameraSettings::RayIntegrator::PathTracing;
+  bool restir_sss_delayed_reconnection = false;
   uint64_t scene_handle = 0;
   uint32_t temporal_history_version = 0;
   uint32_t frame_id = 0;
@@ -95,6 +96,13 @@ struct RayCameraHistoryResources {
   uint64_t resource_generation = 0;
   std::vector<RayCameraOutputDescriptorSlot> output_descriptor_slots;
   std::vector<std::shared_ptr<Buffer>> restir_candidate_buffers;
+  std::shared_ptr<Buffer> restir_sss_candidate_buffer;
+  std::array<std::shared_ptr<Buffer>, 2> restir_sss_history_buffers;
+  std::shared_ptr<Buffer> restir_sss_residual_buffer;
+  std::shared_ptr<Buffer> restir_sss_duplication_buffer;
+  uint32_t restir_sss_write_slot = 0;
+  uint32_t restir_sss_frame_id = 0;
+  bool restir_sss_history_valid = false;
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_initial_buffers;
@@ -171,6 +179,7 @@ struct RayCameraHistoryStats {
  */
 struct EVOENGINE_API CameraInfoBlock {
   static constexpr uint32_t kRasterLightingGtaoVisibility = 1u << 0u;
+  static constexpr uint32_t kDelayedSss = 1u << 7u;
 
   glm::mat4 projection = {};                           ///< The projection matrix of the camera.
   glm::mat4 view = {};                                 ///< The view matrix of the camera.
@@ -436,6 +445,8 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
   [[nodiscard]] const RayCameraOptionalOutputResources& GetRayCameraOptionalOutputResources() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
+  // Eligible receivers, accepted neighbors and neighbors with positive shifted targets.
+  [[nodiscard]] std::array<uint64_t, 3> DownloadRestirSssSpatialStats() const;
   [[nodiscard]] bool DownloadRestirPtSpatialFrame(std::vector<RestirPtPathReservoir>& candidates,
                                                   std::vector<RestirPtSpatialShift>& shifts, glm::uvec2& extent) const;
   [[nodiscard]] bool DownloadRestirPtGeneratedFrame(std::vector<RestirPtGeneratedPixel>& generated,

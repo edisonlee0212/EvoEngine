@@ -378,6 +378,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
+    camera.camera_settings.restir_sss_delayed_reconnection = true;
     camera.camera_settings.nrd_denoising = false;
     camera.camera_settings.nrd_reblur = false;
     camera.camera_settings.nrd_temporal_aa = false;
@@ -423,6 +424,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_EQ(restored.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
     EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_TRUE(restored.camera_settings.restir_sss_delayed_reconnection);
     EXPECT_FALSE(restored.camera_settings.nrd_denoising);
     EXPECT_FALSE(restored.camera_settings.nrd_reblur);
     EXPECT_FALSE(restored.camera_settings.nrd_temporal_aa);
@@ -471,8 +473,16 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     node.remove("nrd_relax_depth_threshold");
     node.remove("nrd_relax_anti_firefly");
     node.remove("nrd_relax_roughness_edge_stopping");
+    node.remove("restir_sss_delayed_reconnection");
+    node["indirect_sss"] = true;
     Camera legacy;
     Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(legacy));
+    EXPECT_FALSE(legacy.camera_settings.restir_sss_delayed_reconnection);
+    YAML::Emitter rewritten;
+    rewritten << YAML::BeginMap;
+    Serialization::SerializeObject(rewritten, static_cast<IPrivateComponent&>(legacy));
+    rewritten << YAML::EndMap;
+    EXPECT_FALSE(YAML::Load(rewritten.c_str())["indirect_sss"]);
     EXPECT_TRUE(legacy.camera_settings.nrd_denoising);
     EXPECT_TRUE(legacy.camera_settings.nrd_reblur);
     EXPECT_TRUE(legacy.camera_settings.nrd_temporal_aa);

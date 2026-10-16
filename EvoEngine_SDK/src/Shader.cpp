@@ -6,12 +6,14 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <future>
 #include <iomanip>
 #include <limits>
 #include <mutex>
 #include <optional>
 #include <string_view>
 #include <thread>
+#include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
 #include "Console.hpp"
 #include "PathUtils.hpp"
@@ -23,10 +25,16 @@
 #include "slang-com-ptr.h"
 #include "slang.h"
 
+#if defined(_WIN32)
+#  include <Windows.h>
+#elif defined(__linux__)
+#  include <sys/sysinfo.h>
+#endif
+
 using namespace evo_engine;
 
 namespace {
-constexpr uint32_t kShaderCacheSchema = 13;
+constexpr uint32_t kShaderCacheSchema = 18;
 constexpr uint32_t kSlangDependencyCacheSchema = 1;
 constexpr uint32_t kVulkanTarget = 13;
 constexpr uint32_t kSpirvTarget = 14;
@@ -90,7 +98,56 @@ struct ShaderCompileEntry {
 
 std::mutex shader_compile_entries_mutex;
 std::unordered_map<ShaderCacheKey, std::shared_ptr<ShaderCompileEntry>, ShaderCacheKeyHasher> shader_compile_entries;
-std::mutex slang_mutex;
+struct SlangCompilerContext {
+  Slang::ComPtr<slang::IGlobalSession> global_session;
+  Slang::ComPtr<slang::ISession> session;
+  std::string session_key;
+  std::vector<std::filesystem::path> dependencies;
+  std::string dependency_signature;
+  std::unordered_map<std::string, ShaderCacheKey> root_sources;
+};
+struct SlangCompilerPool {
+  std::mutex mutex;
+  std::condition_variable available;
+  std::array<SlangCompilerContext, 8> contexts;
+  std::array<bool, 8> busy{};
+};
+SlangCompilerPool& CompilerPool() {
+  static SlangCompilerPool pool;
+  return pool;
+}
+class SlangCompilerLease {
+ public:
+  SlangCompilerLease() : pool_(CompilerPool()) {
+    std::unique_lock lock(pool_.mutex);
+    pool_.available.wait(lock, [&] {
+      for (size_t i = 0; i < Shader::GetPreparationWorkerCount(); ++i)
+        if (!pool_.busy[i]) {
+          index_ = i;
+          return true;
+        }
+      return false;
+    });
+    pool_.busy[index_] = true;
+  }
+  ~SlangCompilerLease() {
+    {
+      const std::lock_guard lock(pool_.mutex);
+      pool_.busy[index_] = false;
+    }
+    pool_.available.notify_all();
+  }
+  SlangCompilerContext& Get() {
+    return pool_.contexts[index_];
+  }
+
+ private:
+  SlangCompilerPool& pool_;
+  size_t index_ = 0;
+};
+std::mutex preparation_name_mutex;
+std::string preparation_name;
+thread_local std::function<void()> preparation_pump;
 std::atomic<uint64_t> temporary_file_counter = 0;
 std::atomic<uint64_t> memory_hit_count = 0;
 std::atomic<uint64_t> disk_hit_count = 0;
@@ -100,6 +157,8 @@ std::atomic<uint64_t> coalesced_wait_count = 0;
 std::atomic<uint64_t> corrupt_entry_count = 0;
 std::atomic<uint64_t> failure_count = 0;
 std::atomic<uint64_t> native_slang_frontend_count = 0;
+std::atomic<uint64_t> slang_session_creation_count = 0;
+std::atomic<uint64_t> slang_session_reuse_count = 0;
 
 std::string LowercaseExtension(const std::filesystem::path& path) {
   std::string extension = path.extension().string();
@@ -233,14 +292,16 @@ bool SourceDefinesEnabled(const std::string& source, const char* name) {
   return false;
 }
 
-bool RequiresShaderInvocationReorderCapability(const ShaderCompileRequest& request) {
-  return SourceDefinesEnabled(request.global_defines, "EE_SHADER_EXECUTION_REORDERING_SUPPORTED") ||
-         SourceDefinesEnabled(request.source, "EE_SHADER_EXECUTION_REORDERING_SUPPORTED");
-}
-
 bool RequiresLinearSweptSphereCapability(const ShaderCompileRequest& request) {
   return SourceDefinesEnabled(request.global_defines, "EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED") ||
          SourceDefinesEnabled(request.source, "EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED");
+}
+
+bool RequiresShaderInvocationReorderCapability(const ShaderCompileRequest& request) {
+  // Match the camera dispatch policy: SER is disabled while linear swept spheres are enabled.
+  return request.shader_type == ShaderType::RayGen && !RequiresLinearSweptSphereCapability(request) &&
+         (SourceDefinesEnabled(request.global_defines, "EE_SHADER_EXECUTION_REORDERING_SUPPORTED") ||
+          SourceDefinesEnabled(request.source, "EE_SHADER_EXECUTION_REORDERING_SUPPORTED"));
 }
 
 void HashKeyBytes(ShaderCacheKey& key, const void* data, const size_t size) {
@@ -883,9 +944,8 @@ std::string MakeSlangSourceDisplayPath(const ShaderCompileRequest& request, cons
   return (request.path.empty() ? std::filesystem::path(module_name) : request.path).string();
 }
 
-slang::IGlobalSession* GetSlangGlobalSession(std::string& diagnostics) {
-  static Slang::ComPtr<slang::IGlobalSession> global_session;
-  const std::lock_guard slang_lock(slang_mutex);
+slang::IGlobalSession* GetSlangGlobalSession(SlangCompilerContext& context, std::string& diagnostics) {
+  auto& global_session = context.global_session;
   if (!global_session) {
     if (SLANG_FAILED(slang::createGlobalSession(global_session.writeRef()))) {
       diagnostics += "Failed to create Slang global session.\n";
@@ -982,6 +1042,10 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   }
   slang::CompilerOptionEntry target_options[] = {
       {slang::CompilerOptionName::EmitSpirvDirectly, {slang::CompilerOptionValueKind::Int, 1}},
+      {slang::CompilerOptionName::Optimization,
+       {slang::CompilerOptionValueKind::Int, SourceDefinesEnabled(request.source, "EE_SHADER_HIGH_OPTIMIZATION")
+                                                 ? SLANG_OPTIMIZATION_LEVEL_HIGH
+                                                 : SLANG_OPTIMIZATION_LEVEL_DEFAULT}},
       {slang::CompilerOptionName::MatrixLayoutRow, {slang::CompilerOptionValueKind::Int, 1}},
       {slang::CompilerOptionName::GLSLForceScalarLayout, {slang::CompilerOptionValueKind::Int, 1}},
   };
@@ -1008,7 +1072,9 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   session_desc.searchPaths = include_paths.empty() ? nullptr : include_paths.data();
   session_desc.searchPathCount = static_cast<SlangInt>(include_paths.size());
   const slang::PreprocessorMacroDesc preprocessor_macros[] = {
-      {"EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED", RequiresLinearSweptSphereCapability(request) ? "1" : "0"}};
+      {"EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED", RequiresLinearSweptSphereCapability(request) ? "1" : "0"},
+      {"EE_CAMERA_SUBSURFACE_HIT_GROUP",
+       SourceDefinesEnabled(request.source, "EE_CAMERA_SUBSURFACE_HIT_GROUP") ? "1" : "0"}};
   session_desc.preprocessorMacros = preprocessor_macros;
   session_desc.preprocessorMacroCount = static_cast<SlangInt>(std::size(preprocessor_macros));
   session_desc.compilerOptionEntries = session_options.data();
@@ -1021,15 +1087,52 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   return true;
 }
 
-Slang::ComPtr<slang::IModule> LoadSlangModule(const ShaderCompileRequest& request, slang::ISession& session,
+bool PrepareSlangSession(const ShaderCompileRequest& request, SlangCompilerContext& context, std::string& diagnostics) {
+  std::ostringstream key;
+  key << RequiresShaderInvocationReorderCapability(request) << RequiresLinearSweptSphereCapability(request)
+      << SourceDefinesEnabled(request.source, "EE_CAMERA_SUBSURFACE_HIT_GROUP")
+      << SourceDefinesEnabled(request.source, "EE_SHADER_HIGH_OPTIMIZATION") << '\0' << request.global_defines;
+  for (const auto& path : request.include_paths)
+    key << '\0' << path.generic_string();
+  const auto source_key = MakeShaderCacheKey(request, "", request.global_defines + request.source);
+  const auto previous = context.root_sources.find(request.path.generic_string());
+  if (context.session && context.session_key == key.str() && context.root_sources.size() < 8 &&
+      (previous == context.root_sources.end() || previous->second == source_key) &&
+      context.dependency_signature == MakeSlangDependencySignature(context.dependencies)) {
+    slang_session_reuse_count.fetch_add(1);
+    return true;
+  }
+  context.session.setNull();
+  context.session_key = key.str();
+  context.dependencies.clear();
+  context.dependency_signature.clear();
+  context.root_sources.clear();
+  slang_session_creation_count.fetch_add(1);
+  return CreateSlangSession(request, *context.global_session, context.session, diagnostics);
+}
+
+Slang::ComPtr<slang::IModule> LoadSlangModule(const ShaderCompileRequest& request, SlangCompilerContext& context,
                                               std::string& diagnostics, std::string& compiled_source) {
   Slang::ComPtr<slang::IBlob> diagnostic_blob;
-  const std::string module_name = MakeSlangModuleName(request.path);
+  const std::string module_name =
+      MakeSlangModuleName(request.path) + "_" +
+      ShaderCacheKeyString(MakeShaderCacheKey(request, "", request.global_defines + request.source));
   const std::string display_path = MakeSlangSourceDisplayPath(request, module_name);
   compiled_source = request.global_defines + request.source;
-  Slang::ComPtr<slang::IModule> module(session.loadModuleFromSourceString(
+  Slang::ComPtr<slang::IModule> module(context.session->loadModuleFromSourceString(
       module_name.c_str(), display_path.c_str(), compiled_source.c_str(), diagnostic_blob.writeRef()));
   diagnostics += BlobToString(diagnostic_blob);
+  if (module) {
+    auto paths = CollectSlangDependencyPaths(*module);
+    context.dependencies.insert(context.dependencies.end(), paths.begin(), paths.end());
+    std::sort(context.dependencies.begin(), context.dependencies.end());
+    context.dependencies.erase(std::unique(context.dependencies.begin(), context.dependencies.end()),
+                               context.dependencies.end());
+    context.dependency_signature = MakeSlangDependencySignature(context.dependencies);
+    context.root_sources[request.path.generic_string()] = MakeShaderCacheKey(request, "", compiled_source);
+  } else {
+    context.session.setNull();
+  }
   return module;
 }
 
@@ -1338,20 +1441,21 @@ bool ReflectSlangRequest(const ShaderCompileRequest& request, ShaderReflectionIn
     diagnostics = "Unknown Slang shader stage.";
     return false;
   }
-  slang::IGlobalSession* global_session = GetSlangGlobalSession(diagnostics);
+  SlangCompilerLease compiler;
+  auto& context = compiler.Get();
+  slang::IGlobalSession* global_session = GetSlangGlobalSession(context, diagnostics);
   if (!global_session) {
     return false;
   }
   diagnostics += MakeSlangCompilerDiagnosticHeader(*global_session, request);
 
-  const std::lock_guard slang_lock(slang_mutex);
-  Slang::ComPtr<slang::ISession> session;
-  if (!CreateSlangSession(request, *global_session, session, diagnostics)) {
+  if (!PrepareSlangSession(request, context, diagnostics)) {
     return false;
   }
 
+  const auto& session = context.session;
   std::string compiled_source;
-  Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, *session, diagnostics, compiled_source);
+  Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, context, diagnostics, compiled_source);
   if (!module) {
     EVOENGINE_ERROR("Failed to load Slang module for reflection: " + request.path.string() + "\n" + diagnostics)
     return false;
@@ -1504,7 +1608,9 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
     return result;
   }
 
-  slang::IGlobalSession* global_session = GetSlangGlobalSession(result.diagnostics);
+  SlangCompilerLease compiler;
+  auto& context = compiler.Get();
+  slang::IGlobalSession* global_session = GetSlangGlobalSession(context, result.diagnostics);
   if (!global_session) {
     failure_count.fetch_add(1);
     return result;
@@ -1522,16 +1628,14 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
     }
   }
 
-  const std::lock_guard slang_lock(slang_mutex);
-  Slang::ComPtr<slang::ISession> session;
-  if (!CreateSlangSession(request, *global_session, session, result.diagnostics)) {
+  if (!PrepareSlangSession(request, context, result.diagnostics)) {
     failure_count.fetch_add(1);
     return result;
   }
 
   std::string frontend_source;
   native_slang_frontend_count.fetch_add(1);
-  Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, *session, result.diagnostics, frontend_source);
+  Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, context, result.diagnostics, frontend_source);
   if (!module) {
     EVOENGINE_ERROR("Failed to load Slang module: " + request.path.string() + "\n" + result.diagnostics)
     failure_count.fetch_add(1);
@@ -1541,7 +1645,7 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   dependency_paths = CollectSlangDependencyPaths(*module);
   const auto key = MakeSlangBinaryCacheKey(request, compiler_version, source, dependency_paths);
   CompileShaderWithCache(request, key, result, [&](std::vector<uint32_t>& binaries) {
-    return EmitSlangSpirv(request, *session, *module, stage, result.diagnostics, binaries);
+    return EmitSlangSpirv(request, *context.session, *module, stage, result.diagnostics, binaries);
   });
   if (result.success) {
     PublishSlangDependencyCacheEntry(source_key, dependency_paths);
@@ -1634,10 +1738,16 @@ ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
 }
 
 ShaderCompileCacheStats Shader::GetCompileCacheStats() {
-  return {memory_hit_count.load(),     disk_hit_count.load(),
-          disk_miss_count.load(),      compilation_count.load(),
-          coalesced_wait_count.load(), corrupt_entry_count.load(),
-          failure_count.load(),        native_slang_frontend_count.load()};
+  return {memory_hit_count.load(),
+          disk_hit_count.load(),
+          disk_miss_count.load(),
+          compilation_count.load(),
+          coalesced_wait_count.load(),
+          corrupt_entry_count.load(),
+          failure_count.load(),
+          native_slang_frontend_count.load(),
+          slang_session_creation_count.load(),
+          slang_session_reuse_count.load()};
 }
 
 void Shader::ResetCompileCacheStats() {
@@ -1649,11 +1759,53 @@ void Shader::ResetCompileCacheStats() {
   corrupt_entry_count.store(0);
   failure_count.store(0);
   native_slang_frontend_count.store(0);
+  slang_session_creation_count.store(0);
+  slang_session_reuse_count.store(0);
+}
+
+size_t Shader::GetPreparationWorkerCount() {
+  const auto* setting = std::getenv("EVOENGINE_SHADER_COMPILER_WORKERS");
+  if (setting && setting[0] >= '1' && setting[0] <= '8' && setting[1] == '\0')
+    return static_cast<size_t>(setting[0] - '0');
+  static const size_t default_workers = []() -> size_t {
+    const auto threads = std::thread::hardware_concurrency();
+    if (threads != 0 && threads <= 2)
+      return 1;
+    uint64_t memory_bytes = 0;
+#if defined(_WIN32)
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    if (GlobalMemoryStatusEx(&memory))
+      memory_bytes = memory.ullTotalPhys;
+#elif defined(__linux__)
+    struct sysinfo memory{};
+    if (sysinfo(&memory) == 0)
+      memory_bytes = static_cast<uint64_t>(memory.totalram) * memory.mem_unit;
+#endif
+    // Allow for hardware-reserved memory on nominal 32 GiB machines.
+    return threads >= 8 && memory_bytes >= 30ull * 1024 * 1024 * 1024 ? 4 : 2;
+  }();
+  return default_workers;
 }
 
 void Shader::ClearInMemoryCompileCache() {
-  const std::lock_guard lock(shader_compile_entries_mutex);
-  shader_compile_entries.clear();
+  {
+    const std::lock_guard lock(shader_compile_entries_mutex);
+    shader_compile_entries.clear();
+  }
+  auto& pool = CompilerPool();
+  std::unique_lock lock(pool.mutex);
+  pool.available.wait(lock, [&] {
+    return std::none_of(pool.busy.begin(), pool.busy.end(), [](bool busy) {
+      return busy;
+    });
+  });
+  for (auto& context : pool.contexts) {
+    context.session.setNull();
+    context.root_sources.clear();
+    context.dependencies.clear();
+    context.dependency_signature.clear();
+  }
 }
 
 bool Shader::TryCompile(const ShaderType target_shader_type, const std::filesystem::path& path) {
@@ -1677,6 +1829,15 @@ bool Shader::TryCompile(const ShaderType target_shader_type, const std::string& 
 }
 
 bool Shader::TryCompile(const std::filesystem::path& path) {
+  bool success = false;
+  if (RunPreparationTask(path.filename().string(), [&] {
+        success = TryCompile(path);
+      }))
+    return success;
+  {
+    const std::lock_guard lock(preparation_name_mutex);
+    preparation_name = path.filename().string();
+  }
   if (!Platform::Initialized())
     return false;
   VkShaderModuleCreateInfo create_info{};
@@ -1687,10 +1848,46 @@ bool Shader::TryCompile(const std::filesystem::path& path) {
     create_info.pCode = binaries.data();
     create_info.codeSize = binaries.size() * sizeof(uint32_t);
     shader_module = std::make_unique<ShaderModule>(create_info);
+    if (vkSetDebugUtilsObjectNameEXT && !path.empty()) {
+      const auto name = path.generic_string();
+      VkDebugUtilsObjectNameInfoEXT info{};
+      info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+      info.objectType = VK_OBJECT_TYPE_SHADER_MODULE;
+      info.objectHandle = reinterpret_cast<uint64_t>(shader_module->GetVkShaderModule());
+      info.pObjectName = name.c_str();
+      vkSetDebugUtilsObjectNameEXT(Platform::GetVkDevice(), &info);
+    }
     version_++;
     return true;
   }
   return false;
+}
+
+void Shader::SetPreparationPump(std::function<void()> pump) {
+  preparation_pump = std::move(pump);
+}
+
+bool Shader::RunPreparationTask(const std::string& name, const std::function<void()>& task) {
+  if (!preparation_pump)
+    return false;
+  {
+    const std::lock_guard lock(preparation_name_mutex);
+    preparation_name = name;
+  }
+  auto* application = ApplicationContext::TryGet();
+  auto future = std::async(std::launch::async, [application, task] {
+    const ApplicationContextScope scope(*application);
+    task();
+  });
+  while (future.wait_for(std::chrono::milliseconds(16)) != std::future_status::ready)
+    preparation_pump();
+  future.get();
+  return true;
+}
+
+std::string Shader::GetCurrentPreparation() {
+  const std::lock_guard lock(preparation_name_mutex);
+  return preparation_name;
 }
 
 const std::unique_ptr<ShaderModule>& Shader::GetShaderModule() const {

@@ -337,6 +337,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
+      {DemoProfileId::SubsurfaceScattering,
+       "sss",
+       "Subsurface Scattering",
+       "EvoEngineEditor",
+       "Male head sculpt with a shared human-skin diffusion profile and studio lighting.",
+       "Launcher/DemoPreviews/sss.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {}},
       {DemoProfileId::ProceduralGalaxy,
        "procedural-galaxy",
        "Procedural Galaxy",
@@ -496,6 +505,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
     case DemoProfileId::Bistro:
       return path_utils::NormalizeAbsolutePath(resource_root / ".generated" / "EvoEngine-DemoProjects" / "Bistro" /
                                                "Bistro.eveproj");
+    case DemoProfileId::SubsurfaceScattering:
+      return path_utils::NormalizeAbsolutePath(resource_root / ".generated" / "EvoEngine-DemoProjects" /
+                                               "SubsurfaceScattering" / "SubsurfaceScattering.eveproj");
   }
   return {};
 }
@@ -535,6 +547,13 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     return missing;
   }
   if (id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
+    return missing;
+  }
+  if (id == DemoProfileId::SubsurfaceScattering) {
+    const auto assets = resource_root / "SubsurfaceScattering" / "Assets";
+    for (const auto* path : {"Models/Head/LeePerrySmith.glb", "Profiles/Skin.evesss"})
+      if (!std::filesystem::is_regular_file(assets / path))
+        missing.emplace_back(path);
     return missing;
   }
   if (id == DemoProfileId::GaussianSplat) {

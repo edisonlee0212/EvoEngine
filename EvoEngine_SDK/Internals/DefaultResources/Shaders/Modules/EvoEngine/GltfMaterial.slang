@@ -38,7 +38,9 @@ static const uint EE_GLTF_FEATURE_IOR = 1u << 12u;
 public
 static const uint EE_GLTF_FEATURE_TEXTURE_TRANSFORM = 1u << 13u;
 public
-static const uint EE_GLTF_ALL_FEATURES = (1u << 14u) - 1u;
+static const uint EE_GLTF_FEATURE_SUBSURFACE = 1u << 14u;
+public
+static const uint EE_GLTF_ALL_FEATURES = (1u << 15u) - 1u;
 
 public
 struct GltfTextureInfo {
@@ -173,6 +175,28 @@ struct GltfShadeMaterial {
   float clearcoat_normal_texture_scale;
  public
   uint padding1;
+ public
+  float3 subsurface_albedo;
+ public
+  float subsurface_weight;
+ public
+  float3 subsurface_distance;
+ public
+  float subsurface_ior;
+ public
+  float subsurface_thickness;
+ public
+  uint subsurface_mode;
+ public
+  uint subsurface_profile_lo;
+ public
+  uint subsurface_profile_hi;
+ public
+  uint16_t subsurface_mask_texture;
+ public
+  uint16_t subsurface_thickness_texture;
+ public
+  uint subsurface_padding;
 };
 
 [[vk::binding(11, 0)]] public

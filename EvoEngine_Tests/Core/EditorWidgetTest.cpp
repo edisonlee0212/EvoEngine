@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <imgui_internal.h>
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
@@ -18,6 +19,81 @@
 #include "WindowLayer.hpp"
 
 using namespace evo_engine;
+
+namespace evo_engine {
+struct EditorStatusBarTestAccess {
+  static void Draw(EditorLayer& editor, const float top_offset = 0) {
+    const auto height = editor.DrawStatusBar();
+    editor.DrawDockspace(top_offset, height);
+  }
+  static void Poll(EditorLayer& editor) {
+    editor.PollConsoleMessages();
+  }
+  static void Clear(EditorLayer& editor) {
+    editor.ClearConsoleMessages();
+  }
+  static std::pair<size_t, size_t> Counts(const EditorLayer& editor) {
+    return {editor.status_warning_count_, editor.status_error_count_};
+  }
+  static std::array<bool, 3> Filters(const EditorLayer& editor) {
+    return {editor.enable_console_logs_, editor.enable_console_warnings_, editor.enable_console_errors_};
+  }
+};
+}  // namespace evo_engine
+
+namespace {
+class StartupWindowProbe final : public ILayer {
+ public:
+  bool observed = false;
+
+  void OnCreate() override {
+    const auto window = GetApplication().GetLayer<WindowLayer>()->GetGlfwWindow();
+    int x, y, width, height, work_x, work_y, work_width, work_height;
+    glfwGetWindowPos(window, &x, &y);
+    glfwGetWindowSize(window, &width, &height);
+    glfwGetMonitorWorkarea(glfwGetPrimaryMonitor(), &work_x, &work_y, &work_width, &work_height);
+    EXPECT_EQ(width, 640);
+    EXPECT_EQ(height, 240);
+    EXPECT_EQ(x, work_x + std::max(0, (work_width - width) / 2));
+    EXPECT_EQ(y, work_y + std::max(0, (work_height - height) / 2));
+    EXPECT_EQ(glfwGetWindowAttrib(window, GLFW_MAXIMIZED), GLFW_FALSE);
+    observed = true;
+  }
+};
+}  // namespace
+
+TEST(ImGuiStartup, CompactWindowIsCenteredAndRestoresConfiguredDisplay) {
+  for (int mode = 0; mode < 3; ++mode) {
+    SCOPED_TRACE(mode);
+    Application app;
+    ApplicationContextScope scope(app);
+    auto window = app.PushLayer<WindowLayer>("Window");
+    app.PushLayer<RenderLayer>("Rendering");
+    app.PushLayer<ImGuiLayer>("GUI");
+    const auto probe = app.PushLayer<StartupWindowProbe>("Startup probe");
+    ApplicationInitializationSettings settings;
+    settings.allow_empty_project = true;
+    settings.default_window_size = {800, 600};
+    settings.full_screen = mode == 1;
+    if (mode == 2)
+      settings.window_mode = WindowDisplayMode::Windowed;
+    settings.use_custom_title_bar = false;
+    settings.load_project_assets = settings.load_project_start_scene = false;
+    settings.redirect_standard_streams_to_console = false;
+    settings.graphics_settings.use_ray_tracing = settings.graphics_settings.use_mesh_shader = false;
+    app.Initialize(settings);
+    glfwPollEvents();
+    EXPECT_TRUE(probe->observed);
+    EXPECT_EQ(window->IsWindowMaximized(), mode == 1);
+    if (mode != 1) {
+      int width, height;
+      glfwGetWindowSize(window->GetGlfwWindow(), &width, &height);
+      EXPECT_EQ(width, 800);
+      EXPECT_EQ(height, 600);
+    }
+    app.Terminate();
+  }
+}
 
 TEST(ImGuiStartup, LauncherThemesWorkWithoutNodeEditorContext) {
   ImGui::CreateContext();
@@ -188,6 +264,81 @@ class EditorWidgetTest : public testing::Test {
   }
 };
 }  // namespace
+
+TEST_F(EditorWidgetTest, StatusBarReservesSpaceWithBothTitleBarsAndNarrowWindows) {
+  Application app;
+  ApplicationContextScope scope(app);
+  const auto editor = app.PushLayer<EditorLayer>("Editor");
+  ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+  for (const float width : {1200.0f, 360.0f}) {
+    for (const float top_offset : {0.0f, 42.0f}) {
+      ImGui::GetIO().DisplaySize = {width, 800};
+      ImGui::NewFrame();
+      EditorStatusBarTestAccess::Draw(*editor, top_offset);
+      ImGui::Render();
+      const auto bar = ImGui::FindWindowByName("##EditorStatusBar");
+      const auto dock = ImGui::FindWindowByName("Root DockSpace");
+      ASSERT_NE(bar, nullptr);
+      ASSERT_NE(dock, nullptr);
+      EXPECT_FLOAT_EQ(bar->Size.x, width);
+      EXPECT_FLOAT_EQ(bar->Size.y, ImGui::GetFrameHeight());
+      EXPECT_FLOAT_EQ(bar->Pos.y + bar->Size.y, 800);
+      EXPECT_LE(dock->Pos.y + dock->Size.y, bar->Pos.y);
+      EXPECT_TRUE(bar->Flags & ImGuiWindowFlags_NoDocking);
+      EXPECT_TRUE(bar->Flags & ImGuiWindowFlags_NoSavedSettings);
+      EXPECT_LE(bar->DC.CursorMaxPos.x, bar->InnerRect.Max.x + 1.0f);
+    }
+  }
+}
+
+TEST_F(EditorWidgetTest, StatusBarCountsConsoleMessagesOpensErrorFilterAndClearsCounts) {
+  Application app;
+  ApplicationContextScope scope(app);
+  const auto editor = app.PushLayer<EditorLayer>("Editor");
+  editor->show_console_window = false;
+  EditorStatusBarTestAccess::Clear(*editor);
+  Console::Warning("First warning");
+  Console::Warning("Second warning");
+  Console::Error("An error");
+  EditorStatusBarTestAccess::Poll(*editor);
+  const auto draw = [&] {
+    ImGui::NewFrame();
+    EditorStatusBarTestAccess::Draw(*editor);
+    ImGui::Render();
+  };
+  draw();
+  EXPECT_EQ(EditorStatusBarTestAccess::Counts(*editor), (std::pair<size_t, size_t>{2, 1}));
+  const auto bar = ImGui::FindWindowByName("##EditorStatusBar");
+  ASSERT_NE(bar, nullptr);
+  ImGui::GetIO().AddMousePosEvent(bar->Pos.x + bar->Size.x - 20, bar->Pos.y + bar->Size.y / 2);
+  draw();
+  ImGui::GetIO().AddMouseButtonEvent(0, true);
+  draw();
+  ImGui::GetIO().AddMouseButtonEvent(0, false);
+  draw();
+  EXPECT_TRUE(editor->show_console_window);
+  EXPECT_EQ(EditorStatusBarTestAccess::Filters(*editor), (std::array<bool, 3>{false, false, true}));
+  EditorStatusBarTestAccess::Clear(*editor);
+  draw();
+  EXPECT_EQ(EditorStatusBarTestAccess::Counts(*editor), (std::pair<size_t, size_t>{0, 0}));
+}
+
+TEST_F(EditorWidgetTest, StatusBarActivityOpensDetails) {
+  Application app;
+  ApplicationContextScope scope(app);
+  const auto editor = app.PushLayer<EditorLayer>("Editor");
+  const auto draw = [&] {
+    ImGui::NewFrame();
+    EditorStatusBarTestAccess::Draw(*editor);
+    ImGui::Render();
+  };
+  draw();
+  const auto bar = ImGui::FindWindowByName("##EditorStatusBar");
+  ASSERT_NE(bar, nullptr);
+  ImGui::ActivateItemByID(bar->GetID("###StatusActivity"));
+  draw();
+  EXPECT_TRUE(ImGui::IsPopupOpen(bar->GetID("Background activity"), ImGuiPopupFlags_None));
+}
 
 TEST_F(EditorWidgetTest, CurveClearEditsTheRuntimeModel) {
   Curve2D curve(0.2f, 0.8f, {0, 0}, {1, 1}, false);

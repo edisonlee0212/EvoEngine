@@ -34,6 +34,9 @@ class EVOENGINE_API DeferredComputeLightingPass final {
     std::shared_ptr<HddagiResources> hddagi_resources;
     std::shared_ptr<DescriptorSet> hddagi_descriptor_set;
     glm::uvec2 dispatch_size{0};
+    bool subsurface_enabled = false;
+    bool subsurface_resolve = false;
+    bool subsurface_backface_enabled = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled,

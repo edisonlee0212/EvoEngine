@@ -52,6 +52,8 @@ Fast history and history reconstruction are bounded by the selected lobe history
 
 ## Windows build
 
+The Vulkan device enables `VK_KHR_push_descriptor` when available for NRD's root descriptors. The NRI wrapper receives that enabled extension and a Vulkan version capped at the engine's enabled 1.3 feature contract. Hardware support for a newer Vulkan version does not enable its optional device features. NRD initialization declines devices without push-descriptor support.
+
 The standard `vs2026-x64` preset enables NRD and expects a source checkout under ignored `out/deps/NRD`. EvoEngine builds NRD with NRI and SPIR-V shaders and installs their runtime libraries and license files with its applications and runtime templates. Other configurations can still disable the build dependency with `EVOENGINE_ENABLE_NRD=OFF`. In an NRD-enabled editor, the camera inspector's **NRD Denoising** checkbox switches Path Tracing and ReSTIR Candidate, Spatial Only, Temporal Only, and Enhanced between raw and denoised output; **NRD Denoiser** selects RELAX or REBLUR. New cameras default to REBLUR; saved cameras retain their explicit selection. Switching either control resets camera accumulation and denoiser history. Off skips the NRD guide, denoiser, and composite passes. Fresh raw-mode cameras do not allocate guide or denoised-output images. Temporal Only also uses raw shader variants for candidate, combine, and resolve that skip NRD signal work; other raw-mode shaders still prepare split signals. Demo captures can set `--preview-nrd-denoising enabled|disabled` and `--preview-nrd-denoiser relax|reblur` to compare outputs from one executable. The tested local checkout is NRD 4.18.0 at `7033ffbc` with NRI v181.
 
 ## REBLUR controls

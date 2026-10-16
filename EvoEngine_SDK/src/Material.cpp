@@ -4,11 +4,14 @@
 #include "Texture2D.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 using namespace evo_engine;
 
 void Material::CollectAssetRef(std::vector<AssetRef>& list) {
   ResizeTextureRefs();
+  if (subsurface_profile.GetAssetHandle() != 0)
+    list.push_back(subsurface_profile);
   for (const auto& texture_ref : texture_refs_) {
     list.push_back(texture_ref);
   }
@@ -164,7 +167,31 @@ std::vector<AssetRef>& Material::RefTextureRefs() {
 
 GltfMaterialData Material::BuildGltfMaterialData() {
   ResizeTextureRefs();
+  RefreshSubsurfaceProfile();
   auto result = material_data;
+  auto& shade = result.shade_material;
+  if (const auto profile = subsurface_profile.Get<SubsurfaceProfile>()) {
+    const float scale = std::isfinite(subsurface_distance_scale) ? std::max(subsurface_distance_scale, 0.0f) : 1.0f;
+    for (int channel = 0; channel < 3; ++channel) {
+      shade.subsurface_albedo[channel] =
+          std::isfinite(profile->albedo[channel]) ? std::clamp(profile->albedo[channel], 0.0f, 1.0f) : 1.0f;
+      const float distance = profile->scattering_distance[channel] * scale;
+      shade.subsurface_distance[channel] = std::isfinite(distance) ? std::max(distance, 1e-6f) : 0.001f;
+    }
+    shade.subsurface_ior = std::isfinite(profile->ior) ? std::max(profile->ior, 1.0f) : 1.4f;
+    shade.subsurface_weight =
+        std::isfinite(shade.subsurface_weight) ? std::clamp(shade.subsurface_weight, 0.0f, 1.0f) : 0.0f;
+    shade.subsurface_thickness =
+        std::isfinite(shade.subsurface_thickness) ? std::max(shade.subsurface_thickness, 0.0f) : 0.0f;
+    if (shade.subsurface_weight > 0.0f && shade.subsurface_mode == static_cast<uint32_t>(SubsurfaceMode::ThinSurface))
+      shade.double_sided = 1;
+    const uint64_t handle = profile->GetHandle().GetValue();
+    shade.subsurface_profile_lo = static_cast<uint32_t>(handle);
+    shade.subsurface_profile_hi = static_cast<uint32_t>(handle >> 32u);
+  } else {
+    shade.subsurface_weight = 0.0f;
+    shade.subsurface_profile_lo = shade.subsurface_profile_hi = 0;
+  }
   for (size_t i = 1; i < result.texture_infos.size() && i < texture_refs_.size(); ++i) {
     if (const auto texture = texture_refs_[i].Get<Texture2D>()) {
       result.texture_infos[i].index = static_cast<int32_t>(texture->GetTextureStorageIndex());
@@ -182,10 +209,29 @@ void Material::SetGltfMaterialData(const GltfMaterialData& data) {
 
 void Material::SyncRenderStateFromGltfMaterial() {
   draw_settings.blending = GltfMaterialRequiresTransparentPass(material_data.shade_material);
-  draw_settings.cull_mode = material_data.shade_material.double_sided != 0 ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
+  const auto& shade = material_data.shade_material;
+  const bool thin_sss = subsurface_profile.GetAssetHandle() != 0 && shade.subsurface_weight > 0.0f &&
+                        shade.subsurface_mode == static_cast<uint32_t>(SubsurfaceMode::ThinSurface);
+  draw_settings.cull_mode = shade.double_sided != 0 || thin_sss ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
 }
 
 void Material::MarkDirty() {
   SyncRenderStateFromGltfMaterial();
   need_update_ = true;
+}
+
+void Material::RefreshSubsurfaceProfile() {
+  const uint64_t handle = subsurface_profile.GetAssetHandle().GetValue();
+  if (handle == 0 && subsurface_profile_handle_ == 0 && !subsurface_profile_resident_)
+    return;
+  const auto profile = subsurface_profile.Get<SubsurfaceProfile>();
+  const uint32_t version = profile ? profile->GetVersion() : 0;
+  if (subsurface_profile_handle_ != handle || subsurface_profile_version_ != version ||
+      subsurface_profile_resident_ != static_cast<bool>(profile)) {
+    subsurface_profile_handle_ = handle;
+    subsurface_profile_version_ = version;
+    subsurface_profile_resident_ = static_cast<bool>(profile);
+    SetUnsaved();
+    MarkDirty();
+  }
 }

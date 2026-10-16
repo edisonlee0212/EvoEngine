@@ -22,6 +22,7 @@
 #include "RenderPasses/MotionVectorPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
+#include "RenderPasses/SubsurfaceBackfacePass.hpp"
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Rendering/RenderInstances/RenderInstanceStorage.hpp"
@@ -2600,4 +2601,54 @@ TEST(RenderGraph, DdgiAtlasInitializationPrecedesDescriptorPublication) {
   EXPECT_NE(create.find("VK_FORMAT_R16G16_SFLOAT"), std::string::npos);
   EXPECT_NE(create.find("clear.float32[0] = 1.0f"), std::string::npos);
   EXPECT_NE(create.find("Platform::ClearColorImage(command, *image, clear"), std::string::npos);
+}
+
+TEST(RenderGraph, SubsurfaceBackfaceOrdersGeometryBeforeGatherAndLighting) {
+  RenderGraph graph;
+  AddDefaultFrameResources(graph);
+  AddDefaultRasterCameraResources(graph);
+  for (const auto& resource : {RenderResourceDescriptor{"Camera.Subsurface.Backface",
+                                                        RenderResourceType::Image,
+                                                        RenderResourceLifetime::Camera,
+                                                        {RenderResourceSizeMode::CameraRelative},
+                                                        "RGBA32F",
+                                                        1,
+                                                        1,
+                                                        true},
+                               RenderResourceDescriptor{"Camera.Subsurface.BackfaceDepth",
+                                                        RenderResourceType::Image,
+                                                        RenderResourceLifetime::Camera,
+                                                        {RenderResourceSizeMode::CameraRelative},
+                                                        "Depth",
+                                                        1,
+                                                        1,
+                                                        true}})
+    graph.AddResource(resource);
+  auto geometry = DeferredGeometryPass::CreateDescriptor();
+  geometry.dependencies.clear();
+  graph.AddPass(geometry, [](const RenderGraphExecutionContext&) {
+  });
+  graph.AddPass(SubsurfaceBackfacePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
+  auto lighting = DeferredComputeLightingPass::CreateDescriptor(false, false);
+  lighting.resources.push_back(
+      {"Camera.Subsurface.Backface", RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+  graph.AddPass(lighting, [](const RenderGraphExecutionContext&) {
+  });
+  RenderGraphCompileContext context;
+  context.camera_width = 1920;
+  context.camera_height = 1080;
+  const auto plan = graph.Compile(context);
+  ASSERT_TRUE(plan.valid);
+  EXPECT_EQ(plan.passes[1].dependency_indices, std::vector<size_t>({0}));
+  EXPECT_NE(std::find(plan.passes[2].resource_dependency_indices.begin(),
+                      plan.passes[2].resource_dependency_indices.end(), 1),
+            plan.passes[2].resource_dependency_indices.end());
+  const auto transition = std::find_if(plan.transitions.begin(), plan.transitions.end(), [](const auto& value) {
+    return value.pass_index == 2 && value.previous_pass_index == 1 &&
+           value.previous_state == RenderResourceState::ColorAttachment &&
+           value.next_state == RenderResourceState::ShaderRead;
+  });
+  ASSERT_NE(transition, plan.transitions.end());
+  EXPECT_TRUE(transition->memory_dependency);
 }

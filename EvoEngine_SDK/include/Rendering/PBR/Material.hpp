@@ -4,6 +4,7 @@
 #include "GltfMaterial.hpp"
 #include "IAsset.hpp"
 #include "Platform.hpp"
+#include "SubsurfaceProfile.hpp"
 #include "Texture2D.hpp"
 namespace evo_engine {
 
@@ -53,9 +54,15 @@ class EVOENGINE_API Material final : public IAsset {
   std::vector<AssetRef> texture_refs_{AssetRef{}};
 
   void ResizeTextureRefs();
+  uint64_t subsurface_profile_handle_ = 0;
+  uint32_t subsurface_profile_version_ = 0;
+  bool subsurface_profile_resident_ = false;
 
  public:
   Material();
+  AssetRef subsurface_profile;
+  float subsurface_distance_scale = 1.0f;
+  void RefreshSubsurfaceProfile();
 
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;

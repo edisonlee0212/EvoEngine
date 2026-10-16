@@ -1,8 +1,8 @@
 {
   "counts": {
-    "files": 247,
-    "imports": 439,
-    "macro_control_files": 57
+    "files": 256,
+    "imports": 464,
+    "macro_control_files": 63
   },
   "macro_adapters": [
     {
@@ -10,7 +10,7 @@
       "path": "Compute/DDGIProbeUpdate.slang"
     },
     {
-      "macro_controls": 10,
+      "macro_controls": 16,
       "path": "Compute/DeferredComputeLighting.slang"
     },
     {
@@ -104,6 +104,22 @@
     {
       "macro_controls": 3,
       "path": "Compute/RestirPtTemporalForwardHybrid.slang"
+    },
+    {
+      "macro_controls": 7,
+      "path": "Compute/RestirSssCandidate.slang"
+    },
+    {
+      "macro_controls": 7,
+      "path": "Compute/RestirSssSpatialCandidate.slang"
+    },
+    {
+      "macro_controls": 7,
+      "path": "Compute/RestirSssSpatialResolve.slang"
+    },
+    {
+      "macro_controls": 7,
+      "path": "Compute/RestirSssTemporal.slang"
     },
     {
       "macro_controls": 17,
@@ -210,12 +226,20 @@
       "path": "Modules/EvoEngine/CameraRayGeometry.slang"
     },
     {
-      "macro_controls": 4,
+      "macro_controls": 12,
       "path": "Modules/EvoEngine/CameraRayIntegrator.slang"
     },
     {
       "macro_controls": 10,
       "path": "Modules/EvoEngine/CameraRayQueryTraversal.slang"
+    },
+    {
+      "macro_controls": 2,
+      "path": "Modules/EvoEngine/CameraRayTracingPayload.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Modules/EvoEngine/CameraRayTracingTraversal.slang"
     },
     {
       "macro_controls": 2,
@@ -226,7 +250,7 @@
       "path": "RayTracing/AnyHit/Camera.slang"
     },
     {
-      "macro_controls": 2,
+      "macro_controls": 6,
       "path": "RayTracing/ClosestHit/Camera.slang"
     },
     {
@@ -484,6 +508,26 @@
       "path": "Compute/RestirPtTemporalForwardHybrid.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Compute.RestirSssCandidate",
+      "path": "Compute/RestirSssCandidate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirSssDuplication",
+      "path": "Compute/RestirSssDuplication.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirSssSpatialCandidate",
+      "path": "Compute/RestirSssSpatialCandidate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirSssSpatialResolve",
+      "path": "Compute/RestirSssSpatialResolve.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RestirSssTemporal",
+      "path": "Compute/RestirSssTemporal.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Compute.SdfgiDebug",
       "path": "Compute/SdfgiDebug.slang"
     },
@@ -510,6 +554,10 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.SdfgiPublish",
       "path": "Compute/SdfgiPublish.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.SubsurfaceDiffusion",
+      "path": "Compute/SubsurfaceDiffusion.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.Trace",
@@ -646,6 +694,10 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardTransparent",
       "path": "Graphics/Fragment/Standard/StandardTransparent.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.SubsurfaceBackface",
+      "path": "Graphics/Fragment/Standard/SubsurfaceBackface.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.TransparentMotionVectors",
@@ -1108,6 +1160,10 @@
       "path": "Modules/EvoEngine/RestirPtTemporal.slang"
     },
     {
+      "module": "EvoEngine.RestirSss",
+      "path": "Modules/EvoEngine/RestirSss.slang"
+    },
+    {
       "module": "EvoEngine.Sdfgi",
       "path": "Modules/EvoEngine/Sdfgi.slang"
     },
@@ -1154,6 +1210,10 @@
     {
       "module": "EvoEngine.Strands",
       "path": "Modules/EvoEngine/Strands.slang"
+    },
+    {
+      "module": "EvoEngine.Subsurface",
+      "path": "Modules/EvoEngine/Subsurface.slang"
     },
     {
       "module": "EvoEngine.Textures",
