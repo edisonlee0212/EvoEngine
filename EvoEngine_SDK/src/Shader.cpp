@@ -1043,9 +1043,10 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   slang::CompilerOptionEntry target_options[] = {
       {slang::CompilerOptionName::EmitSpirvDirectly, {slang::CompilerOptionValueKind::Int, 1}},
       {slang::CompilerOptionName::Optimization,
-       {slang::CompilerOptionValueKind::Int, SourceDefinesEnabled(request.source, "EE_SHADER_HIGH_OPTIMIZATION")
-                                                 ? SLANG_OPTIMIZATION_LEVEL_HIGH
-                                                 : SLANG_OPTIMIZATION_LEVEL_DEFAULT}},
+       {slang::CompilerOptionValueKind::Int,
+        static_cast<int32_t>(SourceDefinesEnabled(request.source, "EE_SHADER_HIGH_OPTIMIZATION")
+                                 ? SLANG_OPTIMIZATION_LEVEL_HIGH
+                                 : SLANG_OPTIMIZATION_LEVEL_DEFAULT)}},
       {slang::CompilerOptionName::MatrixLayoutRow, {slang::CompilerOptionValueKind::Int, 1}},
       {slang::CompilerOptionName::GLSLForceScalarLayout, {slang::CompilerOptionValueKind::Int, 1}},
   };
