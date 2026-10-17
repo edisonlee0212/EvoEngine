@@ -110,6 +110,8 @@ bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const C
     return false;
 
   impl_->integration.NewFrame();
+  const bool accumulated_input =
+      camera_settings.accumulate_samples && history.technique != RayCameraHistoryTechnique::RestirPt;
   if (impl_->reblur) {
     nrd::ReblurSettings settings{};
     settings.hitDistanceReconstructionMode = nrd::HitDistanceReconstructionMode::OFF;
@@ -119,8 +121,10 @@ bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const C
     settings.minBlurRadius = std::clamp(camera_settings.nrd_reblur_min_blur_radius, 0.0f, settings.maxBlurRadius);
     settings.diffusePrepassBlurRadius = std::max(camera_settings.nrd_reblur_diffuse_prepass_radius, 0.0f);
     settings.specularPrepassBlurRadius = std::max(camera_settings.nrd_reblur_specular_prepass_radius, 0.0f);
-    settings.maxAccumulatedFrameNum = static_cast<uint32_t>(
-        std::clamp(camera_settings.nrd_reblur_history_frames, 0, static_cast<int>(nrd::REBLUR_MAX_HISTORY_FRAME_NUM)));
+    settings.maxAccumulatedFrameNum =
+        accumulated_input ? 0u
+                          : static_cast<uint32_t>(std::clamp(camera_settings.nrd_reblur_history_frames, 0,
+                                                             static_cast<int>(nrd::REBLUR_MAX_HISTORY_FRAME_NUM)));
     settings.maxFastAccumulatedFrameNum =
         std::min(settings.maxFastAccumulatedFrameNum, settings.maxAccumulatedFrameNum);
     settings.historyFixFrameNum =
@@ -137,10 +141,14 @@ bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const C
     settings.minMaterialForSpecular = 0.0f;
     settings.diffusePrepassBlurRadius = std::max(camera_settings.nrd_relax_diffuse_prepass_radius, 0.0f);
     settings.specularPrepassBlurRadius = std::max(camera_settings.nrd_relax_specular_prepass_radius, 0.0f);
-    settings.diffuseMaxAccumulatedFrameNum = static_cast<uint32_t>(std::clamp(
-        camera_settings.nrd_relax_diffuse_history_frames, 0, static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
-    settings.specularMaxAccumulatedFrameNum = static_cast<uint32_t>(std::clamp(
-        camera_settings.nrd_relax_specular_history_frames, 0, static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
+    settings.diffuseMaxAccumulatedFrameNum =
+        accumulated_input ? 0u
+                          : static_cast<uint32_t>(std::clamp(camera_settings.nrd_relax_diffuse_history_frames, 0,
+                                                             static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
+    settings.specularMaxAccumulatedFrameNum =
+        accumulated_input ? 0u
+                          : static_cast<uint32_t>(std::clamp(camera_settings.nrd_relax_specular_history_frames, 0,
+                                                             static_cast<int>(nrd::RELAX_MAX_HISTORY_FRAME_NUM)));
     settings.diffuseMaxFastAccumulatedFrameNum =
         std::min(settings.diffuseMaxFastAccumulatedFrameNum, settings.diffuseMaxAccumulatedFrameNum);
     settings.specularMaxFastAccumulatedFrameNum =
@@ -175,7 +183,9 @@ bool NrdRayCameraDenoiser::Denoise(const VkCommandBuffer command_buffer, const C
       static_cast<uint16_t>(impl_->height);
   common.motionVectorScale[2] = 1.0f;
   common.frameIndex = impl_->frame_index++;
-  common.accumulationMode = reset_history ? nrd::AccumulationMode::CLEAR_AND_RESTART : nrd::AccumulationMode::CONTINUE;
+  common.accumulationMode = reset_history       ? nrd::AccumulationMode::CLEAR_AND_RESTART
+                            : accumulated_input ? nrd::AccumulationMode::RESTART
+                                                : nrd::AccumulationMode::CONTINUE;
   if (impl_->integration.SetCommonSettings(common) != nrd::Result::SUCCESS)
     return false;
   nrd::ResourceSnapshot resources{};

@@ -4527,6 +4527,207 @@ TEST(GpuService, NrdSignalPackingAndHistoryMatchPinnedFormulas) {
     EXPECT_NEAR(values[index], expected[index], 1e-4f) << index;
 }
 
+TEST(GpuService, PtDisplayFireflyFiltersBordersWithoutChangingHistory) {
+  ScopedGpuPlatform platform;
+  auto camera_layout = std::make_shared<DescriptorSetLayout>();
+  camera_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  camera_layout->Initialize();
+  auto camera_set = std::make_shared<DescriptorSet>(camera_layout);
+  VkBufferCreateInfo camera_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  camera_info.size = sizeof(CameraInfoBlock);
+  camera_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto camera_buffer = std::make_shared<Buffer>(camera_info);
+  camera_set->UpdateBufferDescriptorBinding(2, camera_buffer);
+  auto empty_layout = std::make_shared<DescriptorSetLayout>();
+  empty_layout->Initialize();
+  auto empty_set = std::make_shared<DescriptorSet>(empty_layout);
+  auto image_layout = std::make_shared<DescriptorSetLayout>();
+  for (const uint32_t binding : {0u, 2u})
+    image_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  image_layout->Initialize();
+  auto image_set = std::make_shared<DescriptorSet>(image_layout);
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                  root / "Compute/PtDisplayFirefly.slang"));
+  pipeline.descriptor_set_layouts = {camera_layout, empty_layout, image_layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  for (const uint32_t size : {1u, 5u}) {
+    std::array<std::shared_ptr<Image>, 2> images;
+    std::array<std::shared_ptr<ImageView>, 2> views;
+    for (size_t i = 0; i < images.size(); ++i) {
+      VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+      info.imageType = VK_IMAGE_TYPE_2D;
+      info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+      info.extent = {size, size, 1};
+      info.mipLevels = info.arrayLayers = 1;
+      info.samples = VK_SAMPLE_COUNT_1_BIT;
+      info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      images[i] = std::make_shared<Image>(info);
+      VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      view.image = images[i]->GetVkImage();
+      view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      view.format = info.format;
+      view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      views[i] = std::make_shared<ImageView>(view, images[i]);
+      VkDescriptorImageInfo descriptor{};
+      descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      descriptor.imageView = views[i]->GetVkImageView();
+      image_set->UpdateImageDescriptorBinding(i == 0 ? 0u : 2u, descriptor);
+    }
+    Buffer transfer(size * size * sizeof(glm::vec4));
+    for (const uint32_t bright : {0u, size / 2u, size * size / 2u}) {
+      const std::vector<glm::vec4> original = [&] {
+        std::vector<glm::vec4> pixels(size * size, glm::vec4(1));
+        pixels[bright] = glm::vec4(100, 100, 100, 7);
+        return pixels;
+      }();
+      transfer.UploadVector(original);
+      Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+        images[1]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+        images[1]->CopyFromBuffer(command, transfer.GetVkBuffer());
+        Platform::EverythingBarrier(command);
+      });
+      for (const glm::vec2 settings : {glm::vec2(1, 1), glm::vec2(0, 1), glm::vec2(0.5f, 2)}) {
+        CameraInfoBlock camera;
+        camera.pt_display_firefly_strength = settings.x;
+        camera.pt_display_firefly_ratio = settings.y;
+        camera_buffer->Upload(camera);
+        Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+          images[0]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+          Platform::EverythingBarrier(command);
+          pipeline.Bind(command);
+          pipeline.BindDescriptorSet(command, 0, camera_set->GetVkDescriptorSet());
+          pipeline.BindDescriptorSet(command, 1, empty_set->GetVkDescriptorSet());
+          pipeline.BindDescriptorSet(command, 2, image_set->GetVkDescriptorSet());
+          pipeline.PushConstant(command, 0, uint32_t{0});
+          pipeline.Dispatch(command, 1);
+          Platform::EverythingBarrier(command);
+        });
+        transfer.CopyFromImage(*images[0], sizeof(glm::vec4));
+        std::vector<glm::vec4> pixels;
+        transfer.DownloadVector(pixels, size * size);
+        const float expected = size == 1 ? 100.0f : glm::mix(100.0f, settings.y, settings.x);
+        for (uint32_t i = 0; i < pixels.size(); ++i)
+          EXPECT_NEAR(pixels[i].x, i == bright ? expected : 1.0f, 1e-4f) << size << ":" << bright << ":" << i;
+        transfer.CopyFromImage(*images[1], sizeof(glm::vec4));
+        transfer.DownloadVector(pixels, size * size);
+        EXPECT_EQ(pixels, original);
+      }
+    }
+  }
+}
+
+TEST(GpuService, NrdAccumulatedInputDiscardsPoisonedHistoryOnResetAndResize) {
+  ScopedGpuPlatform platform;
+  const std::array<uint32_t, 9> bindings{23, 25, 26, 28, 31, 32, 33, 43, 44};
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (const auto binding : bindings)
+    layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptors = std::make_shared<DescriptorSet>(layout);
+  auto empty_layout = std::make_shared<DescriptorSetLayout>();
+  empty_layout->Initialize();
+  auto empty_set = std::make_shared<DescriptorSet>(empty_layout);
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  Shader::RegisterShaderIncludePath(root / "Includes");
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(pipeline.compute_shader->TryCompile(
+      ShaderType::Compute,
+      Platform::GetShaderGlobalDefines() +
+          "\n#define EE_ENABLE_NRD_SIGNALS 1\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n",
+      root / "Compute/RestirPtNrdReblurPack.slang"));
+  pipeline.descriptor_set_layouts = {empty_layout, empty_layout, layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracingCameraPushConstant)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  for (const auto extent : {VkExtent3D{1, 1, 1}, VkExtent3D{17, 9, 1}}) {
+    SCOPED_TRACE(std::to_string(extent.width));
+    std::array<std::shared_ptr<Image>, 9> images;
+    std::array<std::shared_ptr<ImageView>, 9> views;
+    for (size_t i = 0; i < images.size(); ++i) {
+      VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+      info.imageType = VK_IMAGE_TYPE_2D;
+      info.format = i == 0 ? VK_FORMAT_R32_SFLOAT : (i == 4 ? VK_FORMAT_R32G32_SFLOAT : VK_FORMAT_R32G32B32A32_SFLOAT);
+      info.extent = extent;
+      info.mipLevels = info.arrayLayers = 1;
+      info.samples = VK_SAMPLE_COUNT_1_BIT;
+      info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+      images[i] = std::make_shared<Image>(info);
+      VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      view.image = images[i]->GetVkImage();
+      view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      view.format = info.format;
+      view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      views[i] = std::make_shared<ImageView>(view, images[i]);
+      VkDescriptorImageInfo descriptor{};
+      descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      descriptor.imageView = views[i]->GetVkImageView();
+      descriptors->UpdateImageDescriptorBinding(bindings[i], descriptor);
+    }
+    const auto dispatch = [&](uint32_t total_samples, float diffuse, float specular, bool poison, bool miss) {
+      Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+        const auto clear = [&](size_t index, float value) {
+          images[index]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+          const VkClearColorValue color{{value, value, value, value}};
+          const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+          Platform::ClearColorImage(command, *images[index], color, 1, &range);
+        };
+        for (size_t i = 0; i < 7; ++i)
+          clear(i, i == 0 && miss ? 1e8f : (i == 1 ? diffuse : (i == 2 ? specular : 1.0f)));
+        if (poison) {
+          clear(7, std::numeric_limits<float>::quiet_NaN());
+          clear(8, 4096.0f);
+        }
+        Platform::EverythingBarrier(command);
+        RayTracingCameraPushConstant constants{};
+        constants.frame_samples = 4;
+        constants.total_samples = total_samples;
+        constants.nrd_accumulated_input = 1;
+        pipeline.Bind(command);
+        pipeline.BindDescriptorSet(command, 0, empty_set->GetVkDescriptorSet());
+        pipeline.BindDescriptorSet(command, 1, empty_set->GetVkDescriptorSet());
+        pipeline.BindDescriptorSet(command, 2, descriptors->GetVkDescriptorSet());
+        pipeline.PushConstant(command, 0, constants);
+        pipeline.Dispatch(command, Platform::DivUp(extent.width, 8), Platform::DivUp(extent.height, 8), 1);
+        Platform::EverythingBarrier(command);
+      });
+    };
+    const auto expect_history = [&](float diffuse, float specular, float samples) {
+      for (size_t i = 7; i < 9; ++i) {
+        VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+        info.size = extent.width * extent.height * sizeof(glm::vec4);
+        info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        Buffer output(info);
+        output.CopyFromImage(*images[i], sizeof(glm::vec4));
+        std::vector<glm::vec4> pixels;
+        output.DownloadVector(pixels, extent.width * extent.height);
+        for (const auto pixel : pixels) {
+          EXPECT_EQ(pixel, glm::vec4(glm::vec3(i == 7 ? diffuse : specular), samples));
+        }
+      }
+    };
+    dispatch(4, 2, 6, true, false);
+    expect_history(2, 6, 4);
+    dispatch(8, 4, 10, false, false);
+    expect_history(3, 8, 8);
+    dispatch(4, 7, 11, false, false);
+    expect_history(7, 11, 4);
+    dispatch(0, 5, 9, false, false);
+    expect_history(5, 9, 4);
+    dispatch(8, 0, 0, false, true);
+    expect_history(0, 0, 0);
+    dispatch(12, 9, 13, false, false);
+    expect_history(9, 13, 4);
+  }
+}
+
 TEST(GpuService, LinearSweptSphereCapabilityMatchesShaderDefine) {
   ScopedGpuPlatform platform(true);
   const bool enabled = Platform::RayTracingLinearSweptSpheresEnabled();
@@ -4576,12 +4777,31 @@ TEST(GpuService, RgbNrdCameraShadersCompile) {
                       "\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n#define EE_ENABLE_NRD_SIGNALS 1\n";
   Shader raygen;
   EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.slang"));
-  for (const auto name :
-       {"RayQueryCamera", "RestirPtCandidate", "RestirPtResolve", "RestirPtSpatial", "RestirPtSpatialHybrid",
-        "RestirPtSpatialCombine", "RestirPtSpatialResolve", "RestirPtEnhancedSpatialHybrid", "RestirPtEnhancedCombine",
-        "RestirPtTemporalForward", "RestirPtTemporalForwardHybrid", "RestirPtTemporalBackward",
-        "RestirPtTemporalBackwardHybrid", "RestirPtTemporalCombine", "RestirPtNrdGuides", "RestirPtNrdReblurPack",
-        "RestirPtNrdComposite", "NrdTemporalAa", "NrdTemporalAaResolve"}) {
+  for (const auto name : {"RayQueryCamera",
+                          "RestirPtCandidate",
+                          "RestirPtResolve",
+                          "RestirPtSpatial",
+                          "RestirPtSpatialHybrid",
+                          "RestirPtSpatialCombine",
+                          "RestirPtSpatialResolve",
+                          "RestirPtEnhancedSpatialHybrid",
+                          "RestirPtEnhancedCombine",
+                          "RestirPtTemporalForward",
+                          "RestirPtTemporalForwardHybrid",
+                          "RestirPtTemporalBackward",
+                          "RestirPtTemporalBackwardHybrid",
+                          "RestirPtTemporalCombine",
+                          "RestirSssCandidate",
+                          "RestirSssTemporal",
+                          "RestirSssSpatialCandidate",
+                          "RestirSssSpatialResolve",
+                          "RestirSssDuplication",
+                          "RestirPtNrdGuides",
+                          "RestirPtNrdReblurPack",
+                          "RestirPtNrdComposite",
+                          "NrdTemporalAa",
+                          "NrdTemporalAaResolve",
+                          "PtDisplayFirefly"}) {
     SCOPED_TRACE(name);
     Shader shader;
     EXPECT_TRUE(

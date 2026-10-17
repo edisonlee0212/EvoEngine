@@ -486,8 +486,8 @@ def run(template: Path, work_dir: Path, exporter: Path | None = None) -> None:
         )
     project_snapshot = _snapshot_files(distribution / "Project")
     _assert_success(_run_host(distribution, executable_relative, unrelated_cwd, decoy), distribution)
-    if "Compiling Shaders" not in _runtime_log(distribution):
-        raise RuntimeHostTestError("Cold startup did not log shader compilation.")
+    if not any((distribution / "Cache" / "ShaderBinaries").glob("*.spvbin")):
+        raise RuntimeHostTestError("Cold startup did not populate the shader cache.")
     _assert_project_unchanged(distribution / "Project", project_snapshot)
     _assert_isolated(unrelated_cwd, decoy)
 

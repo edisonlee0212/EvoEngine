@@ -30,7 +30,6 @@ entity_metadata_list:
         sample_size: 1
         bounce: 4
         gamma: 2.2
-        firefly_clamp_threshold: 10
         ray_debug_view: Beauty
         ray_outputs:
           albedo: false

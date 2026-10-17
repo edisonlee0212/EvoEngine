@@ -137,7 +137,8 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(default_settings.nrd_reblur_history_frames, 30);
   EXPECT_FLOAT_EQ(default_settings.nrd_reblur_lobe_angle_fraction, 0.15f);
   EXPECT_FLOAT_EQ(default_settings.nrd_reblur_roughness_fraction, 0.15f);
-  EXPECT_FLOAT_EQ(default_settings.firefly_clamp_threshold, 10.0f);
+  EXPECT_FLOAT_EQ(default_settings.pt_display_firefly_strength, 1.0f);
+  EXPECT_FLOAT_EQ(default_settings.pt_display_firefly_ratio, 1.0f);
 
   const auto& debug_views = Camera::GetRayDebugViewNames();
   ASSERT_EQ(debug_views.size(), Camera::kRayDebugViewCount);
@@ -224,12 +225,12 @@ TEST(CameraRenderTechnique, RigidInstanceComparisonRejectsMaterialChanges) {
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
-  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 796u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 800u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_neighbors), 804u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_hybrid), 808u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_enhanced_mode), 812u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap), 816u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 792u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 796u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_neighbors), 800u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_spatial_hybrid), 804u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_enhanced_mode), 808u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap), 812u);
   EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 832u);
   EXPECT_EQ(sizeof(CameraInfoBlock), 848u);
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
@@ -251,10 +252,12 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, restir_temporal_history_cap), offsetof(CameraInfoBlock, gamma));
   EXPECT_LT(offsetof(CameraInfoBlock, gamma), offsetof(CameraInfoBlock, sample_size));
   EXPECT_LT(offsetof(CameraInfoBlock, sample_size), offsetof(CameraInfoBlock, bounce));
-  EXPECT_LT(offsetof(CameraInfoBlock, bounce), offsetof(CameraInfoBlock, firefly_clamp_threshold));
-  EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_threshold), offsetof(CameraInfoBlock, accumulate_samples));
+  EXPECT_LT(offsetof(CameraInfoBlock, bounce), offsetof(CameraInfoBlock, accumulate_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, accumulate_samples), offsetof(CameraInfoBlock, ray_debug_view));
   EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
+  EXPECT_LT(offsetof(CameraInfoBlock, restir_temporal_adaptive_cap),
+            offsetof(CameraInfoBlock, pt_display_firefly_strength));
+  EXPECT_LT(offsetof(CameraInfoBlock, pt_display_firefly_ratio), offsetof(CameraInfoBlock, shadow_split_distances));
 }
 
 TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane) {
@@ -377,7 +380,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_render_mode = render_mode;
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
-    camera.camera_settings.firefly_clamp_threshold = 3.5f;
+    camera.camera_settings.pt_display_firefly_strength = 0.75f;
+    camera.camera_settings.pt_display_firefly_ratio = 6.0f;
     camera.camera_settings.restir_sss_delayed_reconnection = true;
     camera.camera_settings.nrd_denoising = false;
     camera.camera_settings.nrd_reblur = false;
@@ -423,11 +427,13 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_EQ(restored.camera_settings.background_source, Camera::BackgroundSource::EnvironmentalMap);
     EXPECT_EQ(restored.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
-    EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.pt_display_firefly_strength, 0.75f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.pt_display_firefly_ratio, 6.0f);
     EXPECT_TRUE(restored.camera_settings.restir_sss_delayed_reconnection);
     EXPECT_FALSE(restored.camera_settings.nrd_denoising);
     EXPECT_FALSE(restored.camera_settings.nrd_reblur);
     EXPECT_FALSE(restored.camera_settings.nrd_temporal_aa);
+    EXPECT_FALSE(node["nrd_accumulated_input"]);
     EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_diffuse_prepass_radius, 3.5f);
     EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_specular_prepass_radius, 12.0f);
     EXPECT_EQ(restored.camera_settings.nrd_relax_diffuse_history_frames, 16);
@@ -473,8 +479,11 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     node.remove("nrd_relax_depth_threshold");
     node.remove("nrd_relax_anti_firefly");
     node.remove("nrd_relax_roughness_edge_stopping");
+    node.remove("pt_display_firefly_strength");
+    node.remove("pt_display_firefly_ratio");
     node.remove("restir_sss_delayed_reconnection");
     node["indirect_sss"] = true;
+    node["nrd_accumulated_input"] = false;
     Camera legacy;
     Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(legacy));
     EXPECT_FALSE(legacy.camera_settings.restir_sss_delayed_reconnection);
@@ -483,7 +492,10 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     Serialization::SerializeObject(rewritten, static_cast<IPrivateComponent&>(legacy));
     rewritten << YAML::EndMap;
     EXPECT_FALSE(YAML::Load(rewritten.c_str())["indirect_sss"]);
+    EXPECT_FALSE(YAML::Load(rewritten.c_str())["nrd_accumulated_input"]);
     EXPECT_TRUE(legacy.camera_settings.nrd_denoising);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.pt_display_firefly_strength, 1.0f);
+    EXPECT_FLOAT_EQ(legacy.camera_settings.pt_display_firefly_ratio, 1.0f);
     EXPECT_TRUE(legacy.camera_settings.nrd_reblur);
     EXPECT_TRUE(legacy.camera_settings.nrd_temporal_aa);
     EXPECT_EQ(legacy.camera_settings.nrd_relax_atrous_iterations, 2);

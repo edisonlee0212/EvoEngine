@@ -48,8 +48,7 @@ inline constexpr uint32_t kRayCameraRestirDuplicationBinding = kRayCameraRestirT
 inline constexpr uint32_t kRayCameraRestirNextHistoryBinding = kRayCameraRestirDuplicationBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirPairingBinding = kRayCameraRestirNextHistoryBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirPreviousInstanceBinding = kRayCameraRestirPairingBinding + 1u;
-inline constexpr uint32_t kRayCameraRestirInitialBinding = kRayCameraRestirPreviousInstanceBinding + 1u;
-inline constexpr uint32_t kRayCameraNrdViewZBinding = kRayCameraRestirInitialBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdViewZBinding = kRayCameraRestirPreviousInstanceBinding + 2u;
 inline constexpr uint32_t kRayCameraNrdMotionBinding = kRayCameraNrdViewZBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdDiffuseSignalBinding = kRayCameraNrdMotionBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdSpecularSignalBinding = kRayCameraNrdDiffuseSignalBinding + 1u;
@@ -80,6 +79,8 @@ inline constexpr uint32_t kRayCameraNrdTaaPreviousColorBinding = 39u;
 inline constexpr uint32_t kRayCameraNrdTaaPreviousGeometryBinding = 40u;
 inline constexpr uint32_t kRayCameraNrdTaaNextColorBinding = 41u;
 inline constexpr uint32_t kRayCameraNrdTaaNextGeometryBinding = 42u;
+inline constexpr uint32_t kRayCameraNrdAccumulatedDiffuseBinding = 43u;
+inline constexpr uint32_t kRayCameraNrdAccumulatedSpecularBinding = 44u;
 
 struct RayCameraHistoryResources {
   VkExtent3D extent{};
@@ -105,7 +106,6 @@ struct RayCameraHistoryResources {
   bool restir_sss_history_valid = false;
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
-  std::vector<std::shared_ptr<Buffer>> restir_initial_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_generated_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_spatial_history_buffers;
@@ -121,6 +121,10 @@ struct RayCameraHistoryResources {
   std::shared_ptr<ImageView> restir_nrd_diffuse_signal_view;
   std::shared_ptr<Image> restir_nrd_specular_signal_image;
   std::shared_ptr<ImageView> restir_nrd_specular_signal_view;
+  std::shared_ptr<Image> nrd_accumulated_diffuse_image;
+  std::shared_ptr<ImageView> nrd_accumulated_diffuse_view;
+  std::shared_ptr<Image> nrd_accumulated_specular_image;
+  std::shared_ptr<ImageView> nrd_accumulated_specular_view;
   std::shared_ptr<Image> restir_nrd_excluded_signal_image;
   std::shared_ptr<ImageView> restir_nrd_excluded_signal_view;
   std::shared_ptr<Image> restir_nrd_normal_roughness_image;
@@ -207,7 +211,6 @@ struct EVOENGINE_API CameraInfoBlock {
   float gamma = 2.2f;
   uint32_t sample_size = 1;
   uint32_t bounce = 4;
-  float firefly_clamp_threshold = 10.0f;
   uint32_t accumulate_samples = 1;
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
@@ -216,6 +219,8 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t restir_spatial_hybrid = 0;
   uint32_t restir_enhanced_mode = 0;
   uint32_t restir_temporal_adaptive_cap = 1;
+  float pt_display_firefly_strength = 1.0f;
+  float pt_display_firefly_ratio = 1.0f;
   alignas(16) glm::vec4 shadow_split_distances = {};
 
   /**
@@ -463,6 +468,7 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   void SetRendered();
   void ResetRenderState();
   void ResetFrameCount();
+  void ResetDenoiserHistory();
   [[nodiscard]] static bool NrdDenoisingAvailable();
 
  private:

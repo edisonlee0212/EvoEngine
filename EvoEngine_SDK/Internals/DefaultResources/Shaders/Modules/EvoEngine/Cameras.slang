@@ -26,7 +26,6 @@ public struct Camera {
   public float gamma;
   public uint sample_size;
   public uint bounce;
-  public float firefly_clamp_threshold;
   public uint accumulate_samples;
   public uint ray_debug_view;
   public uint raster_lighting_flags;
@@ -35,6 +34,8 @@ public struct Camera {
   public uint restir_spatial_hybrid;
   public uint restir_enhanced_mode;
   public uint restir_temporal_adaptive_cap;
+  public float pt_display_firefly_strength;
+  public float pt_display_firefly_ratio;
   public float4 shadow_split_distances;
 };
 

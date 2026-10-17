@@ -83,6 +83,15 @@ uses a dedicated closest-hit group in Ray Tracing; RayQuery evaluates it in comp
 Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
 unchanged cameras continue accumulating.
 
+For Path Tracing with NRD disabled, **Display firefly strength** (default 1) suppresses isolated bright pixels in the
+displayed average; **Display firefly ratio** (default 1) sets how much brighter a pixel must be than its brightest
+3×3 neighbor before suppression. The filter reads accumulated history but writes only the current result, so
+adjusting either display control does not restart accumulation. It runs only in the Beauty view and can also suppress
+legitimate one-pixel highlights. Strength 0 displays the unfiltered result. Path samples are accumulated without a
+firefly clamp; nonfinite radiance is rejected.
+Preview captures accept `--preview-display-firefly-strength 0..1` and `--preview-display-firefly-ratio 1..20` for
+matched filtered and unfiltered comparisons without editing the scene.
+
 ### ReSTIR PT ray integrators
 
 **Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
@@ -99,12 +108,11 @@ remain experimental and have not established a broad equal-GPU-time quality adva
   also supports eligible longer opaque paths using footprint-selected reconnection vertices. Unsupported endpoints,
   moving reconnection geometry, delta, transmission and volume events require full replay or remain unsupported.
 - **Accumulate Samples:** averages resolved radiance across frames. Disabling it preserves same-frame reuse.
-  Temporal modes also replace bright outliers with fresh candidates and increase fresh-sample shading to 50% after
-  160 accumulated samples. **Firefly Clamp** zero disables this replacement, decorrelation and the global clamp.
 
 Every sample per frame runs an independent candidate/reuse/resolve estimate. Temporal estimates read the previous
 frame's reservoir and publish the last estimate for the next frame. All pixels continue sampling; adaptive stopping
-is unsupported. Ray debug views must be off for reuse.
+is unsupported. Sampling and spatial pairing use the advancing renderer frame, so clearing accumulation or reservoir
+history does not repeat the same random pattern. Ray debug views must be off for reuse.
 
 Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
 accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch

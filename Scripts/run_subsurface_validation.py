@@ -85,7 +85,7 @@ def main() -> None:
             command.extend(["--preview-ray-integrator", reuse_integrators.get(name, "pathtracing")])
         if name.startswith("energy-"):
             command[command.index("--preview-bounces") + 1] = "1"
-            command.extend(["--preview-sss-weight", "1", "--preview-firefly-clamp-threshold", "1e30"])
+            command.extend(["--preview-sss-weight", "1"])
         if name in reuse_integrators:
             command.extend([
                 "--preview-restir-temporal-adaptive-cap",

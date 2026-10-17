@@ -326,6 +326,34 @@ TEST(RayCameraHistory, OutputDescriptorsAreCachedPerFrameSlotWithinOneHistoryGen
   EXPECT_EQ(camera.GetRayCameraHistoryStats().live_output_descriptor_count, 0u);
 }
 
+TEST(RayCameraHistory, DenoiserTogglePreservesAccumulatedPathTracing) {
+  Camera camera;
+  auto& history =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1}, MakeFakeHistory);
+  history.valid = true;
+  history.frame_id = 64;
+  RayCameraHistoryTestAccess::SetFrameCount(camera, 64);
+  const auto version = camera.GetTemporalHistoryVersion();
+  const auto generation = history.resource_generation;
+  for (const bool enabled : {false, true}) {
+    camera.camera_settings.nrd_denoising = enabled;
+    history.restir_nrd_history_valid = true;
+    history.nrd_taa_history_valid = true;
+    history.restir_nrd_history_frame_count = 32;
+    camera.ResetDenoiserHistory();
+    auto& retained = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1},
+                                                         MakeFakeHistory);
+    EXPECT_TRUE(retained.valid);
+    EXPECT_EQ(retained.frame_id, 64u);
+    EXPECT_EQ(camera.GetFrameCount(), 64u);
+    EXPECT_EQ(camera.GetTemporalHistoryVersion(), version);
+    EXPECT_EQ(retained.resource_generation, generation);
+    EXPECT_FALSE(retained.restir_nrd_history_valid);
+    EXPECT_FALSE(retained.nrd_taa_history_valid);
+    EXPECT_EQ(retained.restir_nrd_history_frame_count, 0u);
+  }
+}
+
 TEST(RayCameraHistory, InvalidationAndSceneChangesDoNotResetUnrelatedCameras) {
   Camera camera_a;
   Camera camera_b;

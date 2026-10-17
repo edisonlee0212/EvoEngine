@@ -67,7 +67,7 @@ add_subdirectory(${3RDPARTY_DIR})
 
 if (EVOENGINE_ENABLE_NRD)
 	if (NOT EXISTS "${EVOENGINE_NRD_SOURCE_DIR}/Include/NRD.h")
-		message(FATAL_ERROR "EVOENGINE_ENABLE_NRD requires EVOENGINE_NRD_SOURCE_DIR pointing to an NRD source checkout.")
+		message(FATAL_ERROR "NRD source is missing at ${EVOENGINE_NRD_SOURCE_DIR}. Run git submodule update --init -- Extern/3rdParty/NRD/NRD or set EVOENGINE_NRD_SOURCE_DIR to an existing checkout.")
 	endif()
 	set(NRD_NRI ON CACHE BOOL "Build NRD's NRI integration" FORCE)
 	set(NRD_EMBEDS_DXBC_SHADERS OFF CACHE BOOL "" FORCE)

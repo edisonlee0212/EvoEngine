@@ -1109,6 +1109,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> restir_pt_duplication_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_guides_pipeline_;
+  std::shared_ptr<ComputePipeline> pt_display_firefly_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_composite_pipeline_;
   std::shared_ptr<ComputePipeline> nrd_temporal_aa_pipeline_;
   std::shared_ptr<ComputePipeline> nrd_temporal_aa_resolve_pipeline_;

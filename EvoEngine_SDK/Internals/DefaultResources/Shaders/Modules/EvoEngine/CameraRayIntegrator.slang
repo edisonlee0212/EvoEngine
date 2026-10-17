@@ -18,6 +18,8 @@ struct CameraRayPushConstants {
   uint max_directional_light_size;
   uint nrd_reblur;
   uint nrd_path_tracing;
+  uint seed_frame_id;
+  uint nrd_accumulated_input;
 };
 [[vk::push_constant]] ConstantBuffer<CameraRayPushConstants> EE_CAMERA_CONSTANTS;
 static CameraRayTracingPayload hit_value;
@@ -64,7 +66,7 @@ public void EE_CAMERA_NRD_TRACE_CENTER_GUIDE<T : ICameraRayTraversal, let featur
     material_category = hit.pbr.subsurface_weight > 0.0f ? 3.0f :
         (hit.pbr.transmission > 0.5f ? 2.0f : (hit.pbr.metallic > 0.5f ? 1.0f : 0.0f));
     // Independent in-lobe probes describe the receiver even when ReSTIR selects a reused path.
-    uint probe_seed = EE_XXHASH32(uint3(pixel, EE_CAMERA_CONSTANTS.frame_id ^ 0x4e524450u));
+    uint probe_seed = EE_XXHASH32(uint3(pixel, EE_CAMERA_CONSTANTS.seed_frame_id ^ 0x4e524450u));
     lobe_hit_distance.x = EE_CAMERA_NRD_PROBE_LOBE(traversal, hit, -ray.direction, false, probe_seed);
     lobe_hit_distance.y = EE_CAMERA_NRD_PROBE_LOBE(traversal, hit, -ray.direction, true, probe_seed);
   }
@@ -300,18 +302,6 @@ float3 EE_CAMERA_REJECT_INVALID_RADIANCE(const float3 radiance, inout uint inval
     return float3(0.0f);
   }
   return max(radiance, float3(0.0f));
-}
-float3 EE_CAMERA_APPLY_FIREFLY_CLAMP(const Camera camera, const float3 radiance, inout uint firefly_clamps) {
-  const float threshold = max(camera.firefly_clamp_threshold, 0.0f);
-  const float luminance = dot(radiance, float3(1.0f / 3.0f));
-  if (luminance > threshold) {
-    firefly_clamps += 1u;
-    return radiance * (threshold / luminance);
-  }
-  return radiance;
-}
-float EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(const uint invalid_rejections, const uint firefly_clamps) {
-  return float(min(invalid_rejections, 65535u)) + float(min(firefly_clamps, 65535u)) / 65536.0f;
 }
 float EE_CAMERA_LUMINANCE(const float3 radiance) {
   return dot(radiance, float3(0.2126f, 0.7152f, 0.0722f));
@@ -1335,7 +1325,7 @@ float3 EE_CAMERA_REUSE_SUBSURFACE_DIRECT<T : ICameraRayTraversal, let feature_ma
   picked.confidence = confidence;
   picked.target_density = target;
   picked.resolve_weight = weight;
-  picked.shadow_seed = EE_XXHASH32(uint3(seed, EE_CAMERA_CONSTANTS.frame_id, 0x53535356u));
+  picked.shadow_seed = EE_XXHASH32(uint3(seed, EE_CAMERA_CONSTANTS.seed_frame_id, 0x53535356u));
   EE_RESTIR_SSS_STORE(EE_CAMERA_SUBSURFACE_BUFFER, EE_CAMERA_SUBSURFACE_PIXEL_INDEX, picked);
   EE_CAMERA_SUBSURFACE_SHADOW_SEED = picked.shadow_seed;
   return float3(0);
@@ -1944,7 +1934,7 @@ float3 EE_CAMERA_APPLY_SOLID_SUBSURFACE<T : ICameraRayTraversal, let feature_mas
             surface_geometry_type == EE_CAMERA_GEOMETRY_TRIANGLE &&
             EE_GLTF_MATERIALS[surface_hit.material_index].alpha_mode == 0;
         EE_CAMERA_SUBSURFACE_SAMPLE.origin_pixel = EE_CAMERA_SUBSURFACE_PIXEL_INDEX;
-        EE_CAMERA_SUBSURFACE_SAMPLE.origin_frame = EE_CAMERA_CONSTANTS.frame_id;
+        EE_CAMERA_SUBSURFACE_SAMPLE.origin_frame = EE_CAMERA_CONSTANTS.seed_frame_id;
         EE_CAMERA_SUBSURFACE_SAMPLE.receiver_instance = surface_instance_id;
         EE_CAMERA_SUBSURFACE_SAMPLE.receiver_primitive = surface_primitive_id;
         EE_CAMERA_SUBSURFACE_SAMPLE.receiver_barycentrics = surface_barycentrics;
@@ -2793,9 +2783,8 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
   const uint sample_size = max(camera.sample_size, 1u);
   const uint previous_accumulated_samples = EE_CAMERA_CONSTANTS.total_samples;
   const uint frame_sample_size = max(EE_CAMERA_CONSTANTS.frame_sample_size, 1u);
-  const uint sample_index_base = EE_CAMERA_CONSTANTS.frame_id * frame_sample_size;
+  const uint sample_index_base = EE_CAMERA_CONSTANTS.seed_frame_id * frame_sample_size;
   uint invalid_radiance_rejections = 0u;
-  uint firefly_clamp_count = 0u;
   float primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_CONSTANTS.camera_index));
   CameraRayOutputDiagnostics frame_outputs = EE_CAMERA_INIT_RAY_OUTPUT_DIAGNOSTICS();
   const float ray_spread_angle = EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y));
@@ -2829,7 +2818,7 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
                                                      EE_RESTIR_PT_PATH_INVALID, 0u, unused_matched_contribution,
                                                      unused_candidate_reservoir, unused_primary_surface,
                                                      0u, unused_generated_count);
-    // Compose the canonical direct estimate with its PT residual before clamping and NRD scaling.
+    // Compose the canonical direct estimate with its PT residual before NRD scaling.
     if (EE_CAMERA_TEMPORAL_SUBSURFACE && !spatial_subsurface) {
       const float3 direct = EE_CAMERA_RESOLVE_SUBSURFACE_SAMPLE<T, feature_mask>(traversal,
           EE_RESTIR_SSS_LOAD(EE_CAMERA_SUBSURFACE_BUFFER, EE_CAMERA_SUBSURFACE_PIXEL_INDEX),
@@ -2847,7 +2836,6 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
       EE_CAMERA_SUBSURFACE_RESIDUAL_BUFFER.Store4(offset + 48u, asuint(float4(sample_outputs.nrd_excluded_radiance, 0)));
     } else {
       sample_radiance = EE_CAMERA_REJECT_INVALID_RADIANCE(traced_radiance, invalid_radiance_rejections);
-      sample_radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera, sample_radiance, firefly_clamp_count);
     }
     const float traced_max = max(traced_radiance.x, max(traced_radiance.y, traced_radiance.z));
     const float sample_max = max(sample_radiance.x, max(sample_radiance.y, sample_radiance.z));
@@ -2888,7 +2876,7 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
   }
   result_image[int2(pixel_coordinate)] = float4(linear_radiance, 1.0f);
   radiance_history_image[int2(pixel_coordinate)] =
-      float4(linear_radiance, EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(invalid_radiance_rejections, firefly_clamp_count));
+      float4(linear_radiance, float(min(invalid_radiance_rejections, 65535u)));
   ray_hit_distance_image[int2(pixel_coordinate)] = primary_hit_distance;
   EE_CAMERA_STORE_RAY_OUTPUT_DIAGNOSTICS(camera, int2(pixel_coordinate), frame_outputs);
 }
@@ -2928,7 +2916,7 @@ public bool EE_CAMERA_RESOLVE_SUBSURFACE_SPATIAL_PIXEL<T : ICameraRayTraversal, 
   T traversal;
   traversal.initialize(false);
   uint ray_count = 0u;
-  uint seed = EE_XXHASH32(uint3(pixel, EE_CAMERA_CONSTANTS.frame_id ^ 0x53535350u));
+  uint seed = EE_XXHASH32(uint3(pixel, EE_CAMERA_CONSTANTS.seed_frame_id ^ 0x53535350u));
   const uint count = clamp(camera.restir_spatial_neighbors, 1u, 16u);
   const float radius = EE_RESTIR_SSS_SPATIAL_RADIUS(EE_GLTF_MATERIALS[canonical.receiver_material].subsurface_distance,
       canonical.receiver_position, camera.projection_view, camera.inverse_view, float2(image_size));
@@ -2986,11 +2974,10 @@ public bool EE_CAMERA_RESOLVE_SUBSURFACE_SPATIAL_PIXEL<T : ICameraRayTraversal, 
   const float3 traced = asfloat(residual.xyz) + direct;
   float4 history = radiance_history_image[int2(pixel)];
   uint invalid = uint(floor(history.w));
-  uint clamps = uint(round(frac(history.w) * 65536.0f));
-  const float3 radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera, EE_CAMERA_REJECT_INVALID_RADIANCE(traced, invalid), clamps);
+  const float3 radiance = EE_CAMERA_REJECT_INVALID_RADIANCE(traced, invalid);
   const uint spp = max(camera.sample_size, 1u);
   history.xyz += radiance / float(EE_CAMERA_CONSTANTS.total_samples + spp);
-  history.w = EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(invalid, clamps);
+  history.w = float(min(invalid, 65535u));
   radiance_history_image[int2(pixel)] = history;
   result_image[int2(pixel)] = float4(history.xyz, 1);
   nrd_delta = {};
@@ -3026,10 +3013,10 @@ public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let
   const Camera camera = EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index];
   const float ray_spread_angle = EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y));
   const uint pixel_index = pixel_coordinate.y * image_size.x + pixel_coordinate.x;
-  const uint sample_index_base = EE_CAMERA_CONSTANTS.frame_id;
+  const uint sample_index_base = EE_CAMERA_CONSTANTS.seed_frame_id;
   const uint sample_seed = EE_XXHASH32(uint3(pixel_coordinate, sample_index_base));
   uint camera_seed = EE_CAMERA_RANDOM_STREAM(sample_seed, EE_CAMERA_RANDOM_DOMAIN_CAMERA, 0u);
-  const float2 sample_offset = sample_index_base == 0u
+  const float2 sample_offset = EE_CAMERA_CONSTANTS.frame_id == 0u
                                    ? float2(0.5f) + EE_CAMERA_ANTIALIASING_STANDARD_DEVIATION *
                                                         EE_CAMERA_SAMPLE_GAUSSIAN(EE_PCG_RANDOM_2(camera_seed))
                                    : EE_PCG_RANDOM_2(camera_seed);
@@ -3045,7 +3032,7 @@ public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let
       traversal, sample_seed, ray.origin, ray.direction, ray_spread_angle, EE_CAMERA_DEBUG_BEAUTY,
       hit_distance, diagnostics, EE_RESTIR_PT_PATH_INVALID, 0u, unused_matched_contribution,
       reservoir, surface, pixel_index, generated_count);
-  if (sample_index_base == 0u) reservoir.flags |= EE_RESTIR_PT_FLAG_INITIAL_CAMERA_JITTER;
+  if (EE_CAMERA_CONSTANTS.frame_id == 0u) reservoir.flags |= EE_RESTIR_PT_FLAG_INITIAL_CAMERA_JITTER;
   if (reservoir.weight_sum <= 0.0f) {
     reservoir = EE_RESTIR_PT_EMPTY_RESERVOIR();
     reservoir.effective_count = 1.0f;
@@ -3574,7 +3561,7 @@ public float3 EE_CAMERA_RESTIR_RECONNECTION_POSITION(const RestirPtPathReservoir
 }
 
 public uint EE_CAMERA_RESTIR_FRAME_ID() {
-  return EE_CAMERA_CONSTANTS.frame_id;
+  return EE_CAMERA_CONSTANTS.seed_frame_id;
 }
 
 public bool EE_CAMERA_NRD_REBLUR_ENABLED() {
@@ -3583,6 +3570,14 @@ public bool EE_CAMERA_NRD_REBLUR_ENABLED() {
 
 public bool EE_CAMERA_NRD_PATH_TRACING_ENABLED() {
   return EE_CAMERA_CONSTANTS.nrd_path_tracing != 0u;
+}
+
+public bool EE_CAMERA_NRD_ACCUMULATED_INPUT_ENABLED() {
+  return EE_CAMERA_CONSTANTS.nrd_accumulated_input != 0u;
+}
+
+public uint EE_CAMERA_NRD_FRAME_SAMPLES() {
+  return EE_CAMERA_CONSTANTS.frame_sample_size;
 }
 
 public uint EE_CAMERA_RESTIR_ACCUMULATED_SAMPLES() {
@@ -3621,11 +3616,8 @@ public void EE_CAMERA_ACCUMULATE_RESTIR_NRD_SIGNALS(RWByteAddressBuffer accumula
 }
 
 public float3 EE_CAMERA_RESOLVE_RESTIR_RADIANCE_PIXEL(const uint2 pixel_coordinate, float3 radiance) {
-  const Camera camera = EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index];
   uint invalid_rejections = 0u;
-  uint firefly_clamps = 0u;
   radiance = EE_CAMERA_REJECT_INVALID_RADIANCE(radiance, invalid_rejections);
-  radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera, radiance, firefly_clamps);
   const float3 fresh_radiance = radiance;
   const uint previous_samples = EE_CAMERA_CONSTANTS.total_samples;
   const uint current_samples = max(EE_CAMERA_CONSTANTS.frame_sample_size, 1u);
@@ -3635,7 +3627,7 @@ public float3 EE_CAMERA_RESOLVE_RESTIR_RADIANCE_PIXEL(const uint2 pixel_coordina
   }
   result_image[int2(pixel_coordinate)] = float4(radiance, 1.0f);
   radiance_history_image[int2(pixel_coordinate)] =
-      float4(radiance, EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(invalid_rejections, firefly_clamps));
+      float4(radiance, float(min(invalid_rejections, 65535u)));
   return fresh_radiance;
 }
 
