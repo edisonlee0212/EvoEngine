@@ -902,6 +902,16 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
   return false;
 }
 
+std::shared_ptr<RenderTexture> PostProcessingStack::PrepareReflectionFallback(
+    const std::shared_ptr<Camera>& target_camera) {
+  if (!enable_screen_space_reflection)
+    return {};
+  auto& resources = target_camera->AcquirePostProcessingResources(
+      target_camera->post_processing_stack_ref.Get<PostProcessingStack>());
+  Resize(resources, target_camera->GetSize());
+  return resources.stack.swap_texture;
+}
+
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
                                   const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process,
                                   const std::shared_ptr<ImageView>& motion_vectors_image_view,

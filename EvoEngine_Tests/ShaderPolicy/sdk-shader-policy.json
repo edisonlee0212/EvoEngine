@@ -1,7 +1,7 @@
 {
   "counts": {
-    "files": 256,
-    "imports": 464,
+    "files": 258,
+    "imports": 467,
     "macro_control_files": 63
   },
   "macro_adapters": [
@@ -82,7 +82,7 @@
       "path": "Compute/RestirPtSpatialHybrid.slang"
     },
     {
-      "macro_controls": 13,
+      "macro_controls": 5,
       "path": "Compute/RestirPtSpatialResolve.slang"
     },
     {
@@ -434,6 +434,10 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMappingHistogram",
       "path": "Compute/PostProcessing/ToneMappingHistogram.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PtDisplayFirefly",
+      "path": "Compute/PtDisplayFirefly.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.RayQueryCamera",
@@ -1202,6 +1206,10 @@
     {
       "module": "EvoEngine.SSRConstants",
       "path": "Modules/EvoEngine/SSRConstants.slang"
+    },
+    {
+      "module": "EvoEngine.SsrSampling",
+      "path": "Modules/EvoEngine/SsrSampling.slang"
     },
     {
       "module": "EvoEngine.StrandMeshlet",

@@ -1828,6 +1828,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                              VK_SHADER_STAGE_COMPUTE_BIT, 0);
     deferred_compute_lighting_layout_->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                                              VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    deferred_compute_lighting_layout_->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
     deferred_compute_lighting_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
@@ -8000,6 +8002,17 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     RenderGraphTransientResourceStore* active_camera_transient_resources = nullptr;
     RenderGraph camera_render_graph;
     AddDefaultRasterCameraResources(camera_render_graph);
+    std::shared_ptr<RenderTexture> reflection_fallback;
+    if (!reflection_probe_capture && !sdfgi_isolation && !immediate) {
+      if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>())
+        reflection_fallback = stack->PrepareReflectionFallback(camera);
+    }
+    if (reflection_fallback)
+      camera_render_graph.AddResource({RenderResourceNames::camera_reflection_fallback,
+                                       RenderResourceType::Image,
+                                       RenderResourceLifetime::Imported,
+                                       {RenderResourceSizeMode::CameraRelative},
+                                       "RGBA32F"});
     const bool subsurface_enabled =
         !reflection_probe_capture && !sdfgi_isolation && subsurface_diffusion_pipeline_ &&
         subsurface_diffusion_pipeline_->Initialized() &&
@@ -8209,6 +8222,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     }
     auto deferred_descriptor =
         DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture);
+    if (reflection_fallback)
+      deferred_descriptor.resources.push_back({RenderResourceNames::camera_reflection_fallback,
+                                               RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
     if (subsurface_enabled)
       deferred_descriptor.resources.push_back(
           {"Camera.Subsurface.Diffuse", RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
@@ -8452,16 +8468,23 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             ? RenderPassNames::ddgi_probe_ray_visualization
             : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency);
     if (!reflection_probe_capture) {
-      camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
-                                  [&](const RenderGraphExecutionContext& context) {
-                                    PostProcessingPass::Execute(context, {camera, active_camera_transient_resources,
-                                                                          immediate, false, sdfgi_isolation});
-                                  });
+      auto post_processing_descriptor = PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency);
+      if (reflection_fallback)
+        post_processing_descriptor.resources.push_back({RenderResourceNames::camera_reflection_fallback,
+                                                        RenderResourceUsage::ReadWrite,
+                                                        RenderResourceState::StorageReadWrite});
+      camera_render_graph.AddPass(post_processing_descriptor, [&](const RenderGraphExecutionContext& context) {
+        PostProcessingPass::Execute(context,
+                                    {camera, active_camera_transient_resources, immediate, false, sdfgi_isolation});
+      });
     }
     add_external_camera_passes(CameraRenderPassStage::AfterPostProcessing);
     const std::string presentation_dependency = camera_render_graph.GetPasses().back().name;
     auto camera_render_graph_resources =
         CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+    if (reflection_fallback)
+      camera_render_graph_resources.BindImage(RenderResourceNames::camera_reflection_fallback,
+                                              reflection_fallback->GetColorImage());
     if (sdfgi_publication)
       sdfgi_publication->ImportCamera(camera_render_graph, camera_render_graph_resources, *sdfgi_resources);
     if (hddagi_camera)

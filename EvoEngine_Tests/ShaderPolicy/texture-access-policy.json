@@ -176,43 +176,11 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inBaseColorAO:0",
-      "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
-      "resource_type": "Sampler2D",
-      "symbol": "inBaseColorAO",
-      "classification": "TransientPassResource"
-    },
-    {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inNormalRoughness:0",
-      "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
-      "resource_type": "Sampler2D",
-      "symbol": "inNormalRoughness",
-      "classification": "TransientPassResource"
-    },
-    {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inPbrFlags:0",
-      "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
-      "resource_type": "Sampler2D",
-      "symbol": "inPbrFlags",
-      "classification": "TransientPassResource"
-    },
-    {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inEmissive:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
       "resource_type": "Sampler2D",
       "symbol": "inEmissive",
-      "classification": "TransientPassResource"
-    },
-    {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inAmbientOcclusion:0",
-      "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
-      "resource_type": "Sampler2D",
-      "symbol": "inAmbientOcclusion",
       "classification": "TransientPassResource"
     },
     {
@@ -240,6 +208,30 @@
       "classification": "TransientPassResource"
     },
     {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inEmissive:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inEmissive",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inReflectionFallback:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inReflectionFallback",
+      "classification": "TransientPassResource"
+    },
+    {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang:Sampler2D:inReflectionConfidence:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
@@ -261,6 +253,14 @@
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
       "resource_type": "Sampler2D",
       "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
       "classification": "TransientPassResource"
     },
     {
@@ -1117,6 +1117,15 @@
       "classification": "TransientPassResource"
     },
     {
+      "id": "host:EvoEngine_SDK/src/ScreenSpaceReflection.cpp:reflect_output_layout:2:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/ScreenSpaceReflection.cpp",
+      "owner": "reflect_output_layout",
+      "binding": "2",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
       "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
       "kind": "host-binding",
       "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
@@ -1194,6 +1203,42 @@
       "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
       "owner": "descriptor_layout",
       "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:geometry_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "geometry_layout",
+      "binding": "binding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:temporal_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "temporal_layout",
+      "binding": "binding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:reflection_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "reflection_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:geometry_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:1",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "geometry_layout",
+      "binding": "binding",
       "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
       "classification": "TransientPassResource"
     },

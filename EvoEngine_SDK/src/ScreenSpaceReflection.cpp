@@ -109,6 +109,13 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
     reflect_output_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
+  {
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = context.camera.stack.swap_texture->GetColorSampler()->GetVkSampler();
+    reflect_output_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+  }
   if (blur) {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -170,6 +177,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   push_constant.temporal_enabled = temporal_enabled ? 1 : 0;
   push_constant.temporal_history_valid = temporal_resources.history_valid ? 1 : 0;
   push_constant.camera_index = camera_index;
+  push_constant.frame_index = Platform::GetFrameCount();
   push_constant.roughness_fade_start = glm::clamp(roughness_fade_start, 0.0f, 0.999f);
   push_constant.roughness_fade_end = glm::clamp(roughness_fade_end, push_constant.roughness_fade_start + 0.001f, 1.0f);
   push_constant.roughness_filter_radius = glm::clamp(roughness_filter_radius, 0.0f, 32.0f);
@@ -181,6 +189,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     reflect_pipeline->Bind(vk_command_buffer);
@@ -285,6 +294,8 @@ void ScreenSpaceReflection::BuildPipelines(PostProcessingRendererResources& reso
     reflect_output_layout = std::make_shared<DescriptorSetLayout>();
     reflect_output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     reflect_output_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    reflect_output_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                 VK_SHADER_STAGE_COMPUTE_BIT, 0);
     reflect_output_layout->Initialize();
   }
   if (force_rebuild || !spatial_resolve_layout) {

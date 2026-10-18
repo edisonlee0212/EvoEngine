@@ -69,6 +69,7 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {},
                const std::shared_ptr<ImageView>& motion_vectors_image_view = {}, bool tone_mapping_only = false);
+  std::shared_ptr<RenderTexture> PrepareReflectionFallback(const std::shared_ptr<Camera>& target_camera);
   void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
@@ -201,6 +202,7 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
     float roughness_fade_start;
     float roughness_fade_end;
     float roughness_filter_radius;
+    uint32_t frame_index;
   };
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,

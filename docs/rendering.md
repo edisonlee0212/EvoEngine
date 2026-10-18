@@ -192,10 +192,30 @@ resources and temporal histories are camera-owned. Assets must use the current f
 Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
 preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
 
-### SSR roughness controls
+### Stochastic SSR
 
-In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8). **Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter by squared material roughness and viewport height; enable **Edge-aware spatial resolve** to use it. Smooth, high-confidence reflections retain their sharpness. Filtering preserves hit confidence and checks depth, normal and roughness boundaries. These controls are serialized; older assets use the new defaults. This is a screen-space approximation, not GGX importance-sampled reflection tracing.
+SSR traces one GGX visible-normal reflection sample per pixel per rendered frame, using the same
+visible-normal sampler, Schlick Fresnel and separable Smith masking functions as PT. The random sequence
+uses the application frame count, not the frame-in-flight slot or PT accumulation count. Smooth materials
+use the exact mirror direction. Deferred shading publishes its resolved reflection fallback into the existing
+SSR swap texture: reflection probes take priority, followed by the active DDGI/SDFGI/HDDAGI provider,
+then environment lighting where GI has no valid coverage. SSR consumes the same fallback as the shaded
+scene, so unavailable GI does not replace environment lighting with black. Valid dark GI remains dark.
+Reflection RGB contains the signed difference between screen and fallback radiance, multiplied by
+BRDF/PDF weight, hit confidence and specular visibility; alpha contains coverage. Equal screen and
+fallback radiance produce zero correction. Spatial and temporal reconstruction average both channels,
+including missed rays. Composition adds this correction to existing lighting without applying the BRDF
+or visibility twice. The scratch texture is reused; no separate GI query pass or image allocation is needed.
+Geometry/material rejection and neighborhood clipping limit residue; spatial reconstruction checks
+depth, normals, roughness and specular F0.
 
+In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment
+specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8).
+**Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter
+by squared material roughness and viewport height; enable **Edge-aware spatial resolve** to use it.
+Enable **Temporal stabilization** to smooth the changing samples. Disabling reconstruction exposes
+single-frame sampling noise. The controls are serialized; older assets use the new defaults.
+Screen-space visibility, spatial reuse and probe substitution remain approximations.
 
 ## Geometry And Optional Features
 

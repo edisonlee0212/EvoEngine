@@ -31,6 +31,8 @@ Texture2D<uint4> inMetadata;
 [vk::image_format("rgba16f")] RWTexture2D<float4> outSubsurfaceDiffuse;
 
 [[vk::binding(7, 4)]] Texture2D<float4> inSubsurfaceBackface;
+[[vk::binding(8, 4)]]
+[vk::image_format("rgba32f")] RWTexture2D<float4> outReflectionFallback;
 
 [shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint width;
@@ -41,6 +43,8 @@ Texture2D<uint4> inMetadata;
     return;
   }
 
+  const bool write_reflection_fallback = (EE_BASIC_CONSTANTS.meshlet_culling_flags & 8u) != 0u;
+  if (write_reflection_fallback) outReflectionFallback[pixel] = float4(0);
   const bool subsurface_enabled = (EE_BASIC_CONSTANTS.meshlet_culling_flags & 2u) != 0u;
   if (subsurface_enabled) outSubsurfaceDiffuse[pixel] = float4(0);
   const int camera_index = EE_BASIC_CONSTANTS.camera_index;
@@ -144,6 +148,7 @@ Texture2D<uint4> inMetadata;
   if (encoded_specular_f90 >= 0.0f) {
     float3 direct_diffuse;
     float3 ambient_diffuse;
+    float4 reflection_fallback;
     const float3 direct =
         EE_FUNC_CALCULATE_LIGHTS(true, albedo, 1.0f, linear_depth, shading_normal, view_direction, world_position,
                                  surface.metallic, surface.roughness, surface.specular_f0, encoded_specular_f90, direct_diffuse);
@@ -157,7 +162,8 @@ Texture2D<uint4> inMetadata;
 #endif
         albedo, shading_normal, view_direction, world_position, surface.metallic, surface.roughness,
         surface.specular_f0, encoded_specular_f90, resolved_material_ao,
-        inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r, ambient_diffuse);
+        inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r, ambient_diffuse, reflection_fallback);
+    if (write_reflection_fallback) outReflectionFallback[pixel] = reflection_fallback;
     if (indirect_lighting_debug_view != 0) {
       outColor[pixel] = float4(ambient, 1.0f);
       return;

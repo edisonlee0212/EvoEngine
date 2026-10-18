@@ -66,6 +66,15 @@ public EeEnvironmentalLighting EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS(
 
 public float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
     float3 albedo, float3 normal, float3 view_dir, float3 frag_pos, float metallic, float roughness, float3 f0,
+    float f90, float material_occlusion, float screen_space_visibility, out float3 diffuse_radiance,
+    out float4 reflection_fallback) {
+  return EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(EeLightingResources(), albedo, normal, view_dir,
+      frag_pos, metallic, roughness, f0, f90, material_occlusion, screen_space_visibility,
+      diffuse_radiance, reflection_fallback);
+}
+
+public float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+    float3 albedo, float3 normal, float3 view_dir, float3 frag_pos, float metallic, float roughness, float3 f0,
     float f90, float material_occlusion, float screen_space_visibility, out float3 diffuse_radiance) {
   return EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
       EeLightingResources(), albedo, normal, view_dir, frag_pos, metallic, roughness, f0, f90, material_occlusion,

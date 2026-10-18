@@ -1,5 +1,6 @@
 import EvoEngine.PerFrame;
 import EvoEngine.SSRConstants;
+import EvoEngine.SsrSampling;
 
 [[vk::binding(17, 1)]]
 Sampler2D inDepth;
@@ -7,8 +8,13 @@ Sampler2D inDepth;
 [[vk::binding(21, 1)]]
 Sampler2D inNormalRoughness;
 
+[[vk::binding(22, 1)]] Sampler2D inPbrFlags;
+[[vk::binding(23, 1)]] Sampler2D inEmissive;
+
 [[vk::binding(0, 2)]]
 Sampler2D inColor;
+
+[[vk::binding(2, 3)]] Sampler2D inReflectionFallback;
 
 [[vk::binding(0, 3)]]
 [vk::image_format("rgba32f")]
@@ -61,12 +67,13 @@ float4 RejectionDebugColor(int reason) {
   return float4(0.25f, 0.0f, 0.0f, 1.0f);
 }
 
-float4 EncodeHit(float2 hit_uv, float normalized_distance, float confidence, float3 radiance) {
+float4 EncodeHit(float2 hit_uv, float normalized_distance, float confidence, float3 radiance,
+                 float3 probe_radiance, float3 bsdf_weight) {
   if (EE_SSR_CONSTANTS.debug_mode == 1) return float4(hit_uv, 0.0f, 1.0f);
   if (EE_SSR_CONSTANTS.debug_mode == 2) return float4(float3(normalized_distance), 1.0f);
   if (EE_SSR_CONSTANTS.debug_mode == 3) return float4(0.0f, 1.0f, 0.0f, 1.0f);
   if (EE_SSR_CONSTANTS.debug_mode == 4) return float4(float3(confidence), 1.0f);
-  return max(float4(radiance, confidence), float4(0.0f));
+  return EE_SSR_WEIGHTED_CORRECTION(radiance, probe_radiance, bsdf_weight, confidence);
 }
 
 [shader("compute")]
@@ -105,7 +112,14 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     outDstColorVisibility[int2(pixel)] = RejectionDebugColor(5);
     return;
   }
-  float3 pivot = reflect(unit_position_from, view_normal);
+  float4 pbr_flags = inPbrFlags.SampleLevel(tex_coord, 0.0f);
+  float f90 = inEmissive.SampleLevel(tex_coord, 0.0f).a;
+  if (f90 < 0.0f) return;
+  float3 bsdf_weight;
+  uint sample_frame = EE_SSR_CONSTANTS.debug_mode == 0 ? EE_SSR_CONSTANTS.frame_index : 0u;
+  float3 pivot = EE_SSR_SAMPLE_GGX(-unit_position_from, view_normal, clamp(normal_roughness.a, 0.0f, 1.0f),
+      EE_SSR_RANDOM(pixel, sample_frame, uint(EE_SSR_CONSTANTS.camera_index)),
+      clamp(pbr_flags.yzw, float3(0.0f), float3(1.0f)), clamp(f90, 0.0f, 1.0f), bsdf_weight);
   float pivot_length = length(pivot);
   if (!all(isfinite(pivot)) || pivot_length <= 0.00001f) return;
   pivot /= pivot_length;
@@ -205,6 +219,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   float confidence = thickness_confidence * distance_confidence * grazing_confidence * edge_confidence * normal_confidence;
   confidence = clamp(isfinite(confidence) ? confidence : 0.0f, 0.0f, 1.0f);
   if (EE_SSR_CONSTANTS.debug_mode == 0) confidence *= roughness_visibility;
-  outDstColorVisibility[int2(pixel)] =
-      EncodeHit(sample_uv, normalized_distance, confidence, inColor.SampleLevel(sample_uv, 0.0f).rgb);
+  float4 fallback = inReflectionFallback.SampleLevel(tex_coord, 0.0f);
+  outDstColorVisibility[int2(pixel)] = EncodeHit(sample_uv, normalized_distance, confidence,
+      inColor.SampleLevel(sample_uv, 0.0f).rgb, fallback.rgb, bsdf_weight * fallback.a);
 }

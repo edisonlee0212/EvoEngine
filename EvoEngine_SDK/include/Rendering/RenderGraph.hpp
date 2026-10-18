@@ -111,6 +111,7 @@ inline constexpr const char* lighting_directional_shadow_map = "Lighting.Directi
 inline constexpr const char* camera_depth = "Camera.Depth";
 inline constexpr const char* camera_g_buffer = "Camera.GBuffer";
 inline constexpr const char* camera_color = "Camera.Color";
+inline constexpr const char* camera_reflection_fallback = "Camera.ReflectionFallback";
 inline constexpr const char* camera_motion_vectors = "Camera.MotionVectors";
 inline constexpr const char* camera_object_id = "Camera.ObjectId";
 inline constexpr const char* camera_material_id = "Camera.MaterialId";

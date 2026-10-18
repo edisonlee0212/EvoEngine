@@ -5,8 +5,9 @@ import EvoEngine.HddagiCamera;
 public
 float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, float3 normal, float3 viewDir,
                                                     float3 fragPos, float metallic, float roughness, float3 F0,
-                                                    float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+                                                    float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance, out float4 reflection_fallback) {
   diffuse_radiance = float3(0);
+  reflection_fallback = float4(0);
   EeLightingResources resources;
   float2 uv = (float2(pixel) + 0.5) / float2(EE_HDDAGI_CAMERA.viewport);
   float2 coverage = EE_HDDAGI_STATUS[2] != 0 && EE_HDDAGI_STATUS[1] == 0
@@ -44,6 +45,7 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
   float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   float3 unoccluded_specular = prefiltered * (F * brdf.x + float3(F90 * brdf.y));
   float visibility = EE_ROUGH_SPECULAR_VISIBILITY(materialOcclusion, screen_visibility, 1, roughness, normalDotView);
+  reflection_fallback = float4(prefiltered, visibility);
   float3 specular = unoccluded_specular * visibility;
   int debug = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debug == 1)
@@ -57,6 +59,14 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
   if (debug == 5)
     return float3(coverage.x);
   return diffuse + specular;
+}
+
+public float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, float3 normal,
+    float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90,
+    float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+  float4 reflection_fallback;
+  return EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(pixel, albedo, normal, viewDir, fragPos, metallic, roughness,
+      F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance, reflection_fallback);
 }
 
 public

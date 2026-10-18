@@ -4623,6 +4623,276 @@ TEST(GpuService, PtDisplayFireflyFiltersBordersWithoutChangingHistory) {
   }
 }
 
+TEST(GpuService, SsrFallbackPrioritizesProbesThenGiThenEnvironment) {
+  ScopedGpuPlatform platform;
+  const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
+  Shader::RegisterShaderIncludePath(root / "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  auto globals_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding : {0u, 1u})
+    globals_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  globals_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  globals_layout->Initialize();
+  DescriptorSet globals(globals_layout);
+  const auto make_buffer = [](uint64_t size, VkBufferUsageFlags usage) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = size;
+    info.usage = usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    return std::make_shared<Buffer>(info);
+  };
+  auto render_buffer = make_buffer(sizeof(RenderInstanceStorage::RenderInfoBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  auto environment_buffer =
+      make_buffer(sizeof(RenderInstanceStorage::EnvironmentInfoBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  auto camera_buffer = make_buffer(sizeof(CameraInfoBlock), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  globals.UpdateBufferDescriptorBinding(0, render_buffer);
+  globals.UpdateBufferDescriptorBinding(1, environment_buffer);
+  globals.UpdateBufferDescriptorBinding(2, camera_buffer);
+  CameraInfoBlock camera{};
+  camera_buffer->Upload(camera);
+  RenderInstanceStorage::EnvironmentInfoBlock environment{};
+  environment.background_color = glm::vec4(0.25f, 0.5f, 0.75f, 1);
+  environment.specular_fallback_intensity = 1;
+  environment_buffer->Upload(environment);
+  auto output_layout = std::make_shared<DescriptorSetLayout>();
+  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->Initialize();
+  DescriptorSet descriptors(output_layout);
+  auto output = make_buffer(sizeof(glm::vec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  descriptors.UpdateBufferDescriptorBinding(0, output);
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(
+      pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                          root / "EvoEngine_Tests/Resources/Shaders/Compute/SsrFallbackProbe.slang"));
+  pipeline.descriptor_set_layouts = {globals_layout, output_layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RenderInstancePushConstant)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  const glm::vec3 env(0.25f, 0.5f, 0.75f), gi(2, 3, 4), probe(7, 8, 9);
+  const std::array<glm::vec3, 7> expected{
+      env, gi, glm::mix(env, gi, 0.25f), probe, gi, glm::mix(gi, probe, 0.5f), glm::vec3(0)};
+  for (uint32_t mode = 0; mode < expected.size(); ++mode) {
+    SCOPED_TRACE(mode);
+    RenderInstanceStorage::RenderInfoBlock render{};
+    if (mode >= 3 && mode <= 5) {
+      render.reflection_probe_header.x = 1;
+      auto& entry = render.reflection_probes[0];
+      entry.shape_parameters = glm::vec4(1);
+      entry.lighting_parameters = glm::vec4(1, 0, 0, 0);
+      entry.identity_and_flags.y = mode == 4 ? 0 : 1;
+      entry.projection_parameters.w = mode == 5 ? 2.0f : 0.0f;
+    }
+    render_buffer->Upload(render);
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, globals.GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 1, descriptors.GetVkDescriptorSet());
+      RenderInstancePushConstant constants{};
+      constants.meshlet_culling_flags = mode;
+      pipeline.PushConstant(command, 0, constants);
+      pipeline.Dispatch(command, 1);
+      Platform::EverythingBarrier(command);
+    });
+    glm::vec4 value;
+    output->Download(value);
+    for (int channel = 0; channel < 3; ++channel)
+      EXPECT_NEAR(value[channel], expected[mode][channel], 0.00001f);
+    EXPECT_NEAR(value.w, 1.0f, 0.00001f);
+  }
+}
+
+TEST(GpuService, SsrGgxSamplingMatchesHemisphereIntegration) {
+  ScopedGpuPlatform platform;
+  const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
+  Shader::RegisterShaderIncludePath(root / "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  constexpr uint32_t samples = 65536, cases = 9;
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = samples * cases * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  DescriptorSet descriptors(layout);
+  descriptors.UpdateBufferDescriptorBinding(0, output);
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(
+      pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                          root / "EvoEngine_Tests/Resources/Shaders/Compute/SsrSamplingProbe.slang"));
+  pipeline.descriptor_set_layouts = {layout};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+    pipeline.Bind(command);
+    pipeline.BindDescriptorSet(command, 0, descriptors.GetVkDescriptorSet());
+    pipeline.Dispatch(command, samples * cases / 64);
+    Platform::EverythingBarrier(command);
+  });
+  std::vector<glm::vec4> values;
+  output->DownloadVector(values, samples * cases);
+  std::array<glm::dvec4, cases> means{};
+  bool valid = true;
+  for (uint32_t i = 0; i < values.size(); ++i) {
+    const auto value = values[i];
+    if (i >= samples * 7) {
+      const auto expected = i < samples * 8 ? glm::vec4(0, 0, 0, 0.5f) : glm::vec4(-0.006f, -0.01f, -0.04f, 0.5f);
+      valid &= glm::length(value - expected) < 0.000001f;
+      continue;
+    }
+    valid &= std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w) &&
+             value.x >= 0 && value.x <= 1.00001f && value.y >= 0 && value.y <= value.x + 0.00001f &&
+             (value.w == 0 || std::abs(value.w - 1) < 0.00001f);
+    means[i / samples] += glm::dvec4(value) / double(samples);
+  }
+  EXPECT_TRUE(valid);
+  EXPECT_NEAR(means[0].x, 1.0, 0.00001);
+  EXPECT_NEAR(means[0].y, 0.04, 0.00001);
+  EXPECT_NEAR(means[0].z, 1.0, 0.00001);
+  EXPECT_GT(means[1].z, means[2].z);
+  EXPECT_GT(means[2].z, means[3].z);
+  EXPECT_NE(values[2 * samples], values[6 * samples]);
+  const auto integrate = [](double roughness, double nv) {
+    constexpr double pi = 3.141592653589793;
+    const double alpha2 = std::pow(roughness, 4);
+    const glm::dvec3 view(std::sqrt(1 - nv * nv), 0, nv);
+    const auto smith = [alpha2](double cosine) {
+      return 2 * cosine / (cosine + std::sqrt(alpha2 + (1 - alpha2) * cosine * cosine));
+    };
+    glm::dvec2 result(0);
+    for (int theta = 0; theta < 256; ++theta) {
+      const double angle = (theta + 0.5) * pi / 512;
+      const double nl = std::cos(angle), sine = std::sin(angle);
+      for (int phi = 0; phi < 512; ++phi) {
+        const double azimuth = (phi + 0.5) * 2 * pi / 512;
+        const glm::dvec3 light(sine * std::cos(azimuth), sine * std::sin(azimuth), nl);
+        const auto half = glm::normalize(view + light);
+        const double denominator = half.z * half.z * (alpha2 - 1) + 1;
+        const double distribution = alpha2 / (pi * denominator * denominator);
+        const double fresnel = 0.04 + 0.96 * std::pow(1 - glm::dot(view, half), 5);
+        result += glm::dvec2(1, fresnel) * distribution * smith(nv) * smith(nl) / (4 * nv) * sine * (pi / 512) *
+                  (2 * pi / 512);
+      }
+    }
+    return result;
+  };
+  for (uint32_t test = 1; test < 7; ++test) {
+    SCOPED_TRACE(test);
+    const double roughness = test == 1 ? 0.4 : (test == 2 || test == 4 || test == 6 ? 0.65 : 1.0);
+    const auto expected = integrate(roughness, test == 4 || test == 5 ? 0.2 : 1.0);
+    EXPECT_NEAR(means[test].x, expected.x, 0.01);
+    EXPECT_NEAR(means[test].y, expected.y, 0.003);
+  }
+}
+
+TEST(GpuService, SsrTemporalResolveAveragesMissesAndRejectsInvalidHistory) {
+  ScopedGpuPlatform platform;
+  constexpr uint32_t size = 9, count = size * size;
+  auto camera_layout = std::make_shared<DescriptorSetLayout>();
+  camera_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  camera_layout->Initialize();
+  auto geometry_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding : {17u, 21u, 22u})
+    geometry_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  geometry_layout->Initialize();
+  auto temporal_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 0; binding < 8; ++binding)
+    temporal_layout->PushDescriptorBinding(
+        binding, binding < 5 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  temporal_layout->Initialize();
+  DescriptorSet camera_set(camera_layout), geometry_set(geometry_layout), temporal_set(temporal_layout);
+  VkBufferCreateInfo camera_buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  camera_buffer_info.size = sizeof(CameraInfoBlock);
+  camera_buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto camera_buffer = std::make_shared<Buffer>(camera_buffer_info);
+  CameraInfoBlock camera{};
+  camera.projection = camera.inverse_projection = glm::mat4(1);
+  camera_buffer->Upload(camera);
+  camera_set.UpdateBufferDescriptorBinding(2, camera_buffer);
+  std::array<Texture2D, 8> inputs;
+  std::array<std::shared_ptr<Image>, 3> outputs;
+  std::array<std::shared_ptr<ImageView>, 3> views;
+  for (uint32_t i = 0; i < 3; ++i) {
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    info.extent = {size, size, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    outputs[i] = std::make_shared<Image>(info);
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = outputs[i]->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = info.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    views[i] = std::make_shared<ImageView>(view, outputs[i]);
+    VkDescriptorImageInfo descriptor{};
+    descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    descriptor.imageView = views[i]->GetVkImageView();
+    temporal_set.UpdateImageDescriptorBinding(5 + i, descriptor);
+  }
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                  root / "Compute/PostProcessing/SSRTemporalResolve.slang"));
+  pipeline.descriptor_set_layouts = {camera_layout, geometry_layout, temporal_layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ScreenSpaceReflection::PushConstant)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  const glm::vec4 signal(0.4f, 0.2f, 0.1f, 0.5f);
+  for (uint32_t mode = 0; mode < 8; ++mode) {
+    SCOPED_TRACE(mode);
+    const glm::vec4 signed_signal = mode == 7 ? glm::vec4(-0.4f, -0.2f, -0.1f, 0.5f) : signal;
+    const glm::vec4 current = mode == 0 ? glm::vec4(0) : signed_signal;
+    const glm::vec4 history = mode == 1 ? glm::vec4(0) : signed_signal;
+    const std::array<glm::vec4, 8> pixels{current,
+                                          history,
+                                          glm::vec4(mode == 6 ? 100 : 0, 0, 0, 0),
+                                          glm::vec4(0, 0, 1, mode == 4 ? 0.5f : 1.0f),
+                                          glm::vec4(mode == 5 ? 0 : 1, 0.04f, 0.04f, 0.04f),
+                                          glm::vec4(0.5f),
+                                          glm::vec4(0, 0, 1, 1),
+                                          glm::vec4(0, 0.04f, 0.04f, 0.04f)};
+    for (uint32_t i = 0; i < inputs.size(); ++i) {
+      inputs[i].SetRgbaChannelData(std::vector<glm::vec4>(count, pixels[i]), {size, size});
+      VkDescriptorImageInfo descriptor{};
+      descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      descriptor.imageView = inputs[i].GetVkImageView();
+      descriptor.sampler = inputs[i].GetVkSampler();
+      if (i < 5)
+        temporal_set.UpdateImageDescriptorBinding(i, descriptor);
+      else
+        geometry_set.UpdateImageDescriptorBinding(std::array<uint32_t, 3>{17, 21, 22}[i - 5], descriptor);
+    }
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      for (const auto& output : outputs)
+        output->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      ScreenSpaceReflection::PushConstant constants{};
+      constants.temporal_enabled = mode == 3 ? 0 : 1;
+      constants.temporal_history_valid = mode == 2 ? 0 : 1;
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, camera_set.GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 1, geometry_set.GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 2, temporal_set.GetVkDescriptorSet());
+      pipeline.PushConstant(command, 0, constants);
+      pipeline.Dispatch(command, 1, 1);
+      Platform::EverythingBarrier(command);
+    });
+    Buffer readback(count * sizeof(glm::vec4));
+    readback.CopyFromImage(*outputs[0], sizeof(glm::vec4));
+    std::vector<glm::vec4> values;
+    readback.DownloadVector(values, count);
+    const auto expected = mode == 0 ? signal * 0.97f : (mode == 1 ? signal * 0.03f : signed_signal);
+    for (const auto& value : values)
+      for (int component = 0; component < 4; ++component)
+        EXPECT_NEAR(value[component], expected[component], 0.0001f);
+  }
+}
+
 TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   ScopedGpuPlatform platform;
   constexpr uint32_t width = 17, height = 1080, count = width * height;
@@ -4632,12 +4902,12 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   reflection_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   reflection_layout->Initialize();
   auto geometry_layout = std::make_shared<DescriptorSetLayout>();
-  for (const auto binding : {17u, 21u})
+  for (const auto binding : {17u, 21u, 22u})
     geometry_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                            VK_SHADER_STAGE_COMPUTE_BIT, 0);
   geometry_layout->Initialize();
   DescriptorSet reflection_set(reflection_layout), geometry_set(geometry_layout);
-  Texture2D reflection, depth, normal;
+  Texture2D reflection, depth, normal, material;
   std::vector<glm::vec4> radiance(count, glm::vec4(0, 0, 0, 0.95f));
   for (uint32_t y = 0; y < height; ++y)
     for (uint32_t x = 9; x < width; ++x)
@@ -4671,8 +4941,20 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ScreenSpaceReflection::PushConstant)}};
   pipeline.Initialize();
   ASSERT_TRUE(pipeline.Initialized());
-  for (int mode = 0; mode < 6; ++mode) {
+  for (int mode = 0; mode < 10; ++mode) {
     SCOPED_TRACE(mode);
+    auto input_radiance = radiance;
+    std::vector<glm::vec4> materials(count, glm::vec4(0, 0.04f, 0.04f, 0.04f));
+    if (mode == 6)
+      input_radiance[(height / 2) * width + 8] = glm::vec4(0.0f);
+    if (mode == 7) {
+      input_radiance.assign(count, glm::vec4(0.0f));
+      input_radiance[(height / 2) * width + 8] = glm::vec4(1.0f);
+    }
+    if (mode == 9)
+      for (auto& value : input_radiance)
+        value = glm::vec4(-glm::vec3(value), value.w);
+    reflection.SetRgbaChannelData(input_radiance, {width, height});
     const float roughness = mode == 0 ? 0.0f : 1.0f;
     std::vector<glm::vec4> depths(count, glm::vec4(0.5f));
     std::vector<glm::vec4> normals(count, glm::vec4(0, 0, 1, roughness));
@@ -4682,10 +4964,13 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
           normals[y * width + x].z = -1.0f;
         if (mode == 4)
           depths[y * width + x] = glm::vec4(0.8f);
+        if (mode == 8)
+          materials[y * width + x] = glm::vec4(0, 1, 1, 1);
         if (mode == 5)
           normals[y * width + x].w = 0.0f;
       }
     }
+    material.SetRgbaChannelData(materials, {width, height});
     depth.SetRgbaChannelData(depths, {width, height});
     normal.SetRgbaChannelData(normals, {width, height});
     const auto bind = [](DescriptorSet& set, uint32_t binding, const Texture2D& texture) {
@@ -4698,6 +4983,7 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
     bind(reflection_set, 0, reflection);
     bind(geometry_set, 17, depth);
     bind(geometry_set, 21, normal);
+    bind(geometry_set, 22, material);
     Platform::ImmediateSubmit([&](VkCommandBuffer command) {
       output->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       ScreenSpaceReflection::PushConstant constants{};
@@ -4714,11 +5000,18 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
     std::vector<glm::vec4> values;
     readback.DownloadVector(values, count);
     const auto value = values[(height / 2) * width + 8];
-    if (mode == 1)
+    if (mode == 9)
+      EXPECT_LT(value.x, -0.1f);
+    else if (mode == 1 || mode == 6)
       EXPECT_GT(value.x, 0.1f);
-    else
+    else if (mode == 7) {
+      EXPECT_GT(value.x, 0.0f);
+      EXPECT_LT(value.x, 0.2f);
+      EXPECT_NEAR(value.x, value.w, 0.0001f);
+    } else
       EXPECT_NEAR(value.x, 0.0f, 0.0001f);
-    EXPECT_NEAR(value.w, 0.95f, 0.005f);
+    if (mode != 7)
+      EXPECT_NEAR(value.w, 0.95f, mode == 6 ? 0.1f : 0.005f);
     EXPECT_TRUE(std::isfinite(values.back().x));
   }
 }
