@@ -166,6 +166,10 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
       byte_size += buffer->GetSize();
     }
   }
+  for (const auto& buffer : history.restir_fresh_path_buffers) {
+    if (buffer)
+      byte_size += buffer->GetSize();
+  }
   for (const auto& buffer : history.restir_resolved_buffers) {
     if (buffer) {
       byte_size += buffer->GetSize();
@@ -554,6 +558,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (restir_temporal_history_cap != other.restir_temporal_history_cap)
     return true;
+  if (restir_progressive_blend != other.restir_progressive_blend)
+    return true;
   if (restir_temporal_adaptive_cap != other.restir_temporal_adaptive_cap)
     return true;
   if (restir_enhanced_mode != other.restir_enhanced_mode)
@@ -741,6 +747,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
           : 0u;
   camera_info_block.restir_temporal_history_cap = glm::clamp(camera_settings.restir_temporal_history_cap, 1, 32);
   camera_info_block.restir_temporal_adaptive_cap = camera_settings.restir_temporal_adaptive_cap ? 1u : 0u;
+  camera_info_block.restir_progressive_blend = camera_settings.restir_progressive_blend ? 1u : 0u;
   camera_info_block.restir_enhanced_mode =
       (camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
        camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)

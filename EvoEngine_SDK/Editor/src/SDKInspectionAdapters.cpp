@@ -726,6 +726,17 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       camera.ResetFrameCount();
       changed = true;
     }
+    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
+        camera.camera_settings.accumulate_samples &&
+        (!Camera::NrdDenoisingAvailable() || !camera.camera_settings.nrd_denoising)) {
+      if (ImGui::Checkbox("Progressive PT blend", &camera.camera_settings.restir_progressive_blend)) {
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Blend fresh PT into accumulation over 1-1024 samples. ReSTIR reservoir reuse continues.");
+    }
     if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
          camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced) &&
         ImGui::Checkbox(camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced

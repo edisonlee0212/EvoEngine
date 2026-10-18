@@ -20,6 +20,7 @@ struct CameraRayPushConstants {
   uint nrd_path_tracing;
   uint seed_frame_id;
   uint nrd_accumulated_input;
+  uint restir_fresh_accumulation;
 };
 [[vk::push_constant]] ConstantBuffer<CameraRayPushConstants> EE_CAMERA_CONSTANTS;
 static CameraRayTracingPayload hit_value;
@@ -3000,7 +3001,7 @@ public bool EE_CAMERA_RESOLVE_SUBSURFACE_SPATIAL_PIXEL<T : ICameraRayTraversal, 
   return true;
 }
 
-public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let feature_mask : uint,
+public float3 EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let feature_mask : uint,
                                                     let profile_generated : bool, let write_nrd_normal : bool>(
     const uint2 pixel_coordinate, const uint2 image_size, RWByteAddressBuffer candidate_buffer,
     RWByteAddressBuffer primary_surface_buffer, out float2 nrd_lobe_hit_distance,
@@ -3028,7 +3029,7 @@ public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let
   RestirPtPrimarySurface surface;
   float3 unused_matched_contribution;
   uint generated_count = 0u;
-  EE_CAMERA_TRACE_PATH<T, feature_mask, true, profile_generated, false>(
+  const float3 fresh_radiance = EE_CAMERA_TRACE_PATH<T, feature_mask, true, profile_generated, false>(
       traversal, sample_seed, ray.origin, ray.direction, ray_spread_angle, EE_CAMERA_DEBUG_BEAUTY,
       hit_distance, diagnostics, EE_RESTIR_PT_PATH_INVALID, 0u, unused_matched_contribution,
       reservoir, surface, pixel_index, generated_count);
@@ -3050,6 +3051,7 @@ public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let
                                                             : float2(0.0f, diagnostics.secondary_hit_distance);
   nrd_diffuse_factor = diagnostics.nrd_diffuse_factor;
   nrd_specular_factor = diagnostics.nrd_specular_factor;
+  return fresh_radiance;
 }
 
 public void EE_CAMERA_REPLAY_RESTIR_EVENT_AT_CAMERA<T : ICameraRayTraversal, let feature_mask : uint,
@@ -3562,6 +3564,10 @@ public float3 EE_CAMERA_RESTIR_RECONNECTION_POSITION(const RestirPtPathReservoir
 
 public uint EE_CAMERA_RESTIR_FRAME_ID() {
   return EE_CAMERA_CONSTANTS.seed_frame_id;
+}
+
+public bool EE_CAMERA_RESTIR_FRESH_ACCUMULATION_ENABLED() {
+  return EE_CAMERA_CONSTANTS.restir_fresh_accumulation != 0u;
 }
 
 public bool EE_CAMERA_NRD_REBLUR_ENABLED() {

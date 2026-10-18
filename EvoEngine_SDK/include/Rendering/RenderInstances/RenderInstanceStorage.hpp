@@ -100,6 +100,7 @@ struct RayTracingCameraPushConstant {
   uint32_t nrd_path_tracing = 0;
   uint32_t seed_frame_id = 0;
   uint32_t nrd_accumulated_input = 0;
+  uint32_t restir_fresh_accumulation = 0;
 };
 
 struct DdgiProbeRayTracingPushConstant {

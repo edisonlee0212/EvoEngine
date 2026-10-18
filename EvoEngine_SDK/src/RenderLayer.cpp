@@ -1741,7 +1741,7 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
         kRayCameraRestirShiftBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ray_tracing_camera_output_layout_->PushDescriptorBinding(
         kRayCameraRestirGeneratedBinding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    for (uint32_t binding = kRayCameraRestirPreviousHistoryBinding; binding <= kRayCameraRestirPreviousInstanceBinding;
+    for (uint32_t binding = kRayCameraRestirPreviousHistoryBinding; binding <= kRayCameraRestirFreshPathBinding;
          ++binding) {
       ray_tracing_camera_output_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -8640,6 +8640,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                       return cache && cache->IsReady(RayCameraShaderTechnique::RayQuery);
                     });
     const bool use_restir_history = use_restir_enhanced || use_restir_temporal_only;
+    const bool use_fresh_accumulation = use_restir_history && camera->camera_settings.restir_progressive_blend &&
+                                        camera->camera_settings.accumulate_samples &&
+                                        (!Camera::NrdDenoisingAvailable() || !camera->camera_settings.nrd_denoising);
     if (use_restir_spatial && !restir_pt_pairing_buffer_) {
       constexpr size_t pairing_map_words = 638464u;
       std::vector<uint32_t> pairing_map(pairing_map_words);
@@ -8748,6 +8751,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     std::shared_ptr<Buffer> restir_candidate_buffer;
     std::shared_ptr<Buffer> restir_primary_surface_buffer;
     std::shared_ptr<Buffer> restir_resolved_buffer;
+    std::shared_ptr<Buffer> restir_fresh_path_buffer;
     std::shared_ptr<Buffer> restir_shift_buffer;
     std::shared_ptr<Buffer> restir_generated_buffer;
     std::shared_ptr<Buffer> restir_previous_history_buffer;
@@ -8770,6 +8774,8 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     const bool share_restir_scratch = use_restir_temporal_only || use_restir_spatial;
     const uint32_t restir_scratch_count = share_restir_scratch ? 1u : Platform::GetMaxFramesInFlight();
     const uint32_t restir_scratch_slot = share_restir_scratch ? 0u : current_frame_index;
+    if (!use_fresh_accumulation)
+      ray_camera_history.restir_fresh_path_buffers.clear();
     if (use_restir_temporal_only) {
       ray_camera_history.restir_candidate_buffers.clear();
       ray_camera_history.restir_primary_surface_buffers.clear();
@@ -8860,6 +8866,14 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
               CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtResolvedRadiance));
         }
         restir_resolved_buffer = resolved[restir_scratch_slot];
+        if (use_fresh_accumulation) {
+          auto& fresh_paths = ray_camera_history.restir_fresh_path_buffers;
+          fresh_paths.resize(restir_scratch_count);
+          if (!fresh_paths[restir_scratch_slot])
+            fresh_paths[restir_scratch_slot] =
+                CreateRestirPtStorageBuffer(render_texture->GetExtent(), sizeof(RestirPtResolvedRadiance));
+          restir_fresh_path_buffer = fresh_paths[restir_scratch_slot];
+        }
         if (use_restir_spatial) {
           auto& shifts = ray_camera_history.restir_shift_buffers;
           shifts.resize(restir_scratch_count);
@@ -8871,7 +8885,8 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
           }
           restir_shift_buffer = shifts[restir_scratch_slot];
         }
-        if (!restir_resolved_buffer || (use_restir_spatial && !restir_shift_buffer)) {
+        if (!restir_resolved_buffer || (use_restir_spatial && !restir_shift_buffer) ||
+            (use_fresh_accumulation && !restir_fresh_path_buffer)) {
           return;
         }
         ray_camera_history.restir_last_shift_slot = restir_scratch_slot;
@@ -9061,6 +9076,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       if (use_restir_spatial || use_restir_temporal_only) {
         camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
             RenderResourceNames::camera_restir_resolved, restir_resolved_buffer->GetSize()));
+        if (restir_fresh_path_buffer)
+          camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
+              RenderResourceNames::camera_restir_fresh_path, restir_fresh_path_buffer->GetSize()));
         if (use_restir_spatial)
           camera_render_graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(
               RenderResourceNames::camera_restir_shift, restir_shift_buffer->GetSize()));
@@ -9151,6 +9169,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                             RenderResourceState::StorageReadWrite});
         candidate_pass.resources.push_back({RenderResourceNames::camera_restir_primary_surface,
                                             RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+        if (restir_fresh_path_buffer)
+          candidate_pass.resources.push_back({RenderResourceNames::camera_restir_fresh_path, RenderResourceUsage::Write,
+                                              RenderResourceState::StorageReadWrite});
         if (restir_generated_buffer) {
           candidate_pass.resources.push_back({RenderResourceNames::camera_restir_generated, RenderResourceUsage::Write,
                                               RenderResourceState::StorageReadWrite});
@@ -9189,6 +9210,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
               {},
               {},
               restir_generated_buffer};
+          parameters.fresh_path_buffer = restir_fresh_path_buffer;
 #ifdef EVOENGINE_ENABLE_NRD
           parameters.bind_nrd_lobe_hit_distance = true;
           parameters.bind_nrd_material_factors = true;
@@ -9535,6 +9557,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
                                               ? RenderResourceNames::camera_restir_resolved
                                               : RenderResourceNames::camera_restir_candidate,
                                           RenderResourceUsage::Read, RenderResourceState::StorageReadWrite});
+        if (restir_fresh_path_buffer)
+          resolve_pass.resources.push_back({RenderResourceNames::camera_restir_fresh_path, RenderResourceUsage::Read,
+                                            RenderResourceState::StorageReadWrite});
 #ifdef EVOENGINE_ENABLE_NRD
         const auto nrd_signal_usage = (use_restir_spatial || use_restir_temporal_only) ? RenderResourceUsage::ReadWrite
                                                                                        : RenderResourceUsage::Write;
@@ -9572,6 +9597,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
               restir_primary_surface_buffer,
               sample_index + 1 == restir_samples_per_frame,
               restir_resolved_buffer};
+          parameters.fresh_path_buffer = restir_fresh_path_buffer;
 #ifdef EVOENGINE_ENABLE_NRD
           parameters.write_nrd_signals = true;
           parameters.bind_nrd_lobe_hit_distance = true;
@@ -10086,6 +10112,9 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
       }
       if (use_restir_spatial || use_restir_temporal_only) {
         camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_resolved, restir_resolved_buffer);
+        if (restir_fresh_path_buffer)
+          camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_fresh_path,
+                                                   restir_fresh_path_buffer);
         if (use_restir_spatial)
           camera_render_graph_resources.BindBuffer(RenderResourceNames::camera_restir_shift, restir_shift_buffer);
         if (use_restir_history) {

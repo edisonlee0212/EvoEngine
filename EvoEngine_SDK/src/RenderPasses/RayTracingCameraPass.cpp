@@ -502,6 +502,8 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     bind_restir_buffer(kRayCameraRestirNextHistoryBinding, parameters.next_history_buffer);
     bind_restir_buffer(kRayCameraRestirPairingBinding, parameters.pairing_buffer);
     bind_restir_buffer(kRayCameraRestirPreviousInstanceBinding, parameters.previous_instance_buffer);
+    bind_restir_buffer(kRayCameraRestirFreshPathBinding,
+                       parameters.fresh_path_buffer ? parameters.fresh_path_buffer : parameters.candidate_buffer);
     bind_restir_buffer(kRayCameraRestirNrdAccumulationBinding, parameters.nrd_sample_accumulation_buffer);
 
     parameters.pipeline->Bind(vk_command_buffer);
@@ -513,6 +515,7 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
     const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
+    push_constant.restir_fresh_accumulation = parameters.fresh_path_buffer != nullptr;
     const bool restir_pt = history_resources.technique == RayCameraHistoryTechnique::RestirPt;
     push_constant.nrd_accumulated_input = !restir_pt && parameters.camera->camera_settings.accumulate_samples &&
                                           parameters.camera->camera_settings.nrd_denoising;

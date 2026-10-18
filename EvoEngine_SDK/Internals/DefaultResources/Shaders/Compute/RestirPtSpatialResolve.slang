@@ -1,6 +1,7 @@
 import EvoEngine.CameraRayIntegrator;
 
 [[vk::binding(12, 2)]] RWByteAddressBuffer resolved_buffer;
+[[vk::binding(22, 2)]] RWByteAddressBuffer fresh_path_buffer;
 #ifdef EE_ENABLE_NRD_SIGNALS
 [[vk::binding(25, 2)]] RWTexture2D<float4> nrd_diffuse_signal_image;
 [[vk::binding(26, 2)]] RWTexture2D<float4> nrd_specular_signal_image;
@@ -22,6 +23,12 @@ import EvoEngine.CameraRayIntegrator;
   }
   float3 radiance =
       asfloat(resolved_buffer.Load4((pixel_coordinate.y * width + pixel_coordinate.x) * EE_RESTIR_PT_RESOLVED_BYTES)).xyz;
+  if (EE_CAMERA_RESTIR_FRESH_ACCUMULATION_ENABLED()) {
+    const float fresh_weight = saturate(float(EE_CAMERA_RESTIR_ACCUMULATED_SAMPLES()) / 1023.0f);
+    const float3 fresh_radiance = asfloat(fresh_path_buffer.Load4(
+        (pixel_coordinate.y * width + pixel_coordinate.x) * EE_RESTIR_PT_RESOLVED_BYTES)).xyz;
+    radiance = fresh_weight >= 1.0f ? fresh_radiance : lerp(radiance, fresh_radiance, fresh_weight);
+  }
 #ifdef EE_ENABLE_NRD_SIGNALS
   float3 diffuse = nrd_diffuse_signal_image[pixel_coordinate].xyz;
   float3 specular = nrd_specular_signal_image[pixel_coordinate].xyz;

@@ -124,6 +124,7 @@ inline constexpr const char* camera_restir_candidate = "Camera.RestirPtCandidate
 inline constexpr const char* camera_restir_nrd_accumulation = "Camera.RestirPtNrdAccumulation";
 inline constexpr const char* camera_restir_primary_surface = "Camera.RestirPtPrimarySurface";
 inline constexpr const char* camera_restir_resolved = "Camera.RestirPtResolved";
+inline constexpr const char* camera_restir_fresh_path = "Camera.RestirPtFreshPath";
 inline constexpr const char* camera_restir_shift = "Camera.RestirPtShift";
 inline constexpr const char* camera_restir_generated = "Camera.RestirPtGenerated";
 inline constexpr const char* camera_restir_previous_history = "Camera.RestirPtPreviousHistory";

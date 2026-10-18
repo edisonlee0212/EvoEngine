@@ -4622,6 +4622,100 @@ TEST(GpuService, PtDisplayFireflyFiltersBordersWithoutChangingHistory) {
   }
 }
 
+TEST(GpuService, RestirProgressiveBlendUsesFreshPathsAndPreservesAccumulation) {
+  ScopedGpuPlatform platform;
+  constexpr uint32_t size = 9, count = size * size;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (const uint32_t binding : {0u, 2u})
+    layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  for (const uint32_t binding : {12u, 22u})
+    layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptors = std::make_shared<DescriptorSet>(layout);
+  auto empty_layout = std::make_shared<DescriptorSetLayout>();
+  empty_layout->Initialize();
+  auto empty_set = std::make_shared<DescriptorSet>(empty_layout);
+  std::array<std::shared_ptr<Buffer>, 2> buffers;
+  std::array<std::shared_ptr<Image>, 2> images;
+  std::array<std::shared_ptr<ImageView>, 2> views;
+  for (size_t i = 0; i < 2; ++i) {
+    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    buffer_info.size = count * sizeof(glm::vec4);
+    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffers[i] = std::make_shared<Buffer>(buffer_info);
+    std::vector<glm::vec4> estimates(count);
+    for (uint32_t pixel = 0; pixel < count; ++pixel)
+      estimates[pixel] = glm::vec4(glm::vec3((i == 0 ? 2.0f : 10.0f) + pixel * 0.125f), 0.0f);
+    buffers[i]->UploadVector(estimates);
+    descriptors->UpdateBufferDescriptorBinding(i == 0 ? 12 : 22, buffers[i]);
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    info.extent = {size, size, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    images[i] = std::make_shared<Image>(info);
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = images[i]->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = info.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    views[i] = std::make_shared<ImageView>(view, images[i]);
+    VkDescriptorImageInfo descriptor{};
+    descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    descriptor.imageView = views[i]->GetVkImageView();
+    descriptors->UpdateImageDescriptorBinding(i == 0 ? 0 : 2, descriptor);
+  }
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                  root / "Compute/RestirPtSpatialResolve.slang"));
+  pipeline.descriptor_set_layouts = {empty_layout, empty_layout, layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracingCameraPushConstant)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  for (const auto [enabled, samples] : {std::pair{false, 256u}, std::pair{true, 0u}, std::pair{true, 511u},
+                                        std::pair{true, 1023u}, std::pair{true, 2048u}}) {
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      for (const auto& image : images)
+        image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      const VkClearColorValue color{{6, 6, 6, 0}};
+      const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      Platform::ClearColorImage(command, *images[1], color, 1, &range);
+      Platform::EverythingBarrier(command);
+      RayTracingCameraPushConstant constants{};
+      constants.frame_samples = 1;
+      constants.total_samples = samples;
+      constants.seed_frame_id = 1234;
+      constants.restir_fresh_accumulation = enabled;
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, empty_set->GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 1, empty_set->GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 2, descriptors->GetVkDescriptorSet());
+      pipeline.PushConstant(command, 0, constants);
+      pipeline.Dispatch(command, Platform::DivUp(size, 8), Platform::DivUp(size, 8));
+      Platform::EverythingBarrier(command);
+    });
+    Buffer output(count * sizeof(glm::vec4));
+    output.CopyFromImage(*images[0], sizeof(glm::vec4));
+    std::vector<glm::vec4> pixels;
+    output.DownloadVector(pixels, count);
+    const float weight = enabled ? std::min(float(samples) / 1023.0f, 1.0f) : 0.0f;
+    for (uint32_t pixel = 0; pixel < count; ++pixel) {
+      const float expected = (6.0f * samples + 2.0f + pixel * 0.125f + 8.0f * weight) / float(samples + 1);
+      EXPECT_NEAR(pixels[pixel].x, expected, 0.00001f);
+    }
+    output.CopyFromImage(*images[1], sizeof(glm::vec4));
+    std::vector<glm::vec4> history;
+    output.DownloadVector(history, count);
+    for (size_t i = 0; i < count; ++i)
+      EXPECT_EQ(glm::vec3(history[i]), glm::vec3(pixels[i]));
+  }
+}
+
 TEST(GpuService, NrdAccumulatedInputDiscardsPoisonedHistoryOnResetAndResize) {
   ScopedGpuPlatform platform;
   const std::array<uint32_t, 9> bindings{23, 25, 26, 28, 31, 32, 33, 43, 44};
