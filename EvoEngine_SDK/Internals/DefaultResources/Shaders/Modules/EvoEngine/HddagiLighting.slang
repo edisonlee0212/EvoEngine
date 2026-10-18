@@ -1,3 +1,4 @@
+import EvoEngine.GiSupportOverride;
 // Native material/AO/reflection composition for incoming HDDAGI radiance.
 __exported import EvoEngine.LightingFixedSet3;
 import EvoEngine.HddagiCamera;
@@ -15,6 +16,12 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
                         : float2(0);
   float3 field_diffuse = EE_HDDAGI_CAMERA_DIFFUSE.SampleLevel(EE_HDDAGI_SAMPLER, uv, 0);
   float3 field_specular = EE_HDDAGI_CAMERA_SPECULAR.SampleLevel(EE_HDDAGI_SAMPLER, uv, 0);
+  if(EE_GI_SUPPORT_MATCH(fragPos,normal)) {
+    float3 incoming=EE_GI_SUPPORT_IRRADIANCE/3.14159265359;
+    field_diffuse=lerp(field_diffuse,incoming,EE_GI_SUPPORT_WEIGHT);
+    field_specular=lerp(field_specular,incoming,EE_GI_SUPPORT_WEIGHT);
+    coverage=lerp(coverage,float2(1),EE_GI_SUPPORT_WEIGHT);
+  }
   float normalDotView = max(dot(normal, viewDir), 0);
   float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
   float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),

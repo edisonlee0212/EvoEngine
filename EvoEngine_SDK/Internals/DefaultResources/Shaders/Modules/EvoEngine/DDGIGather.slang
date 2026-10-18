@@ -1,3 +1,4 @@
+import EvoEngine.GiSupportOverride;
 __exported import EvoEngine.PerFrame;
 __exported import EvoEngine.DDGI;
 
@@ -23,6 +24,7 @@ public struct EeDdgiGatherResult {
   public float coverage;
   public float confidence;
   public float visibility;
+  public bool supported;
 };
 public EeDdgiGatherResult EE_DDGI_EMPTY_GATHER() {
   EeDdgiGatherResult result;
@@ -31,6 +33,7 @@ public EeDdgiGatherResult EE_DDGI_EMPTY_GATHER() {
   result.coverage = 0.0f;
   result.confidence = 0.0f;
   result.visibility = 1.0f;
+  result.supported = false;
   return result;
 }
 public float2 EE_DDGI_ATLAS_SIZE(const uint probe_count, const uint tile_resolution, const uint columns) {
@@ -194,7 +197,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
       }
     }
   }
-  // Fully blocked valid probes represent darkness, not missing GI that should fall back to the environment.
+  // Keep covered receivers on the GI path; sparse support can recover zero-visible-probe gathers.
   if (voxel_occlusion && radiance_weight_sum == 0 && valid_probe_weight_sum > 0 && active_probe_weight_sum > 0) {
     result.coverage = 1;
     result.confidence = 1;
@@ -215,6 +218,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
       any(isinf(linear_irradiance))) {
     return result;
   }
+  result.supported = true;
   result.irradiance = decoded_irradiance;
   result.linear_irradiance = linear_irradiance;
   result.confidence = clamp(valid_probe_weight_sum / active_probe_weight_sum, 0.0f, 1.0f);
@@ -314,6 +318,7 @@ public EeDdgiGatherResult EE_DDGI_FIND_NEARBY_PROBE<T : IDdgiGatherResources>(
                                         clamp(endpoint, float3(0), float3(grid) - 0.0001f))) continue;
     }
     nearest = distance;
+    result.supported = true;
     result.irradiance = pow(max(irradiance.rgb, float3(0)), float3(max(volume.probe_counts.w, 1.0f))) * (2 * EE_DDGI_PI);
     result.linear_irradiance = gather_linear_irradiance ? result.irradiance : float3(0);
     result.coverage = result.confidence = 1;
@@ -341,6 +346,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_CASCADES<T : IDdgiGatherResources>(
     const EeDdgiGatherResult sample = EE_DDGI_GATHER_VOLUME_IRRADIANCE(
         resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
     const float weight = remaining * interior * sample.confidence;
+    result.supported = result.supported || (sample.supported && weight > 0);
     result.irradiance += sample.irradiance * weight;
     result.linear_irradiance += sample.linear_irradiance * weight;
     visibility_sum += sample.visibility * weight;
@@ -357,6 +363,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_CASCADES<T : IDdgiGatherResources>(
         sample = EE_DDGI_FIND_NEARBY_PROBE(
             resources, cascade, volume, normal, view_direction, position, gather_linear_irradiance);
       if (sample.confidence <= 0) continue;
+      result.supported = result.supported || sample.supported;
       result.irradiance += sample.irradiance * remaining;
       result.linear_irradiance += sample.linear_irradiance * remaining;
       visibility_sum += sample.visibility * remaining;
@@ -368,6 +375,14 @@ public EeDdgiGatherResult EE_DDGI_GATHER_CASCADES<T : IDdgiGatherResources>(
     result.irradiance /= weight_sum;
     result.linear_irradiance /= weight_sum;
     result.visibility = visibility_sum / weight_sum;
+  }
+  if(EE_GI_SUPPORT_MATCH(position,normal)) {
+    float blend=min(EE_GI_SUPPORT_WEIGHT,result.supported?EE_GI_SUPPORT_REFINEMENT_WEIGHT(result.visibility):1);
+    if(blend>0) {
+      result.irradiance=lerp(result.irradiance,EE_GI_SUPPORT_IRRADIANCE,blend);
+      result.linear_irradiance=lerp(result.linear_irradiance,EE_GI_SUPPORT_IRRADIANCE,blend);
+      result.visibility=lerp(result.visibility,1,blend);result.supported=true;
+    }
   }
   // Missing data inside coverage stays dark instead of substituting environment diffuse lighting.
   result.coverage = result.confidence = 1;

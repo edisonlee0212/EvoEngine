@@ -138,6 +138,9 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
                                              parameters.sdfgi_descriptor_set->GetVkDescriptorSet());
       parameters.sdfgi_resources->gather_camera_ids.push_back(parameters.camera->GetHandle().GetValue());
     }
+    if (parameters.gi_support_descriptor_set)
+      parameters.pipeline->BindDescriptorSet(vk_command_buffer, 6,
+                                             parameters.gi_support_descriptor_set->GetVkDescriptorSet());
     RenderInstancePushConstant push_constant;
     push_constant.instance_index = parameters.reflection_probe_capture ? 2 : 0;
     push_constant.camera_index = parameters.camera_index;

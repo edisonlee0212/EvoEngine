@@ -2,6 +2,7 @@
 // See docs/licenses/Godot-MIT.txt. Static radiance is separate from immutable source emission for editable geometry.
 #include "HddagiLight.hpp"
 #include <cstring>
+#include "GiSupportCache.hpp"
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
@@ -19,7 +20,9 @@ uint64_t HddagiLightFrame::AllocationBytes() const {
 std::shared_ptr<HddagiLightFrame> HddagiLightFrame::Create(HddagiResources& resources,
                                                            const std::vector<SdfgiCascade>& cascade_inputs,
                                                            const std::vector<SdfgiLightInput>& inputs,
-                                                           const uint32_t scene_frame, const uint32_t written) {
+                                                           const uint32_t scene_frame, const uint32_t written,
+                                                           std::shared_ptr<DescriptorSet> support_set,
+                                                           std::shared_ptr<GiSupportCache> support_cache) {
   auto frame = std::make_shared<HddagiLightFrame>();
   frame->scene_frame = scene_frame;
   frame->written_cascades = written;
@@ -58,7 +61,29 @@ std::shared_ptr<HddagiLightFrame> HddagiLightFrame::Create(HddagiResources& reso
       resources.linear_sampler = std::make_shared<Sampler>(sampler);
     resources.direct_pipelines = std::move(pipelines);
   }
-  frame->pipelines = resources.direct_pipelines;
+  frame->support_set = std::move(support_set);
+  frame->support_cache = std::move(support_cache);
+  if (frame->support_cache)
+    frame->support_uniform = frame->support_cache->GetPublishedUniform();
+  if (frame->support_set && !resources.support_direct_pipelines[0]) {
+    std::array<std::shared_ptr<ComputePipeline>, 2> pipelines;
+    for (uint32_t kind = 0; kind < 2; ++kind) {
+      auto pipeline = std::make_shared<ComputePipeline>();
+      pipeline->descriptor_set_layouts = {resources.direct_pipelines[0]->descriptor_set_layouts[0],
+                                          CreateGiSupportLayout(false)};
+      pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HddagiDirectParams)});
+      pipeline->compute_shader = Shader::CreateTemporary(
+          ShaderType::Compute,
+          std::string("#define GI_SUPPORT_LIGHTING\n") + (kind == 0 ? "#define MODE_PROCESS_STATIC\n" : ""),
+          Resources::GetDefaultResourcesPath() / "Shaders/Compute/HddagiDirectLight.slang");
+      pipeline->Initialize();
+      if (!pipeline->Initialized())
+        throw std::runtime_error("HDDAGI support feedback pipeline failed");
+      pipelines[kind] = std::move(pipeline);
+    }
+    resources.support_direct_pipelines = std::move(pipelines);
+  }
+  frame->pipelines = frame->support_set ? resources.support_direct_pipelines : resources.direct_pipelines;
   frame->sampler = resources.linear_sampler;
   const auto buffer = [&](const std::string& name, const size_t bytes, const VkBufferUsageFlags usage) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -174,6 +199,8 @@ void HddagiLightFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
       const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
+      if (frame->support_set)
+        Platform::EverythingBarrier(command);
       HddagiDirectParams params;
       params.grid = (resources->probes.ProbeSize() - 1) * 8;
       params.probe_size = resources->probes.ProbeSize();
@@ -189,6 +216,8 @@ void HddagiLightFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
           const auto& pipeline = frame->pipelines[kind];
           pipeline->Bind(command);
           pipeline->BindDescriptorSet(command, 0, frame->sets[c][kind]->GetVkDescriptorSet());
+          if (frame->support_set)
+            pipeline->BindDescriptorSet(command, 1, frame->support_set->GetVkDescriptorSet());
           params.cascade = c;
           params.light_count = frame->lights[c].data[kind].size();
           params.refresh_static = (frame->refresh_static >> c) & 1;

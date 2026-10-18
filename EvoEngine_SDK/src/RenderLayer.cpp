@@ -1,4 +1,5 @@
 #include "RenderLayer.hpp"
+#include "GiSupportCache.hpp"
 #ifdef EVOENGINE_ENABLE_NRD
 #  include "NrdRayCameraDenoiser.hpp"
 #endif
@@ -6020,7 +6021,17 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           try {
             const auto& voxel_frame = resources->voxel_frames[current_frame_index];
             const uint32_t written = voxel_frame ? voxel_frame->written_cascades : 0;
-            auto lights = HddagiLightFrame::Create(*resources, runtime.cascades, snapshot.lights, scene_frame, written);
+            std::shared_ptr<DescriptorSet> support_set;
+            std::shared_ptr<GiSupportCache> support_cache;
+            if (lighting.use_occlusion)
+              for (const auto& [owner, cache] : gi_support_caches_) {
+                if ((support_set = cache->GetPublishedSet(runtime))) {
+                  support_cache = cache;
+                  break;
+                }
+              }
+            auto lights = HddagiLightFrame::Create(*resources, runtime.cascades, snapshot.lights, scene_frame, written,
+                                                   support_set, support_cache);
             auto probes = HddagiProbeFrame::Create(*resources, runtime.cascades, snapshot.sky, scene_frame,
                                                    lights->lighting_changed, written);
             probes->AddBeginPass(scene_graph, registry, resources, voxel_frame ? "HddagiVoxelComplete" : "");
@@ -6370,7 +6381,22 @@ void RenderLayer::RenderAll() {
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const auto lighting_descriptor_set =
       lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr;
-  const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  const auto ddgi_settings = resolved_lighting.ddgi_settings;
+  const auto support_provider = uint32_t(resolved_lighting.indirect_gi_provider);
+  if (gi_support_scene_.lock() != scene || gi_support_provider_ != support_provider) {
+    gi_support_caches_.clear();
+    gi_support_scene_ = scene;
+    gi_support_provider_ = support_provider;
+  }
+  for (auto it = gi_support_caches_.begin(); it != gi_support_caches_.end();) {
+    if (const auto owner = it->first.lock(); !owner || !owner->IsEnabled())
+      it = gi_support_caches_.erase(it);
+    else
+      ++it;
+  }
+  gi_support_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+  gi_support_frame_resources_[current_frame_index].clear();
   PruneRayCameraHistories(current_render_instances);
   auto& current_frame_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index);
   current_frame_transient_resources.clear();
@@ -8269,8 +8295,72 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (sdfgi_publication)
       for (const auto& access : sdfgi_publication->CameraReads())
         deferred_descriptor.resources.push_back(access);
-    camera_render_graph.AddPass(deferred_descriptor, [&](const RenderGraphExecutionContext& context) {
-      DeferredComputeLightingPass::Execute(context, deferred_inputs());
+    std::shared_ptr<GiSupportCache> camera_support;
+    const auto support_runtime = scene->GetHddagiRuntime();
+    const auto support_lighting = ResolveEnvironmentalLighting(scene);
+    if (!immediate && !reflection_probe_capture && support_lighting.use_occlusion && support_runtime &&
+        support_runtime->resources && support_runtime->resources->voxelization_recorded &&
+        support_runtime->resources->failure_flags == 0 && support_runtime->frame.failure.empty() &&
+        support_runtime->voxel_failure.empty() &&
+        ((support_lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi && Platform::RayTracingEnabled() &&
+          GetPrimaryDdgiCascadeRuntimeState() && GetPrimaryDdgiCascadeRuntimeState()->has_valid_probe_history) ||
+         hddagi_camera)) {
+      auto& cache = gi_support_caches_[std::weak_ptr<Camera>(camera)];
+      if (!cache) {
+        std::vector<std::shared_ptr<DescriptorSetLayout>> layouts{
+            per_frame_layout_,
+            camera_g_buffer_layout_,
+            lighting_layout_,
+            raster_lighting_texture_layout_,
+            deferred_compute_lighting_layout_,
+            hddagi_camera ? hddagi_camera->pipelines.at("Deferred")->descriptor_set_layouts[5]
+                          : empty_descriptor_set_layout_};
+        cache = std::make_shared<GiSupportCache>(per_frame_layout_, ray_tracing_layout_, lighting_layout_,
+                                                 bool(hddagi_camera), std::move(layouts));
+      }
+      camera_support = cache;
+      gi_support_frame_resources_[current_frame_index].push_back(cache);
+      camera_render_graph.AddResource(
+          {"Camera.GiSupport", RenderResourceType::External, RenderResourceLifetime::Camera});
+      deferred_descriptor.resources.push_back(
+          {"Camera.GiSupport", RenderResourceUsage::Read, RenderResourceState::General});
+      RenderPassDescriptor support_descriptor{
+          "GiSupport",
+          RenderPassQueue::Graphics,
+          RenderPassScope::Camera,
+          {{"Camera.GiSupport", RenderResourceUsage::ReadWrite, RenderResourceState::General},
+           {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite}},
+          deferred_descriptor.dependencies,
+          RenderPassProfilerGroup::Lighting,
+          "Sparse GI Support"};
+      deferred_descriptor.dependencies = {"GiSupport"};
+      camera_render_graph.AddPass(support_descriptor, [&, cache,
+                                                       support_runtime](const RenderGraphExecutionContext& context) {
+        uint64_t signature = 1469598103934665603ull;
+        for (const auto* values : {&ddgi_previous_light_signatures_, &ddgi_previous_geometry_signatures_,
+                                   &ddgi_previous_material_signatures_, &ddgi_previous_material_texture_signatures_})
+          for (const auto value : *values)
+            signature = (signature ^ value) * 1099511628211ull;
+        const auto primary = GetPrimaryDdgiCascadeRuntimeState();
+        const auto trace = primary ? primary->frame_ray_push_constant : DdgiProbeRayTracingPushConstant{};
+        if (primary)
+          signature ^= primary->previous_environment_signature;
+        const auto trace_bits = glm::floatBitsToUint(trace.trace_parameters);
+        for (uint32_t component = 0; component < 4; ++component)
+          signature = (signature ^ trace_bits[component]) * 1099511628211ull;
+        cache->Execute(context, deferred_inputs(), support_runtime,
+                       Platform::RayTracingEnabled() ? ray_tracing_descriptor_sets_[current_frame_index] : nullptr,
+                       trace, signature);
+      });
+    }
+    camera_render_graph.AddPass(deferred_descriptor, [&, camera_support](const RenderGraphExecutionContext& context) {
+      auto inputs = deferred_inputs();
+      if (camera_support) {
+        inputs.pipeline = camera_support->GetDeferredPipeline();
+        inputs.gi_support_descriptor_set = camera_support->GetCurrentSet();
+      }
+      DeferredComputeLightingPass::Execute(context, inputs);
     });
     if (subsurface_enabled)
       camera_render_graph.AddPass(
@@ -10190,6 +10280,9 @@ void RenderLayer::OnDestroy() {
   sdfgi_scene_.reset();
   sdfgi_frame_resources_.clear();
   hddagi_frame_resources_.clear();
+  gi_support_caches_.clear();
+  gi_support_frame_resources_.clear();
+  gi_support_scene_.reset();
   for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {
     PublishSubmittedReflectionProbeBake(frame_index);
     PublishSubmittedDynamicReflectionProbeUpdate(frame_index);

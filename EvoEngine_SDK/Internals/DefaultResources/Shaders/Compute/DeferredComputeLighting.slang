@@ -1,3 +1,6 @@
+#ifdef EE_GI_SUPPORT
+import EvoEngine.GiSupportCamera;
+#endif
 import EvoEngine.GltfRasterMaterial;
 import EvoEngine.GBuffer;
 import EvoEngine.LightingFixedSet3;
@@ -86,6 +89,9 @@ Texture2D<uint4> inMetadata;
   const float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, depth);
   const float3 camera_position = EE_CAMERA_POSITION(camera_index);
   const float3 view_direction = normalize(camera_position - world_position);
+#ifdef EE_GI_SUPPORT
+  EE_GI_CAMERA_SUPPORT(pixel,world_position,shading_normal,geometric_normal);
+#endif
   const float3 coated_emissive =
       EE_GLTF_RASTER_COATED_EMISSION(metadata.material_index, surface, tex_coords, geometric_normal, tangent,
                                      tangent_handedness, 1.0f, view_direction);

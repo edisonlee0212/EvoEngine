@@ -1,3 +1,6 @@
+#ifdef GI_SUPPORT_TRACE
+import EvoEngine.GiSupportTrace;
+#endif
 import EvoEngine.DDGI;
 import EvoEngine.DDGIGatherMulti;
 import EvoEngine.DDGIProbeRayConstants;
@@ -251,6 +254,12 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
       const EeDdgiGatherResult recursive_gather =
           EE_DDGI_GATHER_IRRADIANCE(world_normal, -ray_direction, world_position);
       recursive_irradiance = EE_DDGI_WEIGHTED_DIFFUSE(recursive_gather, min(diffuse_albedo, float3(0.9f)));
+#ifdef GI_SUPPORT_TRACE
+      float weight=recursive_gather.supported?GiSupportRefinementWeight(recursive_gather.visibility):1;
+      float3 recovered;
+      if(weight>0 && EE_GI_TRACE_SUPPORT(world_position,world_normal,world_geometric_normal,recovered))
+        recursive_irradiance=lerp(recursive_irradiance,recovered*min(diffuse_albedo,float3(0.9))/EE_DDGI_PI,weight);
+#endif
     }
     float3 emissive_mesh_irradiance = float3(0.0f);
     if ((EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.z & (1u << 1u)) != 0u) {

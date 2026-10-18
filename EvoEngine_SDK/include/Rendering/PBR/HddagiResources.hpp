@@ -81,6 +81,7 @@ class EVOENGINE_API HddagiResources {
   std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
   std::vector<std::shared_ptr<HddagiLightFrame>> light_frames;
   std::array<std::shared_ptr<ComputePipeline>, 2> direct_pipelines;
+  std::array<std::shared_ptr<ComputePipeline>, 2> support_direct_pipelines;
   std::shared_ptr<Sampler> linear_sampler;
   std::vector<std::array<std::vector<SdfgiLight>, 2>> light_inputs;
   std::vector<std::array<uint32_t, 2>> light_overflow;

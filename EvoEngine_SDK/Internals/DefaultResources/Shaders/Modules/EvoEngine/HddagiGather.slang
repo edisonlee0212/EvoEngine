@@ -29,7 +29,7 @@ void HddagiGatherProbes(HddagiGatherData data, Texture2DArray<float3> diffuse_at
                         Texture2DArray<float3> specular_atlas, Texture3D<float4> occlusion0,
                         Texture3D<float4> occlusion1, SamplerState linear_sampler, uint cascade, float3 cell_position,
                         float3 normal, float3 reflection, float roughness, bool dynamic_receiver, out float3 diffuse,
-                        out float3 specular) {
+                        out float3 specular, out float support) {
   float3 position = cell_position + (dynamic_receiver ? float3(0) : normal * data.normal_bias);
   // Bias may leave the chosen cascade near an edge. Clamp to its represented probe interval.
   position = clamp(position, float3(0), float3(data.grid) - 0.0001);
@@ -73,8 +73,19 @@ void HddagiGatherProbes(HddagiGatherData data, Texture2DArray<float3> diffuse_at
     specular += lerp(sharp, broad, smoothstep(0.25, 1, roughness)) * weight;
     total += weight;
   }
+  support = total;
   diffuse = total > 0 ? diffuse / total : float3(0);
   specular = total > 0 ? specular / total : float3(0);
+}
+
+void HddagiGatherProbes(HddagiGatherData data, Texture2DArray<float3> diffuse_atlas,
+                        Texture2DArray<float3> specular_atlas, Texture3D<float4> occlusion0,
+                        Texture3D<float4> occlusion1, SamplerState linear_sampler, uint cascade, float3 cell_position,
+                        float3 normal, float3 reflection, float roughness, bool dynamic_receiver, out float3 diffuse,
+                        out float3 specular) {
+  float support;
+  HddagiGatherProbes(data, diffuse_atlas, specular_atlas, occlusion0, occlusion1, linear_sampler, cascade,
+                     cell_position, normal, reflection, roughness, dynamic_receiver, diffuse, specular, support);
 }
 
 float4 HddagiSharpReflection(HddagiGatherData data, Texture3D<uint2> voxels,

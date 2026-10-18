@@ -5,6 +5,7 @@
 #include "SdfgiLight.hpp"
 
 namespace evo_engine {
+class GiSupportCache;
 class EVOENGINE_API HddagiLightFrame : public std::enable_shared_from_this<HddagiLightFrame> {
  public:
   HddagiCascadeBlock cascades;
@@ -14,6 +15,9 @@ class EVOENGINE_API HddagiLightFrame : public std::enable_shared_from_this<Hddag
   std::vector<std::shared_ptr<Buffer>> process, dispatch;
   std::array<std::shared_ptr<ComputePipeline>, 2> pipelines;
   std::shared_ptr<Sampler> sampler;
+  std::shared_ptr<DescriptorSet> support_set;
+  std::shared_ptr<Buffer> support_uniform;
+  std::shared_ptr<GiSupportCache> support_cache;
   BufferUploadBatch input_uploads;
   BufferUploadArena uploads{64 * 1024};
   uint32_t written_cascades = 0;
@@ -26,7 +30,9 @@ class EVOENGINE_API HddagiLightFrame : public std::enable_shared_from_this<Hddag
   [[nodiscard]] uint64_t AllocationBytes() const;
   static std::shared_ptr<HddagiLightFrame> Create(HddagiResources& resources, const std::vector<SdfgiCascade>& cascades,
                                                   const std::vector<SdfgiLightInput>& lights, uint32_t scene_frame,
-                                                  uint32_t written_cascades);
+                                                  uint32_t written_cascades,
+                                                  std::shared_ptr<DescriptorSet> support_set = {},
+                                                  std::shared_ptr<GiSupportCache> support_cache = {});
   void AddPasses(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                  const std::shared_ptr<HddagiResources>& resources, const std::string& dependency);
 };

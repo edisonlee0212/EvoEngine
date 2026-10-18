@@ -1,3 +1,6 @@
+#ifdef GI_SUPPORT_LIGHTING
+import EvoEngine.GiSupportLighting;
+#endif
 // Godot hddagi_direct_light.glsl, da1410fa3516d08cc31b6e86bd6673b9ce776316.
 // See docs/licenses/Godot-MIT.txt. Native photometry, immutable emission and rectangular field adapters.
 import EvoEngine.HddagiTrace;
@@ -65,8 +68,10 @@ float3 decode_normal(uint packed) {
     float2 oct = float2((voxel.albedo_normal >> 16) & 255, voxel.albedo_normal >> 24) / 255.0;
     float2 inv_size = 1.0 / float2(7 * params.probe_size.x, 7 * params.probe_size.y * params.probe_size.z);
     float3 indirect = float3(0);
+    float visibility_sum=0;
     for (uint i = 0; i < 8; ++i) {
       float weight = float((voxel.occlusion >> (i * 4)) & 15) / 15;
+      visibility_sum+=weight;
       if (weight == 0)
         continue;
       int3 probe = cell / 8 + int3(uint3(i, i >> 1, i >> 2) & 1);
@@ -75,6 +80,14 @@ float3 decode_normal(uint packed) {
       float2 uv = (float2(tile * 7 + 1) + oct * 5) * inv_size;
       indirect += previous_diffuse.SampleLevel(linear_sampler, float3(uv, params.cascade), 0) * weight;
     }
+#ifdef GI_SUPPORT_LIGHTING
+    float3 recovered;
+    float blend=GiSupportRefinementWeight(visibility_sum/8);
+    if(blend>0 && EE_GI_LIGHT_SUPPORT(position,normal,recovered)) {
+      float3 reflected=lerp(indirect*albedo,recovered*min(albedo,float3(0.9))/3.14159265359,blend);
+      accumulated+=reflected*params.bounce_feedback;
+    } else
+#endif
     accumulated += indirect * albedo * params.bounce_feedback;
   }
 #endif

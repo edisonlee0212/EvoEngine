@@ -37,6 +37,7 @@ class EVOENGINE_API DeferredComputeLightingPass final {
     bool subsurface_enabled = false;
     bool subsurface_resolve = false;
     bool subsurface_backface_enabled = false;
+    std::shared_ptr<DescriptorSet> gi_support_descriptor_set;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled,
