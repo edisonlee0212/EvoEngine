@@ -1,9 +1,17 @@
 import EvoEngine.SsrSampling;
+import EvoEngine.Random;
 [[vk::binding(0, 0)]] RWStructuredBuffer<float4> values;
 [numthreads(64, 1, 1)] void main(uint3 thread : SV_DispatchThreadID) {
   uint index = thread.x;
-  if (index >= 9u * 65536u) return;
+  if (index >= 10u * 65536u) return;
   uint test = index / 65536u;
+  if (test == 9u) {
+    uint2 pixel = uint2((index % 65536u) / 256u, 0);
+    uint frame = index % 256u;
+    uint seed = EE_XXHASH32(uint3(pixel, frame));
+    values[index] = float4(EE_SSR_RANDOM(pixel, frame, 0), EE_PCG_RANDOM_2(seed));
+    return;
+  }
   float roughness = test == 0u ? 0.0f : (test == 1u ? 0.4f : (test == 2u || test == 4u || test == 6u ? 0.65f : 1.0f));
   float nv = test == 4u || test == 5u ? 0.2f : 1.0f;
   float3 view = float3(sqrt(1.0f - nv * nv), 0, nv);

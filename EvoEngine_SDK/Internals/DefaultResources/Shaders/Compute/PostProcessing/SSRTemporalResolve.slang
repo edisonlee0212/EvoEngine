@@ -99,9 +99,15 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     }
   }
   float4 clipped_history = history;
-  // Preserve coverage and dark history so misses remain part of the estimate.
-  if (neighborhood_valid) clipped_history.rgb = clamp(history.rgb, neighborhood_min, neighborhood_max);
+  // Static surfaces must average stochastic hits, rather than clamp history to each noisy frame.
+  // Gradually enable clipping during reprojection to limit moving reflection trails.
+  if (neighborhood_valid) {
+    float clipping_weight = saturate(length(motion.xy));
+    clipped_history.rgb = lerp(history.rgb, clamp(history.rgb, neighborhood_min, neighborhood_max), clipping_weight);
+  }
   float history_weight = lerp(0.85f, 0.97f, current_material.x);
+  float stationary_weight = (1.0f - saturate(length(motion.xy))) * smoothstep(0.01f, 0.1f, current_material.x);
+  history_weight = lerp(history_weight, lerp(0.95f, 0.99f, current_material.x), stationary_weight);
   float4 resolved = lerp(current, clipped_history, history_weight);
   outReflectionConfidence[int2(pixel)] = all(isfinite(resolved)) ? float4(resolved.rgb, clamp(resolved.a, 0.0f, 1.0f)) : current;
 }

@@ -77,8 +77,18 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
     result.coverage = 0.0f;
     return result;
   }
+  const bool voxel_occlusion = volume.volume_parameters.x > 0.5f;
+  float3 gather_position = biased_position;
+  if (voxel_occlusion) {
+    float3 normal_in_cells = 8 * float3(EE_DDGI_AXIS_COORDINATE(normal, volume.probe_step_x.xyz),
+        EE_DDGI_AXIS_COORDINATE(normal, volume.probe_step_y.xyz),
+        EE_DDGI_AXIS_COORDINATE(normal, volume.probe_step_z.xyz));
+    // Match the voxel-sized surface offset used by the shared field; keep distance moments at biased_position.
+    float extra_bias = max(1.1f / max(length(normal_in_cells), 0.000001f) - max(volume.volume_parameters.z, 0), 0);
+    gather_position += normal * extra_bias;
+  }
   const float3 biased_probe_coordinate =
-      EE_DDGI_PROBE_COORDINATE(biased_position, volume.first_probe.xyz, volume.probe_step_x.xyz,
+      EE_DDGI_PROBE_COORDINATE(gather_position, volume.first_probe.xyz, volume.probe_step_x.xyz,
                                volume.probe_step_y.xyz, volume.probe_step_z.xyz);
   const uint irradiance_tile_size = max(volume.atlas_parameters.x, 1u);
   const uint irradiance_atlas_columns = max(volume.atlas_parameters.y, 1u);
@@ -94,13 +104,12 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
   const float3 base_probe_world_position =
       EE_DDGI_PROBE_WORLD_POSITION(base_probe_grid, volume.first_probe.xyz, volume.probe_step_x.xyz,
                                    volume.probe_step_y.xyz, volume.probe_step_z.xyz);
-  const float3 base_probe_to_biased_position = biased_position - base_probe_world_position;
+  const float3 base_probe_to_biased_position = gather_position - base_probe_world_position;
   const float3 probe_fraction =
       clamp(float3(EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_x.xyz),
                    EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_y.xyz),
                    EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_z.xyz)),
             float3(0.0f), float3(1.0f));
-  const bool voxel_occlusion = volume.volume_parameters.x > 0.5f;
   const int3 voxel_grid = int3(probe_counts - 1u) * 8;
   const int3 world_probe_offset = int3(round(float3(
       EE_DDGI_AXIS_COORDINATE(volume.first_probe.xyz, volume.probe_step_x.xyz),

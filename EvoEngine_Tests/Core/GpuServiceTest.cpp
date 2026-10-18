@@ -26,6 +26,7 @@
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
+#include "RayCameraHistoryTestAccess.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "RestirSss.hpp"
@@ -4623,6 +4624,26 @@ TEST(GpuService, PtDisplayFireflyFiltersBordersWithoutChangingHistory) {
   }
 }
 
+TEST(GpuService, DisabledRayCameraWaitsForSubmittedHistoryBeforeRetirement) {
+  ScopedGpuPlatform platform;
+  RenderLayer render;
+  auto camera = std::make_shared<Camera>();
+  auto& history = RayCameraHistoryTestAccess::Acquire(*camera, RayCameraHistoryTechnique::RayQuery, 1, {4, 4, 1}, {});
+  // Keep the image alive so a missing retirement fence fails without destroying an in-flight Vulkan image.
+  auto submitted_image = history.radiance_image;
+  RayCameraHistoryTestAccess::Register(render, camera->GetHandle().GetValue(), camera);
+  PlatformLifecycleTestAccess::PreUpdate();
+  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+    submitted_image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+  });
+  PlatformLifecycleTestAccess::LateUpdate();
+  EXPECT_GT(Platform::GetPendingFrameSubmissionCount(), 0u);
+  RayCameraHistoryTestAccess::Prune(render, {});
+  EXPECT_EQ(Platform::GetPendingFrameSubmissionCount(), 0u);
+  EXPECT_EQ(camera->GetRayCameraHistoryStats().live_history_count, 0u);
+  Platform::WaitForFrameSubmissions("Camera retirement regression cleanup");
+}
+
 TEST(GpuService, SsrFallbackPrioritizesProbesThenGiThenEnvironment) {
   ScopedGpuPlatform platform;
   const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
@@ -4707,7 +4728,7 @@ TEST(GpuService, SsrGgxSamplingMatchesHemisphereIntegration) {
   auto layout = std::make_shared<DescriptorSetLayout>();
   layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout->Initialize();
-  constexpr uint32_t samples = 65536, cases = 9;
+  constexpr uint32_t samples = 65536, cases = 10;
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   info.size = samples * cases * sizeof(glm::vec4);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
@@ -4734,6 +4755,8 @@ TEST(GpuService, SsrGgxSamplingMatchesHemisphereIntegration) {
   bool valid = true;
   for (uint32_t i = 0; i < values.size(); ++i) {
     const auto value = values[i];
+    if (i >= samples * 9)
+      continue;
     if (i >= samples * 7) {
       const auto expected = i < samples * 8 ? glm::vec4(0, 0, 0, 0.5f) : glm::vec4(-0.006f, -0.01f, -0.04f, 0.5f);
       valid &= glm::length(value - expected) < 0.000001f;
@@ -4743,6 +4766,36 @@ TEST(GpuService, SsrGgxSamplingMatchesHemisphereIntegration) {
              value.x >= 0 && value.x <= 1.00001f && value.y >= 0 && value.y <= value.x + 0.00001f &&
              (value.w == 0 || std::abs(value.w - 1) < 0.00001f);
     means[i / samples] += glm::dvec4(value) / double(samples);
+  }
+  // Compare temporal fluctuations across pixels and starting phases, including a sharp hit/miss boundary.
+  for (int signal = 0; signal < 3; ++signal) {
+    glm::dvec2 sum(0), squared_sum(0);
+    uint32_t count = 0;
+    for (uint32_t pixel = 0; pixel < 256; ++pixel) {
+      glm::dvec2 history(0);
+      for (uint32_t frame = 0; frame < 256; ++frame) {
+        const auto sample = values[9 * samples + pixel * 256 + frame];
+        EXPECT_TRUE(sample.x >= 0 && sample.x < 1 && sample.y >= 0 && sample.y < 1);
+        const auto evaluate = [signal](double x, double y) {
+          if (signal == 0)
+            return x;
+          if (signal == 1)
+            return (x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5) < 0.15 ? 1.0 : 0.0;
+          return std::exp(-40 * ((x - 0.4) * (x - 0.4) + (y - 0.6) * (y - 0.6)));
+        };
+        history = history * 0.97 + 0.03 * glm::dvec2(evaluate(sample.x, sample.y), evaluate(sample.z, sample.w));
+        if (frame < 128)
+          continue;
+        sum += history;
+        squared_sum += history * history;
+        ++count;
+      }
+    }
+    const glm::dvec2 mean = sum / double(count);
+    const glm::dvec2 variance = squared_sum / double(count) - mean * mean;
+    EXPECT_NEAR(mean.x, mean.y, 0.01);
+    EXPECT_LT(variance.x, variance.y * 0.5) << "signal=" << signal;
+    RecordProperty("ssr_signal_" + std::to_string(signal) + "_variance_ratio", std::to_string(variance.x / variance.y));
   }
   EXPECT_TRUE(valid);
   EXPECT_NEAR(means[0].x, 1.0, 0.00001);
@@ -4844,14 +4897,15 @@ TEST(GpuService, SsrTemporalResolveAveragesMissesAndRejectsInvalidHistory) {
   pipeline.Initialize();
   ASSERT_TRUE(pipeline.Initialized());
   const glm::vec4 signal(0.4f, 0.2f, 0.1f, 0.5f);
-  for (uint32_t mode = 0; mode < 8; ++mode) {
+  for (uint32_t mode = 0; mode < 12; ++mode) {
     SCOPED_TRACE(mode);
-    const glm::vec4 signed_signal = mode == 7 ? glm::vec4(-0.4f, -0.2f, -0.1f, 0.5f) : signal;
-    const glm::vec4 current = mode == 0 ? glm::vec4(0) : signed_signal;
+    const glm::vec4 signed_signal =
+        (mode == 7 || mode == 9 || mode == 11) ? glm::vec4(-0.4f, -0.2f, -0.1f, 0.5f) : signal;
+    const glm::vec4 current = mode == 0 ? glm::vec4(0) : (mode >= 8 ? signed_signal * 0.1f : signed_signal);
     const glm::vec4 history = mode == 1 ? glm::vec4(0) : signed_signal;
     const std::array<glm::vec4, 8> pixels{current,
                                           history,
-                                          glm::vec4(mode == 6 ? 100 : 0, 0, 0, 0),
+                                          glm::vec4(mode == 6 ? 100 : (mode >= 10 ? 1 : 0), 0, 0, 0),
                                           glm::vec4(0, 0, 1, mode == 4 ? 0.5f : 1.0f),
                                           glm::vec4(mode == 5 ? 0 : 1, 0.04f, 0.04f, 0.04f),
                                           glm::vec4(0.5f),
@@ -4886,10 +4940,18 @@ TEST(GpuService, SsrTemporalResolveAveragesMissesAndRejectsInvalidHistory) {
     readback.CopyFromImage(*outputs[0], sizeof(glm::vec4));
     std::vector<glm::vec4> values;
     readback.DownloadVector(values, count);
-    const auto expected = mode == 0 ? signal * 0.97f : (mode == 1 ? signal * 0.03f : signed_signal);
-    for (const auto& value : values)
+    const auto expected = mode >= 8 ? signed_signal * 0.991f
+                                    : (mode == 0 ? signal * 0.99f : (mode == 1 ? signal * 0.01f : signed_signal));
+    if (mode >= 10) {
+      const auto moving_expected = glm::vec4(glm::vec3(current), 0.4865f);
+      const auto center = values[(size / 2) * size + size / 2];
       for (int component = 0; component < 4; ++component)
-        EXPECT_NEAR(value[component], expected[component], 0.0001f);
+        EXPECT_NEAR(center[component], moving_expected[component], 0.0001f);
+    } else {
+      for (const auto& value : values)
+        for (int component = 0; component < 4; ++component)
+          EXPECT_NEAR(value[component], expected[component], 0.0001f);
+    }
   }
 }
 
@@ -8536,7 +8598,7 @@ TEST(DdgiGather, MissingDataRecoveryPreservesOcclusionAndCoverage) {
   layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout->Initialize();
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  info.size = 25 * sizeof(glm::vec4);
+  info.size = 32 * sizeof(glm::vec4);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   auto output = std::make_shared<Buffer>(info);
   auto set = std::make_shared<DescriptorSet>(layout);
@@ -8548,18 +8610,19 @@ import EvoEngine.DDGIGather;
 [[vk::binding(0,0)]] RWStructuredBuffer<float4> output;
 struct Fixture : IDdgiGatherResources {
   uint mode;
-  uint cascadeCount() { return (mode >= 5 && mode <= 8) || mode == 11 ? 1 : 2; }
+  uint cascadeCount() { return mode >= 25 ? 1 : (mode >= 5 && mode <= 8) || mode == 11 ? 1 : 2; }
   DdgiVolumeInfo volume(uint index) {
     DdgiVolumeInfo v = (DdgiVolumeInfo)0;
     v.first_probe = float4(index == 0 ? float3(0) : float3(-4), 0);
-    float step = index == 0 ? 1 : 2;
+    float step = mode == 26 ? 4 : (index == 0 ? 1 : 2);
     v.probe_step_x = float4(step,0,0,0);
-    v.probe_step_y = float4(0,step,0,0);
+    v.probe_step_y = float4(0,mode == 26 ? step * 0.5 : step,0,0);
     v.probe_step_z = float4(0,0,step,0);
     v.probe_counts = float4(9,9,9,1);
     v.atlas_parameters = uint4(8,729,8,729);
     v.lighting_parameters.x = mode == 13 || (mode == 12 && index == 0) ? 0 : 1;
-    v.volume_parameters.x = mode == 2 || mode == 7 || mode == 8 || mode == 9 || mode == 14 ? 1 : 0;
+    v.volume_parameters.z = mode == 28 ? 0.5 : 0;
+    v.volume_parameters.x = (mode >= 25 && mode != 29) || mode == 2 || mode == 7 || mode == 8 || mode == 9 || mode == 14 ? 1 : 0;
     return v;
   }
   float4 loadProbeState(uint index, uint probe) {
@@ -8567,12 +8630,22 @@ struct Fixture : IDdgiGatherResources {
     return float4(0,0,0, mode == 9 && index == 0 ? 1 : 0);
   }
   float4 sampleIrradiance(uint index, float2 uv) {
+    if (mode >= 30) {
+      uint probe_y = (uint(floor(uv.x * 729)) / 9) % 9;
+      return float4(float3(probe_y == (mode == 30 ? 6 : 4) ? 3 : 1), 1);
+    }
     float alpha = mode == 3 || (mode == 1 && index == 0) ? 0 : 1;
     if ((mode == 10 || mode == 14) && index == 0) alpha = 0.5;
     return float4(float3(index == 1 || (mode >= 5 && mode <= 8) ? 2 : 1), alpha);
   }
   float4 sampleVisibility(uint index, float2 uv) { return mode == 6 ? float4(0) : float4(50,5000,0,1); }
-  float4 sampleVoxelOcclusion(uint plane, float3 uv) { return mode == 2 || mode == 9 || mode == 14 ? float4(0) : float4(1); }
+  float4 sampleVoxelOcclusion(uint plane, float3 uv) {
+    if (mode >= 30) return float4(1,1,0,0);
+    if (mode >= 25) {
+      float cell = uv.y * 66 - 1;
+      return mode == 27 ? float4(cell >= 36 ? 1 : 0) : float4(mode == 28 ? abs(cell - 38) < 0.01 : abs(cell - 35.1) < 0.01);
+    }
+    return mode == 2 || mode == 9 || mode == 14 ? float4(0) : float4(1); }
   bool voxelGridAvailable() { return mode != 23; }
   uint2 loadVoxelBits(int3 coordinate) {
     if ((mode >= 16 && mode <= 21) || mode == 24) return all(coordinate == int3(4,mode == 24 ? 18 : 2,2)) ? uint2(0, 1u << 8) : uint2(0);
@@ -8582,7 +8655,7 @@ struct Fixture : IDdgiGatherResources {
 [numthreads(1,1,1)]
 void main(uint3 id : SV_DispatchThreadID) {
   Fixture resources; resources.mode = id.x;
-  if (id.x >= 16) {
+  if (id.x >= 16 && id.x < 25) {
     float3 start = float3(8.5,10.5,10.5), end = float3(24.5,10.5,10.5);
     int3 offset = int3(0);
     if (id.x == 17) { float3 temp = start; start = end; end = temp; }
@@ -8594,7 +8667,9 @@ void main(uint3 id : SV_DispatchThreadID) {
     return;
   }
   float3 position = id.x == 4 ? float3(100) : (id.x == 11 ? float3(0) : float3(4.25));
-  EeDdgiGatherResult value = EE_DDGI_GATHER_CASCADES(resources, float3(0,1,0), float3(0,0,1), position, false);
+  if (id.x == 26) position *= float3(4,2,4);
+  if (id.x >= 30) position.y = id.x == 30 ? 4.95 : 5.05;
+  EeDdgiGatherResult value = EE_DDGI_GATHER_CASCADES(resources, float3(0,id.x == 31 ? -1 : 1,0), float3(0,0,1), position, false);
   output[id.x] = float4(value.irradiance.x / (2 * EE_DDGI_PI), value.coverage, value.confidence, value.visibility);
 }
 )"));
@@ -8603,10 +8678,10 @@ void main(uint3 id : SV_DispatchThreadID) {
   Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
     pipeline->Bind(command);
     pipeline->BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
-    pipeline->Dispatch(command, 25);
+    pipeline->Dispatch(command, 32);
   });
   std::vector<glm::vec4> values;
-  output->DownloadVector(values, 25);
+  output->DownloadVector(values, 32);
   const float expected[]{1, 2, 0, 0, 0, 2, 0, 0, 2, 0, 1.5f, 1, 2, 0, 0, 1};
   for (uint32_t i = 0; i < 16; ++i) {
     SCOPED_TRACE(i);
@@ -8617,6 +8692,10 @@ void main(uint3 id : SV_DispatchThreadID) {
   for (uint32_t i = 16; i < 25; ++i) {
     SCOPED_TRACE(i);
     EXPECT_FLOAT_EQ(values[i].x, i == 18 || i == 22 ? 1 : 0);
+  }
+  for (uint32_t i = 25; i < 32; ++i) {
+    SCOPED_TRACE(i);
+    EXPECT_NEAR(values[i].x, i >= 30 ? 3 : (i == 27 ? 0 : 1), 1e-4f);
   }
   for (const auto i : {2u, 9u, 14u})
     EXPECT_FLOAT_EQ(values[i].w, 0);

@@ -1381,6 +1381,8 @@ std::shared_ptr<DescriptorSet> Camera::AcquireRayCameraOutputDescriptor(
 
 void Camera::ReleaseRayCameraHistory() {
   if (HasRayCameraHistory(ray_camera_history_)) {
+    if (ApplicationContext::TryGet() && Platform::Initialized())
+      Platform::WaitForFrameSubmissions("Ray Camera History Retirement Fence Wait");
     ++ray_camera_history_counters_.retirement_count;
   }
   ray_camera_history_ = {};

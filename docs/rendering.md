@@ -114,6 +114,9 @@ frame's reservoir and publish the last estimate for the next frame. All pixels c
 is unsupported. Sampling and spatial pairing use the advancing renderer frame, so clearing accumulation or reservoir
 history does not repeat the same random pattern. Ray debug views must be off for reuse.
 
+Ray-camera history retirement waits for submitted GPU work before releasing resources, including when a
+camera component or its owner is disabled or removed from the scene.
+
 Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
 accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch
 buffers synchronized by the render graph. ReSTIR texture footprints grow with path distance and capped roughness-aware
@@ -192,11 +195,17 @@ resources and temporal histories are camera-owned. Assets must use the current f
 Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
 preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
 
+When DDGI uses shared voxel occlusion, its occlusion lookup applies at least 1.1 voxel cells of normal offset,
+scaled per cascade and vertical cell spacing. Larger authored normal offsets are preserved. Probe selection and interpolation use the same offset as the voxel lookup so its parity channels remain aligned.
+Distance-moment visibility retains the authored world-space normal and view biases. Fully blocked valid probes
+remain dark rather than falling back to environment lighting.
+
 ### Stochastic SSR
 
 SSR traces one GGX visible-normal reflection sample per pixel per rendered frame, using the same
 visible-normal sampler, Schlick Fresnel and separable Smith masking functions as PT. The random sequence
-uses the application frame count, not the frame-in-flight slot or PT accumulation count. Smooth materials
+uses a pixel-scrambled R2 sequence indexed by the application frame count, not the frame-in-flight slot or
+PT accumulation count. Integer arithmetic preserves the sequence at large frame indices. Smooth materials
 use the exact mirror direction. Deferred shading publishes its resolved reflection fallback into the existing
 SSR swap texture: reflection probes take priority, followed by the active DDGI/SDFGI/HDDAGI provider,
 then environment lighting where GI has no valid coverage. SSR consumes the same fallback as the shaded
@@ -206,8 +215,12 @@ BRDF/PDF weight, hit confidence and specular visibility; alpha contains coverage
 fallback radiance produce zero correction. Spatial and temporal reconstruction average both channels,
 including missed rays. Composition adds this correction to existing lighting without applying the BRDF
 or visibility twice. The scratch texture is reused; no separate GI query pass or image allocation is needed.
-Geometry/material rejection and neighborhood clipping limit residue; spatial reconstruction checks
-depth, normals, roughness and specular F0.
+Geometry/material rejection discards invalid history. Neighborhood clipping ramps in over the first pixel of
+reprojection motion; stationary surfaces retain valid history across changing stochastic samples. Lighting and
+reflected-object changes still respond through temporal averaging. Stationary stochastic surfaces use
+95-99% history weight (roughness dependent); motion retains the existing 85-97% weights. This trades
+slower response to lighting changes for lower noise; mirrors retain their existing history weights. Spatial reconstruction checks depth,
+normals, roughness and specular F0.
 
 In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment
 specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8).

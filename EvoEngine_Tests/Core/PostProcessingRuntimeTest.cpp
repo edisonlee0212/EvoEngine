@@ -94,6 +94,7 @@ TEST_F(PostProcessingRuntime, AssetVersionResetsEachCameraLazilyAndPreservesScra
 TEST_F(PostProcessingRuntime, TechniqueAndExplicitCameraResetsKeepScratchIndependent) {
   const auto stack = std::make_shared<PostProcessingStack>();
   Camera camera;
+  camera.camera_render_mode = Camera::CameraRenderMode::Rasterization;
   auto& resources = PostProcessingRuntimeTestAccess::Acquire(camera, stack);
   resources.stack.source_color_texture = MakeFakeResource<RenderTexture>();
   const auto source = resources.stack.source_color_texture;

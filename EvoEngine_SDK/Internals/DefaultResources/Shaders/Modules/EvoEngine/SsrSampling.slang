@@ -2,8 +2,12 @@ import EvoEngine.GltfRayTracingBsdf;
 import EvoEngine.Random;
 
 public float2 EE_SSR_RANDOM(uint2 pixel, uint frame_index, uint camera_index) {
-  uint seed = EE_XXHASH32(uint3(pixel, frame_index ^ (camera_index * 747796405u)));
-  return EE_PCG_RANDOM_2(seed);
+  uint seed = EE_XXHASH32(uint3(pixel, camera_index));
+  uint rotation_x = EE_PCG(seed);
+  uint2 rotation = uint2(rotation_x, EE_PCG(seed));
+  // Fixed-point R2 sequence keeps short temporal windows distributed without float frame-index precision loss.
+  uint2 sample = rotation + frame_index * uint2(3242174889u, 2447445414u);
+  return float2(sample >> 8u) * (1.0f / 16777216.0f);
 }
 
 public float3 EE_SSR_SAMPLE_GGX(float3 view, float3 normal, float roughness, float2 xi,
