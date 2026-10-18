@@ -1,7 +1,6 @@
 import EvoEngine.CameraRayIntegrator;
 
 [[vk::binding(12, 2)]] RWByteAddressBuffer resolved_buffer;
-[[vk::binding(22, 2)]] RWByteAddressBuffer fresh_path_buffer;
 #ifdef EE_ENABLE_NRD_SIGNALS
 [[vk::binding(25, 2)]] RWTexture2D<float4> nrd_diffuse_signal_image;
 [[vk::binding(26, 2)]] RWTexture2D<float4> nrd_specular_signal_image;
@@ -21,14 +20,8 @@ import EvoEngine.CameraRayIntegrator;
   if (any(pixel_coordinate >= image_size)) {
     return;
   }
-  float3 radiance =
-      asfloat(resolved_buffer.Load4((pixel_coordinate.y * width + pixel_coordinate.x) * EE_RESTIR_PT_RESOLVED_BYTES)).xyz;
-  if (EE_CAMERA_RESTIR_FRESH_ACCUMULATION_ENABLED()) {
-    const float fresh_weight = saturate(float(EE_CAMERA_RESTIR_ACCUMULATED_SAMPLES()) / 1023.0f);
-    const float3 fresh_radiance = asfloat(fresh_path_buffer.Load4(
-        (pixel_coordinate.y * width + pixel_coordinate.x) * EE_RESTIR_PT_RESOLVED_BYTES)).xyz;
-    radiance = fresh_weight >= 1.0f ? fresh_radiance : lerp(radiance, fresh_radiance, fresh_weight);
-  }
+  const uint index = pixel_coordinate.y * width + pixel_coordinate.x;
+  const float3 radiance = asfloat(resolved_buffer.Load4(index * EE_RESTIR_PT_RESOLVED_BYTES)).xyz;
 #ifdef EE_ENABLE_NRD_SIGNALS
   float3 diffuse = nrd_diffuse_signal_image[pixel_coordinate].xyz;
   float3 specular = nrd_specular_signal_image[pixel_coordinate].xyz;
@@ -41,7 +34,7 @@ import EvoEngine.CameraRayIntegrator;
   float4 diffuse_signal = float4(diffuse * scale, lobe_hit_distance.x);
   float4 specular_signal = float4(specular * scale, lobe_hit_distance.y);
   float4 excluded_signal = float4(excluded * scale, 0.0f);
-  EE_CAMERA_ACCUMULATE_RESTIR_NRD_SIGNALS(nrd_accumulation_buffer, pixel_coordinate.y * width + pixel_coordinate.x,
+  EE_CAMERA_ACCUMULATE_RESTIR_NRD_SIGNALS(nrd_accumulation_buffer, index,
                                            diffuse_signal, specular_signal, excluded_signal);
   nrd_diffuse_signal_image[pixel_coordinate] =
       float4(diffuse_signal.xyz / nrd_diffuse_factor_image[pixel_coordinate].xyz, diffuse_signal.w);

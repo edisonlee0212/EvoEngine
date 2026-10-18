@@ -14,7 +14,6 @@ import EvoEngine.CameraRayTraversalPolicies;
 
 [[vk::binding(10, 2)]] RWByteAddressBuffer candidate_buffer;
 [[vk::binding(11, 2)]] RWByteAddressBuffer primary_surface_buffer;
-[[vk::binding(22, 2)]] RWByteAddressBuffer fresh_path_buffer;
 #ifdef EE_ENABLE_NRD_SIGNALS
 [[vk::binding(31, 2)]] RWTexture2D<float2> nrd_lobe_hit_distance_image;
 [[vk::binding(32, 2)]] RWTexture2D<float4> nrd_diffuse_factor_image;
@@ -33,20 +32,14 @@ import EvoEngine.CameraRayTraversalPolicies;
   float2 lobe_hit_distance;
   float3 diffuse_factor;
   float3 specular_factor;
-  const float3 fresh_radiance =
-      EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
-                                            EE_GLTF_COMPILED_FEATURE_MASK, EE_RESTIR_PT_PROFILE_GENERATED != 0,
-                                            EE_RESTIR_PT_WRITE_NRD_NORMAL>(pixel_coordinate, image_size,
-                                                                          candidate_buffer, primary_surface_buffer,
-                                                                          lobe_hit_distance, diffuse_factor,
-                                                                          specular_factor);
+  EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
+                                        EE_GLTF_COMPILED_FEATURE_MASK, EE_RESTIR_PT_PROFILE_GENERATED != 0,
+                                        EE_RESTIR_PT_WRITE_NRD_NORMAL>(
+      pixel_coordinate, image_size, candidate_buffer, primary_surface_buffer,
+      lobe_hit_distance, diffuse_factor, specular_factor);
 #ifdef EE_ENABLE_NRD_SIGNALS
   nrd_lobe_hit_distance_image[pixel_coordinate] = lobe_hit_distance;
   nrd_diffuse_factor_image[pixel_coordinate] = float4(diffuse_factor, 0.0f);
   nrd_specular_factor_image[pixel_coordinate] = float4(specular_factor, 0.0f);
 #endif
-  if (EE_CAMERA_RESTIR_FRESH_ACCUMULATION_ENABLED()) {
-    const uint index = pixel_coordinate.y * width + pixel_coordinate.x;
-    fresh_path_buffer.Store4(index * EE_RESTIR_PT_RESOLVED_BYTES, asuint(float4(fresh_radiance, 0.0f)));
-  }
 }

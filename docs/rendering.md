@@ -114,15 +114,6 @@ frame's reservoir and publish the last estimate for the next frame. All pixels c
 is unsupported. Sampling and spatial pairing use the advancing renderer frame, so clearing accumulation or reservoir
 history does not repeat the same random pattern. Ray debug views must be off for reuse.
 
-With NRD disabled and sample accumulation enabled, **Progressive PT blend** (enabled by default) blends the
-complete fresh-path radiance sum into Temporal Only and Enhanced output before image accumulation. The fresh-path
-weight increases linearly from 0 at sample 1 to 1 at sample 1024; subsequent samples use the full fresh-path result.
-Earlier ReSTIR contributions remain in the running average and diminish as more samples accumulate. Reservoir reuse
-continues independently. This experimental hybrid addresses progressive convergence without changing reservoir weights
-or adding another traced path. Disable the checkbox to compare pure ReSTIR. It adds 16 bytes of scratch storage per
-pixel (31.6 MiB at 1920x1080). The option is saved with camera settings and can be overridden in preview captures with
-`--preview-restir-progressive-blend enabled|disabled`. Changing it restarts accumulation.
-
 Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
 accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch
 buffers synchronized by the render graph. ReSTIR texture footprints grow with path distance and capped roughness-aware
@@ -200,6 +191,11 @@ resources and temporal histories are camera-owned. Assets must use the current f
 
 Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
 preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
+
+### SSR roughness controls
+
+In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8). **Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter by squared material roughness and viewport height; enable **Edge-aware spatial resolve** to use it. Smooth, high-confidence reflections retain their sharpness. Filtering preserves hit confidence and checks depth, normal and roughness boundaries. These controls are serialized; older assets use the new defaults. This is a screen-space approximation, not GGX importance-sampled reflection tracing.
+
 
 ## Geometry And Optional Features
 

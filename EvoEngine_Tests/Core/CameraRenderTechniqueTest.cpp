@@ -319,15 +319,6 @@ TEST(CameraRenderTechnique, TemporalAdaptiveCapChangeInvalidatesCameraHistory) {
   EXPECT_TRUE(adaptive_cap != fixed_cap);
 }
 
-TEST(CameraRenderTechnique, ProgressiveBlendChangeInvalidatesCameraHistory) {
-  CameraInfoBlock blended;
-  EXPECT_EQ(blended.restir_progressive_blend, 1u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, restir_progressive_blend), 824u);
-  CameraInfoBlock pure_restir = blended;
-  pure_restir.restir_progressive_blend = 0u;
-  EXPECT_TRUE(blended != pure_restir);
-}
-
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
   const auto cameras =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
@@ -421,8 +412,6 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     camera.camera_settings.restir_temporal_history_cap = 32;
     EXPECT_TRUE(camera.camera_settings.restir_temporal_adaptive_cap);
     camera.camera_settings.restir_temporal_adaptive_cap = false;
-    EXPECT_TRUE(camera.camera_settings.restir_progressive_blend);
-    camera.camera_settings.restir_progressive_blend = false;
     camera.camera_settings.ray_outputs.albedo = true;
     camera.camera_settings.ray_outputs.debug = true;
 
@@ -470,7 +459,6 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_TRUE(restored.camera_settings.restir_spatial_hybrid);
     EXPECT_EQ(restored.camera_settings.restir_temporal_history_cap, 32);
     EXPECT_FALSE(restored.camera_settings.restir_temporal_adaptive_cap);
-    EXPECT_FALSE(restored.camera_settings.restir_progressive_blend);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.albedo);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.debug);
     for (const auto key :

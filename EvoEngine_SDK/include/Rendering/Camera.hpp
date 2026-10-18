@@ -48,8 +48,7 @@ inline constexpr uint32_t kRayCameraRestirDuplicationBinding = kRayCameraRestirT
 inline constexpr uint32_t kRayCameraRestirNextHistoryBinding = kRayCameraRestirDuplicationBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirPairingBinding = kRayCameraRestirNextHistoryBinding + 1u;
 inline constexpr uint32_t kRayCameraRestirPreviousInstanceBinding = kRayCameraRestirPairingBinding + 1u;
-inline constexpr uint32_t kRayCameraRestirFreshPathBinding = kRayCameraRestirPreviousInstanceBinding + 1u;
-inline constexpr uint32_t kRayCameraNrdViewZBinding = kRayCameraRestirFreshPathBinding + 1u;
+inline constexpr uint32_t kRayCameraNrdViewZBinding = 23u;
 inline constexpr uint32_t kRayCameraNrdMotionBinding = kRayCameraNrdViewZBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdDiffuseSignalBinding = kRayCameraNrdMotionBinding + 1u;
 inline constexpr uint32_t kRayCameraNrdSpecularSignalBinding = kRayCameraNrdDiffuseSignalBinding + 1u;
@@ -107,7 +106,6 @@ struct RayCameraHistoryResources {
   bool restir_sss_history_valid = false;
   std::vector<std::shared_ptr<Buffer>> restir_primary_surface_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_resolved_buffers;
-  std::vector<std::shared_ptr<Buffer>> restir_fresh_path_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_shift_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_generated_buffers;
   std::vector<std::shared_ptr<Buffer>> restir_spatial_history_buffers;
@@ -223,7 +221,6 @@ struct EVOENGINE_API CameraInfoBlock {
   uint32_t restir_temporal_adaptive_cap = 1;
   float pt_display_firefly_strength = 1.0f;
   float pt_display_firefly_ratio = 1.0f;
-  uint32_t restir_progressive_blend = 1;
   alignas(16) glm::vec4 shadow_split_distances = {};
 
   /**

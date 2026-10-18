@@ -24,6 +24,7 @@
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
+#include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -4622,32 +4623,130 @@ TEST(GpuService, PtDisplayFireflyFiltersBordersWithoutChangingHistory) {
   }
 }
 
-TEST(GpuService, RestirProgressiveBlendUsesFreshPathsAndPreservesAccumulation) {
+TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
+  ScopedGpuPlatform platform;
+  constexpr uint32_t width = 17, height = 1080, count = width * height;
+  auto reflection_layout = std::make_shared<DescriptorSetLayout>();
+  reflection_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0);
+  reflection_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  reflection_layout->Initialize();
+  auto geometry_layout = std::make_shared<DescriptorSetLayout>();
+  for (const auto binding : {17u, 21u})
+    geometry_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  geometry_layout->Initialize();
+  DescriptorSet reflection_set(reflection_layout), geometry_set(geometry_layout);
+  Texture2D reflection, depth, normal;
+  std::vector<glm::vec4> radiance(count, glm::vec4(0, 0, 0, 0.95f));
+  for (uint32_t y = 0; y < height; ++y)
+    for (uint32_t x = 9; x < width; ++x)
+      radiance[y * width + x] = glm::vec4(1, 1, 1, 0.95f);
+  reflection.SetRgbaChannelData(radiance, {width, height});
+  VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  image_info.extent = {width, height, 1};
+  image_info.mipLevels = image_info.arrayLayers = 1;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Image>(image_info);
+  VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+  view_info.image = output->GetVkImage();
+  view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  view_info.format = image_info.format;
+  view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  ImageView output_view(view_info, output);
+  VkDescriptorImageInfo output_descriptor{};
+  output_descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  output_descriptor.imageView = output_view.GetVkImageView();
+  reflection_set.UpdateImageDescriptorBinding(1, output_descriptor);
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  ComputePipeline pipeline;
+  pipeline.compute_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(pipeline.compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                  root / "Compute/PostProcessing/SSRSpatialResolve.slang"));
+  pipeline.descriptor_set_layouts = {reflection_layout, geometry_layout};
+  pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ScreenSpaceReflection::PushConstant)}};
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  for (int mode = 0; mode < 6; ++mode) {
+    SCOPED_TRACE(mode);
+    const float roughness = mode == 0 ? 0.0f : 1.0f;
+    std::vector<glm::vec4> depths(count, glm::vec4(0.5f));
+    std::vector<glm::vec4> normals(count, glm::vec4(0, 0, 1, roughness));
+    for (uint32_t y = 0; y < height; ++y) {
+      for (uint32_t x = 9; x < width; ++x) {
+        if (mode == 3)
+          normals[y * width + x].z = -1.0f;
+        if (mode == 4)
+          depths[y * width + x] = glm::vec4(0.8f);
+        if (mode == 5)
+          normals[y * width + x].w = 0.0f;
+      }
+    }
+    depth.SetRgbaChannelData(depths, {width, height});
+    normal.SetRgbaChannelData(normals, {width, height});
+    const auto bind = [](DescriptorSet& set, uint32_t binding, const Texture2D& texture) {
+      VkDescriptorImageInfo descriptor{};
+      descriptor.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      descriptor.imageView = texture.GetVkImageView();
+      descriptor.sampler = texture.GetVkSampler();
+      set.UpdateImageDescriptorBinding(binding, descriptor);
+    };
+    bind(reflection_set, 0, reflection);
+    bind(geometry_set, 17, depth);
+    bind(geometry_set, 21, normal);
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      output->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      ScreenSpaceReflection::PushConstant constants{};
+      constants.roughness_filter_radius = mode == 2 ? 0.0f : 12.0f;
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, reflection_set.GetVkDescriptorSet());
+      pipeline.BindDescriptorSet(command, 1, geometry_set.GetVkDescriptorSet());
+      pipeline.PushConstant(command, 0, constants);
+      pipeline.Dispatch(command, Platform::DivUp(width, 16), Platform::DivUp(height, 16));
+      Platform::EverythingBarrier(command);
+    });
+    Buffer readback(count * sizeof(glm::vec4));
+    readback.CopyFromImage(*output, sizeof(glm::vec4));
+    std::vector<glm::vec4> values;
+    readback.DownloadVector(values, count);
+    const auto value = values[(height / 2) * width + 8];
+    if (mode == 1)
+      EXPECT_GT(value.x, 0.1f);
+    else
+      EXPECT_NEAR(value.x, 0.0f, 0.0001f);
+    EXPECT_NEAR(value.w, 0.95f, 0.005f);
+    EXPECT_TRUE(std::isfinite(values.back().x));
+  }
+}
+
+TEST(GpuService, RestirResolvePreservesAccumulation) {
   ScopedGpuPlatform platform;
   constexpr uint32_t size = 9, count = size * size;
   auto layout = std::make_shared<DescriptorSetLayout>();
   for (const uint32_t binding : {0u, 2u})
     layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  for (const uint32_t binding : {12u, 22u})
-    layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout->Initialize();
   auto descriptors = std::make_shared<DescriptorSet>(layout);
   auto empty_layout = std::make_shared<DescriptorSetLayout>();
   empty_layout->Initialize();
   auto empty_set = std::make_shared<DescriptorSet>(empty_layout);
-  std::array<std::shared_ptr<Buffer>, 2> buffers;
   std::array<std::shared_ptr<Image>, 2> images;
   std::array<std::shared_ptr<ImageView>, 2> views;
+  VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.size = count * sizeof(glm::vec4);
+  buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto buffer = std::make_shared<Buffer>(buffer_info);
+  std::vector<glm::vec4> estimates(count);
+  for (uint32_t pixel = 0; pixel < count; ++pixel)
+    estimates[pixel] = glm::vec4(glm::vec3(2.0f + pixel * 0.125f), 0.0f);
+  buffer->UploadVector(estimates);
+  descriptors->UpdateBufferDescriptorBinding(12, buffer);
   for (size_t i = 0; i < 2; ++i) {
-    VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = count * sizeof(glm::vec4);
-    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffers[i] = std::make_shared<Buffer>(buffer_info);
-    std::vector<glm::vec4> estimates(count);
-    for (uint32_t pixel = 0; pixel < count; ++pixel)
-      estimates[pixel] = glm::vec4(glm::vec3((i == 0 ? 2.0f : 10.0f) + pixel * 0.125f), 0.0f);
-    buffers[i]->UploadVector(estimates);
-    descriptors->UpdateBufferDescriptorBinding(i == 0 ? 12 : 22, buffers[i]);
     VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     info.imageType = VK_IMAGE_TYPE_2D;
     info.format = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -4677,8 +4776,7 @@ TEST(GpuService, RestirProgressiveBlendUsesFreshPathsAndPreservesAccumulation) {
   pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracingCameraPushConstant)}};
   pipeline.Initialize();
   ASSERT_TRUE(pipeline.Initialized());
-  for (const auto [enabled, samples] : {std::pair{false, 256u}, std::pair{true, 0u}, std::pair{true, 511u},
-                                        std::pair{true, 1023u}, std::pair{true, 2048u}}) {
+  for (const auto [samples, frame_samples] : {std::pair{0u, 1u}, std::pair{256u, 1u}, std::pair{2048u, 4u}}) {
     Platform::ImmediateSubmit([&](VkCommandBuffer command) {
       for (const auto& image : images)
         image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
@@ -4687,10 +4785,8 @@ TEST(GpuService, RestirProgressiveBlendUsesFreshPathsAndPreservesAccumulation) {
       Platform::ClearColorImage(command, *images[1], color, 1, &range);
       Platform::EverythingBarrier(command);
       RayTracingCameraPushConstant constants{};
-      constants.frame_samples = 1;
+      constants.frame_samples = frame_samples;
       constants.total_samples = samples;
-      constants.seed_frame_id = 1234;
-      constants.restir_fresh_accumulation = enabled;
       pipeline.Bind(command);
       pipeline.BindDescriptorSet(command, 0, empty_set->GetVkDescriptorSet());
       pipeline.BindDescriptorSet(command, 1, empty_set->GetVkDescriptorSet());
@@ -4703,9 +4799,9 @@ TEST(GpuService, RestirProgressiveBlendUsesFreshPathsAndPreservesAccumulation) {
     output.CopyFromImage(*images[0], sizeof(glm::vec4));
     std::vector<glm::vec4> pixels;
     output.DownloadVector(pixels, count);
-    const float weight = enabled ? std::min(float(samples) / 1023.0f, 1.0f) : 0.0f;
     for (uint32_t pixel = 0; pixel < count; ++pixel) {
-      const float expected = (6.0f * samples + 2.0f + pixel * 0.125f + 8.0f * weight) / float(samples + 1);
+      const float expected =
+          (6.0f * samples + (2.0f + pixel * 0.125f) * frame_samples) / float(samples + frame_samples);
       EXPECT_NEAR(pixels[pixel].x, expected, 0.00001f);
     }
     output.CopyFromImage(*images[1], sizeof(glm::vec4));

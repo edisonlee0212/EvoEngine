@@ -264,7 +264,6 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << camera.camera_settings.restir_spatial_hybrid;
   out << YAML::Key << "restir_temporal_history_cap" << YAML::Value
       << camera.camera_settings.restir_temporal_history_cap;
-  out << YAML::Key << "restir_progressive_blend" << YAML::Value << camera.camera_settings.restir_progressive_blend;
   out << YAML::Key << "restir_temporal_adaptive_cap" << YAML::Value
       << camera.camera_settings.restir_temporal_adaptive_cap;
   out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
@@ -393,8 +392,6 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.restir_spatial_hybrid = in["restir_spatial_hybrid"].as<bool>();
   if (in["restir_temporal_history_cap"])
     camera.camera_settings.restir_temporal_history_cap = glm::clamp(in["restir_temporal_history_cap"].as<int>(), 1, 32);
-  if (in["restir_progressive_blend"])
-    camera.camera_settings.restir_progressive_blend = in["restir_progressive_blend"].as<bool>();
   if (in["restir_temporal_adaptive_cap"])
     camera.camera_settings.restir_temporal_adaptive_cap = in["restir_temporal_adaptive_cap"].as<bool>();
   if (in["shader_execution_reordering_mode"])

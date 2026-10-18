@@ -36,7 +36,7 @@ float4 PackReblurSignal(float4 signal, float view_z, float roughness) {
   float4 specular = nrd_specular_signal_image[pixel];
   if (EE_CAMERA_NRD_ACCUMULATED_INPUT_ENABLED()) {
     // The PT pass commits the current frame before this pack pass runs.
-    const bool history_valid = EE_CAMERA_RESTIR_ACCUMULATED_SAMPLES() > EE_CAMERA_NRD_FRAME_SAMPLES();
+    const bool history_valid = EE_CAMERA_ACCUMULATED_SAMPLES() > EE_CAMERA_NRD_FRAME_SAMPLES();
     const float current = float(EE_CAMERA_NRD_FRAME_SAMPLES());
     float diffuse_samples = 0.0f;
     float specular_samples = 0.0f;

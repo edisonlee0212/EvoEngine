@@ -180,6 +180,9 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
   int binary_search_iteration_count = 8;
   float thickness = 0.5f;
   float start_bias = 0.05f;
+  float roughness_fade_start = 0.4f;
+  float roughness_fade_end = 0.8f;
+  float roughness_filter_radius = 12.0f;
   bool blur = true;
   bool temporal_stabilization = true;
   DebugMode debug_mode = DebugMode::None;
@@ -195,6 +198,9 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
     int32_t debug_mode;
     int32_t temporal_enabled;
     int32_t temporal_history_valid;
+    float roughness_fade_start;
+    float roughness_fade_end;
+    float roughness_filter_radius;
   };
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,

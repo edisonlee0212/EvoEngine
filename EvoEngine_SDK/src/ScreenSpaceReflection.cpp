@@ -17,6 +17,9 @@ void ScreenSpaceReflection::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "binary_search_iteration_count" << YAML::Value << binary_search_iteration_count;
   out << YAML::Key << "thickness" << YAML::Value << thickness;
   out << YAML::Key << "start_bias" << YAML::Value << start_bias;
+  out << YAML::Key << "roughness_fade_start" << YAML::Value << roughness_fade_start;
+  out << YAML::Key << "roughness_fade_end" << YAML::Value << roughness_fade_end;
+  out << YAML::Key << "roughness_filter_radius" << YAML::Value << roughness_filter_radius;
   out << YAML::Key << "blur" << YAML::Value << blur;
   out << YAML::Key << "temporal_stabilization" << YAML::Value << temporal_stabilization;
 }
@@ -36,6 +39,12 @@ void ScreenSpaceReflection::Deserialize(const YAML::Node& in) {
     thickness = in["thickness"].as<float>();
   if (in["start_bias"])
     start_bias = in["start_bias"].as<float>();
+  if (in["roughness_fade_start"])
+    roughness_fade_start = in["roughness_fade_start"].as<float>();
+  if (in["roughness_fade_end"])
+    roughness_fade_end = in["roughness_fade_end"].as<float>();
+  if (in["roughness_filter_radius"])
+    roughness_filter_radius = in["roughness_filter_radius"].as<float>();
   if (in["blur"])
     blur = in["blur"].as<bool>();
   if (in["temporal_stabilization"])
@@ -161,6 +170,9 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   push_constant.temporal_enabled = temporal_enabled ? 1 : 0;
   push_constant.temporal_history_valid = temporal_resources.history_valid ? 1 : 0;
   push_constant.camera_index = camera_index;
+  push_constant.roughness_fade_start = glm::clamp(roughness_fade_start, 0.0f, 0.999f);
+  push_constant.roughness_fade_end = glm::clamp(roughness_fade_end, push_constant.roughness_fade_start + 0.001f, 1.0f);
+  push_constant.roughness_filter_radius = glm::clamp(roughness_filter_radius, 0.0f, 32.0f);
   RenderInstancePushConstant combine_push_constant;
   combine_push_constant.camera_index = camera_index;
   combine_push_constant.meshlet_culling_flags = static_cast<uint32_t>(debug_mode);

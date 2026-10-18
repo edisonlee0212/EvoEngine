@@ -2558,7 +2558,6 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "restir_spatial_neighbors" << YAML::Value << settings.restir_spatial_neighbors;
   out << YAML::Key << "restir_spatial_hybrid" << YAML::Value << settings.restir_spatial_hybrid;
   out << YAML::Key << "restir_temporal_history_cap" << YAML::Value << settings.restir_temporal_history_cap;
-  out << YAML::Key << "restir_progressive_blend" << YAML::Value << settings.restir_progressive_blend;
   out << YAML::Key << "restir_temporal_adaptive_cap" << YAML::Value << settings.restir_temporal_adaptive_cap;
   out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
       << Camera::GetShaderExecutionReorderingModeName(settings.shader_execution_reordering_mode);
@@ -2617,7 +2616,6 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "restir_temporal_history_cap", settings.restir_temporal_history_cap);
   settings.restir_temporal_history_cap = glm::clamp(settings.restir_temporal_history_cap, 1, 32);
   ReadYamlValue(in, "restir_temporal_adaptive_cap", settings.restir_temporal_adaptive_cap);
-  ReadYamlValue(in, "restir_progressive_blend", settings.restir_progressive_blend);
   if (const auto mode = in["shader_execution_reordering_mode"]) {
     settings.shader_execution_reordering_mode =
         Camera::ParseShaderExecutionReorderingMode(mode.as<std::string>(), settings.shader_execution_reordering_mode);

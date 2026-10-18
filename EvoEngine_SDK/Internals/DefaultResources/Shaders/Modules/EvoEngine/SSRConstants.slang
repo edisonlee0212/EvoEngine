@@ -9,6 +9,9 @@ public struct EeSsrConstants {
   public int debug_mode;
   public int temporal_enabled;
   public int temporal_history_valid;
+  public float roughness_fade_start;
+  public float roughness_fade_end;
+  public float roughness_filter_radius;
 };
 
 [[vk::push_constant]]

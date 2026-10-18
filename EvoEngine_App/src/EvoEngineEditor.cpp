@@ -96,7 +96,6 @@ struct EditorCommandLine {
   std::optional<bool> preview_capture_restir_spatial_hybrid;
   std::optional<int> preview_capture_restir_temporal_history_cap;
   std::optional<bool> preview_capture_restir_temporal_adaptive_cap;
-  std::optional<bool> preview_capture_restir_progressive_blend;
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   bool preview_capture_full_ray_variant = false;
@@ -753,11 +752,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-restir-temporal-history-cap requires an integer from 1 to 32.");
       }
       command_line.preview_capture_restir_temporal_history_cap = cap;
-    } else if (argument == "--preview-restir-progressive-blend") {
-      if (arg_index + 1 >= argc)
-        throw std::invalid_argument("--preview-restir-progressive-blend requires enabled or disabled.");
-      command_line.preview_capture_restir_progressive_blend =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-restir-temporal-adaptive-cap") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-restir-temporal-adaptive-cap requires enabled or disabled.");
@@ -2236,23 +2230,18 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   const auto restir_shift = WriteRestirPtShiftDiagnostics(report_path, camera);
   const auto restir_generated = CollectRestirPtGeneratedDiagnostics(camera);
   const auto restir_temporal = CollectRestirPtTemporalDiagnostics(camera);
-  const auto temporal_estimate_bytes =
-      sizeof(RestirPtResolvedRadiance) *
-      (camera.camera_settings.accumulate_samples && camera.camera_settings.restir_progressive_blend &&
-               (!Camera::NrdDenoisingAvailable() || !camera.camera_settings.nrd_denoising)
-           ? 2u
-           : 1u);
   const auto restir_bytes_per_pixel =
       !restir_pt ? 0u
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
-          ? sizeof(RestirPtPathReservoir) * 3u + temporal_estimate_bytes + sizeof(RestirPtPrimarySurface) * 2u +
+          ? sizeof(RestirPtPathReservoir) * 3u + sizeof(RestirPtResolvedRadiance) +
+                sizeof(RestirPtPrimarySurface) * 2u +
                 sizeof(RestirPtSpatialShift) * (std::clamp(camera.camera_settings.restir_spatial_neighbors, 1,
                                                            CameraSettings::kMaxRestirSpatialNeighbors) +
                                                 1u) +
                 (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly
-          ? sizeof(RestirPtPathReservoir) * 2u + temporal_estimate_bytes + sizeof(RestirPtPrimarySurface) * 2u +
-                sizeof(RestirPtSpatialShift) +
+          ? sizeof(RestirPtPathReservoir) * 2u + sizeof(RestirPtResolvedRadiance) +
+                sizeof(RestirPtPrimarySurface) * 2u + sizeof(RestirPtSpatialShift) +
                 (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
           ? sizeof(RestirPtPathReservoir) + sizeof(RestirPtResolvedRadiance) + sizeof(RestirPtPrimarySurface) +
@@ -2297,8 +2286,6 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
          << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"
          << "  \"restir_pt_storage_bytes_per_pixel\": " << restir_bytes_per_pixel << ",\n"
-         << "  \"restir_progressive_blend\": " << (camera.camera_settings.restir_progressive_blend ? "true" : "false")
-         << ",\n"
          << "  \"sss_delayed_reconnection\": "
          << (camera.camera_settings.restir_sss_delayed_reconnection ? "true" : "false") << ",\n"
          << "  \"restir_sss_storage_bytes_per_pixel\": "
@@ -2560,7 +2547,6 @@ void CaptureDemoPreview(
     const std::optional<bool>& preview_restir_spatial_hybrid,
     const std::optional<int>& preview_restir_temporal_history_cap,
     const std::optional<bool>& preview_restir_temporal_adaptive_cap,
-    const std::optional<bool>& preview_restir_progressive_blend,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<float>& preview_display_firefly_strength,
@@ -2666,8 +2652,6 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.restir_temporal_history_cap = *preview_restir_temporal_history_cap;
     scene_camera->ResetFrameCount();
   }
-  if (preview_restir_progressive_blend)
-    scene_camera->camera_settings.restir_progressive_blend = *preview_restir_progressive_blend;
   if (preview_restir_temporal_adaptive_cap) {
     scene_camera->camera_settings.restir_temporal_adaptive_cap = *preview_restir_temporal_adaptive_cap;
     scene_camera->ResetFrameCount();
@@ -3611,8 +3595,7 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_ray_debug_view, command_line.preview_capture_ray_integrator,
               command_line.preview_capture_restir_spatial_neighbors, command_line.preview_capture_restir_spatial_hybrid,
               command_line.preview_capture_restir_temporal_history_cap,
-              command_line.preview_capture_restir_temporal_adaptive_cap,
-              command_line.preview_capture_restir_progressive_blend, command_line.preview_capture_ray_outputs,
+              command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
               command_line.preview_capture_ser_mode, command_line.preview_capture_display_firefly_strength,
               command_line.preview_capture_display_firefly_ratio, command_line.preview_capture_accumulate_samples,
               command_line.preview_capture_sss_delayed, command_line.preview_sss_profile_scale_edit,

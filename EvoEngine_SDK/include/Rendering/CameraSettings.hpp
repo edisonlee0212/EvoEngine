@@ -140,7 +140,6 @@ struct CameraSettings {
   bool restir_spatial_hybrid = false;
   int restir_temporal_history_cap = 20;
   bool restir_temporal_adaptive_cap = true;
-  bool restir_progressive_blend = true;
 
   /** @brief Optional ray-camera diagnostic outputs. */
   RayOutputSettings ray_outputs{};

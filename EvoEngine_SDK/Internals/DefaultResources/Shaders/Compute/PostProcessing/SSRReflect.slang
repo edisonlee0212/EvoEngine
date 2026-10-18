@@ -89,7 +89,11 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   float position_length = length(position_from);
   if (!isfinite(position_length) || position_length <= 0.00001f) return;
 
-  float3 world_normal = inNormalRoughness.SampleLevel(tex_coord, 0.0f).rgb;
+  float4 normal_roughness = inNormalRoughness.SampleLevel(tex_coord, 0.0f);
+  float roughness_visibility = 1.0f - smoothstep(EE_SSR_CONSTANTS.roughness_fade_start,
+      EE_SSR_CONSTANTS.roughness_fade_end, clamp(normal_roughness.a, 0.0f, 1.0f));
+  if (EE_SSR_CONSTANTS.debug_mode == 0 && roughness_visibility <= 0.0f) return;
+  float3 world_normal = normal_roughness.rgb;
   float3 view_normal = mul(float4(world_normal, 0.0f), EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].view).xyz;
   float normal_length = length(view_normal);
   if (!all(isfinite(view_normal)) || normal_length <= 0.00001f) return;
@@ -200,6 +204,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   float normal_confidence = smoothstep(0.05f, 0.35f, hit_facing);
   float confidence = thickness_confidence * distance_confidence * grazing_confidence * edge_confidence * normal_confidence;
   confidence = clamp(isfinite(confidence) ? confidence : 0.0f, 0.0f, 1.0f);
+  if (EE_SSR_CONSTANTS.debug_mode == 0) confidence *= roughness_visibility;
   outDstColorVisibility[int2(pixel)] =
       EncodeHit(sample_uv, normalized_distance, confidence, inColor.SampleLevel(sample_uv, 0.0f).rgb);
 }

@@ -1087,8 +1087,8 @@ TEST(GltfRasterMaterial, ScreenSpaceReflectionUsesEdgeAwareSpatialResolve) {
   ASSERT_FALSE(source.empty());
   EXPECT_NE(source.find("center.a <= 0.0001f"), std::string::npos);
   EXPECT_NE(source.find("center.a >= 0.85f"), std::string::npos);
-  EXPECT_NE(source.find("float3 radiance_sum = center.rgb"), std::string::npos);
-  EXPECT_NE(source.find("float weight_sum = 1.0f"), std::string::npos);
+  EXPECT_NE(source.find("float3 radiance_sum = center.rgb * center.a"), std::string::npos);
+  EXPECT_NE(source.find("float weight_sum = center.a"), std::string::npos);
   EXPECT_NE(source.find("float depth_weight"), std::string::npos);
   EXPECT_NE(source.find("float normal_weight"), std::string::npos);
   EXPECT_NE(source.find("float roughness_weight"), std::string::npos);

@@ -26,7 +26,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   float2 texel_size = 1.0f / float2(resolution);
   float2 tex_coord = (float2(pixel) + float2(0.5f)) * texel_size;
   float4 center = inReflectionConfidence.SampleLevel(tex_coord, 0.0f);
-  if (EE_SSR_CONSTANTS.debug_mode != 0 || center.a <= 0.0001f || center.a >= 0.85f) {
+  if (EE_SSR_CONSTANTS.debug_mode != 0 || center.a <= 0.0001f) {
     outReflectionConfidence[int2(pixel)] = center;
     return;
   }
@@ -40,14 +40,20 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     return;
   }
 
+  float roughness = clamp(center_normal_roughness.a, 0.0f, 1.0f);
+  float radius = EE_SSR_CONSTANTS.roughness_filter_radius * roughness * roughness * float(height) / 1080.0f;
+  if (center.a >= 0.85f && radius < 0.5f) {
+    outReflectionConfidence[int2(pixel)] = center;
+    return;
+  }
+  float sample_spacing = max(radius, center.a < 0.85f ? 2.0f : 0.0f) / 3.0f;
   float3 center_normal = center_normal_roughness.xyz / center_normal_length;
-  float3 radiance_sum = center.rgb;
-  float confidence_sum = center.a;
-  float weight_sum = 1.0f;
-  for (int y = -2; y <= 2; ++y) {
-    for (int x = -2; x <= 2; ++x) {
+  float3 radiance_sum = center.rgb * center.a;
+  float weight_sum = center.a;
+  for (int y = -3; y <= 3; ++y) {
+    for (int x = -3; x <= 3; ++x) {
       if (x == 0 && y == 0) continue;
-      float2 sample_uv = tex_coord + float2(x, y) * texel_size;
+      float2 sample_uv = tex_coord + float2(x, y) * sample_spacing * texel_size;
       if (any(sample_uv <= float2(0.0f)) || any(sample_uv >= float2(1.0f))) continue;
       float4 sample_reflection = inReflectionConfidence.SampleLevel(sample_uv, 0.0f);
       if (sample_reflection.a <= 0.0001f || !all(isfinite(sample_reflection))) continue;
@@ -57,13 +63,12 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
       if (!isfinite(sample_depth) || sample_depth >= 1.0f || !isfinite(sample_normal_length) ||
           sample_normal_length <= 0.00001f) continue;
       float3 sample_normal = sample_normal_roughness.xyz / sample_normal_length;
-      float spatial_weight = exp(-0.5f * float(x * x + y * y));
+      float spatial_weight = exp(-float(x * x + y * y) / 4.5f);
       float depth_weight = exp(-abs(sample_depth - center_depth) * 512.0f);
       float normal_weight = pow(max(dot(center_normal, sample_normal), 0.0f), 32.0f);
       float roughness_weight = exp(-abs(sample_normal_roughness.a - center_normal_roughness.a) * 16.0f);
       float weight = spatial_weight * depth_weight * normal_weight * roughness_weight * sample_reflection.a;
       radiance_sum += sample_reflection.rgb * weight;
-      confidence_sum += sample_reflection.a * weight;
       weight_sum += weight;
     }
   }
@@ -73,6 +78,5 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     return;
   }
   float3 resolved_radiance = radiance_sum / weight_sum;
-  float resolved_confidence = max(center.a, confidence_sum / weight_sum * 0.9f);
-  outReflectionConfidence[int2(pixel)] = float4(resolved_radiance, clamp(resolved_confidence, 0.0f, 1.0f));
+  outReflectionConfidence[int2(pixel)] = float4(resolved_radiance, center.a);
 }
