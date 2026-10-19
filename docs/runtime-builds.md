@@ -49,6 +49,8 @@ In **Build Manager > Startup screen**, use **Choose startup logo...** to select 
 
 For validation, add `--capture-startup UserData/startup.png` to save the startup screen separately from the existing final-frame `--capture` option. The log records `RUNTIME_STARTUP_VISIBLE`, loading-status changes, `RUNTIME_STARTED` after scene preparation, and `RUNTIME_READY` at the gameplay handoff. Shader and pipeline caches remain persistent across launches.
 
+Scene shader preparation uses the same bounded compiler-worker queue as the editor (`EVOENGINE_SHADER_COMPILER_WORKERS` overrides the hardware-selected limit). Player mode prepares pipelines for active cameras without proactively compiling unused ray-camera modes, debug views or profiling variants. Later camera-mode changes prepare their required pipelines on demand and defer ray rendering until those builds finish. See [shader preparation](shader-preparation.md) for worker limits and memory guidance.
+
 ## Demo validation
 
 Some demos create or modify their scene during editor startup. To validate their saved runtime content, run the editor with `--demo <id> --resource-root <isolated Resources directory> --author-runtime-scene`. This runs the normal demo setup, saves loaded project assets and the scene, and writes an authoring report under the project's `Cache/RuntimeAuthoring`. It does not remove previously authored demo projects. Use a separate copy of demo resources for this workflow.

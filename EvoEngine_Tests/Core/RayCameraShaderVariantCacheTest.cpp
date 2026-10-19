@@ -91,11 +91,11 @@ TEST(ShaderPreparation, CancellationDropsUnstartedWorkAndEvictionReleasesResults
   EXPECT_EQ(queue.GetProgress().total, 0u);
 }
 
-TEST(ShaderPreparation, RuntimeRequestsRemainSynchronous) {
+TEST(ShaderPreparation, HeadlessRequestsCanRemainSynchronous) {
   evo_engine::ShaderPreparationQueue queue(1);
   queue.SetSynchronous(true);
   const auto owner = std::this_thread::get_id();
-  const auto result = queue.Request<int>("runtime", [owner] {
+  const auto result = queue.Request<int>("headless", [owner] {
     EXPECT_EQ(owner, std::this_thread::get_id());
     return std::make_shared<int>(3);
   });
