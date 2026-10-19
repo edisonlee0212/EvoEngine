@@ -532,7 +532,8 @@ void WindowLayer::ApplyNativeDisplayMode(const WindowDisplayMode mode) {
     return;
   }
   glfwGetError(nullptr);
-  glfwRestoreWindow(window_);
+  if (glfwGetWindowAttrib(window_, GLFW_VISIBLE))
+    glfwRestoreWindow(window_);
   if (!WindowModePolicy::IsFullscreen(display_mode_)) {
     int x, y, width, height;
     glfwGetWindowPos(window_, &x, &y);

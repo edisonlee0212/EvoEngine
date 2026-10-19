@@ -2682,6 +2682,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   ProjectManager::Initialize();
   if (render_layer) {
     const auto stage_begin = std::chrono::steady_clock::now();
+    if (initialization_settings.startup_status)
+      initialization_settings.startup_status("Initializing graphics...");
     Platform::Initialize(this->initialization_settings);
     platform_milliseconds = ElapsedMilliseconds(stage_begin);
     if (this->initialization_settings.enable_gpu_timestamp_capture) {
@@ -2721,17 +2723,23 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   }
   if (this->initialization_settings.load_default_resources) {
     const auto stage_begin = std::chrono::steady_clock::now();
+    if (initialization_settings.startup_status)
+      initialization_settings.startup_status("Loading engine resources...");
     Resources::Initialize();
     resources_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   if (this->initialization_settings.enable_runtime_packages) {
     const auto stage_begin = std::chrono::steady_clock::now();
+    if (initialization_settings.startup_status)
+      initialization_settings.startup_status("Loading runtime packages...");
     PackageManager::Initialize(this->initialization_settings.package_search_paths,
                                this->initialization_settings.startup_runtime_packages);
     packages_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   {
     const auto stage_begin = std::chrono::steady_clock::now();
+    if (initialization_settings.startup_status)
+      initialization_settings.startup_status("Preparing shaders and pipelines...");
     for (const auto& layer : this->layers_) {
       layer->OnCreate();
     }
@@ -2785,7 +2793,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
         stbi_image_free(i.pixels);
       }
     }
-    window_layer->ShowWindow();
+    if (!initialization_settings.defer_window_show)
+      window_layer->ShowWindow();
     show_window_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   this->execution_status_ = ExecutionStatus::NotPlaying;
@@ -2819,6 +2828,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   EVOENGINE_WARNING(startup_log.str())
 
   if (!this->initialization_settings.project_path.empty()) {
+    if (initialization_settings.startup_status)
+      initialization_settings.startup_status("Loading scene and assets...");
     ProjectManager::GetOrCreateProject(this->initialization_settings.project_path);
   }
 }

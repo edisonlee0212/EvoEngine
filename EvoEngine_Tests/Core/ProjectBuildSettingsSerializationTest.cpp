@@ -11,6 +11,7 @@ TEST(ProjectBuildSettings, RoundTripsWithoutChangingSourceStartup) {
   source.window_height = 900;
   source.allow_window_resize = false;
   source.show_console = true;
+  source.startup_logo = std::filesystem::u8path("C:/Brand/Startup Ω.png");
   YAML::Emitter out;
   SerializeProjectBuildSettings(source, out);
   const auto root = YAML::Load(out.c_str());
@@ -23,5 +24,7 @@ TEST(ProjectBuildSettings, ExistingSettingsDefaultToHiddenConsole) {
   SerializeProjectBuildSettings(ProjectBuildSettings{}, out);
   auto root = YAML::Load(out.c_str());
   root.remove("show_console");
+  root.remove("startup_logo");
   EXPECT_FALSE(DeserializeProjectBuildSettings(root).show_console);
+  EXPECT_TRUE(DeserializeProjectBuildSettings(root).startup_logo.empty());
 }

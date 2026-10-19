@@ -122,7 +122,6 @@ class EVOENGINE_API WindowLayer final : public ILayer {
 
   void InstallCustomTitleBar();
   void UninstallCustomTitleBar();
-  void ShowWindow() const;
   void InitializeDisplayPolicy(WindowDisplayMode mode, glm::ivec2 configured_size, bool allow_resize,
                                bool allow_resolution_change);
   void ApplyNativeDisplayMode(WindowDisplayMode mode);
@@ -136,6 +135,7 @@ class EVOENGINE_API WindowLayer final : public ILayer {
   static void Render();
 
  public:
+  void ShowWindow() const;
   /**
    * @brief Retrieves the GLFW window pointer.
    *

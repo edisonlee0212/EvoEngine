@@ -36,7 +36,8 @@ void SerializeProjectBuildSettings(const ProjectBuildSettings& s, YAML::Emitter&
       << "width" << YAML::Value << s.window_width << YAML::Key << "height" << YAML::Value << s.window_height
       << YAML::Key << "allow_resize" << YAML::Value << s.allow_window_resize << YAML::Key << "allow_resolution_change"
       << YAML::Value << s.allow_resolution_change << YAML::EndMap << YAML::Key << "show_console" << YAML::Value
-      << s.show_console << YAML::EndMap;
+      << s.show_console << YAML::Key << "startup_logo" << YAML::Value << s.startup_logo.generic_u8string()
+      << YAML::EndMap;
 }
 ProjectBuildSettings DeserializeProjectBuildSettings(const YAML::Node& node) {
   ProjectBuildSettings s;
@@ -55,6 +56,8 @@ ProjectBuildSettings DeserializeProjectBuildSettings(const YAML::Node& node) {
   s.allow_resolution_change = window["allow_resolution_change"].as<bool>();
   if (node["show_console"])
     s.show_console = node["show_console"].as<bool>();
+  if (node["startup_logo"])
+    s.startup_logo = std::filesystem::u8path(node["startup_logo"].as<std::string>());
   return s;
 }
 }  // namespace evo_engine

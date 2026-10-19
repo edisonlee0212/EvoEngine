@@ -1,11 +1,13 @@
 #include "Application.hpp"
 #include "Camera.hpp"
 #include "ImGuiLayer.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "RuntimeConfiguration.hpp"
 #include "RuntimeGuiLayer.hpp"
 #include "RuntimePaths.hpp"
+#include "RuntimeStartupScreen.hpp"
 #include "Scene.hpp"
 #include "WindowLayer.hpp"
 
@@ -77,6 +79,7 @@ int main(const int argc, char** argv) {
   bool logging_ready = false;
   uint64_t frame_limit = 0;
   std::filesystem::path capture_path;
+  std::filesystem::path startup_capture_path;
   std::unique_ptr<RuntimeConsole> console;
   std::unique_ptr<Application> application;
   try {
@@ -93,6 +96,8 @@ int main(const int argc, char** argv) {
         }
       } else if (argument == "--capture" && i + 1 < argc) {
         capture_path = runtime_paths::Resolve(std::filesystem::u8path(argv[++i]));
+      } else if (argument == "--capture-startup" && i + 1 < argc) {
+        startup_capture_path = runtime_paths::Resolve(std::filesystem::u8path(argv[++i]));
       } else {
         throw std::runtime_error("Unknown or incomplete runtime argument: " + argument);
       }
@@ -114,6 +119,9 @@ int main(const int argc, char** argv) {
     SetEnvironmentVariableW(L"TEMP", scratch.c_str());
     SetEnvironmentVariableW(L"TMP", scratch.c_str());
     const auto config = RuntimeConfiguration::Load(runtime_paths::Resolve("runtime.yaml"));
+    if (!startup_capture_path.empty())
+      std::filesystem::create_directories(startup_capture_path.parent_path());
+    RuntimeStartupScreen startup(config, startup_capture_path);
     if (config.show_console) {
       console = std::make_unique<RuntimeConsole>();
       std::cout << "Runtime console enabled. Logs: " << log_path.string() << std::endl;
@@ -121,31 +129,58 @@ int main(const int argc, char** argv) {
     std::cout << "Initializing runtime application." << std::endl;
     application = std::make_unique<Application>();
     const ApplicationContextScope application_scope(*application);
-    application->PushLayer<RenderLayer>("Runtime rendering");
+    auto renderer = application->PushLayer<RenderLayer>("Runtime rendering");
     auto window = application->PushLayer<WindowLayer>("Runtime window");
     application->PushLayer<ImGuiLayer>("Runtime GUI");
     application->PushLayer<RuntimeGuiLayer>("Runtime GUI");
-    application->Initialize(config.ApplicationSettings());
+    auto settings = config.ApplicationSettings();
+    if (config.window_mode == WindowDisplayMode::ExclusiveFullscreen)
+      settings.window_mode = WindowDisplayMode::BorderlessFullscreen;
+    settings.startup_status = [&startup](const std::string_view status) {
+      startup.SetStatus(status);
+    };
+    application->Initialize(settings);
     if (application->GetApplicationStatus() == Application::ExecutionStatus::Uninitialized) {
       throw std::runtime_error("Runtime initialization failed.");
     }
     config.ValidateLoadedPackages();
     bool started = false;
+    bool visible = false;
     bool capture_requested = false;
     uint64_t frames = 0;
-    while (application->Loop()) {
+    while (!startup.Cancelled() && application->Loop()) {
+      if (startup.Cancelled())
+        break;
       if (ProjectManager::GetProjectState() == ProjectState::Failed) {
         throw std::runtime_error(ProjectManager::GetProjectFailure());
       }
-      if (!started && ProjectManager::GetProjectState() == ProjectState::Loaded) {
+      const auto scene = application->GetActiveScene();
+      if (const auto error = renderer->GetSceneShaderPrewarmError(scene); !error.empty())
+        throw std::runtime_error("Runtime shader preparation failed: " + error);
+      if (!started && ProjectManager::GetProjectState() == ProjectState::Loaded && renderer->HasPresentedScene(scene)) {
+        startup.SetStatus("Preparing the first playable frame...");
         application->Start(true);
         started = true;
         std::cout << "RUNTIME_STARTED scene="
                   << static_cast<uint64_t>(ProjectManager::GetStartScene().lock()->GetHandle())
                   << " packages=" << config.packages.size() << std::endl;
+        continue;
       }
+      if (!started && ProjectManager::GetProjectState() == ProjectState::Loaded)
+        startup.SetStatus("Preparing shaders and pipelines...");
       if (!started || application->GetApplicationStatus() != Application::ExecutionStatus::Playing) {
         continue;
+      }
+      if (!visible) {
+        if (!renderer->HasPresentedScene(scene))
+          continue;
+        Platform::WaitForFrameSubmissions("Runtime Startup Frame Ready");
+        window->ShowWindow();
+        if (config.window_mode == WindowDisplayMode::ExclusiveFullscreen)
+          window->SetDisplayMode(config.window_mode);
+        startup.Close();
+        visible = true;
+        std::cout << "RUNTIME_READY" << std::endl;
       }
       ++frames;
       if (!capture_path.empty() && !capture_requested && frames + 1 >= frame_limit) {
@@ -173,6 +208,7 @@ int main(const int argc, char** argv) {
       }
     }
     window.reset();
+    renderer.reset();
     application->Terminate();
     return 0;
   } catch (const std::exception& error) {

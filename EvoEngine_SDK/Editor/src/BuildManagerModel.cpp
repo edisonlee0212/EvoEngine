@@ -1,5 +1,6 @@
 #include "BuildManagerModel.hpp"
 #include <algorithm>
+#include <cctype>
 namespace evo_engine {
 BuildPreflightResult ValidateBuildPreflight(const ProjectBuildSettings& settings,
                                             const BuildPreflightSnapshot& snapshot) {
@@ -26,6 +27,14 @@ BuildPreflightResult ValidateBuildPreflight(const ProjectBuildSettings& settings
     fail("Choose a saved startup scene for the build.");
   if (settings.window_width <= 0 || settings.window_height <= 0)
     fail("Window dimensions must be positive.");
+  if (!settings.startup_logo.empty()) {
+    auto extension = settings.startup_logo.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) {
+      return std::tolower(c);
+    });
+    if (!std::filesystem::is_regular_file(settings.startup_logo) || extension != ".png")
+      fail("Choose an existing PNG startup logo, or use the default EvoEngine logo.");
+  }
   if (!snapshot.startup_scene_saved)
     fail("The selected startup scene must be saved in the project.");
   if (!snapshot.startup_scene_loadable)

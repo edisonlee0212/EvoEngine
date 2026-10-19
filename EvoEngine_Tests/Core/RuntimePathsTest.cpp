@@ -13,6 +13,8 @@ TEST(RuntimeConfiguration, ConsoleVisibilityPreservesFileLogging) {
   config.show_console = true;
   EXPECT_FALSE(config.ApplicationSettings().hide_console_window);
   EXPECT_FALSE(config.ApplicationSettings().redirect_standard_streams_to_console);
+  EXPECT_TRUE(config.ApplicationSettings().defer_window_show);
+  EXPECT_EQ(config.startup_logo, "DefaultResources/Icons/EvoEngine.png");
 }
 
 TEST(RuntimePaths, ResolvesFromExecutableRatherThanWorkingDirectory) {

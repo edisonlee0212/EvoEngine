@@ -39,7 +39,15 @@ The runtime `window` configuration accepts `mode` (`windowed`, `borderless_windo
 
 Alt+Enter always switches between the session's last windowed and fullscreen modes. Before either has been used, defaults are the configured decorated window and borderless fullscreen. The windowed position and size are retained for that session, but each launch starts from the saved build configuration. Resize and resolution-change permissions never disable mode switching. Exclusive presentation uses Vulkan's application-controlled fullscreen extension when the device and surface support it. Exclusive startup presents one borderless frame at the same monitor resolution before taking display ownership; this avoids a first-presentation driver stall observed on the Windows test machine.
 
-Android deployment, asset packing, multiple build configurations, custom icons, and a runtime GUI remain future work. Runtime configuration and application data paths are separate from the Windows exporter and window implementation so future platform support can supply its own deployment and storage rules.
+Android deployment, asset packing, multiple build configurations, and custom application icons remain future work. Runtime configuration and application data paths are separate from the Windows exporter and window implementation so future platform support can supply its own deployment and storage rules.
+
+## Startup screen
+
+Exported applications show a black startup screen with a centered logo and a single loading-status line. It appears before graphics initialization and stays responsive during scene loading, shader compilation and pipeline creation. Playback waits for the startup scene to render with its required resources ready; the screen then remains until the first playable frame has completed GPU work. There is no artificial minimum duration. Closing the startup window cancels launch after any currently running initialization work finishes.
+
+In **Build Manager > Startup screen**, use **Choose startup logo...** to select a PNG, or **Use EvoEngine logo** to restore the default. The choice is saved with the project's build settings. Export copies a custom logo to `Startup/Logo.png`, records it in the build inventory, and writes its distribution-relative path to `startup.logo` in `runtime.yaml`. Empty project-logo settings and older runtime configurations use `DefaultResources/Icons/EvoEngine.png`. PNG transparency is composited over black and aspect ratio is preserved. The native startup screen is specific to the Windows runtime host; the editor's startup UI is unchanged.
+
+For validation, add `--capture-startup UserData/startup.png` to save the startup screen separately from the existing final-frame `--capture` option. The log records `RUNTIME_STARTUP_VISIBLE`, loading-status changes, `RUNTIME_STARTED` after scene preparation, and `RUNTIME_READY` at the gameplay handoff. Shader and pipeline caches remain persistent across launches.
 
 ## Demo validation
 

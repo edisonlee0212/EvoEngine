@@ -7011,7 +7011,7 @@ ShaderPreparationProgress RenderLayer::GetShaderPreparationProgress() const {
 
 bool RenderLayer::IsSceneShaderPrewarmComplete(const std::shared_ptr<Scene>& scene) const {
   const auto& settings = ApplicationContext::Get().GetApplicationInfo();
-  return !scene || settings.application_mode != ApplicationMode::Editor || !settings.prewarm_render_pipelines ||
+  return !scene || settings.application_mode == ApplicationMode::Headless || !settings.prewarm_render_pipelines ||
          !Platform::Initialized() || !Platform::RayAccelerationStructureEnabled() ||
          (shader_prewarm_scene_.lock() == scene && scene_shader_prewarm_complete_);
 }

@@ -22,6 +22,7 @@ struct EVOENGINE_API RuntimeConfiguration {
   bool allow_window_resize = true;
   bool allow_resolution_change = true;
   bool show_console = false;
+  std::filesystem::path startup_logo = "DefaultResources/Icons/EvoEngine.png";
   GraphicsInitializationSettings graphics;
   std::vector<RuntimePackageRequirement> packages;
 

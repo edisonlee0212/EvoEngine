@@ -21,6 +21,13 @@ ProjectBuildSettings Settings() {
 TEST(BuildManagerPreflight, AcceptsIndependentSavedScene) {
   EXPECT_TRUE(ValidateBuildPreflight(Settings(), Valid()).Passed());
 }
+TEST(BuildManagerPreflight, RejectsMissingCustomStartupLogo) {
+  auto settings = Settings();
+  settings.startup_logo = "missing-startup-logo.png";
+  EXPECT_FALSE(ValidateBuildPreflight(settings, Valid()).Passed());
+  settings.startup_logo.clear();
+  EXPECT_TRUE(ValidateBuildPreflight(settings, Valid()).Passed());
+}
 TEST(BuildManagerPreflight, AggregatesDirtyPlaybackAndCameraFailures) {
   auto snapshot = Valid();
   snapshot.editor_stopped = false;
