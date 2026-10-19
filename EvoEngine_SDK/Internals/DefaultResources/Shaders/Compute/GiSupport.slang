@@ -37,7 +37,7 @@ struct SupportResources : IGiSupportRequests {
   }
   uint claim(uint slot, uint key) {
     uint previous;
-#if GI_SUPPORT_MODE == 0 || GI_SUPPORT_MODE == 4
+#if GI_SUPPORT_MODE == 0 || GI_SUPPORT_MODE == 4 || GI_SUPPORT_MODE == 5
     InterlockedCompareExchange(requests[slot], 0xffffffffu, key, previous);
 #else
     InterlockedCompareExchange(pending[slot], 0xffffffffu, key, previous);
@@ -125,7 +125,20 @@ float supportVisibility(float3 world, float4 surface, uint cascade) {
   if (!GiSupportKey(SupportResources(), params, world, geometric_normal, 1.1, key, start))
     return;
   mask[pixel] = uint(round(weight * 255));
-  GiSupportRequest(SupportResources(), params, key);
+  GiSupportRequest(SupportResources(), params, key, true);
+}
+#elif GI_SUPPORT_MODE == 5
+[numthreads(16, 16, 1)] void main(uint3 id : SV_DispatchThreadID) {
+  uint2 pixel = id.xy;
+  if (any(pixel >= params.viewport))
+    return;
+  if (mask[pixel] == 0)
+    return;
+  int4 key;
+  float3 start;
+  float3 normal = EE_GBUFFER_OCT_DECODE(raw_frame_image.Load(int3(pixel, 0)).xy);
+  if (GiSupportKey(SupportResources(), params, worldPosition(pixel), normal, 1.1, key, start))
+    GiSupportRequest(SupportResources(), params, key);
 }
 #elif GI_SUPPORT_MODE == 1
 [numthreads(64, 1, 1)] void main(uint3 id : SV_DispatchThreadID) {

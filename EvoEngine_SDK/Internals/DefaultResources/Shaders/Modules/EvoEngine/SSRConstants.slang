@@ -13,6 +13,7 @@ public struct EeSsrConstants {
   public float roughness_fade_end;
   public float roughness_filter_radius;
   public uint frame_index;
+  public uint spatial_pass;
 };
 
 [[vk::push_constant]]

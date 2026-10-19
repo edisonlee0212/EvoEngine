@@ -14,7 +14,7 @@
       "path": "Compute/DeferredComputeLighting.slang"
     },
     {
-      "macro_controls": 17,
+      "macro_controls": 18,
       "path": "Compute/GiSupport.slang"
     },
     {

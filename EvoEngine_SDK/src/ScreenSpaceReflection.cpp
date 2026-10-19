@@ -130,8 +130,26 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   const auto current_reflection_texture = blur ? context.camera.stack.swap_texture : result_texture;
   const uint32_t history_read_index = temporal_resources.history_read_index;
   const uint32_t history_write_index = 1u - history_read_index;
-  const auto final_reflection_texture =
+  const auto temporal_reflection_texture =
       temporal_enabled ? temporal_resources.reflection_history[history_write_index] : current_reflection_texture;
+  const bool post_filter = blur && temporal_enabled && debug_mode == DebugMode::None;
+  const auto final_reflection_texture = post_filter ? context.camera.stack.swap_texture : temporal_reflection_texture;
+  std::array<std::shared_ptr<DescriptorSet>, 2> post_filter_sets;
+  if (post_filter) {
+    for (uint32_t pass = 0; pass < 2; ++pass) {
+      post_filter_sets[pass] =
+          temporal_resources.post_temporal_descriptor_sets[pass].GetOrCreate(spatial_resolve_layout);
+      const auto input = pass == 0 ? temporal_reflection_texture : result_texture;
+      const auto output = pass == 0 ? result_texture : context.camera.stack.swap_texture;
+      VkDescriptorImageInfo info{};
+      info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      info.imageView = input->GetColorImageView()->GetVkImageView();
+      info.sampler = input->GetColorSampler()->GetVkSampler();
+      post_filter_sets[pass]->UpdateImageDescriptorBinding(0, info);
+      info.imageView = output->GetColorImageView()->GetVkImageView();
+      post_filter_sets[pass]->UpdateImageDescriptorBinding(1, info);
+    }
+  }
   if (temporal_enabled) {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -250,6 +268,23 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
     temporal_resources.history_valid = true;
   } else {
     temporal_resources.history_valid = false;
+  }
+
+  if (post_filter) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      for (uint32_t pass = 0; pass < 2; ++pass) {
+        spatial_resolve_pipeline->Bind(command);
+        spatial_resolve_pipeline->BindDescriptorSet(command, 0, post_filter_sets[pass]->GetVkDescriptorSet());
+        spatial_resolve_pipeline->BindDescriptorSet(command, 1,
+                                                    target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
+        auto constants = push_constant;
+        constants.spatial_pass = pass + 1;
+        spatial_resolve_pipeline->PushConstant(command, 0, constants);
+        spatial_resolve_pipeline->Dispatch(command, Platform::DivUp(resolution.x, 16),
+                                           Platform::DivUp(resolution.y, 16));
+        Platform::EverythingBarrier(command);
+      }
+    });
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {

@@ -220,12 +220,16 @@ reprojection motion; stationary surfaces retain valid history across changing st
 reflected-object changes still respond through temporal averaging. Stationary stochastic surfaces use
 95-99% history weight (roughness dependent); motion retains the existing 85-97% weights. This trades
 slower response to lighting changes for lower noise; mirrors retain their existing history weights. Spatial reconstruction checks depth,
-normals, roughness and specular F0.
+normals, roughness and specular F0. With spatial resolve and temporal stabilization enabled, two additional
+5x5 passes filter the temporal result at increasing radii. Their footprint scales with roughness, and local RGB
+variance controls the blend strength. The passes preserve signed reflection corrections and coverage, reuse
+existing scratch textures, and do not feed spatially blurred results back into temporal history.
 
 In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment
 specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8).
 **Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter
-by squared material roughness and viewport height; enable **Edge-aware spatial resolve** to use it.
+by squared material roughness and viewport height in the initial pass, and by roughness with increasing scale
+in the post-temporal passes; enable **Edge-aware spatial resolve** to use it.
 Enable **Temporal stabilization** to smooth the changing samples. Disabling reconstruction exposes
 single-frame sampling noise. The controls are serialized; older assets use the new defaults.
 Screen-space visibility, spatial reuse and probe substitution remain approximations.

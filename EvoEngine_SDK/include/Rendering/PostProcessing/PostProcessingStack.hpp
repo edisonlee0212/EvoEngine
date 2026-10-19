@@ -203,6 +203,7 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
     float roughness_fade_end;
     float roughness_filter_radius;
     uint32_t frame_index;
+    uint32_t spatial_pass = 0;
   };
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
@@ -347,6 +348,7 @@ struct EVOENGINE_API PostProcessingCameraResources {
     PerFrameDescriptorSet combine_descriptor_set;
     PerFrameDescriptorSet reflect_output_descriptor_set;
     PerFrameDescriptorSet spatial_resolve_descriptor_set;
+    std::array<PerFrameDescriptorSet, 2> post_temporal_descriptor_sets;
     PerFrameDescriptorSet temporal_descriptor_set;
   } screen_space_reflection;
 

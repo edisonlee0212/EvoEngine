@@ -45,10 +45,11 @@ class EVOENGINE_API GiSupportCache {
   uint32_t generation_ = 1;
   uint64_t signature_ = 0;
   std::weak_ptr<const HddagiResources> field_;
-  uint32_t geometry_version_ = 0;
+  uint64_t content_version_ = 0;
+  uint32_t region_version_ = 0;
   bool reset_pending_ = true;
   std::shared_ptr<DescriptorSetLayout> layout_;
-  std::array<std::shared_ptr<ComputePipeline>, 5> pipelines_;
+  std::array<std::shared_ptr<ComputePipeline>, 6> pipelines_;
   std::shared_ptr<RayTracingPipeline> trace_;
   std::shared_ptr<Buffer> probes_, requests_, pending_, rays_;
   std::shared_ptr<ComputePipeline> deferred_pipeline_;

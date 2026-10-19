@@ -4958,7 +4958,7 @@ TEST(GpuService, SsrTemporalResolveAveragesMissesAndRejectsInvalidHistory) {
 
 TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   ScopedGpuPlatform platform;
-  constexpr uint32_t width = 17, height = 1080, count = width * height;
+  constexpr uint32_t width = 65, height = 1080, count = width * height;
   auto reflection_layout = std::make_shared<DescriptorSetLayout>();
   reflection_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
                                            0);
@@ -4973,7 +4973,7 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   Texture2D reflection, depth, normal, material;
   std::vector<glm::vec4> radiance(count, glm::vec4(0, 0, 0, 0.95f));
   for (uint32_t y = 0; y < height; ++y)
-    for (uint32_t x = 9; x < width; ++x)
+    for (uint32_t x = 33; x < width; ++x)
       radiance[y * width + x] = glm::vec4(1, 1, 1, 0.95f);
   reflection.SetRgbaChannelData(radiance, {width, height});
   VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -5004,25 +5004,32 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
   pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ScreenSpaceReflection::PushConstant)}};
   pipeline.Initialize();
   ASSERT_TRUE(pipeline.Initialized());
-  for (int mode = 0; mode < 10; ++mode) {
-    SCOPED_TRACE(mode);
+  float bright_filtered = 0;
+  for (int iteration = 0; iteration < 22; ++iteration) {
+    SCOPED_TRACE(iteration);
+    const int mode = iteration % 10;
     auto input_radiance = radiance;
     std::vector<glm::vec4> materials(count, glm::vec4(0, 0.04f, 0.04f, 0.04f));
     if (mode == 6)
-      input_radiance[(height / 2) * width + 8] = glm::vec4(0.0f);
+      input_radiance[(height / 2) * width + 32] = glm::vec4(0.0f);
     if (mode == 7) {
       input_radiance.assign(count, glm::vec4(0.0f));
-      input_radiance[(height / 2) * width + 8] = glm::vec4(1.0f);
+      input_radiance[(height / 2) * width + 32] = glm::vec4(1.0f);
     }
+    if (iteration == 20)
+      input_radiance.assign(count, glm::vec4(0.25f, 0.5f, -0.125f, 0.8f));
     if (mode == 9)
       for (auto& value : input_radiance)
         value = glm::vec4(-glm::vec3(value), value.w);
+    if (iteration == 21)
+      for (auto& value : input_radiance)
+        value = glm::vec4(glm::vec3(value) * 0.00001f, value.w);
     reflection.SetRgbaChannelData(input_radiance, {width, height});
-    const float roughness = mode == 0 ? 0.0f : 1.0f;
+    const float roughness = iteration == 20 ? 0.7f : (mode == 0 ? 0.0f : 1.0f);
     std::vector<glm::vec4> depths(count, glm::vec4(0.5f));
     std::vector<glm::vec4> normals(count, glm::vec4(0, 0, 1, roughness));
     for (uint32_t y = 0; y < height; ++y) {
-      for (uint32_t x = 9; x < width; ++x) {
+      for (uint32_t x = 33; x < width; ++x) {
         if (mode == 3)
           normals[y * width + x].z = -1.0f;
         if (mode == 4)
@@ -5050,6 +5057,7 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
     Platform::ImmediateSubmit([&](VkCommandBuffer command) {
       output->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       ScreenSpaceReflection::PushConstant constants{};
+      constants.spatial_pass = iteration >= 10 ? 2 : 0;
       constants.roughness_filter_radius = mode == 2 ? 0.0f : 12.0f;
       pipeline.Bind(command);
       pipeline.BindDescriptorSet(command, 0, reflection_set.GetVkDescriptorSet());
@@ -5062,7 +5070,20 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
     readback.CopyFromImage(*output, sizeof(glm::vec4));
     std::vector<glm::vec4> values;
     readback.DownloadVector(values, count);
-    const auto value = values[(height / 2) * width + 8];
+    const auto value = values[(height / 2) * width + 32];
+    if (iteration == 11)
+      bright_filtered = value.x;
+    if (iteration == 21) {
+      EXPECT_NEAR(value.x / 0.00001f, bright_filtered, 0.001f);
+      continue;
+    }
+    if (iteration == 20) {
+      EXPECT_NEAR(value.x, 0.25f, 1e-6f);
+      EXPECT_NEAR(value.y, 0.5f, 1e-6f);
+      EXPECT_NEAR(value.z, -0.125f, 1e-6f);
+      EXPECT_NEAR(value.w, 0.8f, 1e-6f);
+      continue;
+    }
     if (mode == 9)
       EXPECT_LT(value.x, -0.1f);
     else if (mode == 1 || mode == 6)
@@ -6979,10 +7000,12 @@ TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithou
   lighting->gi_probe_settings.cascade_count = 1;
   lighting->gi_probe_settings.base_probe_distance = 8;
   scene->environmental_lighting = lighting;
-  scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("GI anchor")).lock();
+  const auto anchor = scene->CreateEntity("GI anchor");
+  scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(anchor).lock();
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   uint32_t previous_version = 0;
-  for (uint32_t phase = 0; phase < 6; ++phase) {
+  uint64_t previous_content = 0;
+  for (uint32_t phase = 0; phase < 7; ++phase) {
     SCOPED_TRACE(phase);
     PlatformLifecycleTestAccess::PreUpdate();
     SdfgiTestAccess::RetireHddagiFrame(*render);
@@ -6994,6 +7017,11 @@ TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithou
     }
     if (phase == 4)
       scene->DeleteEntity(entity);
+    if (phase == 6) {
+      GlobalTransform transform;
+      transform.SetPosition({8, 0, 0});
+      scene->SetDataComponent(anchor, transform);
+    }
     SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
     const auto runtime = scene->GetHddagiRuntime();
     ASSERT_TRUE(runtime);
@@ -7014,6 +7042,13 @@ TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithou
     EXPECT_EQ(runtime->contributors.entries.size(), phase == 1 || phase >= 4 ? 0u : 1u);
     if (phase == 5)
       EXPECT_EQ(runtime->region_version, previous_version);
+    if (phase < 5)
+      EXPECT_GT(runtime->content_version, previous_content);
+    else
+      EXPECT_EQ(runtime->content_version, previous_content);
+    if (phase == 6)
+      EXPECT_GT(runtime->region_version, previous_version);
+    previous_content = runtime->content_version;
     previous_version = runtime->region_version;
     const auto probe_frame = runtime->resources->probe_frames[Platform::GetCurrentFrameIndex()];
     PlatformLifecycleTestAccess::LateUpdate();
@@ -8721,7 +8756,7 @@ TEST(GiSupport, ComputeVariantsCompileForBothProviders) {
     EXPECT_TRUE(deferred.TryCompile(
         ShaderType::Compute, std::string("#define EE_GI_SUPPORT\n") + (hddagi ? "#define EE_AUTOMATIC_HDDAGI\n" : ""),
         root / "Compute/DeferredComputeLighting.slang"));
-    for (int mode = 0; mode < 5; ++mode) {
+    for (int mode = 0; mode < 6; ++mode) {
       if (!hddagi && mode == 2)
         continue;
       SCOPED_TRACE(std::to_string(mode) + (hddagi ? " HDDAGI" : " DDGI"));
@@ -9066,6 +9101,7 @@ import EvoEngine.GiSupportLighting;
   bool valid=EE_GI_LIGHT_SUPPORT(float3(id.x==0?0.25:8.25,0.25,0.25),float3(0,1,0),irradiance);
   output[id.x]=float4(irradiance,valid?1:0);
 }
+
 )"));
   pipeline.Initialize();
   ASSERT_TRUE(pipeline.Initialized());
@@ -9092,5 +9128,158 @@ import EvoEngine.GiSupportLighting;
     for (uint32_t channel = 0; channel < 3; ++channel)
       EXPECT_NEAR(values[0][channel], glm::pi<float>(), 1e-5);
     EXPECT_EQ(values[1], glm::vec4(0));
+  }
+}
+
+TEST(GiSupport, ExistingVisibleProbesKeepTheirSlotsBeforeNewRequests) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  Shader::RegisterShaderIncludePath(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                    "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = (8192 + 4) * sizeof(uint32_t);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  output->UploadVector(std::vector<uint32_t>(8192 + 4, UINT32_MAX));
+  GiSupportParams params;
+  params.field.grid = glm::ivec3(64);
+  params.field.cascade_count = 1;
+  params.field.cascades.data[0].region_world_offset = glm::ivec3(-4);
+  info.size = sizeof(params);
+  info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto uniform = std::make_shared<Buffer>(info);
+  uniform->UploadVector(std::vector{params});
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, output);
+  set->UpdateBufferDescriptorBinding(1, uniform);
+  ComputePipeline pipeline;
+  pipeline.descriptor_set_layouts = {layout};
+  pipeline.push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, 4});
+  pipeline.compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.GiSupport;
+[[vk::binding(0,0)]] RWStructuredBuffer<uint> output;
+[[vk::binding(1,0)]] ConstantBuffer<GiSupportParams> data;
+struct Params {uint phase;};
+[[vk::push_constant]] ConstantBuffer<Params> params;
+static const int4 keys[5]={int4(-32,-31,2,0),int4(-32,-30,-23,0),int4(-32,-21,-4,0),int4(-32,-20,-29,0),int4(-32,8,31,0)};
+struct Fixture : IGiSupportRequests {
+  GiSupportProbe loadProbe(uint slot) {
+    GiSupportProbe p=(GiSupportProbe)0;uint bucket=GiSupportBucket(keys[0]);
+    if(slot>=bucket && slot<bucket+4) {p.key=keys[slot-bucket];p.state=uint4(data.generation,0,64,0);}
+    return p;
+  }
+  uint2 loadVoxels(int3 cell) {return uint2(0);}
+  uint claim(uint slot,uint key) {uint old;InterlockedCompareExchange(output[slot],0xffffffffu,key,old);return old;}
+};
+[numthreads(64,1,1)] void main(uint3 id:SV_DispatchThreadID) {
+  if(params.phase==0) {GiSupportRequest(Fixture(),data,keys[id.x%5],true);return;}
+  if(id.x!=0) return;
+  output[8192]=GiSupportRequest(Fixture(),data,keys[4])?1:0;
+  output[8193]=GiSupportRequest(Fixture(),data,keys[0])?1:0;
+}
+)"));
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+    pipeline.Bind(command);
+    pipeline.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+    pipeline.PushConstant(command, 0, 0u);
+    pipeline.Dispatch(command, 16);
+    Platform::EverythingBarrier(command);
+    pipeline.PushConstant(command, 0, 1u);
+    pipeline.Dispatch(command, 1);
+  });
+  std::vector<uint32_t> values;
+  output->DownloadVector(values, 8192 + 4);
+  const std::array<uint32_t, 4> expected{139328, 36992, 115392, 13056};
+  for (uint32_t i = 0; i < expected.size(); ++i)
+    EXPECT_EQ(values[1969 * 4 + i], expected[i]);
+  EXPECT_EQ(values[8192], 0u);
+  EXPECT_EQ(values[8193], 1u);
+}
+
+TEST(GiSupport, InterpolationIsContinuousAcrossCellsAndScrollsAndFadesNewSamples) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  Shader::RegisterShaderIncludePath(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                    "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = 6 * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  info.size = sizeof(GiSupportParams);
+  info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  auto uniform = std::make_shared<Buffer>(info);
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, output);
+  set->UpdateBufferDescriptorBinding(1, uniform);
+  ComputePipeline pipeline;
+  pipeline.descriptor_set_layouts = {layout};
+  pipeline.compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.GiSupport;
+[[vk::binding(0,0)]] RWStructuredBuffer<float4> output;
+[[vk::binding(1,0)]] ConstantBuffer<GiSupportParams> data;
+struct Fixture : IGiSupportRead {
+  uint mode;
+  GiSupportProbe loadProbe(uint slot) {
+    GiSupportProbe p=(GiSupportProbe)0;
+    for(int x=-1;x<=2;++x) {
+      int4 key=int4(x,0,0,0);
+      if(slot!=GiSupportBucket(key)) continue;
+      p.key=key;p.position=float4(GiSupportWorldPosition(data,key),1);p.state=uint4(data.generation,0,64,0);
+      float value=mode==0?float(x+2):((mode==1 || mode==2) && x==0?10:1);
+      if((mode==2 || mode==4) && x==0) p.state.z=1;
+      p.sh[0]=float4(float3(value*3.5449077018),0);return p;
+    }
+    return p;
+  }
+  uint2 loadVoxels(int3 cell) {return uint2(0);}
+};
+[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID) {
+  Fixture f;f.mode=id.x<2?0:id.x-1;
+  float3 position=float3(id.x==0?0.49999:id.x==1?0.50001:0.25,0.25,0.25),irradiance;
+  bool valid=GiSupportSample(f,data,position,float3(0,1,0),float3(0,1,0),0,irradiance);
+  output[id.x]=float4(irradiance,valid?1:0);
+}
+)"));
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  std::vector<glm::vec4> previous;
+  for (const bool scrolled : {false, true}) {
+    GiSupportParams params;
+    params.field.grid = glm::ivec3(64);
+    params.field.cascade_count = 1;
+    params.field.y_mult = 1;
+    params.field.anchor_origin = scrolled ? glm::vec3(1.25f, 0.5f, -2) : glm::vec3(0);
+    params.field.cascades.data[0].offset = glm::vec3(scrolled ? -12 : -16, -16, -16) - params.field.anchor_origin;
+    params.field.cascades.data[0].to_cell = 2;
+    params.field.cascades.data[0].region_world_offset = {scrolled ? -3 : -4, -4, -4};
+    uniform->UploadVector(std::vector{params});
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      pipeline.Bind(command);
+      pipeline.BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+      pipeline.Dispatch(command, 6);
+    });
+    std::vector<glm::vec4> values;
+    output->DownloadVector(values, 6);
+    for (const auto& value : values)
+      EXPECT_EQ(value.w, 1);
+    EXPECT_LT(std::abs(values[0].x - values[1].x), 0.001f);
+    EXPECT_NEAR(values[0].x, glm::pi<float>() * 2.5f, 0.001f);
+    EXPECT_LT(values[3].x, values[2].x);
+    EXPECT_NEAR(values[4].x, glm::pi<float>(), 1e-5);
+    EXPECT_NEAR(values[5].x, glm::pi<float>(), 1e-5);
+    if (scrolled)
+      for (uint32_t i = 0; i < values.size(); ++i)
+        EXPECT_LT(glm::length(values[i] - previous[i]), 0.0001f);
+    previous = std::move(values);
   }
 }

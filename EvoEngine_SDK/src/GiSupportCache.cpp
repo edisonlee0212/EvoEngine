@@ -55,7 +55,7 @@ GiSupportCache::GiSupportCache(const std::shared_ptr<DescriptorSetLayout>& per_f
       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   sampler_info.maxLod = VK_LOD_CLAMP_NONE;
   sampler_ = std::make_shared<Sampler>(sampler_info);
-  for (int mode : {0, 1, 2, 3, 4}) {
+  for (int mode : {0, 1, 2, 3, 4, 5}) {
     if (!hddagi && mode == 2)
       continue;
     auto pipeline = std::make_shared<ComputePipeline>();
@@ -129,7 +129,7 @@ void GiSupportCache::Execute(const RenderGraphExecutionContext& context,
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     mask_view_ = std::make_shared<ImageView>(view, mask_);
   }
-  uint64_t signature = lighting_signature ^ runtime->region_version;
+  uint64_t signature = lighting_signature ^ runtime->content_version;
   const auto mix = [&](const void* bytes, size_t size) {
     const auto* data = static_cast<const uint8_t*>(bytes);
     for (size_t i = 0; i < size; ++i)
@@ -156,7 +156,9 @@ void GiSupportCache::Execute(const RenderGraphExecutionContext& context,
     signature_ = signature;
     reset_pending_ = true;
   }
-  geometry_version_ = runtime->region_version;
+  reset_pending_ |= region_version_ != runtime->region_version;
+  region_version_ = runtime->region_version;
+  content_version_ = runtime->content_version;
   GiSupportParams params;
   params.field = BuildHddagiGatherData(runtime->probes, runtime->settings, runtime->cascades,
                                        runtime->frame.anchor.world_position);
@@ -239,6 +241,7 @@ void GiSupportCache::Execute(const RenderGraphExecutionContext& context,
       Platform::EverythingBarrier(command);
     };
     dispatch(0, Platform::DivUp(viewport.x, 16), Platform::DivUp(viewport.y, 16));
+    dispatch(5, Platform::DivUp(viewport.x, 16), Platform::DivUp(viewport.y, 16));
     dispatch(4, Capacity / 64, 1);
     vkCmdFillBuffer(command, pending_->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0xffffffffu);
     Platform::EverythingBarrier(command);
@@ -267,7 +270,7 @@ std::shared_ptr<DescriptorSet> GiSupportCache::GetCurrentSet() const {
   return frames_.at(Platform::GetCurrentFrameIndex())->set;
 }
 std::shared_ptr<DescriptorSet> GiSupportCache::GetPublishedSet(const HddagiRuntime& runtime) const {
-  return hddagi_ && published_ && field_.lock() == runtime.resources && geometry_version_ == runtime.region_version
+  return hddagi_ && published_ && field_.lock() == runtime.resources && content_version_ == runtime.content_version
              ? published_->set
              : nullptr;
 }

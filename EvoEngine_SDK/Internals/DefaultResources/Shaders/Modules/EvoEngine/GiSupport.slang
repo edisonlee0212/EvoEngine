@@ -174,12 +174,14 @@ float3 GiSupportWorldPosition(GiSupportParams p, int4 key) {
   return (field + p.field.anchor_origin) / float3(1, p.field.y_mult, 1);
 }
 public
-bool GiSupportRequest<T : IGiSupportRequests>(T resources, GiSupportParams p, int4 key) {
+bool GiSupportRequest<T : IGiSupportRequests>(T resources, GiSupportParams p, int4 key, bool existing_only = false) {
+  bool found = false;
   uint bucket = GiSupportBucket(key), slot = bucket, oldest = 0;
   for (uint way = 0; way < GI_SUPPORT_WAYS; ++way) {
     GiSupportProbe probe = resources.loadProbe(bucket + way);
     if (probe.state.x == p.generation && all(probe.key == key)) {
       slot = bucket + way;
+      found = true;
       break;
     }
     uint age = probe.state.x == p.generation ? p.frame - probe.state.y : 0xffffffffu;
@@ -188,6 +190,8 @@ bool GiSupportRequest<T : IGiSupportRequests>(T resources, GiSupportParams p, in
       slot = bucket + way;
     }
   }
+  if (existing_only && !found)
+    return false;
   uint encoded = GiSupportPackKey(p, key);
   for (uint attempt = 0; attempt < GI_SUPPORT_WAYS; ++attempt) {
     uint target = bucket + (slot - bucket + attempt) % GI_SUPPORT_WAYS;
@@ -218,7 +222,12 @@ bool GiSupportSample<T : IGiSupportRead>(T resources, GiSupportParams p, float3 
           float3 end = GiSupportCell(p, probe.position.xyz, uint(key.w));
           if (!GiSupportVisible(resources, p, start, end, uint(key.w)))
             continue;
-          float weight = rcp(0.1 + dot(end - start, end - start));
+          float3 distance = abs(end - start);
+          float3 kernel =
+              select(distance < 0.5, 0.75 - distance * distance, 0.5 * pow(max(1.5 - distance, float3(0)), float3(2)));
+          float weight = kernel.x * kernel.y * kernel.z * min(float(probe.state.z) / 8, 1);
+          if (weight <= 0)
+            continue;
           irradiance += GiSupportIrradiance(probe, normal) * weight;
           total += weight;
         }

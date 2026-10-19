@@ -43,18 +43,23 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   }
 
   float roughness = clamp(center_normal_roughness.a, 0.0f, 1.0f);
-  float radius = EE_SSR_CONSTANTS.roughness_filter_radius * roughness * roughness * float(height) / 1080.0f;
+  bool post_temporal = EE_SSR_CONSTANTS.spatial_pass != 0;
+  float footprint = post_temporal ? roughness * smoothstep(0.01f, 0.1f, roughness) : roughness * roughness;
+  float scale = post_temporal ? float(1u << (EE_SSR_CONSTANTS.spatial_pass - 1)) : 1.0f;
+  float radius = EE_SSR_CONSTANTS.roughness_filter_radius * footprint * scale * float(height) / 1080.0f;
   if (radius < 0.5f) {
     outReflectionConfidence[int2(pixel)] = center;
     return;
   }
-  float sample_spacing = radius / 3.0f;
+  int kernel_radius = post_temporal ? 2 : 3;
+  float sample_spacing = radius / float(kernel_radius);
   float3 center_f0 = inPbrFlags.SampleLevel(tex_coord, 0.0f).yzw;
   float3 center_normal = center_normal_roughness.xyz / center_normal_length;
   float4 reflection_sum = center;
   float weight_sum = 1.0f;
-  for (int y = -3; y <= 3; ++y) {
-    for (int x = -3; x <= 3; ++x) {
+  float second_moment_sum = dot(center.rgb, center.rgb);
+  for (int y = -kernel_radius; y <= kernel_radius; ++y) {
+    for (int x = -kernel_radius; x <= kernel_radius; ++x) {
       if (x == 0 && y == 0) continue;
       float2 sample_uv = tex_coord + float2(x, y) * sample_spacing * texel_size;
       if (any(sample_uv <= float2(0.0f)) || any(sample_uv >= float2(1.0f))) continue;
@@ -74,6 +79,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
       float material_weight = exp(-length(sample_f0 - center_f0) * 32.0f);
       float weight = spatial_weight * depth_weight * normal_weight * roughness_weight * material_weight;
       reflection_sum += sample_reflection * weight;
+      second_moment_sum += dot(sample_reflection.rgb, sample_reflection.rgb) * weight;
       weight_sum += weight;
     }
   }
@@ -82,5 +88,12 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     outReflectionConfidence[int2(pixel)] = center;
     return;
   }
-  outReflectionConfidence[int2(pixel)] = reflection_sum / weight_sum;
+  float4 filtered = reflection_sum / weight_sum;
+  if (post_temporal) {
+    float mean_squared = dot(filtered.rgb, filtered.rgb);
+    float variance = max(second_moment_sum / weight_sum - mean_squared, 0.0f);
+    float strength = variance / max(variance + 0.01f * mean_squared, 1e-20f);
+    filtered = lerp(center, filtered, strength);
+  }
+  outReflectionConfidence[int2(pixel)] = filtered;
 }

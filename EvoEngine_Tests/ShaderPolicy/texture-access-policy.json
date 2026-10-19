@@ -40,6 +40,110 @@
       "classification": "TransientPassResource"
     },
     {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:raw_frame_image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "raw_frame_image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:depth_image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "depth_image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:raw_uv_image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "raw_uv_image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:raw_ddx_image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "raw_ddx_image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture3D:voxels:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture3D",
+      "symbol": "voxels",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture3D:light_field:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture3D",
+      "symbol": "light_field",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture3D:occlusion0:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture3D",
+      "symbol": "occlusion0",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture3D:occlusion1:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture3D",
+      "symbol": "occlusion1",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2DArray:diffuse_atlas:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2DArray",
+      "symbol": "diffuse_atlas",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2DArray:specular_atlas:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2DArray",
+      "symbol": "specular_atlas",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:raw_ddy_image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "raw_ddy_image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:in_metadata:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "in_metadata",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang:Texture2D:hddagi_surface:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/GiSupport.slang",
+      "resource_type": "Texture2D",
+      "symbol": "hddagi_surface",
+      "classification": "TransientPassResource"
+    },
+    {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang:Sampler2D:inDepth:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang",
@@ -646,6 +750,30 @@
       "resource_type": "Sampler2D",
       "symbol": "EE_DDGI_VISIBILITY_ATLAS",
       "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportCamera.slang:Texture3D:support_voxels:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportCamera.slang",
+      "resource_type": "Texture3D",
+      "symbol": "support_voxels",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportLighting.slang:Texture3D:support_voxels:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportLighting.slang",
+      "resource_type": "Texture3D",
+      "symbol": "support_voxels",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportTrace.slang:Texture3D:support_voxels:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GiSupportTrace.slang",
+      "resource_type": "Texture3D",
+      "symbol": "support_voxels",
+      "classification": "TransientPassResource"
     },
     {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang:Sampler2DArray:EE_POINT_LIGHT_SM:0",

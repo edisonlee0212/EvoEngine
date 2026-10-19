@@ -186,6 +186,8 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
   screen_space_reflection.combine_descriptor_set.Retain(transient_resources);
   screen_space_reflection.reflect_output_descriptor_set.Retain(transient_resources);
   screen_space_reflection.spatial_resolve_descriptor_set.Retain(transient_resources);
+  for (auto& set : screen_space_reflection.post_temporal_descriptor_sets)
+    set.Retain(transient_resources);
   screen_space_reflection.temporal_descriptor_set.Retain(transient_resources);
   for (const auto& texture : screen_space_reflection.reflection_history)
     transient_resources.RetainRenderTextureResources(texture);

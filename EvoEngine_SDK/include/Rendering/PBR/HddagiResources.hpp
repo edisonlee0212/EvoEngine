@@ -131,6 +131,7 @@ struct EVOENGINE_API HddagiRuntime {
   SdfgiContributorRegistry contributors;
   std::vector<SdfgiCascade> cascades;
   uint32_t region_version = 0;
+  uint64_t content_version = 0;
   bool force_full_update = true;
   uint64_t last_updated_regions = 0;
   uint64_t total_updated_regions = 0;

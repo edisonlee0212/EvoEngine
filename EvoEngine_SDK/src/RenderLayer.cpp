@@ -5993,6 +5993,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
         const auto snapshot = SnapshotSdfgiScene(scene, inputs_lighting);
         runtime.contributors.Update(snapshot.contributors);
+        if (!runtime.contributors.changes.empty())
+          ++runtime.content_version;
         HddagiUpdatePlan plan;
         runtime.voxel_failure = BuildHddagiUpdatePlan(
             runtime.probes, runtime.settings, runtime.frame.anchor.world_position, runtime.cascades,

@@ -82,7 +82,10 @@ and small per-frame uniform/upload allocations. Support tracing also requests pr
 voxel lighting use the cached irradiance for bounce feedback.
 
 Probe lighting uses spherical harmonics with a capped 64-update history. Geometry, lighting and bounce-feedback changes
-invalidate that history. Hash eviction bounds storage; finite capacity and voxel resolution still limit recovery in very complex views.
+invalidate that history; camera-driven grid scrolling preserves world-space history and clears pending local requests.
+Visible cached probes reserve their slots before new requests. A continuous spatial kernel and an eight-update influence
+ramp reduce transitions between cells and newly populated probes. Hash eviction bounds storage; finite capacity and voxel
+resolution still limit recovery in very complex views.
 This adds camera lighting work. SDFGI and reflection captures do not directly query the sparse cache.
 
 ## SDFGI
