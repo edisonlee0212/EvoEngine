@@ -109,6 +109,16 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
       image_info.imageView = view->GetVkImageView();
     }
     descriptor_set->UpdateImageDescriptorBinding(7, image_info);
+    image_info.imageView = parameters.camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    const auto* reflection_fallback = !parameters.subsurface_resolve
+                                          ? context.GetResourceBinding(RenderResourceNames::camera_reflection_fallback)
+                                          : nullptr;
+    if (reflection_fallback && reflection_fallback->image) {
+      const auto view = CreateGraphImageMipView(reflection_fallback->image, 0);
+      parameters.transient_resources->RetainImageView(view);
+      image_info.imageView = view->GetVkImageView();
+    }
+    descriptor_set->UpdateImageDescriptorBinding(8, image_info);
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -128,6 +138,9 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
                                              parameters.sdfgi_descriptor_set->GetVkDescriptorSet());
       parameters.sdfgi_resources->gather_camera_ids.push_back(parameters.camera->GetHandle().GetValue());
     }
+    if (parameters.gi_support_descriptor_set)
+      parameters.pipeline->BindDescriptorSet(vk_command_buffer, 6,
+                                             parameters.gi_support_descriptor_set->GetVkDescriptorSet());
     RenderInstancePushConstant push_constant;
     push_constant.instance_index = parameters.reflection_probe_capture ? 2 : 0;
     push_constant.camera_index = parameters.camera_index;
@@ -136,6 +149,7 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     push_constant.meshlet_culling_flags = (parameters.scene_camera ? 1u : 0u) | (parameters.sdfgi_debug_view << 8u);
     push_constant.meshlet_culling_flags |= parameters.subsurface_enabled ? 2u : 0u;
     push_constant.meshlet_culling_flags |= parameters.subsurface_backface_enabled ? 4u : 0u;
+    push_constant.meshlet_culling_flags |= reflection_fallback && reflection_fallback->image ? 8u : 0u;
     if (parameters.subsurface_resolve)
       push_constant.light_split_index = std::clamp(parameters.camera->camera_settings.subsurface_samples, 1, 64);
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);

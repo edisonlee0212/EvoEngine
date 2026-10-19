@@ -125,6 +125,10 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
   if (history.restir_nrd_specular_signal_image)
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.nrd_accumulated_diffuse_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
+  if (history.nrd_accumulated_specular_image)
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
   if (history.restir_nrd_excluded_signal_image)
     byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * sizeof(glm::vec4);
   if (history.restir_nrd_normal_roughness_image)
@@ -163,11 +167,6 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
     }
   }
   for (const auto& buffer : history.restir_resolved_buffers) {
-    if (buffer) {
-      byte_size += buffer->GetSize();
-    }
-  }
-  for (const auto& buffer : history.restir_initial_buffers) {
     if (buffer) {
       byte_size += buffer->GetSize();
     }
@@ -541,8 +540,6 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (bounce != other.bounce)
     return true;
-  if (firefly_clamp_threshold != other.firefly_clamp_threshold)
-    return true;
   if (ray_debug_view != other.ray_debug_view)
     return true;
   if (raster_lighting_flags != other.raster_lighting_flags)
@@ -720,13 +717,11 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.sample_size = camera_settings.sample_size;
   camera_info_block.bounce = camera_settings.bounce;
   camera_info_block.gamma = camera_settings.gamma;
-  camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
+  camera_info_block.pt_display_firefly_strength = glm::clamp(camera_settings.pt_display_firefly_strength, 0.0f, 1.0f);
+  camera_info_block.pt_display_firefly_ratio = glm::max(camera_settings.pt_display_firefly_ratio, 1.0f);
   camera_info_block.ray_debug_view =
       static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
   auto ray_outputs = camera_settings.ray_outputs;
-#ifdef EVOENGINE_ENABLE_NRD
-  ray_outputs.normal |= camera_settings.nrd_denoising;
-#endif
   camera_info_block.ray_output_flags =
       RayCameraOptionalOutputMask(ray_outputs) |
       (camera_settings.restir_sss_delayed_reconnection ? CameraInfoBlock::kDelayedSss : 0u);
@@ -1163,6 +1158,11 @@ void Camera::ResetFrameCount() {
     post_processing_resources_->ResetTemporalState();
   }
 }
+void Camera::ResetDenoiserHistory() {
+  ray_camera_history_.nrd_taa_history_valid = false;
+  ray_camera_history_.restir_nrd_history_valid = false;
+  ray_camera_history_.restir_nrd_history_frame_count = 0;
+}
 bool Camera::NrdDenoisingAvailable() {
 #ifdef EVOENGINE_ENABLE_NRD
   return true;
@@ -1381,6 +1381,8 @@ std::shared_ptr<DescriptorSet> Camera::AcquireRayCameraOutputDescriptor(
 
 void Camera::ReleaseRayCameraHistory() {
   if (HasRayCameraHistory(ray_camera_history_)) {
+    if (ApplicationContext::TryGet() && Platform::Initialized())
+      Platform::WaitForFrameSubmissions("Ray Camera History Retirement Fence Wait");
     ++ray_camera_history_counters_.retirement_count;
   }
   ray_camera_history_ = {};

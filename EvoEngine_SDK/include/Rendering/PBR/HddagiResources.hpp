@@ -81,6 +81,7 @@ class EVOENGINE_API HddagiResources {
   std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
   std::vector<std::shared_ptr<HddagiLightFrame>> light_frames;
   std::array<std::shared_ptr<ComputePipeline>, 2> direct_pipelines;
+  std::array<std::shared_ptr<ComputePipeline>, 2> support_direct_pipelines;
   std::shared_ptr<Sampler> linear_sampler;
   std::vector<std::array<std::vector<SdfgiLight>, 2>> light_inputs;
   std::vector<std::array<uint32_t, 2>> light_overflow;
@@ -130,6 +131,7 @@ struct EVOENGINE_API HddagiRuntime {
   SdfgiContributorRegistry contributors;
   std::vector<SdfgiCascade> cascades;
   uint32_t region_version = 0;
+  uint64_t content_version = 0;
   bool force_full_update = true;
   uint64_t last_updated_regions = 0;
   uint64_t total_updated_regions = 0;

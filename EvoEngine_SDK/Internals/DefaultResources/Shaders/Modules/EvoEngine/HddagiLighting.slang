@@ -1,3 +1,4 @@
+import EvoEngine.GiSupportOverride;
 // Native material/AO/reflection composition for incoming HDDAGI radiance.
 __exported import EvoEngine.LightingFixedSet3;
 import EvoEngine.HddagiCamera;
@@ -5,8 +6,9 @@ import EvoEngine.HddagiCamera;
 public
 float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, float3 normal, float3 viewDir,
                                                     float3 fragPos, float metallic, float roughness, float3 F0,
-                                                    float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+                                                    float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance, out float4 reflection_fallback) {
   diffuse_radiance = float3(0);
+  reflection_fallback = float4(0);
   EeLightingResources resources;
   float2 uv = (float2(pixel) + 0.5) / float2(EE_HDDAGI_CAMERA.viewport);
   float2 coverage = EE_HDDAGI_STATUS[2] != 0 && EE_HDDAGI_STATUS[1] == 0
@@ -14,6 +16,12 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
                         : float2(0);
   float3 field_diffuse = EE_HDDAGI_CAMERA_DIFFUSE.SampleLevel(EE_HDDAGI_SAMPLER, uv, 0);
   float3 field_specular = EE_HDDAGI_CAMERA_SPECULAR.SampleLevel(EE_HDDAGI_SAMPLER, uv, 0);
+  if(EE_GI_SUPPORT_MATCH(fragPos,normal)) {
+    float3 incoming=EE_GI_SUPPORT_IRRADIANCE/3.14159265359;
+    field_diffuse=lerp(field_diffuse,incoming,EE_GI_SUPPORT_WEIGHT);
+    field_specular=lerp(field_specular,incoming,EE_GI_SUPPORT_WEIGHT);
+    coverage=lerp(coverage,float2(1),EE_GI_SUPPORT_WEIGHT);
+  }
   float normalDotView = max(dot(normal, viewDir), 0);
   float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
   float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
@@ -44,6 +52,7 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
   float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   float3 unoccluded_specular = prefiltered * (F * brdf.x + float3(F90 * brdf.y));
   float visibility = EE_ROUGH_SPECULAR_VISIBILITY(materialOcclusion, screen_visibility, 1, roughness, normalDotView);
+  reflection_fallback = float4(prefiltered, visibility);
   float3 specular = unoccluded_specular * visibility;
   int debug = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debug == 1)
@@ -57,6 +66,14 @@ float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, 
   if (debug == 5)
     return float3(coverage.x);
   return diffuse + specular;
+}
+
+public float3 EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(uint2 pixel, float3 albedo, float3 normal,
+    float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90,
+    float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+  float4 reflection_fallback;
+  return EE_FUNC_CALCULATE_HDDAGI_ENVIRONMENTAL_LIGHT(pixel, albedo, normal, viewDir, fragPos, metallic, roughness,
+      F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance, reflection_fallback);
 }
 
 public

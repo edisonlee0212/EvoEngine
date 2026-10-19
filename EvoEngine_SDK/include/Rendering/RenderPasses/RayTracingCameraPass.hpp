@@ -62,12 +62,12 @@ class EVOENGINE_API RayQueryCameraPass final {
     std::shared_ptr<Buffer> pairing_buffer;
     bool commit_restir_history = false;
     std::shared_ptr<Buffer> previous_instance_buffer;
-    std::shared_ptr<Buffer> initial_buffer;
     bool bind_nrd_guides = false;
     bool write_nrd_signals = false;
     bool read_nrd_denoised = false;
     bool bind_nrd_lobe_hit_distance = false;
     bool bind_nrd_material_factors = false;
+    bool bind_nrd_accumulated_input = false;
     bool bind_nrd_temporal_aa = false;
     bool commit_nrd_temporal_aa = false;
     uint32_t nrd_taa_write_slot = 0;

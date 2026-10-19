@@ -80,28 +80,34 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   }
 
   float4 history = inHistoryReflectionConfidence.SampleLevel(history_uv, 0.0f);
-  if (!all(isfinite(history)) || history.a <= 0.0001f) {
+  if (!all(isfinite(history))) {
     outReflectionConfidence[int2(pixel)] = current;
     return;
   }
 
-  float3 neighborhood_min = float3(3.402823466e+38f);
-  float3 neighborhood_max = float3(-3.402823466e+38f);
+  float3 neighborhood_min = float3(0.0f);
+  float3 neighborhood_max = float3(0.0f);
   bool neighborhood_valid = false;
   for (int y = -1; y <= 1; ++y) {
     for (int x = -1; x <= 1; ++x) {
       int2 sample_pixel = clamp(int2(pixel) + int2(x, y), int2(0), int2(resolution) - int2(1));
       float4 sample_value = inCurrentReflectionConfidence.Load(int3(sample_pixel, 0));
-      if (sample_value.a <= 0.0001f || !all(isfinite(sample_value))) continue;
+      if (!all(isfinite(sample_value))) continue;
       neighborhood_min = min(neighborhood_min, sample_value.rgb);
       neighborhood_max = max(neighborhood_max, sample_value.rgb);
-      neighborhood_valid = true;
+      neighborhood_valid = neighborhood_valid || sample_value.a > 0.0001f;
     }
   }
-  float3 clipped_history = neighborhood_valid ? clamp(history.rgb, neighborhood_min, neighborhood_max) : history.rgb;
-  float history_weight = min(0.9f, history.a * 0.9f);
-  float3 resolved = current.a > 0.0001f ? lerp(current.rgb, clipped_history, history_weight) : clipped_history;
-  float confidence = max(current.a, history.a * 0.95f);
-  outReflectionConfidence[int2(pixel)] =
-      all(isfinite(resolved)) ? float4(max(resolved, float3(0.0f)), clamp(confidence, 0.0f, 1.0f)) : current;
+  float4 clipped_history = history;
+  // Static surfaces must average stochastic hits, rather than clamp history to each noisy frame.
+  // Gradually enable clipping during reprojection to limit moving reflection trails.
+  if (neighborhood_valid) {
+    float clipping_weight = saturate(length(motion.xy));
+    clipped_history.rgb = lerp(history.rgb, clamp(history.rgb, neighborhood_min, neighborhood_max), clipping_weight);
+  }
+  float history_weight = lerp(0.85f, 0.97f, current_material.x);
+  float stationary_weight = (1.0f - saturate(length(motion.xy))) * smoothstep(0.01f, 0.1f, current_material.x);
+  history_weight = lerp(history_weight, lerp(0.95f, 0.99f, current_material.x), stationary_weight);
+  float4 resolved = lerp(current, clipped_history, history_weight);
+  outReflectionConfidence[int2(pixel)] = all(isfinite(resolved)) ? float4(resolved.rgb, clamp(resolved.a, 0.0f, 1.0f)) : current;
 }

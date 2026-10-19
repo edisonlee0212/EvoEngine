@@ -766,7 +766,6 @@ void CompileShaderWithCache(const ShaderCompileRequest& request, const ShaderCac
       std::filesystem::remove(cache_path, error);
     }
     compilation_count.fetch_add(1);
-    EVOENGINE_LOG("Compiling Shaders: " + request.path.string())
     success = compile_func(result.binaries);
     if (success) {
       PublishShaderCacheEntry(cache_path, key, request, result.binaries);

@@ -4,8 +4,9 @@ import EvoEngine.Sdfgi;
 
 public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
     float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
-    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance, out float4 reflection_fallback) {
   diffuse_radiance = float3(0);
+  reflection_fallback = float4(0);
   EeLightingResources resources;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
@@ -40,6 +41,7 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   const float3 unoccluded_specular = prefiltered * (F * brdf.x + float3(F90 * brdf.y));
   const float specular_visibility = EE_ROUGH_SPECULAR_VISIBILITY(materialOcclusion, screen_visibility, 1.0f, roughness, normalDotView);
+  reflection_fallback = float4(prefiltered, specular_visibility);
   const float3 specular = unoccluded_specular * specular_visibility;
   if (sdfgi_debug_view == 8u) return field.specular * field.specular_weight *
       (F * brdf.x + float3(F90 * brdf.y)) * specular_visibility;
@@ -50,6 +52,14 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   if (debug_view == 4) return specular;
   if (debug_view == 5) return float3(field.weight);
   return diffuse + specular;
+}
+
+public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(float3 albedo, float3 normal,
+    float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90,
+    float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+  float4 reflection_fallback;
+  return EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(albedo, normal, viewDir, fragPos, metallic, roughness,
+      F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance, reflection_fallback);
 }
 
 public

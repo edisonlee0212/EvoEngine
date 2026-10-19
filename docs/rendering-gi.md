@@ -65,9 +65,28 @@ restores that preference, and uses directional distance moments for visibility. 
 geometry within a bounded offset. DDGI retains triangle lighting and its own histories.
 
 Inside cascade coverage, missing probe data first uses coarser cascades, then a bounded nearby-probe search. Candidates
-must pass conservative distance visibility; voxel occlusion also checks the connecting segment. Fully blocked valid
-probes stay dark. Unrecoverable missing data also stays dark; diffuse environment fallback applies only outside
-coverage. Environment reflections remain separate.
+must pass conservative distance visibility; voxel occlusion also checks the connecting segment. The regular gather
+contributes zero when all visibility tests reject its probes. Unrecoverable missing data stays dark; diffuse environment
+fallback applies only outside coverage. Environment reflections remain separate.
+
+## Sparse support cache
+
+DDGI and HDDAGI use a sparse support cache for visible surfaces whose regular probe support is absent or weak with
+occlusion on. The authored grid spacing, cascade count and outer coverage are preserved. Support probes occupy empty
+voxel cells and are gathered only across voxel-visible connections. Well-supported regular probes measuring zero remain
+dark. DDGI traces support lighting against triangles; HDDAGI uses voxel traversal and its light field, without requiring RT.
+
+Visible requests take priority over secondary demand. The four-way cache holds at most 8,192 probes per raster camera
+and updates 16 rays per requested probe per frame. Its fixed buffers total 3.56 MiB, plus a one-byte-per-pixel demand mask
+and small per-frame uniform/upload allocations. Support tracing also requests probes at secondary hits. Triangle and
+voxel lighting use the cached irradiance for bounce feedback.
+
+Probe lighting uses spherical harmonics with a capped 64-update history. Geometry, lighting and bounce-feedback changes
+invalidate that history; camera-driven grid scrolling preserves world-space history and clears pending local requests.
+Visible cached probes reserve their slots before new requests. A continuous spatial kernel and an eight-update influence
+ramp reduce transitions between cells and newly populated probes. Hash eviction bounds storage; finite capacity and voxel
+resolution still limit recovery in very complex views.
+This adds camera lighting work. SDFGI and reflection captures do not directly query the sparse cache.
 
 ## SDFGI
 

@@ -60,7 +60,7 @@ and capturing README or launcher images.
 ## Rendering Regression And Bistro
 
 Rendering Regression is the compact deterministic fixture. It contains representative opaque, masked, transmissive,
-emissive, textured, skinned, sampler, UV-transform, tangent, convergence, and firefly-clamp cases. Use it for focused
+emissive, textured, skinned, sampler, UV-transform, tangent, convergence, and bright outlier cases. Use it for focused
 cross-technique capture and shader debugging.
 
 Bistro is the large-scene integration fixture. It stresses glTF import, material and texture counts, acceleration

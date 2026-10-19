@@ -563,7 +563,6 @@ def main() -> int:
                     "total_spp": 256,
                     "debug_view": "Beauty",
                     "ser": "disabled",
-                    "firefly_clamp_threshold": 10.0,
                     "image": "sponza-ray-reference.png",
                 },
             },

@@ -83,6 +83,15 @@ uses a dedicated closest-hit group in Ray Tracing; RayQuery evaluates it in comp
 Ray cameras accumulate independently. Resizing, technique, settings, and scene changes invalidate affected histories;
 unchanged cameras continue accumulating.
 
+For Path Tracing with NRD disabled, **Display firefly strength** (default 1) suppresses isolated bright pixels in the
+displayed average; **Display firefly ratio** (default 1) sets how much brighter a pixel must be than its brightest
+3×3 neighbor before suppression. The filter reads accumulated history but writes only the current result, so
+adjusting either display control does not restart accumulation. It runs only in the Beauty view and can also suppress
+legitimate one-pixel highlights. Strength 0 displays the unfiltered result. Path samples are accumulated without a
+firefly clamp; nonfinite radiance is rejected.
+Preview captures accept `--preview-display-firefly-strength 0..1` and `--preview-display-firefly-ratio 1..20` for
+matched filtered and unfiltered comparisons without editing the scene.
+
 ### ReSTIR PT ray integrators
 
 **Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
@@ -99,12 +108,14 @@ remain experimental and have not established a broad equal-GPU-time quality adva
   also supports eligible longer opaque paths using footprint-selected reconnection vertices. Unsupported endpoints,
   moving reconnection geometry, delta, transmission and volume events require full replay or remain unsupported.
 - **Accumulate Samples:** averages resolved radiance across frames. Disabling it preserves same-frame reuse.
-  Temporal modes also replace bright outliers with fresh candidates and increase fresh-sample shading to 50% after
-  160 accumulated samples. **Firefly Clamp** zero disables this replacement, decorrelation and the global clamp.
 
 Every sample per frame runs an independent candidate/reuse/resolve estimate. Temporal estimates read the previous
 frame's reservoir and publish the last estimate for the next frame. All pixels continue sampling; adaptive stopping
-is unsupported. Ray debug views must be off for reuse.
+is unsupported. Sampling and spatial pairing use the advancing renderer frame, so clearing accumulation or reservoir
+history does not repeat the same random pattern. Ray debug views must be off for reuse.
+
+Ray-camera history retirement waits for submitted GPU work before releasing resources, including when a
+camera component or its owner is disabled or removed from the scene.
 
 Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
 accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch
@@ -183,6 +194,45 @@ resources and temporal histories are camera-owned. Assets must use the current f
 
 Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
 preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
+
+When DDGI uses shared voxel occlusion, its occlusion lookup applies at least 1.1 voxel cells of normal offset,
+scaled per cascade and vertical cell spacing. Larger authored normal offsets are preserved. Probe selection and interpolation use the same offset as the voxel lookup so its parity channels remain aligned.
+Distance-moment visibility retains the authored world-space normal and view biases. Fully blocked valid probes
+remain dark rather than falling back to environment lighting.
+
+### Stochastic SSR
+
+SSR traces one GGX visible-normal reflection sample per pixel per rendered frame, using the same
+visible-normal sampler, Schlick Fresnel and separable Smith masking functions as PT. The random sequence
+uses a pixel-scrambled R2 sequence indexed by the application frame count, not the frame-in-flight slot or
+PT accumulation count. Integer arithmetic preserves the sequence at large frame indices. Smooth materials
+use the exact mirror direction. Deferred shading publishes its resolved reflection fallback into the existing
+SSR swap texture: reflection probes take priority, followed by the active DDGI/SDFGI/HDDAGI provider,
+then environment lighting where GI has no valid coverage. SSR consumes the same fallback as the shaded
+scene, so unavailable GI does not replace environment lighting with black. Valid dark GI remains dark.
+Reflection RGB contains the signed difference between screen and fallback radiance, multiplied by
+BRDF/PDF weight, hit confidence and specular visibility; alpha contains coverage. Equal screen and
+fallback radiance produce zero correction. Spatial and temporal reconstruction average both channels,
+including missed rays. Composition adds this correction to existing lighting without applying the BRDF
+or visibility twice. The scratch texture is reused; no separate GI query pass or image allocation is needed.
+Geometry/material rejection discards invalid history. Neighborhood clipping ramps in over the first pixel of
+reprojection motion; stationary surfaces retain valid history across changing stochastic samples. Lighting and
+reflected-object changes still respond through temporal averaging. Stationary stochastic surfaces use
+95-99% history weight (roughness dependent); motion retains the existing 85-97% weights. This trades
+slower response to lighting changes for lower noise; mirrors retain their existing history weights. Spatial reconstruction checks depth,
+normals, roughness and specular F0. With spatial resolve and temporal stabilization enabled, two additional
+5x5 passes filter the temporal result at increasing radii. Their footprint scales with roughness, and local RGB
+variance controls the blend strength. The passes preserve signed reflection corrections and coverage, reuse
+existing scratch textures, and do not feed spatially blurred results back into temporal history.
+
+In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment
+specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8).
+**Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter
+by squared material roughness and viewport height in the initial pass, and by roughness with increasing scale
+in the post-temporal passes; enable **Edge-aware spatial resolve** to use it.
+Enable **Temporal stabilization** to smooth the changing samples. Disabling reconstruction exposes
+single-frame sampling noise. The controls are serialized; older assets use the new defaults.
+Screen-space visibility, spatial reuse and probe substitution remain approximations.
 
 ## Geometry And Optional Features
 

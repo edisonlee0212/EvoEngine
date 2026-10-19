@@ -10,52 +10,11 @@
 #include <vector>
 
 #include "Camera.hpp"
+#include "RayCameraHistoryTestAccess.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
 
 using namespace evo_engine;
-
-namespace evo_engine {
-class RayCameraHistoryTestAccess {
- public:
-  static RayCameraHistoryResources& Acquire(
-      Camera& camera, const RayCameraHistoryTechnique technique, const uint64_t scene_handle, const VkExtent3D extent,
-      const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory) {
-    return camera.AcquireRayCameraHistory(technique, scene_handle, extent, resource_factory);
-  }
-
-  static void Invalidate(Camera& camera, const bool invalidate_restir_history = true) {
-    camera.InvalidateRayCameraHistory(invalidate_restir_history);
-  }
-
-  static void Release(Camera& camera) {
-    camera.ReleaseRayCameraHistory();
-  }
-
-  static void Register(RenderLayer& render_layer, const uint64_t handle, const std::shared_ptr<Camera>& camera) {
-    render_layer.ray_camera_history_cameras_[handle] = camera;
-    render_layer.UpdateRayCameraHistoryPeaks();
-  }
-
-  static void Prune(RenderLayer& render_layer, const std::shared_ptr<RenderInstanceStorage>& render_instances) {
-    render_layer.PruneRayCameraHistories(render_instances);
-  }
-
-  static void Clear(RenderLayer& render_layer) {
-    render_layer.ClearRayCameraHistories();
-  }
-
-  static void SetFrameCount(Camera& camera, const uint32_t frame_count) {
-    camera.frame_count_ = frame_count;
-  }
-
-  static std::shared_ptr<DescriptorSet> AcquireOutputDescriptor(
-      Camera& camera, const uint32_t frame_index, const uint64_t frame_serial,
-      const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory) {
-    return camera.AcquireRayCameraOutputDescriptor(frame_index, frame_serial, {}, resource_factory);
-  }
-};
-}  // namespace evo_engine
 
 namespace {
 template <typename T>
@@ -324,6 +283,34 @@ TEST(RayCameraHistory, OutputDescriptorsAreCachedPerFrameSlotWithinOneHistoryGen
       RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1}, MakeFakeHistory);
   EXPECT_GT(resized.resource_generation, generation);
   EXPECT_EQ(camera.GetRayCameraHistoryStats().live_output_descriptor_count, 0u);
+}
+
+TEST(RayCameraHistory, DenoiserTogglePreservesAccumulatedPathTracing) {
+  Camera camera;
+  auto& history =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1}, MakeFakeHistory);
+  history.valid = true;
+  history.frame_id = 64;
+  RayCameraHistoryTestAccess::SetFrameCount(camera, 64);
+  const auto version = camera.GetTemporalHistoryVersion();
+  const auto generation = history.resource_generation;
+  for (const bool enabled : {false, true}) {
+    camera.camera_settings.nrd_denoising = enabled;
+    history.restir_nrd_history_valid = true;
+    history.nrd_taa_history_valid = true;
+    history.restir_nrd_history_frame_count = 32;
+    camera.ResetDenoiserHistory();
+    auto& retained = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1},
+                                                         MakeFakeHistory);
+    EXPECT_TRUE(retained.valid);
+    EXPECT_EQ(retained.frame_id, 64u);
+    EXPECT_EQ(camera.GetFrameCount(), 64u);
+    EXPECT_EQ(camera.GetTemporalHistoryVersion(), version);
+    EXPECT_EQ(retained.resource_generation, generation);
+    EXPECT_FALSE(retained.restir_nrd_history_valid);
+    EXPECT_FALSE(retained.nrd_taa_history_valid);
+    EXPECT_EQ(retained.restir_nrd_history_frame_count, 0u);
+  }
 }
 
 TEST(RayCameraHistory, InvalidationAndSceneChangesDoNotResetUnrelatedCameras) {

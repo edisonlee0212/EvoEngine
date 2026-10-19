@@ -98,6 +98,8 @@ struct RayTracingCameraPushConstant {
   uint32_t max_directional_light_size = 0;
   uint32_t nrd_reblur = 0;
   uint32_t nrd_path_tracing = 0;
+  uint32_t seed_frame_id = 0;
+  uint32_t nrd_accumulated_input = 0;
 };
 
 struct DdgiProbeRayTracingPushConstant {

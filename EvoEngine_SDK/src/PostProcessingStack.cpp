@@ -186,6 +186,8 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
   screen_space_reflection.combine_descriptor_set.Retain(transient_resources);
   screen_space_reflection.reflect_output_descriptor_set.Retain(transient_resources);
   screen_space_reflection.spatial_resolve_descriptor_set.Retain(transient_resources);
+  for (auto& set : screen_space_reflection.post_temporal_descriptor_sets)
+    set.Retain(transient_resources);
   screen_space_reflection.temporal_descriptor_set.Retain(transient_resources);
   for (const auto& texture : screen_space_reflection.reflection_history)
     transient_resources.RetainRenderTextureResources(texture);
@@ -900,6 +902,16 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
   ++resources.pipeline_build_step;
   resources.pipelines_ready = resources.pipeline_build_step > 5;
   return false;
+}
+
+std::shared_ptr<RenderTexture> PostProcessingStack::PrepareReflectionFallback(
+    const std::shared_ptr<Camera>& target_camera) {
+  if (!enable_screen_space_reflection)
+    return {};
+  auto& resources = target_camera->AcquirePostProcessingResources(
+      target_camera->post_processing_stack_ref.Get<PostProcessingStack>());
+  Resize(resources, target_camera->GetSize());
+  return resources.stack.swap_texture;
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,

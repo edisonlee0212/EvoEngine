@@ -581,18 +581,18 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
           "Replay the SSS disk/intersection and reconnect to the same light. Direct BSDF hits and finite-radius "
           "punctual lights use fixed-point reuse.");
     if (Camera::NrdDenoisingAvailable() && ImGui::Checkbox("NRD Denoising", &camera.camera_settings.nrd_denoising)) {
-      camera.ResetFrameCount();
+      camera.ResetDenoiserHistory();
       changed = true;
     }
     if (Camera::NrdDenoisingAvailable() && camera.camera_settings.nrd_denoising) {
       int denoiser = camera.camera_settings.nrd_reblur ? 1 : 0;
       if (ImGui::Combo("NRD Denoiser", &denoiser, "RELAX\0REBLUR\0")) {
         camera.camera_settings.nrd_reblur = denoiser != 0;
-        camera.ResetFrameCount();
+        camera.ResetDenoiserHistory();
         changed = true;
       }
       if (ImGui::Checkbox("NRD Temporal AA", &camera.camera_settings.nrd_temporal_aa)) {
-        camera.ResetFrameCount();
+        camera.ResetDenoiserHistory();
         changed = true;
       }
       if (ImGui::IsItemHovered())
@@ -641,7 +641,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
           relax_changed = true;
         }
         if (relax_changed) {
-          camera.ResetFrameCount();
+          camera.ResetDenoiserHistory();
           changed = true;
         }
         ImGui::TreePop();
@@ -689,7 +689,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
         if (reblur_changed) {
           settings.nrd_reblur_min_blur_radius =
               std::min(settings.nrd_reblur_min_blur_radius, settings.nrd_reblur_max_blur_radius);
-          camera.ResetFrameCount();
+          camera.ResetDenoiserHistory();
           changed = true;
         }
         ImGui::TreePop();
@@ -740,11 +740,16 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     }
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
-    if (ImGui::DragFloat("Firefly threshold", &camera.camera_settings.firefly_clamp_threshold, 0.1f, 0.0f, 1000.0f,
-                         "%.2f")) {
-      camera.camera_settings.firefly_clamp_threshold = glm::max(camera.camera_settings.firefly_clamp_threshold, 0.0f);
-      camera.ResetFrameCount();
-      changed = true;
+    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing &&
+        (!Camera::NrdDenoisingAvailable() || !camera.camera_settings.nrd_denoising) &&
+        camera.camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty) {
+      changed |= ImGui::SliderFloat("Display firefly strength", &camera.camera_settings.pt_display_firefly_strength,
+                                    0.0f, 1.0f);
+      changed |=
+          ImGui::SliderFloat("Display firefly ratio", &camera.camera_settings.pt_display_firefly_ratio, 1.0f, 20.0f);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Suppress isolated bright pixels relative to their eight neighbors; accumulation is unchanged.");
     }
     if (ImGui::Checkbox("Accumulate Samples", &camera.camera_settings.accumulate_samples)) {
       camera.ResetFrameCount();
@@ -936,6 +941,12 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
   if (ImGui::DragFloat("Thickness", &ssr.thickness, 0.01f, 0.0f, 10.0f))
     changed = true;
   if (ImGui::DragFloat("Start bias", &ssr.start_bias, 0.001f, 0.0f, 10.0f))
+    changed = true;
+  if (ImGui::SliderFloat("Roughness fade start", &ssr.roughness_fade_start, 0.0f, 1.0f))
+    changed = true;
+  if (ImGui::SliderFloat("Roughness fade end", &ssr.roughness_fade_end, ssr.roughness_fade_start, 1.0f))
+    changed = true;
+  if (ImGui::SliderFloat("Roughness filter radius (1080p pixels)", &ssr.roughness_filter_radius, 0.0f, 32.0f))
     changed = true;
   if (ImGui::Checkbox("Edge-aware spatial resolve", &ssr.blur))
     changed = true;

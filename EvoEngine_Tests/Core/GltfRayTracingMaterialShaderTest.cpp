@@ -737,9 +737,8 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("max_roughness = max(max_roughness, surface_hit.pbr.roughness)"), std::string::npos);
   EXPECT_NE(source.find("surface_hit.pbr.roughness = max_roughness"), std::string::npos);
   EXPECT_EQ(source.find("const float EE_CAMERA_FIREFLY_CLAMP_THRESHOLD = 10.0f"), std::string::npos);
-  EXPECT_NE(source.find("float3 EE_CAMERA_APPLY_FIREFLY_CLAMP"), std::string::npos);
-  EXPECT_NE(source.find("const float luminance = dot(radiance, float3(1.0f / 3.0f))"), std::string::npos);
-  EXPECT_NE(source.find("sample_radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera"), std::string::npos);
+  EXPECT_EQ(source.find("float3 EE_CAMERA_APPLY_FIREFLY_CLAMP"), std::string::npos);
+  EXPECT_EQ(source.find("sample_radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera"), std::string::npos);
   EXPECT_EQ(source.find("EE_CAMERA_SAMPLE_BSDF"), std::string::npos);
   EXPECT_EQ(source.find("EE_CAMERA_BSDF_PDF(hit.surface.metallic, hit.surface.roughness"), std::string::npos);
   EXPECT_EQ(source.find("EE_CAMERA_BSDF_THROUGHPUT"), std::string::npos);
@@ -2278,73 +2277,17 @@ TEST(GltfRayTracingMaterial, SamplingAndRotationNumericalContracts) {
   EXPECT_NEAR(lod_after - lod_before, std::log2(gradient_after / gradient_before), 1.0e-6f);
 }
 
-TEST(GltfRayTracingMaterial, CameraRaygenAlwaysUsesConfigurableFireflyClampThreshold) {
+TEST(GltfRayTracingMaterial, CameraRaygenRejectsInvalidRadianceWithoutSampleClamping) {
   const auto raygen = ReadRayTracingCameraSource();
-  const auto ray_query = ReadRayQueryCameraSource();
-  const auto cameras_include = ReadTextFile(ShaderPath("Modules/EvoEngine/Cameras.slang"));
-  const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
-  const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
-  const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
-  const auto application_source = ReadTextFile(SdkPath("src/Application.cpp"));
-  const auto editor_layer_source = ReadTextFile(SdkPath("Editor/src/EditorLayer.cpp"));
-  const auto inspection_source = ReadTextFile(SdkPath("Editor/src/SDKInspectionAdapters.cpp"));
-  const auto editor_source = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
-
-  ASSERT_FALSE(raygen.empty());
-  ASSERT_FALSE(ray_query.empty());
-  ASSERT_FALSE(cameras_include.empty());
-  ASSERT_FALSE(camera_header.empty());
-  ASSERT_FALSE(camera_settings.empty());
-  ASSERT_FALSE(camera_source.empty());
-  ASSERT_FALSE(application_source.empty());
-  ASSERT_FALSE(editor_layer_source.empty());
-  ASSERT_FALSE(inspection_source.empty());
-  ASSERT_FALSE(editor_source.empty());
-
-  EXPECT_EQ(raygen.find("EE_CAMERA_FIREFLY_CLAMP_THRESHOLD"), std::string::npos);
   EXPECT_NE(raygen.find("bool EE_CAMERA_HAS_NONFINITE_RADIANCE"), std::string::npos);
   EXPECT_NE(raygen.find("any(isnan(radiance)) || any(isinf(radiance))"), std::string::npos);
   EXPECT_NE(raygen.find("float3 EE_CAMERA_REJECT_INVALID_RADIANCE"), std::string::npos);
   EXPECT_NE(raygen.find("invalid_rejections += 1u"), std::string::npos);
-  EXPECT_NE(raygen.find("float3 EE_CAMERA_APPLY_FIREFLY_CLAMP"), std::string::npos);
-  EXPECT_EQ(raygen.find("camera.firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(raygen.find("camera.firefly_clamp_threshold"), std::string::npos);
-  EXPECT_EQ(raygen.find("threshold <= 0.0f"), std::string::npos);
-  EXPECT_NE(raygen.find("firefly_clamps += 1u"), std::string::npos);
-  EXPECT_NE(raygen.find("sample_radiance = EE_CAMERA_APPLY_FIREFLY_CLAMP(camera"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_PACK_SAMPLE_DIAGNOSTICS(invalid_radiance_rejections, firefly_clamp_count)"),
+  EXPECT_EQ(raygen.find("EE_CAMERA_APPLY_FIREFLY_CLAMP"), std::string::npos);
+  EXPECT_EQ(ReadTextFile(ShaderPath("Modules/EvoEngine/Cameras.slang")).find("firefly_clamp_threshold"),
             std::string::npos);
-  EXPECT_NE(raygen.find("result_image[int2(pixel_coordinate)] = float4(linear_radiance, 1.0f)"), std::string::npos);
-  EXPECT_NE(raygen.find("radiance_history_image[int2(pixel_coordinate)] ="), std::string::npos);
-
-  EXPECT_NE(cameras_include.find("uint restir_temporal_history_cap"), std::string::npos);
-  EXPECT_EQ(cameras_include.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(cameras_include.find("float firefly_clamp_threshold"), std::string::npos);
-  EXPECT_NE(camera_header.find("uint32_t restir_temporal_history_cap = 20"), std::string::npos);
-  EXPECT_EQ(camera_header.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(camera_header.find("float firefly_clamp_threshold = 10.0f"), std::string::npos);
-  EXPECT_EQ(camera_settings.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(camera_settings.find("float firefly_clamp_threshold = 10.0f"), std::string::npos);
-  EXPECT_EQ(camera_source.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(camera_source.find("firefly_clamp_threshold != other.firefly_clamp_threshold"), std::string::npos);
-  EXPECT_NE(camera_source.find("camera_info_block.firefly_clamp_threshold"), std::string::npos);
-
-  EXPECT_EQ(application_source.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(application_source.find("firefly_clamp_threshold"), std::string::npos);
-  EXPECT_EQ(editor_layer_source.find("firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(editor_layer_source.find("firefly_clamp_threshold"), std::string::npos);
-  EXPECT_EQ(inspection_source.find("Checkbox(\"Firefly clamp\""), std::string::npos);
-  EXPECT_NE(inspection_source.find("Firefly threshold"), std::string::npos);
-  EXPECT_EQ(editor_source.find("argument == \"--preview-firefly-clamp\""), std::string::npos);
-  EXPECT_NE(editor_source.find("--preview-firefly-clamp-threshold"), std::string::npos);
-  EXPECT_EQ(editor_source.find("preview_capture_firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(editor_source.find("preview_capture_firefly_clamp_threshold"), std::string::npos);
-
-  EXPECT_EQ(ray_query.find("EE_CAMERA_FIREFLY_CLAMP_THRESHOLD"), std::string::npos);
-  EXPECT_EQ(ray_query.find("camera.firefly_clamp_enabled"), std::string::npos);
-  EXPECT_NE(ray_query.find("camera.firefly_clamp_threshold"), std::string::npos);
-  EXPECT_EQ(ray_query.find("threshold <= 0.0f"), std::string::npos);
+  EXPECT_EQ(ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp")).find("firefly_clamp_threshold"),
+            std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenGatesSerWithHitObjectTrace) {
@@ -2583,7 +2526,7 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileIsWiredAndContainsReprese
   EXPECT_NE(demo_scene_header.find("ConfigureRenderingRegressionDemoScene"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("PrepareRenderingRegressionGeneratedAssets"), std::string::npos);
   for (const auto* probe : {"Material Probe Dielectric", "Emissive NEE Constant Emitter", "Punctual Light Probe Point",
-                            "Skinned Capoeira Probe", "Firefly Clamp Probe"}) {
+                            "Skinned Capoeira Probe", "Firefly Probe"}) {
     EXPECT_NE(demo_scene_source.find(probe), std::string::npos) << probe;
   }
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::emissive_texture"), std::string::npos);

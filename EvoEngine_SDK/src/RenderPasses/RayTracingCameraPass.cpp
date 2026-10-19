@@ -260,17 +260,24 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, output_descriptor_set->GetVkDescriptorSet());
     RayTracingCameraPushConstant push_constant;
     push_constant.camera_index = parameters.camera_index;
+    push_constant.seed_frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
     const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     const bool restir_pt = history_resources.technique == RayCameraHistoryTechnique::RestirPt;
-    push_constant.frame_id =
-        (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser)
-            ? history_resources.restir_nrd_history_frame_count
-        : (restir_pt &&
-           (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-            parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly))
-            ? history_resources.restir_history_frame_id
-        : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
-                                                                : static_cast<uint32_t>(Platform::GetFrameCount());
+    push_constant.nrd_accumulated_input = !restir_pt && parameters.camera->camera_settings.accumulate_samples &&
+                                          parameters.camera->camera_settings.nrd_denoising;
+    if (!restir_pt) {
+      push_constant.frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
+    } else if (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser) {
+      push_constant.frame_id = history_resources.restir_nrd_history_frame_count;
+    } else if (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+               parameters.camera->camera_settings.ray_integrator ==
+                   CameraSettings::RayIntegrator::RestirPtTemporalOnly) {
+      push_constant.frame_id = history_resources.restir_history_frame_id;
+    } else {
+      push_constant.frame_id = parameters.camera->camera_settings.accumulate_samples
+                                   ? radiance_frame_id
+                                   : static_cast<uint32_t>(Platform::GetFrameCount());
+    }
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples =
         parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id * push_constant.frame_samples : 0u;
@@ -441,6 +448,20 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
       parameters.transient_resources->RetainImage(history_resources.restir_nrd_specular_factor_image);
       parameters.transient_resources->RetainImageView(history_resources.restir_nrd_specular_factor_view);
     }
+    if (parameters.bind_nrd_accumulated_input) {
+      if (!history_resources.nrd_accumulated_diffuse_view || !history_resources.nrd_accumulated_specular_view) {
+        ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+        return;
+      }
+      image_info.imageView = history_resources.nrd_accumulated_diffuse_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdAccumulatedDiffuseBinding, image_info);
+      image_info.imageView = history_resources.nrd_accumulated_specular_view->GetVkImageView();
+      output_descriptor_set->UpdateImageDescriptorBinding(kRayCameraNrdAccumulatedSpecularBinding, image_info);
+      parameters.transient_resources->RetainImage(history_resources.nrd_accumulated_diffuse_image);
+      parameters.transient_resources->RetainImageView(history_resources.nrd_accumulated_diffuse_view);
+      parameters.transient_resources->RetainImage(history_resources.nrd_accumulated_specular_image);
+      parameters.transient_resources->RetainImageView(history_resources.nrd_accumulated_specular_view);
+    }
 #endif
     if (parameters.candidate_buffer) {
       output_descriptor_set->UpdateBufferDescriptorBinding(kRayCameraRestirCandidateBinding,
@@ -481,7 +502,6 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     bind_restir_buffer(kRayCameraRestirNextHistoryBinding, parameters.next_history_buffer);
     bind_restir_buffer(kRayCameraRestirPairingBinding, parameters.pairing_buffer);
     bind_restir_buffer(kRayCameraRestirPreviousInstanceBinding, parameters.previous_instance_buffer);
-    bind_restir_buffer(kRayCameraRestirInitialBinding, parameters.initial_buffer);
     bind_restir_buffer(kRayCameraRestirNrdAccumulationBinding, parameters.nrd_sample_accumulation_buffer);
 
     parameters.pipeline->Bind(vk_command_buffer);
@@ -494,17 +514,27 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.camera_index = parameters.camera_index;
     const uint32_t radiance_frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     const bool restir_pt = history_resources.technique == RayCameraHistoryTechnique::RestirPt;
+    push_constant.nrd_accumulated_input = !restir_pt && parameters.camera->camera_settings.accumulate_samples &&
+                                          parameters.camera->camera_settings.nrd_denoising;
     const uint32_t samples_per_frame =
         static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
-    const uint32_t frame_id =
-        (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser)
-            ? history_resources.restir_nrd_history_frame_count
-        : (restir_pt &&
-           (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-            parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly))
-            ? history_resources.restir_history_frame_id
-        : parameters.camera->camera_settings.accumulate_samples ? radiance_frame_id
-                                                                : static_cast<uint32_t>(Platform::GetFrameCount());
+    const uint32_t render_frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
+    push_constant.seed_frame_id =
+        restir_pt ? render_frame_id * samples_per_frame + parameters.restir_sample_index : render_frame_id;
+    uint32_t frame_id;
+    if (!restir_pt) {
+      frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
+    } else if (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser) {
+      frame_id = history_resources.restir_nrd_history_frame_count;
+    } else if (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+               parameters.camera->camera_settings.ray_integrator ==
+                   CameraSettings::RayIntegrator::RestirPtTemporalOnly) {
+      frame_id = history_resources.restir_history_frame_id;
+    } else {
+      frame_id = parameters.camera->camera_settings.accumulate_samples
+                     ? radiance_frame_id
+                     : static_cast<uint32_t>(Platform::GetFrameCount());
+    }
     push_constant.frame_id = restir_pt ? frame_id * samples_per_frame + parameters.restir_sample_index : frame_id;
     push_constant.frame_samples = restir_pt ? 1u : samples_per_frame;
     push_constant.total_samples =
@@ -517,6 +547,8 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     push_constant.nrd_reblur = parameters.camera->camera_settings.nrd_reblur;
     push_constant.nrd_path_tracing = !restir_pt;
+    if (parameters.bind_nrd_accumulated_input && !history_resources.restir_nrd_history_valid)
+      push_constant.total_samples = 0u;
     if (parameters.bind_nrd_temporal_aa)
       push_constant.frame_id =
           history_resources.nrd_taa_history_valid && history_resources.restir_nrd_history_valid ? 1u : 0u;

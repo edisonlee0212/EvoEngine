@@ -22,7 +22,7 @@
       "cacheVariables": {
         "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/vs2026-x64",
         "EVOENGINE_ENABLE_NRD": "ON",
-        "EVOENGINE_NRD_SOURCE_DIR": "${sourceDir}/out/deps/NRD",
+        "EVOENGINE_NRD_SOURCE_DIR": "${sourceDir}/Extern/3rdParty/NRD/NRD",
         "EVOENGINE_ENABLE_BillboardClouds_PACKAGE": "ON",
         "EVOENGINE_ENABLE_MeshRepair_PACKAGE": "ON",
         "EVOENGINE_ENABLE_TextureBaking_PACKAGE": "ON",

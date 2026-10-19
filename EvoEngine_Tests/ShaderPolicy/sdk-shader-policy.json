@@ -1,8 +1,8 @@
 {
   "counts": {
-    "files": 256,
-    "imports": 464,
-    "macro_control_files": 63
+    "files": 265,
+    "imports": 487,
+    "macro_control_files": 65
   },
   "macro_adapters": [
     {
@@ -10,11 +10,15 @@
       "path": "Compute/DDGIProbeUpdate.slang"
     },
     {
-      "macro_controls": 16,
+      "macro_controls": 20,
       "path": "Compute/DeferredComputeLighting.slang"
     },
     {
-      "macro_controls": 8,
+      "macro_controls": 18,
+      "path": "Compute/GiSupport.slang"
+    },
+    {
+      "macro_controls": 12,
       "path": "Compute/HddagiDirectLight.slang"
     },
     {
@@ -82,7 +86,7 @@
       "path": "Compute/RestirPtSpatialHybrid.slang"
     },
     {
-      "macro_controls": 13,
+      "macro_controls": 5,
       "path": "Compute/RestirPtSpatialResolve.slang"
     },
     {
@@ -254,6 +258,10 @@
       "path": "RayTracing/ClosestHit/Camera.slang"
     },
     {
+      "macro_controls": 4,
+      "path": "RayTracing/ClosestHit/DDGIProbeTrace.slang"
+    },
+    {
       "macro_controls": 7,
       "path": "RayTracing/RayGen/Camera.slang"
     }
@@ -298,6 +306,10 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.GaussianSplatRadixUpsweep",
       "path": "Compute/GaussianSplatRadixUpsweep.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.GiSupport",
+      "path": "Compute/GiSupport.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.HddagiCameraGather",
@@ -434,6 +446,10 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMappingHistogram",
       "path": "Compute/PostProcessing/ToneMappingHistogram.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PtDisplayFirefly",
+      "path": "Compute/PtDisplayFirefly.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.RayQueryCamera",
@@ -1000,6 +1016,26 @@
       "path": "Modules/EvoEngine/GBuffer.slang"
     },
     {
+      "module": "EvoEngine.GiSupport",
+      "path": "Modules/EvoEngine/GiSupport.slang"
+    },
+    {
+      "module": "EvoEngine.GiSupportCamera",
+      "path": "Modules/EvoEngine/GiSupportCamera.slang"
+    },
+    {
+      "module": "EvoEngine.GiSupportLighting",
+      "path": "Modules/EvoEngine/GiSupportLighting.slang"
+    },
+    {
+      "module": "EvoEngine.GiSupportOverride",
+      "path": "Modules/EvoEngine/GiSupportOverride.slang"
+    },
+    {
+      "module": "EvoEngine.GiSupportTrace",
+      "path": "Modules/EvoEngine/GiSupportTrace.slang"
+    },
+    {
       "module": "EvoEngine.GizmosConstants",
       "path": "Modules/EvoEngine/GizmosConstants.slang"
     },
@@ -1204,6 +1240,10 @@
       "path": "Modules/EvoEngine/SSRConstants.slang"
     },
     {
+      "module": "EvoEngine.SsrSampling",
+      "path": "Modules/EvoEngine/SsrSampling.slang"
+    },
+    {
       "module": "EvoEngine.StrandMeshlet",
       "path": "Modules/EvoEngine/StrandMeshlet.slang"
     },
@@ -1278,6 +1318,10 @@
     {
       "module": "EvoEngine.EntryPoints.RayTracing.RayGen.DDGIProbeTrace",
       "path": "RayTracing/RayGen/DDGIProbeTrace.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.GiSupport",
+      "path": "RayTracing/RayGen/GiSupport.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.RayTracing.RayGen.PointCloud",

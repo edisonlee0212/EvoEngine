@@ -895,6 +895,9 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->binary_search_iteration_count = 10;
   stack.screen_space_reflection->start_bias = 0.075f;
+  stack.screen_space_reflection->roughness_fade_start = 0.3f;
+  stack.screen_space_reflection->roughness_fade_end = 0.7f;
+  stack.screen_space_reflection->roughness_filter_radius = 16.0f;
   stack.screen_space_reflection->debug_mode = ScreenSpaceReflection::DebugMode::Confidence;
   stack.screen_space_reflection->temporal_stabilization = false;
   stack.screen_space_reflection->blur = false;
@@ -930,6 +933,14 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
   EXPECT_EQ(stack_node["screen_space_reflection"]["binary_search_iteration_count"].as<int>(), 10);
   EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["start_bias"].as<float>(), 0.075f);
+  EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["roughness_fade_start"].as<float>(), 0.3f);
+  EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["roughness_fade_end"].as<float>(), 0.7f);
+  EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["roughness_filter_radius"].as<float>(), 16.0f);
+  PostProcessingStack round_trip_stack;
+  Serialization::DeserializeObject(stack_node, static_cast<IAsset&>(round_trip_stack));
+  EXPECT_FLOAT_EQ(round_trip_stack.screen_space_reflection->roughness_fade_start, 0.3f);
+  EXPECT_FLOAT_EQ(round_trip_stack.screen_space_reflection->roughness_fade_end, 0.7f);
+  EXPECT_FLOAT_EQ(round_trip_stack.screen_space_reflection->roughness_filter_radius, 16.0f);
   EXPECT_FALSE(stack_node["screen_space_reflection"]["composition_mode"]);
   EXPECT_FALSE(stack_node["screen_space_reflection"]["debug_mode"]);
   EXPECT_FALSE(stack_node["screen_space_reflection"]["temporal_stabilization"].as<bool>());
@@ -1007,6 +1018,9 @@ tone_mapping:
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
   EXPECT_EQ(restored_stack.screen_space_reflection->binary_search_iteration_count, 12);
   EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->start_bias, 0.05f);
+  EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->roughness_fade_start, 0.4f);
+  EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->roughness_fade_end, 0.8f);
+  EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->roughness_filter_radius, 12.0f);
   EXPECT_EQ(restored_stack.screen_space_reflection->debug_mode, ScreenSpaceReflection::DebugMode::None);
   EXPECT_TRUE(restored_stack.screen_space_reflection->temporal_stabilization);
   ASSERT_TRUE(restored_stack.anti_aliasing);

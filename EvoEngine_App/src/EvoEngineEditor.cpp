@@ -86,6 +86,8 @@ struct EditorCommandLine {
   int preview_capture_width = 1280;
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
+  std::optional<size_t> preview_resize_after_frame;
+  std::optional<size_t> preview_nrd_toggle_after_frame;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
   std::optional<int> preview_capture_ray_bounces;
   std::optional<CameraSettings::RayDebugView> preview_capture_ray_debug_view;
@@ -97,7 +99,8 @@ struct EditorCommandLine {
   std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   bool preview_capture_full_ray_variant = false;
-  std::optional<float> preview_capture_firefly_clamp_threshold;
+  std::optional<float> preview_capture_display_firefly_strength;
+  std::optional<float> preview_capture_display_firefly_ratio;
   std::optional<bool> preview_capture_accumulate_samples;
   std::optional<bool> preview_capture_sss_delayed;
   std::optional<std::pair<size_t, float>> preview_sss_profile_scale_edit;
@@ -627,6 +630,15 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-warmup-frames requires a non-negative integer.");
       }
       command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
+    } else if (argument == "--preview-resize-after-frame") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-resize-after-frame requires a positive integer.");
+      }
+      command_line.preview_resize_after_frame = static_cast<size_t>(std::max(1, std::stoi(argv[++arg_index])));
+    } else if (argument == "--preview-nrd-toggle-after-frame") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-nrd-toggle-after-frame requires a positive integer.");
+      command_line.preview_nrd_toggle_after_frame = static_cast<size_t>(std::max(1, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-render-mode") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
@@ -675,11 +687,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       }
       command_line.preview_capture_ser_mode =
           ParsePreviewShaderExecutionReorderingMode(argv[++arg_index] ? argv[arg_index] : "");
-    } else if (argument == "--preview-firefly-clamp-threshold") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
-      }
-      command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-display-firefly-strength") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-display-firefly-strength requires a value from 0 to 1.");
+      command_line.preview_capture_display_firefly_strength = std::clamp(std::stof(argv[++arg_index]), 0.0f, 1.0f);
+    } else if (argument == "--preview-display-firefly-ratio") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--preview-display-firefly-ratio requires a value from 1 to 20.");
+      command_line.preview_capture_display_firefly_ratio = std::clamp(std::stof(argv[++arg_index]), 1.0f, 20.0f);
     } else if (argument == "--preview-accumulate-samples") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-accumulate-samples requires enabled or disabled.");
@@ -993,6 +1008,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
     throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
   }
+  if (command_line.preview_resize_after_frame && !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("--preview-resize-after-frame requires --capture-demo-preview.");
+  if (command_line.preview_nrd_toggle_after_frame && !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("--preview-nrd-toggle-after-frame requires --capture-demo-preview.");
   if (command_line.preview_capture_ray_debug_view && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-debug requires --capture-demo-preview.");
   }
@@ -1005,6 +1024,9 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_accumulate_samples && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-accumulate-samples requires --capture-demo-preview.");
   }
+  if ((command_line.preview_capture_display_firefly_strength || command_line.preview_capture_display_firefly_ratio) &&
+      !command_line.demo_preview_capture_path)
+    throw std::invalid_argument("Display firefly overrides require --capture-demo-preview.");
   if (command_line.preview_sss_profile_scale_edit &&
       (!command_line.demo_preview_capture_path ||
        (command_line.demo_profile_id != DemoProfileId::SubsurfaceScattering && !command_line.preview_sss_fixture)))
@@ -2197,7 +2219,8 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   });
   double ray_camera_gpu_average_ms = 0.0;
   for (const auto& timestamp : timestamps) {
-    if (timestamp.name.rfind("Path Trace ", 0) == 0 || timestamp.name.rfind("ReSTIR SSS ", 0) == 0) {
+    if (timestamp.name.rfind("Path Trace ", 0) == 0 || timestamp.name.rfind("ReSTIR PT ", 0) == 0 ||
+        timestamp.name.rfind("ReSTIR SSS ", 0) == 0) {
       ray_camera_gpu_average_ms += timestamp.AverageMilliseconds();
     }
   }
@@ -2210,22 +2233,14 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   const auto restir_bytes_per_pixel =
       !restir_pt ? 0u
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
-          ? sizeof(RestirPtPathReservoir) * 3u +
-                sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
-                                                                  camera.camera_settings.firefly_clamp_threshold > 0.0f
-                                                              ? 1u
-                                                              : 0u)) +
+          ? sizeof(RestirPtPathReservoir) * 3u + sizeof(RestirPtResolvedRadiance) +
                 sizeof(RestirPtPrimarySurface) * 2u +
                 sizeof(RestirPtSpatialShift) * (std::clamp(camera.camera_settings.restir_spatial_neighbors, 1,
                                                            CameraSettings::kMaxRestirSpatialNeighbors) +
                                                 1u) +
                 (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly
-          ? sizeof(RestirPtPathReservoir) * 2u +
-                sizeof(RestirPtResolvedRadiance) * (1u + (camera.camera_settings.accumulate_samples &&
-                                                                  camera.camera_settings.firefly_clamp_threshold > 0.0f
-                                                              ? 1u
-                                                              : 0u)) +
+          ? sizeof(RestirPtPathReservoir) * 2u + sizeof(RestirPtResolvedRadiance) +
                 sizeof(RestirPtPrimarySurface) * 2u + sizeof(RestirPtSpatialShift) +
                 (camera.camera_settings.restir_temporal_adaptive_cap ? sizeof(uint32_t) : 0u)
       : camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly
@@ -2524,7 +2539,7 @@ void WriteRasterProfileReport(const std::filesystem::path& report_path, const st
 
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const int width, const int height, const size_t warmup_frames,
-    const std::optional<DemoProfileId> demo_profile_id,
+    const std::optional<size_t> preview_resize_after_frame, const std::optional<DemoProfileId> demo_profile_id,
     const std::optional<Camera::CameraRenderMode>& preview_render_mode, const std::optional<int>& preview_ray_bounces,
     const std::optional<CameraSettings::RayDebugView>& preview_ray_debug_view,
     const std::optional<CameraSettings::RayIntegrator>& preview_ray_integrator,
@@ -2534,11 +2549,12 @@ void CaptureDemoPreview(
     const std::optional<bool>& preview_restir_temporal_adaptive_cap,
     const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
-    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_accumulate_samples,
+    const std::optional<float>& preview_display_firefly_strength,
+    const std::optional<float>& preview_display_firefly_ratio, const std::optional<bool>& preview_accumulate_samples,
     const std::optional<bool>& preview_sss_delayed,
     const std::optional<std::pair<size_t, float>>& preview_sss_profile_scale_edit,
     const std::optional<bool>& preview_nrd_denoising, const std::optional<bool>& preview_nrd_reblur,
-    const std::optional<bool>& preview_nrd_temporal_aa,
+    const std::optional<bool>& preview_nrd_temporal_aa, const std::optional<size_t> preview_nrd_toggle_after_frame,
 
     const std::optional<int> preview_sample_size,
     const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
@@ -2572,6 +2588,8 @@ void CaptureDemoPreview(
   });
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  const glm::uvec2 initial_resolution =
+      preview_resize_after_frame ? glm::max(preview_resolution / 2u, glm::uvec2(1u)) : preview_resolution;
   if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
     if (preview_strand_fixture) {
       ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
@@ -2590,8 +2608,8 @@ void CaptureDemoPreview(
     throw std::runtime_error("Demo preview capture requires EditorLayer.");
   }
   editor_layer->show_camera_window = false;
-  editor_layer->RequestSceneCameraPreviewWindow(preview_resolution);
-  editor_layer->SetSceneCameraResolutionOverride(preview_resolution);
+  editor_layer->RequestSceneCameraPreviewWindow(initial_resolution);
+  editor_layer->SetSceneCameraResolutionOverride(initial_resolution);
   const auto scene_camera = editor_layer->GetSceneCamera();
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
@@ -2649,10 +2667,10 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.shader_execution_reordering_mode = *preview_ser_mode;
     scene_camera->ResetFrameCount();
   }
-  if (preview_firefly_clamp_threshold) {
-    scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
-    scene_camera->ResetFrameCount();
-  }
+  if (preview_display_firefly_strength)
+    scene_camera->camera_settings.pt_display_firefly_strength = *preview_display_firefly_strength;
+  if (preview_display_firefly_ratio)
+    scene_camera->camera_settings.pt_display_firefly_ratio = *preview_display_firefly_ratio;
   if (preview_accumulate_samples) {
     scene_camera->camera_settings.accumulate_samples = *preview_accumulate_samples;
     scene_camera->ResetFrameCount();
@@ -2812,7 +2830,7 @@ void CaptureDemoPreview(
       post_processing_stack->tone_mapping->dither = false;
     }
   }
-  scene_camera->Resize(preview_resolution);
+  scene_camera->Resize(initial_resolution);
   const auto ray_camera_readiness_start = std::chrono::steady_clock::now();
   const auto ray_camera_readiness_shader_stats_before = Shader::GetCompileCacheStats();
   WaitForDemoPreviewSceneInputsReady();
@@ -2902,13 +2920,18 @@ void CaptureDemoPreview(
   std::vector<double> cpu_frame_samples;
   cpu_frame_samples.reserve(warmup_frames);
   const auto capture_start_time = std::chrono::steady_clock::now();
-  while ((wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
+  while ((preview_resize_after_frame && capture_frame_count >= *preview_resize_after_frame &&
+          scene_camera->GetSize() != preview_resolution) ||
+         (wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
          (!wait_for_ray_accumulation && capture_frame_count < warmup_frames)) {
     const auto frame_start_time = std::chrono::steady_clock::now();
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
     const auto current_camera_frames = scene_camera->GetFrameCount();
+    if (preview_nrd_toggle_after_frame && capture_frame_count >= *preview_nrd_toggle_after_frame &&
+        current_camera_frames < previous_camera_frames)
+      throw std::runtime_error("NRD toggle reset camera accumulation.");
     stalled_restir_frames = restir_capture && (moving_restir_fixture ? current_camera_frames == 0u
                                                                      : current_camera_frames == previous_camera_frames)
                                 ? stalled_restir_frames + 1
@@ -2923,6 +2946,16 @@ void CaptureDemoPreview(
       throw std::runtime_error(wait_for_ray_accumulation
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
+    }
+    if (preview_resize_after_frame == capture_frame_count) {
+      editor_layer->SetSceneCameraResolutionOverride(preview_resolution);
+      scene_camera->Resize(preview_resolution);
+    }
+    if (preview_nrd_toggle_after_frame == capture_frame_count) {
+      scene_camera->camera_settings.nrd_denoising = !scene_camera->camera_settings.nrd_denoising;
+      scene_camera->ResetDenoiserHistory();
+      std::cout << "EVOENGINE_PREVIEW_NRD_TOGGLE enabled=" << scene_camera->camera_settings.nrd_denoising
+                << " accumulated_frames=" << scene_camera->GetFrameCount() << '\n';
     }
     if (preview_sss_profile_scale_edit && preview_sss_profile_scale_edit->first == capture_frame_count)
       apply_sss_profile_scale_edit();
@@ -3557,16 +3590,17 @@ int main(const int argc, char** argv) {
           CaptureDemoPreview(
               *command_line.demo_preview_capture_path, command_line.preview_capture_width,
               command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
-              command_line.demo_profile_id, command_line.preview_capture_render_mode,
-              command_line.preview_capture_ray_bounces, command_line.preview_capture_ray_debug_view,
-              command_line.preview_capture_ray_integrator, command_line.preview_capture_restir_spatial_neighbors,
-              command_line.preview_capture_restir_spatial_hybrid,
+              command_line.preview_resize_after_frame, command_line.demo_profile_id,
+              command_line.preview_capture_render_mode, command_line.preview_capture_ray_bounces,
+              command_line.preview_capture_ray_debug_view, command_line.preview_capture_ray_integrator,
+              command_line.preview_capture_restir_spatial_neighbors, command_line.preview_capture_restir_spatial_hybrid,
               command_line.preview_capture_restir_temporal_history_cap,
               command_line.preview_capture_restir_temporal_adaptive_cap, command_line.preview_capture_ray_outputs,
-              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_accumulate_samples, command_line.preview_capture_sss_delayed,
-              command_line.preview_sss_profile_scale_edit, command_line.preview_capture_nrd_denoising,
-              command_line.preview_capture_nrd_reblur, command_line.preview_capture_nrd_temporal_aa,
+              command_line.preview_capture_ser_mode, command_line.preview_capture_display_firefly_strength,
+              command_line.preview_capture_display_firefly_ratio, command_line.preview_capture_accumulate_samples,
+              command_line.preview_capture_sss_delayed, command_line.preview_sss_profile_scale_edit,
+              command_line.preview_capture_nrd_denoising, command_line.preview_capture_nrd_reblur,
+              command_line.preview_capture_nrd_temporal_aa, command_line.preview_nrd_toggle_after_frame,
 
               command_line.preview_capture_sample_size, command_line.preview_ray_profile_report_path,
               command_line.preview_restir_generated_profile, command_line.preview_raster_profile_report_path,

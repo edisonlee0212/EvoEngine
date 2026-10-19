@@ -185,6 +185,8 @@ struct EeEnvironmentalLighting {
  public
   float3 unoccluded_specular;
  public
+  float3 specular_radiance;
+ public
   float3 diffuse_weight;
  public
   float specular_visibility;
@@ -384,6 +386,7 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
                                       : EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness,
                                                                          reflectionFallback);
   const float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
+  result.specular_radiance = prefilteredColor;
   result.unoccluded_specular = prefilteredColor * (F * brdf.x + float3(F90 * brdf.y));
   const bool gtaoVisibilityAvailable = (EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].raster_lighting_flags & 1u) != 0u;
   result.specular_visibility =
@@ -421,7 +424,7 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
                                                                           float3 viewDir, float3 fragPos,
                                                                           float metallic, float roughness, float3 F0,
                                                                           float F90, float materialOcclusion,
-                                                                          float screenSpaceVisibility, out float3 diffuse_radiance) {
+                                                                          float screenSpaceVisibility, out float3 diffuse_radiance, out float4 reflection_fallback) {
   diffuse_radiance = float3(0);
   const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, debugView == 5);
@@ -442,6 +445,7 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
   const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f);
   const float3 diffuseIndirect = diffuse * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
   diffuse_radiance = diffuseIndirect;
+  reflection_fallback = float4(environment.specular_radiance, environment.specular_visibility);
   const float3 unoccludedSpecular = environment.unoccluded_specular;
   const float3 specular = environment.specular;
   if (debugView == 1)
@@ -455,6 +459,14 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
   if (debugView == 5)
     return EE_DDGI_PROBE_BLEND_LOSS(gather);
   return diffuseIndirect + specular;
+}
+
+public float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T resources,
+    float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, out float3 diffuse_radiance) {
+  float4 reflection_fallback;
+  return EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(resources, albedo, normal, viewDir, fragPos,
+      metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility, diffuse_radiance, reflection_fallback);
 }
 
 public

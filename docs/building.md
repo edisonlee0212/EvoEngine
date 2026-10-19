@@ -20,7 +20,7 @@ git submodule update --init --recursive
 - Visual Studio 2026 with Desktop development with C++
 - CMake
 - Vulkan SDK
-- An NRD source checkout at `out/deps/NRD` for the `vs2026-x64` preset (including its NRI dependency)
+- Git access to initialize the pinned NRD submodule in `Extern/3rdParty/NRD/NRD` (NRD fetches its pinned NRI dependency during CMake configure)
 
 Generate the Visual Studio build tree:
 
@@ -36,6 +36,11 @@ python Scripts\install_apps.py --config Debug
 ```
 
 The standard Windows preset builds NRD into the editor and installs its runtime libraries alongside the other app binaries in `out/install/vs2026-x64`. The camera inspector can enable or disable denoising without changing builds. The installer uses one CMake graph for the editor, runtime host, shared SDK/package DLLs, and published runtime template. It does not configure or compile a second runtime tree.
+
+`Scripts/install_apps.py` initializes the NRD submodule (pinned to v4.17.3) automatically when the preset enables
+NRD and its source is missing. A recursive repository clone already includes it. An existing source checkout is
+reused; an explicit `-DEVOENGINE_NRD_SOURCE_DIR=...` override must point to an existing checkout. Use
+`--cmake-arg=-DEVOENGINE_ENABLE_NRD=OFF` to install without NRD.
 
 Incremental installs record their configuration in the install directory. Reusing the same configuration preserves the
 installed runtime, while switching between Debug and RelWithDebInfo cleans it first so incompatible MSVC runtimes are

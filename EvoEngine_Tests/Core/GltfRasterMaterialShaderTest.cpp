@@ -1005,19 +1005,24 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
     ASSERT_FALSE(source.empty()) << path.string();
     EXPECT_EQ(source.find("#include \"GltfRasterMaterial.slangh\""), std::string::npos) << path.string();
     EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("[[vk::binding(21,"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("[[vk::binding(22,"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("Sampler2D inNormalRoughness"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("Sampler2D inPbrFlags"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float4 normal_roughness = inNormalRoughness.SampleLevel"), std::string::npos)
-        << path.string();
-    EXPECT_NE(source.find("float4 pbr_flags = inPbrFlags.SampleLevel"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float roughness = clamp(normal_roughness.a"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float metallic = clamp(pbr_flags.x"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y))"), std::string::npos)
-        << path.string();
-    EXPECT_NE(source.find("original + (ssr_specular - environment.specular) * trace_confidence"), std::string::npos)
-        << path.string();
+    if (path.parent_path().parent_path().filename() == "Compute") {
+      EXPECT_NE(source.find("original + reflected.rgb"), std::string::npos);
+      EXPECT_NE(source.find("inEmissive.SampleLevel"), std::string::npos);
+      EXPECT_EQ(source.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS"), std::string::npos);
+      EXPECT_EQ(source.find("EE_SAMPLE_RASTER_BRDF"), std::string::npos);
+    } else {
+      EXPECT_NE(source.find("[[vk::binding(21,"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("[[vk::binding(22,"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("Sampler2D inNormalRoughness"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("Sampler2D inPbrFlags"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("float4 normal_roughness = inNormalRoughness.SampleLevel"), std::string::npos)
+          << path.string();
+      EXPECT_NE(source.find("float4 pbr_flags = inPbrFlags.SampleLevel"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("float roughness = clamp(normal_roughness.a"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("float metallic = clamp(pbr_flags.x"), std::string::npos) << path.string();
+      EXPECT_NE(source.find("reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y))"), std::string::npos);
+      EXPECT_NE(source.find("original + (ssr_specular - environment.specular) * trace_confidence"), std::string::npos);
+    }
     EXPECT_EQ(source.find("full_color_weight"), std::string::npos) << path.string();
     EXPECT_EQ(source.find("composition_mode"), std::string::npos) << path.string();
   }
@@ -1085,14 +1090,14 @@ TEST(GltfRasterMaterial, ScreenSpaceReflectionBuildsExplicitGeometricConfidence)
 TEST(GltfRasterMaterial, ScreenSpaceReflectionUsesEdgeAwareSpatialResolve) {
   const auto source = ReadTextFile(ShaderPath("Compute/PostProcessing/SSRSpatialResolve.slang"));
   ASSERT_FALSE(source.empty());
-  EXPECT_NE(source.find("center.a <= 0.0001f"), std::string::npos);
-  EXPECT_NE(source.find("center.a >= 0.85f"), std::string::npos);
-  EXPECT_NE(source.find("float3 radiance_sum = center.rgb"), std::string::npos);
+  EXPECT_EQ(source.find("center.a <= 0.0001f"), std::string::npos);
+  EXPECT_NE(source.find("radius < 0.5f"), std::string::npos);
+  EXPECT_NE(source.find("float4 reflection_sum = center"), std::string::npos);
   EXPECT_NE(source.find("float weight_sum = 1.0f"), std::string::npos);
   EXPECT_NE(source.find("float depth_weight"), std::string::npos);
   EXPECT_NE(source.find("float normal_weight"), std::string::npos);
   EXPECT_NE(source.find("float roughness_weight"), std::string::npos);
-  EXPECT_NE(source.find("sample_reflection.a"), std::string::npos);
+  EXPECT_NE(source.find("float material_weight"), std::string::npos);
 
   const auto implementation = ReadTextFile(SdkPath("src/ScreenSpaceReflection.cpp"));
   ASSERT_FALSE(implementation.empty());

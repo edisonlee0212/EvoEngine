@@ -69,6 +69,7 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {},
                const std::shared_ptr<ImageView>& motion_vectors_image_view = {}, bool tone_mapping_only = false);
+  std::shared_ptr<RenderTexture> PrepareReflectionFallback(const std::shared_ptr<Camera>& target_camera);
   void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
@@ -180,6 +181,9 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
   int binary_search_iteration_count = 8;
   float thickness = 0.5f;
   float start_bias = 0.05f;
+  float roughness_fade_start = 0.4f;
+  float roughness_fade_end = 0.8f;
+  float roughness_filter_radius = 12.0f;
   bool blur = true;
   bool temporal_stabilization = true;
   DebugMode debug_mode = DebugMode::None;
@@ -195,6 +199,11 @@ class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
     int32_t debug_mode;
     int32_t temporal_enabled;
     int32_t temporal_history_valid;
+    float roughness_fade_start;
+    float roughness_fade_end;
+    float roughness_filter_radius;
+    uint32_t frame_index;
+    uint32_t spatial_pass = 0;
   };
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
@@ -339,6 +348,7 @@ struct EVOENGINE_API PostProcessingCameraResources {
     PerFrameDescriptorSet combine_descriptor_set;
     PerFrameDescriptorSet reflect_output_descriptor_set;
     PerFrameDescriptorSet spatial_resolve_descriptor_set;
+    std::array<PerFrameDescriptorSet, 2> post_temporal_descriptor_sets;
     PerFrameDescriptorSet temporal_descriptor_set;
   } screen_space_reflection;
 

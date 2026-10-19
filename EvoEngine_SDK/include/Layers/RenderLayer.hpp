@@ -774,6 +774,11 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::weak_ptr<Scene> sdfgi_scene_;
   std::vector<std::vector<std::shared_ptr<class SdfgiResources>>> sdfgi_frame_resources_;
   mutable std::vector<std::vector<std::shared_ptr<class HddagiResources>>> hddagi_frame_resources_;
+  mutable std::map<std::weak_ptr<Camera>, std::shared_ptr<class GiSupportCache>, std::owner_less<std::weak_ptr<Camera>>>
+      gi_support_caches_;
+  mutable std::vector<std::vector<std::shared_ptr<class GiSupportCache>>> gi_support_frame_resources_;
+  std::weak_ptr<Scene> gi_support_scene_;
+  uint32_t gi_support_provider_ = UINT32_MAX;
   [[nodiscard]] bool IsSceneLightingReadyForPresentation(
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
@@ -1109,6 +1114,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> restir_pt_duplication_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_temporal_forward_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_guides_pipeline_;
+  std::shared_ptr<ComputePipeline> pt_display_firefly_pipeline_;
   std::shared_ptr<ComputePipeline> restir_pt_nrd_composite_pipeline_;
   std::shared_ptr<ComputePipeline> nrd_temporal_aa_pipeline_;
   std::shared_ptr<ComputePipeline> nrd_temporal_aa_resolve_pipeline_;
