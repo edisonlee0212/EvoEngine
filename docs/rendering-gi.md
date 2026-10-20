@@ -39,12 +39,13 @@ These scene updates are shared across cameras.
 
 | Provider | Update sequence | Camera consumption |
 | --- | --- | --- |
-| DDGI | Update optional voxel occlusion; prepare/scroll atlases; trace probe rays; update irradiance and visibility histories; relocate/classify when needed; invalidate moved or reactivated probes. | Deferred lighting blends ready probe irradiance using directional visibility. |
+| DDGI | Update optional voxel occlusion; prepare/scroll atlases; trace probe rays; update irradiance and visibility histories; relocate/classify when needed; invalidate relocated or newly exposed probes. | Deferred lighting blends ready probe irradiance using directional visibility. |
 | SDFGI | Voxelize changed regions; construct distance fields and occlusion; inject direct lighting and emission; trace probes; integrate and store temporal irradiance. | Deferred lighting gathers diffuse probes and specular field lighting. |
 | HDDAGI | Voxelize changed regions; update occupancy hierarchy and compact lighting cells; inject lights; integrate cached HDDA probe rays; filter diffuse probes. | Surface preparation, full-resolution GI gather, optional two-pass reflection filtering, then deferred composition. |
 
-Light and geometry changes invalidate the data they affect. Temporal histories smooth noise but delay the response to
-changes. A cleared field needs time to populate; visual comparisons should use a stationary camera and completed updates.
+Light and geometry changes refresh scene representation and cached paths while retaining lighting history at unchanged
+probe locations. Temporal histories smooth noise but delay the response to changes. A cleared field needs time to
+populate; visual comparisons should use a stationary camera and completed updates.
 
 ## DDGI
 
@@ -82,7 +83,10 @@ and small per-frame uniform/upload allocations. Support tracing also requests pr
 voxel lighting use the cached irradiance for bounce feedback.
 
 Probe lighting uses spherical harmonics with a capped 64-update history. Geometry, lighting and bounce-feedback changes
-invalidate that history; camera-driven grid scrolling preserves world-space history and clears pending local requests.
+preserve lighting at unchanged probe locations and shorten its history to an eight-update blend when next updated.
+Requested probes trace fresh rays, and gathering still checks current voxel visibility. Field replacement, grid layout
+changes and remapped probe locations reset lighting; camera-driven grid scrolling preserves overlapping world-space
+history and clears pending local requests. Eight updates describe the blend weight, not a fixed convergence deadline.
 Visible cached probes reserve their slots before new requests. A continuous spatial kernel and an eight-update influence
 ramp reduce transitions between cells and newly populated probes. Hash eviction bounds storage; finite capacity and voxel
 resolution still limit recovery in very complex views.
@@ -107,7 +111,9 @@ traversal for sharper reflections. Occlusion and finite voxel resolution remain 
 
 HDDAGI stores an occupancy hierarchy and compact lit cells. Its traversal skips empty regions and reuses cached probe
 paths while their geometry remains valid. Local changes update affected regions; scrolling preserves overlapping data.
-Represented geometry or payload edits invalidate probe histories because paths can cross cascade boundaries.
+Represented geometry or payload edits refresh geometry and cached paths while retaining main probe lighting history.
+New samples replace old lighting over the configured history window. Scrolling retains overlapping world probes; newly
+exposed locations, layout/resource replacement and explicit resets still start fresh history.
 
 Camera GI always uses the full viewport resolution. **Use Occlusion** defaults on: enabled uses full visibility
 attenuation with a zero floor; disabled bypasses that attenuation. The former numeric occlusion bias and half-resolution
@@ -140,3 +146,6 @@ traversal speed.
 
 Use [Rendering validation](rendering-validation.md) for capture and regression procedures. Compare providers with the
 same scene, camera, probe coverage, warmup, and resolution, and record both shared GI and complete camera/frame costs.
+
+[Dynamic Sponza capture script](../Scripts/capture_dynamic_gi.py) isolates light, geometry, and skinned motion;
+run `python Scripts/capture_dynamic_gi.py --help` for setup and options.

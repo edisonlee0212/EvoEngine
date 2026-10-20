@@ -14,7 +14,7 @@ struct GiSupportProbe {
  public
   float4 position;
  public
-  uint4 state;  // generation, last used frame, accumulated frames, reserved
+  uint4 state;  // generation, last used frame, accumulated frames, lighting revision
  public
   float4 sh[9];
 };
@@ -31,7 +31,9 @@ struct GiSupportParams {
  public
   uint generation;
  public
-  uint3 padding;
+  uint revision;
+ public
+  uint2 padding;
  public
   float4 sky_color_energy;
  public

@@ -349,7 +349,9 @@ void EE_DDGI_STORE_VISIBILITY_TEXEL(uint2 tile_origin, uint tile_size, uint texe
 #if EE_DDGI_PROBE_UPDATE_MODE == EE_DDGI_PROBE_UPDATE_SERIAL
 void EE_DDGI_INVALIDATE_MOVED_HISTORY(uint probe_index) {
   float4 state = EE_DDGI_PROBE_STATE[probe_index];
-  if (all(state == EE_DDGI_HISTORY_ORIGINS[probe_index]))
+  float4 previous_origin = EE_DDGI_HISTORY_ORIGINS[probe_index];
+  EE_DDGI_HISTORY_ORIGINS[probe_index] = state;
+  if (all(state.xyz == previous_origin.xyz))
     return;
   uint count = uint(constants.blend_parameters.z);
   uint irradiance_size = constants.probe_count_ray_count_and_tile_sizes.z;
@@ -367,7 +369,6 @@ void EE_DDGI_INVALIDATE_MOVED_HISTORY(uint probe_index) {
   for (uint y = 0u; y < visibility_size + 2u; ++y)
     for (uint x = 0u; x < visibility_size + 2u; ++x)
       EE_DDGI_VISIBILITY_ATLAS[int2(visibility_origin + uint2(x, y))] = float2(0.0f);
-  EE_DDGI_HISTORY_ORIGINS[probe_index] = state;
 }
 
 [shader("compute")][numthreads(64, 1, 1)] void main(uint3 group_id : SV_GroupID, uint lane_index : SV_GroupIndex) {

@@ -148,7 +148,8 @@ float supportVisibility(float3 world, float4 surface, uint cascade) {
   int4 key = GiSupportUnpackKey(params, requests[slot]);
   float3 position = GiSupportWorldPosition(params, key);
   GiSupportProbe probe = probes[slot];
-  if (probe.state.x != params.generation || any(probe.key != key)) {
+  if (probe.state.x != params.generation || any(probe.key != key) ||
+      distance(probe.position.xyz, position) > 1e-4) {
     probe = (GiSupportProbe)0;
     probe.key = key;
     probe.position = float4(position, 1);
@@ -208,6 +209,9 @@ float supportVisibility(float3 world, float4 surface, uint cascade) {
   if (slot >= GI_SUPPORT_CAPACITY || requests[slot] == 0xffffffffu)
     return;
   GiSupportProbe probe = probes[slot];
+  // Scene changes refresh rays and visibility, but retain lighting for a shorter blend.
+  if (probe.state.w != params.revision)
+    probe.state.z = min(probe.state.z, 7u);
   float alpha = 1.0 / min(probe.state.z + 1, 64u);
   for (uint i = 0; i < 9; ++i) {
     float3 coefficient = float3(0);
@@ -219,6 +223,7 @@ float supportVisibility(float3 world, float4 surface, uint cascade) {
     probe.sh[i] = float4(lerp(probe.sh[i].rgb, coefficient, alpha), 0);
   }
   probe.state.z = min(probe.state.z + 1, 64u);
+  probe.state.w = params.revision;
   probes[slot] = probe;
 }
 #endif

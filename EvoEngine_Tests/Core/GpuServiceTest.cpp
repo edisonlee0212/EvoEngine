@@ -5489,7 +5489,7 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
   }
 }
 
-TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) {
+TEST(GpuService, DdgiProductionHistoryInvalidatesMovedButRetainsReactivatedProbes) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   const auto make_buffer = [](uint64_t bytes) {
@@ -5586,7 +5586,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     std::vector<uint32_t> values;
     history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
     for (size_t word = 0; word < values.size(); ++word)
-      EXPECT_EQ(values[word], word < values.size() / 3 ? 7u : 0u) << i << ":" << word;
+      EXPECT_EQ(values[word], word / (values.size() / 3) != 1 ? 7u : 0u) << i << ":" << word;
   }
   std::array<glm::vec4, 3> recorded{};
   history[DdgiHistoryLayout::ProbeOrigins]->Download(recorded);
@@ -5598,7 +5598,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     std::vector<uint16_t> values;
     output->DownloadVector(values, 9 * 3 * components);
     for (size_t word = 0; word < values.size(); ++word)
-      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : 0u);
+      EXPECT_EQ(values[word], (word / components) % 9 / 3 != 1 ? 0x3c00u : 0u);
   }
   const auto rays = make_buffer(3 * sizeof(glm::vec4));
   rays->UploadVector(std::vector<glm::vec4>(3, glm::vec4(std::numeric_limits<float>::quiet_NaN())));
@@ -5625,7 +5625,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     std::vector<uint32_t> values;
     history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
     for (size_t word = 0; word < values.size(); ++word)
-      EXPECT_EQ(values[word], word < values.size() / 3 ? 7u : 0u)
+      EXPECT_EQ(values[word], word / (values.size() / 3) != 1 ? 7u : 0u)
           << "Rejected sample changed history " << i << ":" << word;
   }
 }
@@ -8735,6 +8735,85 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
   for (const auto i : {2u, 9u, 14u})
     EXPECT_FLOAT_EQ(values[i].w, 0);
+}
+
+TEST(GiSupport, SceneChangesBlendLightingWhileRemappedProbesReset) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  Shader::RegisterShaderIncludePath(root / "Modules");
+  struct Probe {
+    glm::ivec4 key{0};
+    glm::vec4 position{0.5f, 0.5f, 0.5f, 1};
+    glm::uvec4 state{1, 0, 64, 1};
+    std::array<glm::vec4, 9> sh{};
+  };
+  static_assert(sizeof(Probe) == GiSupportCache::ProbeBytes);
+  const auto buffer = [](VkDeviceSize size, VkBufferUsageFlags usage) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = size;
+    info.usage = usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    return std::make_shared<Buffer>(info);
+  };
+  auto uniform = buffer(sizeof(GiSupportParams), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+  auto probes = buffer(sizeof(Probe) * GiSupportCache::Capacity, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  auto requests = buffer(sizeof(uint32_t) * GiSupportCache::Capacity, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  auto rays =
+      buffer(sizeof(glm::vec4) * GiSupportCache::Capacity * GiSupportCache::Rays, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto layout = CreateGiSupportLayout(false);
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, uniform);
+  set->UpdateBufferDescriptorBinding(1, probes);
+  set->UpdateBufferDescriptorBinding(2, requests);
+  set->UpdateBufferDescriptorBinding(3, rays);
+  std::array<ComputePipeline, 2> pipelines;
+  for (uint32_t i = 0; i < pipelines.size(); ++i) {
+    auto& pipeline = pipelines[i];
+    pipeline.descriptor_set_layouts = {empty, layout, empty};
+    pipeline.compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, "#define GI_SUPPORT_MODE " + std::to_string(i == 0 ? 1 : 3) + "\n",
+                                root / "Compute/GiSupport.slang");
+    pipeline.Initialize();
+    ASSERT_TRUE(pipeline.Initialized());
+  }
+  std::vector<uint32_t> requested(GiSupportCache::Capacity, 0xffffffffu);
+  requested[0] = 0;
+  requests->UploadVector(requested);
+  rays->UploadVector(std::vector<glm::vec4>(GiSupportCache::Capacity * GiSupportCache::Rays, glm::vec4(0)));
+  GiSupportParams params;
+  params.field.grid = glm::ivec3(8);
+  params.field.cascade_count = 1;
+  params.field.cascades.data[0].to_cell = 1;
+  params.frame = 100;
+  for (uint32_t scenario = 0; scenario < 4; ++scenario) {
+    SCOPED_TRACE(scenario);
+    std::vector<Probe> initial(GiSupportCache::Capacity);
+    initial[0].sh[0] = glm::vec4(2, 2, 2, 0);
+    params.revision = scenario == 0 ? 1 : 2;
+    params.generation = scenario == 2 ? 2 : 1;
+    if (scenario == 3)
+      initial[0].position.x += 1;
+    uniform->Upload(params);
+    probes->UploadVector(initial);
+    Platform::ImmediateSubmit([&](VkCommandBuffer command) {
+      for (auto& pipeline : pipelines) {
+        pipeline.Bind(command);
+        pipeline.BindDescriptorSet(command, 1, set->GetVkDescriptorSet());
+        pipeline.Dispatch(command, 1);
+        Platform::EverythingBarrier(command);
+      }
+    });
+    std::vector<Probe> result;
+    probes->DownloadVector(result, 1);
+    EXPECT_EQ(result[0].state.x, params.generation);
+    EXPECT_EQ(result[0].state.y, params.frame);
+    EXPECT_EQ(result[0].state.w, params.revision);
+    EXPECT_EQ(result[0].state.z, scenario == 0 ? 64u : scenario == 1 ? 8u : 1u);
+    EXPECT_NEAR(result[0].sh[0].x, scenario == 0 ? 2 * 63.0f / 64 : scenario == 1 ? 1.75f : 0, 1e-6f);
+  }
 }
 
 TEST(GiSupport, ComputeVariantsCompileForBothProviders) {

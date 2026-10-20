@@ -10,8 +10,8 @@ struct alignas(16) GiSupportParams {
   HddagiGatherData field;
   glm::uvec2 viewport{1};
   uint32_t camera_index = 0, frame = 0;
-  uint32_t generation = 1;
-  glm::uvec3 padding{0};
+  uint32_t generation = 1, revision = 1;
+  glm::uvec2 padding{0};
   glm::vec4 sky_color_energy{0}, sky_parameters{0};
 };
 static_assert(sizeof(GiSupportParams) == 384);
@@ -42,8 +42,8 @@ class EVOENGINE_API GiSupportCache {
     BufferUploadArena uploads{4096};
   };
   bool hddagi_, initialized_ = false;
-  uint32_t generation_ = 1;
-  uint64_t signature_ = 0;
+  uint32_t generation_ = 1, revision_ = 1;
+  uint64_t signature_ = 0, layout_signature_ = 0;
   std::weak_ptr<const HddagiResources> field_;
   uint64_t content_version_ = 0;
   uint32_t region_version_ = 0;

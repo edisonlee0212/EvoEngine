@@ -104,10 +104,12 @@ TEST(HddagiUpdates, EditsCoverOldAndNewBoundsAndUncertainBoundsForceRebuild) {
   HddagiUpdatePlan plan;
   ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), initial.cascades, {edit}, false, plan).empty());
   EXPECT_EQ(plan.region_count, 12u);
+  EXPECT_EQ(plan.reset_history_cascades, 0u);
   EXPECT_EQ(plan.full_cascades, 0u);
   edit.flags = SdfgiUncertainBounds;
   ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), initial.cascades, {edit}, false, plan).empty());
   EXPECT_EQ(plan.region_count, 512u);
+  EXPECT_EQ(plan.reset_history_cascades, 0u);
   EXPECT_EQ(plan.full_cascades, 1u);
   edit.flags = SdfgiPayloadChanged;
   edit.before.reset();
@@ -116,6 +118,7 @@ TEST(HddagiUpdates, EditsCoverOldAndNewBoundsAndUncertainBoundsForceRebuild) {
   EXPECT_TRUE(plan.regions.empty());
   ASSERT_TRUE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(0), initial.cascades, {}, true, plan).empty());
   EXPECT_EQ(plan.full_cascades, 1u);
+  EXPECT_EQ(plan.reset_history_cascades, 0u);
   const auto before = plan.region_count;
   EXPECT_FALSE(BuildHddagiUpdatePlan(probes, {}, glm::vec3(INFINITY), initial.cascades, {}, false, plan).empty());
   EXPECT_EQ(plan.region_count, before);
@@ -126,5 +129,5 @@ TEST(HddagiUpdates, EditsCoverOldAndNewBoundsAndUncertainBoundsForceRebuild) {
   ASSERT_FALSE(plan.regions.empty());
   for (const auto& region : plan.regions)
     EXPECT_EQ(region.core.cascade, 1u);
-  EXPECT_EQ(plan.reset_history_cascades, 3u);
+  EXPECT_EQ(plan.reset_history_cascades, 0u);
 }

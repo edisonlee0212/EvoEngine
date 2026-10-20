@@ -4202,7 +4202,7 @@ void RenderLayer::PrepareDdgiCascadeFrameState(const std::shared_ptr<Scene>& sce
     runtime_state.has_valid_probe_history = false;
   }
   const bool hard_ddgi_refresh = ddgi_ray_source_changed || reset_probe_history || ddgi_persistent_resource_changed ||
-                                 ddgi_full_scroll_reset || ddgi_emissive_population_changed ||
+                                 ddgi_full_scroll_reset ||
                                  (!runtime_state.has_valid_probe_history && runtime_state.history_submissions.empty());
   if (hard_ddgi_refresh) {
     runtime_state.clear_probe_atlas_this_frame = true;
