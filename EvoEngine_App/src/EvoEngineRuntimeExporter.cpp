@@ -486,6 +486,18 @@ void Export(const fs::path& request_path, const fs::path& template_path, const f
     throw std::runtime_error("Export requires an application name and nonzero startup scene handle.");
   }
   const auto file_name = SanitizeName(application_name);
+  const auto logo_path = fs::u8path(request.value("startup_logo", std::string{}));
+  std::string logo_hash;
+  if (!logo_path.empty()) {
+    RequireNoReparseAncestors(logo_path);
+    if (!fs::is_regular_file(logo_path) || LowerAscii(Utf8(logo_path.extension())) != ".png")
+      throw std::runtime_error("Startup logo must be an existing PNG file.");
+    std::array<unsigned char, 8> signature{};
+    std::ifstream(logo_path, std::ios::binary).read(reinterpret_cast<char*>(signature.data()), signature.size());
+    if (signature != std::array<unsigned char, 8>{137, 80, 78, 71, 13, 10, 26, 10})
+      throw std::runtime_error("Startup logo is not a PNG image.");
+    logo_hash = Sha256(logo_path);
+  }
   const auto output_parent = output.parent_path();
   fs::create_directories(output_parent);
   const auto staging = CreateStaging(output);
@@ -540,6 +552,14 @@ void Export(const fs::path& request_path, const fs::path& template_path, const f
     runtime["application_name"] = application_name;
     runtime["project"] = "Project/" + project_name;
     runtime["packages"] = request.at("loaded_packages");
+    runtime["startup"]["logo"] = "DefaultResources/Icons/EvoEngine.png";
+    if (!logo_path.empty()) {
+      const auto logo_output = staging / "Startup/Logo.png";
+      CopyFile(logo_path, logo_output);
+      if (Sha256(logo_output) != logo_hash || Sha256(logo_path) != logo_hash)
+        throw std::runtime_error("Startup logo changed while the application was being exported.");
+      runtime["startup"]["logo"] = "Startup/Logo.png";
+    }
     WriteJson(staging / "runtime.yaml", runtime);
 
     if (SnapshotProject(project_file) != source_snapshot ||

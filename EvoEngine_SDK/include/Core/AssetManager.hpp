@@ -36,6 +36,9 @@ class EVOENGINE_API AssetManager {
   };
 
   struct EVOENGINE_API AssetLoadSnapshot {
+    // Totals since the last Clear(), including finished failed/cancelled requests; unaffected by batch resets.
+    size_t cumulative_total = 0;
+    size_t cumulative_completed = 0;
     size_t total = 0;
     size_t completed = 0;
     size_t failed = 0;
@@ -163,6 +166,8 @@ class EVOENGINE_API AssetManager {
     std::unordered_map<Handle, AssetLoadingRecord> loading_assets_;  ///< In-flight loads by asset handle.
     std::deque<MainThreadAssetTask> main_thread_asset_tasks_;        ///< Asset tasks that must run on main.
     AssetLoadSnapshot load_snapshot_;                                ///< Current asset-service progress snapshot.
+    size_t load_requests_ = 0;
+    size_t finished_loads_ = 0;
 
     friend class AssetManager;  ///< AssetManager has access to private members of AssetRegistry.
   };

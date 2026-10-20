@@ -37,6 +37,7 @@ void RayTracingPipeline::Initialize() {
   creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
+  const Shader::PreparationScope preparation;
   ReleaseResources();
 
   std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};

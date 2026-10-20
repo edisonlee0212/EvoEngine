@@ -39,7 +39,28 @@ The runtime `window` configuration accepts `mode` (`windowed`, `borderless_windo
 
 Alt+Enter always switches between the session's last windowed and fullscreen modes. Before either has been used, defaults are the configured decorated window and borderless fullscreen. The windowed position and size are retained for that session, but each launch starts from the saved build configuration. Resize and resolution-change permissions never disable mode switching. Exclusive presentation uses Vulkan's application-controlled fullscreen extension when the device and surface support it. Exclusive startup presents one borderless frame at the same monitor resolution before taking display ownership; this avoids a first-presentation driver stall observed on the Windows test machine.
 
-Android deployment, asset packing, multiple build configurations, custom icons, and a runtime GUI remain future work. Runtime configuration and application data paths are separate from the Windows exporter and window implementation so future platform support can supply its own deployment and storage rules.
+Android deployment, asset packing, multiple build configurations, and custom application icons remain future work. Runtime configuration and application data paths are separate from the Windows exporter and window implementation so future platform support can supply its own deployment and storage rules.
+
+## Startup screen
+
+Exported applications show a black startup screen with a centered logo, a loading-status line and two measured progress bars:
+
+- **Scene loading** counts processed asset requests against discovered project assets and dependencies, plus a final scene-setup step. It reaches 100% when the project scene and its asset loads are ready.
+- **Shaders / pipelines** counts finished shader and Vulkan pipeline preparations, queued renderer preparation jobs, and a final first-playable-frame step. Cached preparations count too. It reaches 100% after the first playable frame completes GPU work.
+
+Each bar shows completed/total work units and a percentage, not elapsed-time estimates. Totals can grow as more dependencies or rendering variants are discovered, so the percentage can decrease. Settled failed/cancelled asset requests advance progress too; existing failure handling and log diagnostics still apply. Before discovery the bars wait at zero; the status line explains graphics initialization and resource/package loading. Progress is sampled on the independent startup-window thread, including during blocking scene and pipeline work.
+
+The screen appears before graphics initialization. Playback waits for the startup scene to render with its required resources ready; the screen then remains until the first playable frame has completed GPU work. There is no artificial minimum duration. Closing the startup window cancels launch after any currently running initialization work finishes.
+
+The default logo is the white branching hexagon with transparent, softly antialiased edges. The editor, launcher and application icons use matching [branding assets](branding.md), with black variants for light title bars.
+
+The editor's separate shader-preparation window fits its heading, progress bar and current-status text, then restores the configured editor size or fullscreen mode. Executable file icons use the black logo; the runtime loading logo and dark-theme title bars use the white version.
+
+In **Build Manager > Startup screen**, use **Choose startup logo...** to select a PNG, or **Use EvoEngine logo** to restore the default. The choice is saved with the project's build settings. Export copies a custom logo to `Startup/Logo.png`, records it in the build inventory, and writes its distribution-relative path to `startup.logo` in `runtime.yaml`. Empty project-logo settings and older runtime configurations use `DefaultResources/Icons/EvoEngine.png`. PNG transparency is composited over black and aspect ratio is preserved. These logo settings apply to the Windows runtime host.
+
+For validation, add `--capture-startup UserData/startup.png` to save the startup screen separately from the existing final-frame `--capture` option. The log records `RUNTIME_STARTUP_VISIBLE`, loading-status changes, `RUNTIME_STARTUP_PROGRESS` with both completed/total counts, `RUNTIME_STARTED` after scene preparation, and `RUNTIME_READY` at the gameplay handoff. The runtime host regression checks that progress remains in range and both bars complete before handoff. Shader and pipeline caches remain persistent across launches.
+
+Scene shader preparation uses the same bounded compiler-worker queue as the editor (`EVOENGINE_SHADER_COMPILER_WORKERS` overrides the hardware-selected limit). Player mode prepares pipelines for active cameras without proactively compiling unused ray-camera modes, debug views or profiling variants. Later camera-mode changes prepare their required pipelines on demand and defer ray rendering until those builds finish. See [shader preparation](shader-preparation.md) for worker limits and memory guidance.
 
 ## Demo validation
 

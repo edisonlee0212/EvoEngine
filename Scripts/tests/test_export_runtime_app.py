@@ -225,10 +225,38 @@ class RuntimeExporterBlackBoxTest(unittest.TestCase):
         self.assertEqual(runtime["identity"], fixture.runtime_identity)
         self.assertTrue(runtime["runtime_gui_layout_revision"])
         self.assertTrue(runtime["show_console"])
+        self.assertEqual(runtime["startup"]["logo"], "DefaultResources/Icons/EvoEngine.png")
         self.assertEqual(runtime["packages"], [{"name": "Core", "source_id": "b" * 64}])
         report = json.loads((fixture.output / "build-report.json").read_text(encoding="utf-8"))
         self.assertTrue(report["files"])
         self.assertNotIn(str(fixture.project), json.dumps(report))
+
+    def test_custom_startup_logo_is_copied_and_recorded(self) -> None:
+        fixture = ExportFixture(self.root)
+        logo = self.root / "Brand logo Ω.PNG"
+        logo.write_bytes(b"\x89PNG\r\n\x1a\nlogo bytes")
+        fixture.write_request(startup_logo=str(logo))
+        result = self.run_export(fixture)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        runtime = json.loads((fixture.output / "runtime.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(runtime["startup"]["logo"], "Startup/Logo.png")
+        self.assertEqual((fixture.output / "Startup/Logo.png").read_bytes(), logo.read_bytes())
+        report = json.loads((fixture.output / "build-report.json").read_text(encoding="utf-8"))
+        self.assertIn("Startup/Logo.png", {entry["path"] for entry in report["files"]})
+        self.assertNotIn(str(logo), json.dumps(runtime))
+
+    def test_missing_or_non_png_startup_logo_is_rejected(self) -> None:
+        fixture = ExportFixture(self.root)
+        logo = self.root / "Missing.png"
+        fixture.write_request(startup_logo=str(logo))
+        result = self.run_export(fixture)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(fixture.output.exists())
+        logo.write_bytes(b"not a PNG")
+        result = self.run_export(fixture)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(fixture.output.exists())
+        self.assert_no_staging(fixture)
 
     def test_exports_receive_distinct_gui_layout_revisions(self) -> None:
         revisions = []

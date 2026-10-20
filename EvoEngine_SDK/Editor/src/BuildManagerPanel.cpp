@@ -272,6 +272,7 @@ void BuildManagerPanel::StartExport() {
                {"editor_identity", IdentityJson(identity)},
                {"loaded_packages", packages},
                {"source_inventory", std::move(source_inventory)},
+               {"startup_logo", draft_.startup_logo.generic_u8string()},
                {"runtime_config",
                 {{"show_console", draft_.show_console},
                  {"window",
@@ -379,6 +380,21 @@ void BuildManagerPanel::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
   changed |= ImGui::Checkbox("Allow window resize", &draft_.allow_window_resize);
   changed |= ImGui::Checkbox("Allow resolution changes", &draft_.allow_resolution_change);
   changed |= ImGui::Checkbox("Show Windows console", &draft_.show_console);
+  ImGui::TextUnformatted("Startup screen");
+  const auto logo_name =
+      draft_.startup_logo.empty() ? std::string("EvoEngine (default)") : draft_.startup_logo.filename().u8string();
+  ImGui::Text("Logo: %s", logo_name.c_str());
+  EditorFileDialogs::OpenFile(
+      "Choose startup logo...", "PNG image", {".png"},
+      [&](const std::filesystem::path& path) {
+        draft_.startup_logo = path;
+        changed = true;
+      },
+      false);
+  if (!draft_.startup_logo.empty() && ImGui::Button("Use EvoEngine logo")) {
+    draft_.startup_logo.clear();
+    changed = true;
+  }
   if (changed) {
     draft_.application_name = application_name_.data();
     draft_.output_directory = std::filesystem::u8path(output_directory_.data());

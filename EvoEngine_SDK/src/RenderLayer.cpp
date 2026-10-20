@@ -3341,8 +3341,8 @@ void RenderLayer::PrepareSceneForRendering(
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayAccelerationStructureEnabled();
   if (update_ray_tracing_resources) {
-    shader_preparation_.SetSynchronous(ApplicationContext::Get().GetApplicationInfo().application_mode !=
-                                       ApplicationMode::Editor);
+    const auto application_mode = ApplicationContext::Get().GetApplicationInfo().application_mode;
+    shader_preparation_.SetSynchronous(application_mode == ApplicationMode::Headless);
     shader_preparation_.BeginRequests();
     const auto feature_mask = force_full_ray_camera_shader_variant
                                   ? kGltfSceneAllFeatures
@@ -3355,7 +3355,8 @@ void RenderLayer::PrepareSceneForRendering(
       scene_shader_background_complete_ = false;
       scene_shader_prewarm_error_.clear();
     }
-    const bool prewarm_scene_shaders = !scene_shader_background_complete_ && ProjectManager::IsProjectIdle() &&
+    const bool prewarm_scene_shaders = application_mode != ApplicationMode::Player &&
+                                       !scene_shader_background_complete_ && ProjectManager::IsProjectIdle() &&
                                        !AssetManager::GetAssetLoadSnapshot().Active() &&
                                        !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
                                        !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
@@ -7011,7 +7012,7 @@ ShaderPreparationProgress RenderLayer::GetShaderPreparationProgress() const {
 
 bool RenderLayer::IsSceneShaderPrewarmComplete(const std::shared_ptr<Scene>& scene) const {
   const auto& settings = ApplicationContext::Get().GetApplicationInfo();
-  return !scene || settings.application_mode != ApplicationMode::Editor || !settings.prewarm_render_pipelines ||
+  return !scene || settings.application_mode == ApplicationMode::Headless || !settings.prewarm_render_pipelines ||
          !Platform::Initialized() || !Platform::RayAccelerationStructureEnabled() ||
          (shader_prewarm_scene_.lock() == scene && scene_shader_prewarm_complete_);
 }
@@ -8642,7 +8643,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
   if (!camera || !camera->ray_camera_history_owner_alive_) {
     return;
   }
-  if (ApplicationContext::Get().GetApplicationInfo().application_mode == ApplicationMode::Editor &&
+  if (ApplicationContext::Get().GetApplicationInfo().application_mode != ApplicationMode::Headless &&
       !scene_shader_prewarm_complete_)
     return;
   const auto render_texture = camera->GetRenderTexture();

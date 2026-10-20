@@ -26,6 +26,7 @@ endif()
 
 if(NOT EVOENGINE_WITH_EDITOR)
 	add_executable(EvoEngineRuntimeBoundaryTests Core/RuntimeBoundaryTest.cpp Core/RuntimeNodeGraphTest.cpp Core/NativeBuildIdentityTest.cpp Core/RuntimePathsTest.cpp Core/WindowModePolicyTest.cpp)
+	target_sources(EvoEngineRuntimeBoundaryTests PRIVATE Core/RuntimeStartupTest.cpp)
 	target_sources(EvoEngineRuntimeBoundaryTests PRIVATE Core/RuntimeGuiContextTest.cpp Core/RuntimeGuiHostTest.cpp Core/ApplicationLayerTest.cpp)
 	target_include_directories(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_INCLUDES})
 	target_compile_definitions(EvoEngineRuntimeBoundaryTests PRIVATE ${EVOENGINE_DEFS})
@@ -52,6 +53,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/NativeBuildIdentityTest.cpp
 	Core/StrictRuntimeLoadingTest.cpp
 	Core/RuntimePathsTest.cpp
+	Core/RuntimeStartupTest.cpp
 	Core/WindowModePolicyTest.cpp
 	Core/TaskRuntimeTest.cpp
 	Core/ProfilerTest.cpp

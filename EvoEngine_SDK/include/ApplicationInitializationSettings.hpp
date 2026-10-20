@@ -1,5 +1,7 @@
 #pragma once
+#include <functional>
 #include <optional>
+#include <string_view>
 #include "Core/WindowDisplayMode.hpp"
 namespace evo_engine {
 
@@ -130,7 +132,9 @@ struct ApplicationInitializationSettings {
   bool load_project_start_scene = true;      /**< Whether project open should load/create and attach a scene. */
   bool enable_gpu_timestamp_capture = false; /**< Whether GPU timing starts before default resources are loaded. */
   bool prewarm_render_pipelines = true;      /**< Whether RenderLayer builds scene-render pipelines during startup. */
-  bool enable_runtime_packages = false;      /**< Whether to load runtime packages during initialization. */
+  bool defer_window_show = false;
+  std::function<void(std::string_view)> startup_status;
+  bool enable_runtime_packages = false; /**< Whether to load runtime packages during initialization. */
   std::vector<std::filesystem::path> package_search_paths; /**< Additional runtime package search paths. */
   std::vector<std::string> startup_runtime_packages;       /**< Runtime packages to load during initialization. */
 

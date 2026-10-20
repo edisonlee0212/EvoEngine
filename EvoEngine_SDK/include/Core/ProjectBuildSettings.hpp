@@ -18,12 +18,13 @@ struct EVOENGINE_API ProjectBuildSettings {
   bool allow_window_resize = true;
   bool allow_resolution_change = true;
   bool show_console = false;
+  std::filesystem::path startup_logo;
   friend bool operator==(const ProjectBuildSettings& a, const ProjectBuildSettings& b) {
     return a.application_name == b.application_name && a.output_directory == b.output_directory &&
            a.startup_scene_handle == b.startup_scene_handle && a.target == b.target && a.window_mode == b.window_mode &&
            a.window_width == b.window_width && a.window_height == b.window_height &&
            a.allow_window_resize == b.allow_window_resize && a.allow_resolution_change == b.allow_resolution_change &&
-           a.show_console == b.show_console;
+           a.show_console == b.show_console && a.startup_logo == b.startup_logo;
   }
 };
 }  // namespace evo_engine

@@ -236,7 +236,8 @@ def _runtime_environment(decoy: Path) -> dict[str, str]:
 def _run_host(distribution: Path, executable_relative: Path, unrelated_cwd: Path, decoy: Path) -> subprocess.CompletedProcess[str]:
     executable = distribution / executable_relative
     return subprocess.run(
-        [str(executable), "--no-error-dialog", "--frames", "3", "--capture", "UserData/smoke.png"],
+        [str(executable), "--no-error-dialog", "--frames", "3", "--capture", "UserData/smoke.png",
+         "--capture-startup", "UserData/startup.png"],
         cwd=unrelated_cwd,
         env=_runtime_environment(decoy),
         capture_output=True,
@@ -263,6 +264,25 @@ def _assert_success(result: subprocess.CompletedProcess[str], distribution: Path
     capture = distribution / "UserData" / "smoke.png"
     if not capture.is_file() or capture.stat().st_size <= 8 or capture.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
         raise RuntimeHostTestError(f"Runtime capture is missing or invalid: {capture}")
+    startup = distribution / "UserData" / "startup.png"
+    if not startup.is_file() or startup.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
+        raise RuntimeHostTestError(f"Runtime startup capture is missing or invalid: {startup}")
+    visible = log.rfind("RUNTIME_STARTUP_VISIBLE")
+    started = log.rfind("RUNTIME_STARTED")
+    ready = log.rfind("RUNTIME_READY")
+    if not 0 <= visible < started < ready:
+        raise RuntimeHostTestError(f"Runtime startup/playback handoff is out of order:\n{log}")
+    progress = [tuple(map(int, row)) for row in re.findall(
+        r"RUNTIME_STARTUP_PROGRESS scene=(\d+)/(\d+) preparations=(\d+)/(\d+)", log[visible:ready]
+    )]
+    if not progress or any(
+        not (0 <= scene <= scene_total and 0 <= prepared <= preparation_total and scene_total > 0 and preparation_total > 0)
+        for scene, scene_total, prepared, preparation_total in progress
+    ):
+        raise RuntimeHostTestError(f"Runtime startup progress is missing or invalid:\n{log}")
+    scene, scene_total, prepared, preparation_total = progress[-1]
+    if scene != scene_total or prepared != preparation_total:
+        raise RuntimeHostTestError(f"Runtime handed off before both startup progress bars completed:\n{log}")
 
 
 def _assert_isolated(*directories: Path) -> None:
@@ -302,6 +322,47 @@ def _assert_error_dialog(distribution: Path, executable_relative: Path, unrelate
             time.sleep(0.1)
         if not found or process.wait(timeout=5) == 0:
             raise RuntimeHostTestError("Fatal startup did not display the Windows error dialog and exit with failure.")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+
+
+def _assert_startup_cancellation(distribution: Path, executable_relative: Path, unrelated_cwd: Path, decoy: Path) -> None:
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    log_offset = len(_runtime_log(distribution))
+    process = subprocess.Popen([str(distribution / executable_relative), "--no-error-dialog"], cwd=unrelated_cwd,
+                               env=_runtime_environment(decoy), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    closed = False
+
+    @callback_type
+    def visit(window: int, _: int) -> bool:
+        nonlocal closed
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(owner))
+        if owner.value == process.pid:
+            name = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(window, name, len(name))
+            if name.value == "EvoEngineRuntimeStartup":
+                closed = bool(user32.PostMessageW(window, 0x0010, 0, 0))
+                return False
+        return True
+
+    try:
+        deadline = time.monotonic() + 30
+        while process.poll() is None and time.monotonic() < deadline and not closed:
+            user32.EnumWindows(visit, 0)
+            time.sleep(0.01)
+        if not closed or process.wait(timeout=120) != 0:
+            raise RuntimeHostTestError("Closing the startup screen did not cancel launch cleanly.")
+        log = _runtime_log(distribution)[log_offset:]
+        if "RUNTIME_STARTUP_VISIBLE" not in log or "RUNTIME_READY" in log:
+            raise RuntimeHostTestError(f"Cancelled startup reached the gameplay handoff:\n{log}")
     finally:
         if process.poll() is None:
             process.kill()
@@ -540,6 +601,10 @@ def run(template: Path, work_dir: Path, exporter: Path | None = None) -> None:
         raise RuntimeHostTestError("A new export revision did not replace runtime child layout overrides.")
     if distribution.exists():
         raise RuntimeHostTestError(f"Original distribution still exists after relocation: {distribution}")
+    _assert_project_unchanged(relocated / "Project", project_snapshot)
+    _assert_isolated(unrelated_cwd, decoy)
+
+    _assert_startup_cancellation(relocated, executable_relative, unrelated_cwd, decoy)
     _assert_project_unchanged(relocated / "Project", project_snapshot)
     _assert_isolated(unrelated_cwd, decoy)
 

@@ -70,6 +70,11 @@ RuntimeConfiguration RuntimeConfiguration::Load(const std::filesystem::path& pat
   RuntimeConfiguration config;
   ReadSetting(node, "show_console", config.show_console);
   ReadSetting(node, "runtime_gui_layout_revision", config.runtime_gui_layout_revision);
+  if (const auto startup = node["startup"]; startup && startup["logo"]) {
+    config.startup_logo = std::filesystem::u8path(startup["logo"].as<std::string>());
+    if (!std::filesystem::is_regular_file(runtime_paths::Resolve(config.startup_logo)))
+      throw std::runtime_error("Runtime startup logo is missing.");
+  }
   config.application_name = node["application_name"].as<std::string>();
   config.project = std::filesystem::u8path(node["project"].as<std::string>());
   if (config.application_name.empty() || config.project.extension() != ".eveproj") {
@@ -129,6 +134,7 @@ ApplicationInitializationSettings RuntimeConfiguration::ApplicationSettings() co
   settings.strict_runtime = true;
   settings.project_path = runtime_paths::Resolve(project);
   settings.application_name = application_name;
+  settings.defer_window_show = true;
   settings.runtime_gui_layout_revision = runtime_gui_layout_revision;
   settings.default_window_size = window_size;
   settings.window_mode = window_mode;

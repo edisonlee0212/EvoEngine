@@ -21,6 +21,7 @@
 #include "ProjectManager.hpp"
 #include "RuntimePaths.hpp"
 #include "Serialization.hpp"
+#include "ShaderPreparationQueue.hpp"
 #include "Utilities.hpp"
 #include "slang-com-ptr.h"
 #include "slang.h"
@@ -149,6 +150,8 @@ std::mutex preparation_name_mutex;
 std::string preparation_name;
 thread_local std::function<void()> preparation_pump;
 std::atomic<uint64_t> temporary_file_counter = 0;
+std::atomic<size_t> preparations_started = 0;
+std::atomic<size_t> preparations_completed = 0;
 std::atomic<uint64_t> memory_hit_count = 0;
 std::atomic<uint64_t> disk_hit_count = 0;
 std::atomic<uint64_t> disk_miss_count = 0;
@@ -1840,6 +1843,7 @@ bool Shader::TryCompile(const std::filesystem::path& path) {
   }
   if (!Platform::Initialized())
     return false;
+  const PreparationScope preparation;
   VkShaderModuleCreateInfo create_info{};
   create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
   std::vector<uint32_t> binaries;
@@ -1865,6 +1869,21 @@ bool Shader::TryCompile(const std::filesystem::path& path) {
 
 void Shader::SetPreparationPump(std::function<void()> pump) {
   preparation_pump = std::move(pump);
+}
+
+Shader::PreparationScope::PreparationScope() {
+  ++preparations_started;
+}
+
+Shader::PreparationScope::~PreparationScope() {
+  ++preparations_completed;
+}
+
+ShaderPreparationProgress Shader::GetPreparationProgress() {
+  ShaderPreparationProgress progress;
+  progress.completed = preparations_completed.load();
+  progress.total = preparations_started.load();
+  return progress;
 }
 
 bool Shader::RunPreparationTask(const std::string& name, const std::function<void()>& task) {

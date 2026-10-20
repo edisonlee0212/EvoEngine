@@ -1,12 +1,12 @@
 message("=========Checking Apps=========")
 
 if(WIN32)
-	add_executable(EvoEngineRuntime WIN32 src/EvoEngineRuntime.cpp resources/EvoEngineRuntime.rc
+	add_executable(EvoEngineRuntime WIN32 src/EvoEngineRuntime.cpp src/RuntimeStartupScreen.cpp resources/EvoEngineRuntime.rc
 		resources/EvoEngineRuntime.manifest)
 	target_include_directories(EvoEngineRuntime PRIVATE ${EVOENGINE_INCLUDES} "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 	target_compile_definitions(EvoEngineRuntime PRIVATE ${EVOENGINE_DEFS})
 	target_precompile_headers(EvoEngineRuntime PRIVATE ${EVOENGINE_RUNTIME_PCHS})
-	target_link_libraries(EvoEngineRuntime PRIVATE EvoEngine_SDK ${EvoEngine_Services})
+	target_link_libraries(EvoEngineRuntime PRIVATE EvoEngine_SDK ${EvoEngine_Services} gdiplus)
 	target_link_options(EvoEngineRuntime PRIVATE /ENTRY:mainCRTStartup)
 	evoengine_copy_resources(EvoEngineRuntime "$<TARGET_FILE_DIR:EvoEngineRuntime>")
 	install(TARGETS EvoEngineRuntime RUNTIME DESTINATION "${EVOENGINE_INSTALL_APP_RUNTIME_DIR}")
