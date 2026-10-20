@@ -20,6 +20,7 @@ void ComputePipeline::Initialize() {
   creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
+  const Shader::PreparationScope preparation;
   if (vk_compute_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_compute_pipeline_, nullptr);
     vk_compute_pipeline_ = nullptr;

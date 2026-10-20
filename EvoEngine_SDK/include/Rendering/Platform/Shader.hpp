@@ -9,6 +9,7 @@
 #include <optional>
 
 namespace evo_engine {
+struct ShaderPreparationProgress;
 
 /**
  * @enum ShaderType
@@ -132,6 +133,15 @@ class EVOENGINE_API Shader final : public IAsset {
                                   const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
+  class EVOENGINE_API PreparationScope {
+   public:
+    PreparationScope();
+    ~PreparationScope();
+    PreparationScope(const PreparationScope&) = delete;
+    PreparationScope& operator=(const PreparationScope&) = delete;
+  };
+  // Thread-safe process totals for finished/started shader and pipeline preparation attempts.
+  [[nodiscard]] static ShaderPreparationProgress GetPreparationProgress();
   static void SetPreparationPump(std::function<void()> pump);
   static bool RunPreparationTask(const std::string& name, const std::function<void()>& task);
   [[nodiscard]] static std::string GetCurrentPreparation();

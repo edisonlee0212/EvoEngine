@@ -54,12 +54,17 @@ bool RuntimeStartupScreen::Cancelled() const {
   return cancelled_;
 }
 
+void RuntimeStartupScreen::SetProgressSource(std::function<Progress()> source) {
+  const std::lock_guard lock(mutex_);
+  progress_source_ = std::move(source);
+}
+
 void RuntimeStartupScreen::SetStatus(const std::string_view status) {
   const auto text = Wide(status);
   const std::lock_guard lock(mutex_);
   if (status_ != text) {
     status_ = text;
-    std::cout << "RUNTIME_STARTUP_STATUS " << status << std::endl;
+    std::cout << "RUNTIME_STARTUP_STATUS " + std::string(status) + "\n";
     if (const auto window = window_.load())
       InvalidateRect(window, nullptr, FALSE);
   }
@@ -85,6 +90,7 @@ void RuntimeStartupScreen::Run(const evo_engine::RuntimeConfiguration& config, s
   WNDCLASSW window_class{};
   window_class.lpfnWndProc = WindowProc;
   window_class.hInstance = instance;
+  window_class.hIcon = LoadIconW(instance, L"IDI_ICON1");
   window_class.hCursor = LoadCursor(nullptr, IDC_ARROW);
   window_class.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
   window_class.lpszClassName = L"EvoEngineRuntimeStartup";
@@ -113,6 +119,7 @@ void RuntimeStartupScreen::Run(const evo_engine::RuntimeConfiguration& config, s
     throw std::runtime_error("Could not create the runtime startup window.");
   }
   window_ = window;
+  SetTimer(window, 1, 33, nullptr);
   ShowWindow(window, SW_SHOW);
   UpdateWindow(window);
   std::cout << "RUNTIME_STARTUP_VISIBLE" << std::endl;
@@ -135,6 +142,9 @@ LRESULT CALLBACK RuntimeStartupScreen::WindowProc(HWND window, UINT message, WPA
   }
   if (screen) {
     switch (message) {
+      case WM_TIMER:
+        InvalidateRect(window, nullptr, FALSE);
+        return 0;
       case WM_PAINT:
         screen->Paint(window);
         return 0;
@@ -144,6 +154,8 @@ LRESULT CALLBACK RuntimeStartupScreen::WindowProc(HWND window, UINT message, WPA
         screen->cancelled_ = true;
         [[fallthrough]];
       case kClose:
+        InvalidateRect(window, nullptr, FALSE);
+        UpdateWindow(window);
         DestroyWindow(window);
         return 0;
       case WM_DESTROY:
@@ -166,10 +178,10 @@ void RuntimeStartupScreen::Paint(HWND window) {
   graphics.Clear(Gdiplus::Color::Black);
   graphics.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
   const float dpi = float(GetDpiForWindow(window)) / 96;
-  const float side = std::min({width * 0.3f, height * 0.35f, 256 * dpi});
+  const float side = std::min({width * 0.15f, height * 0.175f, 128 * dpi});
   const float scale = side / float(std::max(logo_->GetWidth(), logo_->GetHeight()));
   const float logo_width = logo_->GetWidth() * scale, logo_height = logo_->GetHeight() * scale;
-  const float top = (height - logo_height) * 0.5f;
+  const float top = std::max(8 * dpi, std::min((height - logo_height) * 0.5f, height - logo_height - 156 * dpi));
   graphics.DrawImage(logo_, (width - logo_width) * 0.5f, top, logo_width, logo_height);
   Gdiplus::Font font(L"Segoe UI", 16 * dpi, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
   Gdiplus::SolidBrush brush(Gdiplus::Color(220, 220, 220));
@@ -178,10 +190,36 @@ void RuntimeStartupScreen::Paint(HWND window) {
   format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
   format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
   const Gdiplus::RectF text_bounds(16 * dpi, top + logo_height + 28 * dpi, width - 32 * dpi, 28 * dpi);
+  std::wstring status;
+  std::function<Progress()> progress_source;
   {
     const std::lock_guard lock(mutex_);
-    graphics.DrawString(status_.c_str(), -1, &font, text_bounds, &format, &brush);
+    status = status_;
+    progress_source = progress_source_;
   }
+  graphics.DrawString(status.c_str(), -1, &font, text_bounds, &format, &brush);
+  const auto progress = progress_source ? progress_source() : Progress{};
+  if (progress != last_progress_) {
+    std::cout << "RUNTIME_STARTUP_PROGRESS scene=" + std::to_string(progress.scene_completed) + "/" +
+                     std::to_string(progress.scene_total) +
+                     " preparations=" + std::to_string(progress.preparation_completed) + "/" +
+                     std::to_string(progress.preparation_total) + "\n";
+    last_progress_ = progress;
+  }
+  const float bar_width = std::min(width * 0.5f, 240 * dpi);
+  const float bar_left = (width - bar_width) * 0.5f;
+  Gdiplus::SolidBrush track(Gdiplus::Color(48, 48, 48));
+  const auto draw_progress = [&](const wchar_t* label, const size_t completed, const size_t total, const float y) {
+    const float fraction = total == 0 ? 0 : std::min(1.0f, float(completed) / float(total));
+    const auto text = std::wstring(label) + L"  " + std::to_wstring(completed) + L"/" + std::to_wstring(total) +
+                      L"  (" + std::to_wstring(int(fraction * 100)) + L"%)";
+    graphics.DrawString(text.c_str(), -1, &font, Gdiplus::RectF(0, y, width, 24 * dpi), &format, &brush);
+    graphics.FillRectangle(&track, bar_left, y + 26 * dpi, bar_width, 4 * dpi);
+    graphics.FillRectangle(&brush, bar_left, y + 26 * dpi, bar_width * fraction, 4 * dpi);
+  };
+  draw_progress(L"Scene loading", progress.scene_completed, progress.scene_total, text_bounds.GetBottom() + 8 * dpi);
+  draw_progress(L"Shaders / pipelines", progress.preparation_completed, progress.preparation_total,
+                text_bounds.GetBottom() + 54 * dpi);
   Gdiplus::Graphics output(dc);
   output.DrawImage(&frame, 0, 0);
   if (!capture_.empty()) {

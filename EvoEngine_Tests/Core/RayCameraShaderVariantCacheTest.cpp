@@ -3,14 +3,42 @@
 #include "ComputePipeline.hpp"
 #include "Platform.hpp"
 #include "RayCameraShaderVariantCache.hpp"
+#include "Shader.hpp"
 #include "ShaderPreparationQueue.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <memory>
+#include <stdexcept>
 #include <utility>
 #include <vector>
+
+TEST(ShaderPreparation, CountsActiveScopesAndCompletionAcrossThreads) {
+  const auto before = evo_engine::Shader::GetPreparationProgress();
+  {
+    const evo_engine::Shader::PreparationScope outer;
+    auto worker = std::async(std::launch::async, [] {
+      const evo_engine::Shader::PreparationScope inner;
+    });
+    worker.get();
+    const auto active = evo_engine::Shader::GetPreparationProgress();
+    EXPECT_EQ(active.total, before.total + 2);
+    EXPECT_EQ(active.completed, before.completed + 1);
+  }
+  const auto after = evo_engine::Shader::GetPreparationProgress();
+  EXPECT_EQ(after.total, before.total + 2);
+  EXPECT_EQ(after.completed, before.completed + 2);
+  EXPECT_THROW(
+      {
+        const evo_engine::Shader::PreparationScope failed;
+        throw std::runtime_error("Preparation failed");
+      },
+      std::runtime_error);
+  const auto settled = evo_engine::Shader::GetPreparationProgress();
+  EXPECT_EQ(settled.total, before.total + 3);
+  EXPECT_EQ(settled.completed, before.completed + 3);
+}
 
 TEST(ShaderPreparation, PrioritizesRequiredWorkAndPublishesOnlyWhenPolled) {
   evo_engine::ShaderPreparationQueue queue(1);

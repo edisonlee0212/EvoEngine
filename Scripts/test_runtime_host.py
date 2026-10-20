@@ -272,6 +272,17 @@ def _assert_success(result: subprocess.CompletedProcess[str], distribution: Path
     ready = log.rfind("RUNTIME_READY")
     if not 0 <= visible < started < ready:
         raise RuntimeHostTestError(f"Runtime startup/playback handoff is out of order:\n{log}")
+    progress = [tuple(map(int, row)) for row in re.findall(
+        r"RUNTIME_STARTUP_PROGRESS scene=(\d+)/(\d+) preparations=(\d+)/(\d+)", log[visible:ready]
+    )]
+    if not progress or any(
+        not (0 <= scene <= scene_total and 0 <= prepared <= preparation_total and scene_total > 0 and preparation_total > 0)
+        for scene, scene_total, prepared, preparation_total in progress
+    ):
+        raise RuntimeHostTestError(f"Runtime startup progress is missing or invalid:\n{log}")
+    scene, scene_total, prepared, preparation_total = progress[-1]
+    if scene != scene_total or prepared != preparation_total:
+        raise RuntimeHostTestError(f"Runtime handed off before both startup progress bars completed:\n{log}")
 
 
 def _assert_isolated(*directories: Path) -> None:

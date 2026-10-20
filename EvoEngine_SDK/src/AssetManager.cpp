@@ -161,6 +161,8 @@ void AssetManager::Clear() {
     asset_manager.asset_registry_.loading_assets_.clear();
     asset_manager.asset_registry_.main_thread_asset_tasks_.clear();
     asset_manager.asset_registry_.load_snapshot_ = {};
+    asset_manager.asset_registry_.load_requests_ = 0;
+    asset_manager.asset_registry_.finished_loads_ = 0;
   }
 }
 
@@ -227,6 +229,8 @@ AssetManager::AssetLoadSnapshot AssetManager::GetAssetLoadSnapshot() {
   auto& asset_manager = GetInstance();
   std::lock_guard lock(asset_manager.asset_registry_.asset_registry_mutex);
   auto snapshot = asset_manager.asset_registry_.load_snapshot_;
+  snapshot.cumulative_total = asset_manager.asset_registry_.load_requests_;
+  snapshot.cumulative_completed = asset_manager.asset_registry_.finished_loads_;
   snapshot.queued = 0;
   snapshot.loading_cpu = 0;
   snapshot.waiting_for_finalize = 0;
@@ -603,6 +607,7 @@ std::shared_future<std::shared_ptr<IAsset>> AssetManager::GetOrCreateAssetLoadFu
     record.state = AssetLoadState::Queued;
     record.asset_name = asset_name;
     asset_manager.asset_registry_.loading_assets_[asset_handle] = record;
+    ++asset_manager.asset_registry_.load_requests_;
 
     auto& snapshot = asset_manager.asset_registry_.load_snapshot_;
     const auto finished_size = snapshot.completed + snapshot.failed + snapshot.cancelled;
@@ -684,6 +689,7 @@ void AssetManager::FinishAssetLoadingImpl(const Handle& asset_handle) {
   if (const auto search = asset_manager.asset_registry_.loading_assets_.find(asset_handle);
       search != asset_manager.asset_registry_.loading_assets_.end()) {
     auto& snapshot = asset_manager.asset_registry_.load_snapshot_;
+    ++asset_manager.asset_registry_.finished_loads_;
     switch (search->second.state) {
       case AssetLoadState::Failed:
         ++snapshot.failed;

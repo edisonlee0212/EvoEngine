@@ -43,11 +43,20 @@ Android deployment, asset packing, multiple build configurations, and custom app
 
 ## Startup screen
 
-Exported applications show a black startup screen with a centered logo and a single loading-status line. It appears before graphics initialization and stays responsive during scene loading, shader compilation and pipeline creation. Playback waits for the startup scene to render with its required resources ready; the screen then remains until the first playable frame has completed GPU work. There is no artificial minimum duration. Closing the startup window cancels launch after any currently running initialization work finishes.
+Exported applications show a black startup screen with a centered logo, a loading-status line and two measured progress bars:
+
+- **Scene loading** counts processed asset requests against discovered project assets and dependencies, plus a final scene-setup step. It reaches 100% when the project scene and its asset loads are ready.
+- **Shaders / pipelines** counts finished shader and Vulkan pipeline preparations, queued renderer preparation jobs, and a final first-playable-frame step. Cached preparations count too. It reaches 100% after the first playable frame completes GPU work.
+
+Each bar shows completed/total work units and a percentage, not elapsed-time estimates. Totals can grow as more dependencies or rendering variants are discovered, so the percentage can decrease. Settled failed/cancelled asset requests advance progress too; existing failure handling and log diagnostics still apply. Before discovery the bars wait at zero; the status line explains graphics initialization and resource/package loading. Progress is sampled on the independent startup-window thread, including during blocking scene and pipeline work.
+
+The screen appears before graphics initialization. Playback waits for the startup scene to render with its required resources ready; the screen then remains until the first playable frame has completed GPU work. There is no artificial minimum duration. Closing the startup window cancels launch after any currently running initialization work finishes.
+
+The default logo is the white branching hexagon with transparent, softly antialiased edges. The editor, launcher and application icons use matching [branding assets](branding.md), with black variants for light title bars.
 
 In **Build Manager > Startup screen**, use **Choose startup logo...** to select a PNG, or **Use EvoEngine logo** to restore the default. The choice is saved with the project's build settings. Export copies a custom logo to `Startup/Logo.png`, records it in the build inventory, and writes its distribution-relative path to `startup.logo` in `runtime.yaml`. Empty project-logo settings and older runtime configurations use `DefaultResources/Icons/EvoEngine.png`. PNG transparency is composited over black and aspect ratio is preserved. The native startup screen is specific to the Windows runtime host; the editor's startup UI is unchanged.
 
-For validation, add `--capture-startup UserData/startup.png` to save the startup screen separately from the existing final-frame `--capture` option. The log records `RUNTIME_STARTUP_VISIBLE`, loading-status changes, `RUNTIME_STARTED` after scene preparation, and `RUNTIME_READY` at the gameplay handoff. Shader and pipeline caches remain persistent across launches.
+For validation, add `--capture-startup UserData/startup.png` to save the startup screen separately from the existing final-frame `--capture` option. The log records `RUNTIME_STARTUP_VISIBLE`, loading-status changes, `RUNTIME_STARTUP_PROGRESS` with both completed/total counts, `RUNTIME_STARTED` after scene preparation, and `RUNTIME_READY` at the gameplay handoff. The runtime host regression checks that progress remains in range and both bars complete before handoff. Shader and pipeline caches remain persistent across launches.
 
 Scene shader preparation uses the same bounded compiler-worker queue as the editor (`EVOENGINE_SHADER_COMPILER_WORKERS` overrides the hardware-selected limit). Player mode prepares pipelines for active cameras without proactively compiling unused ray-camera modes, debug views or profiling variants. Later camera-mode changes prepare their required pipelines on demand and defer ray rendering until those builds finish. See [shader preparation](shader-preparation.md) for worker limits and memory guidance.
 

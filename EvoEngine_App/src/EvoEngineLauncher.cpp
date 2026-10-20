@@ -359,10 +359,14 @@ void DrawFallbackLogo(const ImVec2 min, const float size, const ImU32 tint) {
     const float angle = -IM_PI * 0.5f + IM_PI / 3.0f * static_cast<float>(i);
     points[i] = ImVec2(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
   }
-  draw_list->AddPolyline(points.data(), static_cast<int>(points.size()), tint, ImDrawFlags_Closed, 3.0f);
-  draw_list->AddLine(center, points[0], tint, 3.0f);
-  draw_list->AddLine(center, points[2], tint, 3.0f);
-  draw_list->AddLine(center, points[4], tint, 3.0f);
+  const float thickness = size * 0.08f;
+  draw_list->AddPolyline(points.data(), static_cast<int>(points.size()), tint, ImDrawFlags_Closed, thickness);
+  const ImVec2 lower_fork(center.x, center.y + size * 0.16f);
+  draw_list->AddLine(center, points[3], tint, thickness);
+  draw_list->AddLine(center, points[1], tint, thickness);
+  draw_list->AddLine(center, points[5], tint, thickness);
+  draw_list->AddLine(lower_fork, points[2], tint, thickness);
+  draw_list->AddLine(lower_fork, points[4], tint, thickness);
 }
 
 enum class TitleBarGlyph { Minimize, Close };

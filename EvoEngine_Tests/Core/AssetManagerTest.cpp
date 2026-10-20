@@ -1493,6 +1493,8 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
   auto asset_future = AssetManager::GetAssetFuture<StagedLoadAsset>(Handle(kStagedAssetHandle));
   const auto initial_snapshot = AssetManager::GetAssetLoadSnapshot();
   EXPECT_EQ(initial_snapshot.total, 1);
+  EXPECT_EQ(initial_snapshot.cumulative_total, 1);
+  EXPECT_EQ(initial_snapshot.cumulative_completed, 0);
   EXPECT_TRUE(initial_snapshot.Active());
 
   const bool payload_started = WaitForStagedPayloadStartedWhilePumping(5s);
@@ -1516,6 +1518,8 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
   EXPECT_FALSE(final_snapshot.Active());
   EXPECT_EQ(final_snapshot.total, 1);
   EXPECT_EQ(final_snapshot.completed, 1);
+  EXPECT_EQ(final_snapshot.cumulative_total, 1);
+  EXPECT_EQ(final_snapshot.cumulative_completed, 1);
   EXPECT_EQ(state_after_finalize.sync_load_count, 0);
   EXPECT_EQ(state_after_finalize.payload_load_count, 1);
   EXPECT_EQ(state_after_finalize.finalize_count, 1);
@@ -1524,6 +1528,15 @@ TEST(AssetManager, AsyncStagedLoadSeparatesAssetIoFromMainThreadFinalization) {
 
   const auto later_asset = AssetManager::GetAsset<StagedLoadAsset>(Handle(kStagedAssetHandle));
   EXPECT_EQ(later_asset, asset);
+  // Starting a new batch must preserve overall progress, including already cached assets.
+  const auto cached_batch = AssetManager::RequestAssetLoads({Handle(kStagedAssetHandle)});
+  ASSERT_EQ(cached_batch.size(), 1u);
+  EXPECT_EQ(cached_batch.front().get(), asset);
+  EXPECT_EQ(AssetManager::GetAssetLoadSnapshot().cumulative_total, 1);
+  EXPECT_EQ(AssetManager::GetAssetLoadSnapshot().cumulative_completed, 1);
+  app.Terminate();
+  EXPECT_EQ(AssetManager::GetAssetLoadSnapshot().cumulative_total, 0);
+  EXPECT_EQ(AssetManager::GetAssetLoadSnapshot().cumulative_completed, 0);
 }
 
 TEST(AssetManager, PendingLoadDrainFinalizesWithoutEvictingCachedAssets) {
@@ -1628,4 +1641,6 @@ TEST(AssetManager, AsyncStagedLoadPropagatesGpuReadinessFailure) {
   const auto final_snapshot = AssetManager::GetAssetLoadSnapshot();
   EXPECT_FALSE(final_snapshot.Active());
   EXPECT_EQ(final_snapshot.failed, 1);
+  EXPECT_EQ(final_snapshot.cumulative_total, 1);
+  EXPECT_EQ(final_snapshot.cumulative_completed, 1);
 }

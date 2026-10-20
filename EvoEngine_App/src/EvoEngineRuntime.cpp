@@ -1,4 +1,5 @@
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "ImGuiLayer.hpp"
 #include "Platform.hpp"
@@ -9,6 +10,7 @@
 #include "RuntimePaths.hpp"
 #include "RuntimeStartupScreen.hpp"
 #include "Scene.hpp"
+#include "Shader.hpp"
 #include "WindowLayer.hpp"
 
 #include <Windows.h>
@@ -121,6 +123,11 @@ int main(const int argc, char** argv) {
     const auto config = RuntimeConfiguration::Load(runtime_paths::Resolve("runtime.yaml"));
     if (!startup_capture_path.empty())
       std::filesystem::create_directories(startup_capture_path.parent_path());
+    std::atomic_bool scene_loading = false;
+    std::atomic_bool scene_ready = false;
+    std::atomic_bool preparation_ready = false;
+    std::atomic<size_t> preparation_jobs_total = 0;
+    std::atomic<size_t> preparation_jobs_completed = 0;
     RuntimeStartupScreen startup(config, startup_capture_path);
     if (config.show_console) {
       console = std::make_unique<RuntimeConsole>();
@@ -129,6 +136,19 @@ int main(const int argc, char** argv) {
     std::cout << "Initializing runtime application." << std::endl;
     application = std::make_unique<Application>();
     const ApplicationContextScope application_scope(*application);
+    startup.SetProgressSource([&] {
+      const ApplicationContextScope scope(*application);
+      const auto assets = scene_loading ? AssetManager::GetAssetLoadSnapshot() : AssetManager::AssetLoadSnapshot{};
+      const auto shaders = Shader::GetPreparationProgress();
+      RuntimeStartupScreen::Progress progress;
+      progress.scene_total = assets.cumulative_total + 1;
+      progress.scene_completed = assets.cumulative_completed + (scene_ready ? 1 : 0);
+      progress.preparation_completed = shaders.completed + preparation_jobs_completed.load();
+      progress.preparation_total = shaders.total + preparation_jobs_total.load() + 1;
+      if (preparation_ready)
+        progress.preparation_completed = progress.preparation_total;
+      return progress;
+    });
     auto renderer = application->PushLayer<RenderLayer>("Runtime rendering");
     auto window = application->PushLayer<WindowLayer>("Runtime window");
     application->PushLayer<ImGuiLayer>("Runtime GUI");
@@ -140,6 +160,7 @@ int main(const int argc, char** argv) {
       startup.SetStatus(status);
     };
     application->Initialize(settings);
+    scene_loading = true;
     if (application->GetApplicationStatus() == Application::ExecutionStatus::Uninitialized) {
       throw std::runtime_error("Runtime initialization failed.");
     }
@@ -155,6 +176,11 @@ int main(const int argc, char** argv) {
         throw std::runtime_error(ProjectManager::GetProjectFailure());
       }
       const auto scene = application->GetActiveScene();
+      scene_ready = ProjectManager::IsProjectIdle();
+      const auto shader_progress = renderer->GetShaderPreparationProgress();
+      // Publish the total first so the screen cannot observe more completed jobs than discovered jobs.
+      preparation_jobs_total = shader_progress.total;
+      preparation_jobs_completed = shader_progress.completed;
       if (const auto error = renderer->GetSceneShaderPrewarmError(scene); !error.empty())
         throw std::runtime_error("Runtime shader preparation failed: " + error);
       if (!started && ProjectManager::GetProjectState() == ProjectState::Loaded && renderer->HasPresentedScene(scene)) {
@@ -175,6 +201,7 @@ int main(const int argc, char** argv) {
         if (!renderer->HasPresentedScene(scene))
           continue;
         Platform::WaitForFrameSubmissions("Runtime Startup Frame Ready");
+        preparation_ready = true;
         window->ShowWindow();
         if (config.window_mode == WindowDisplayMode::ExclusiveFullscreen)
           window->SetDisplayMode(config.window_mode);
