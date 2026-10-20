@@ -1,6 +1,7 @@
 #include "Application.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "ApplicationContext.hpp"
 
@@ -2697,28 +2698,43 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   } preparation_pump_scope;
   if (startup_window) {
     if (const auto gui = GetLayer<ImGuiLayer>()) {
-      window_layer->CenterWindow();
-      window_layer->ShowWindow();
       const auto draw_progress = [gui] {
-        glfwPollEvents();
-        Platform::PreUpdate();
-        const auto window = ApplicationContext::Get().GetLayer<WindowLayer>();
-        if (window->window_size_.x == 0 || window->window_size_.y == 0)
-          return;
-        gui->BeginStartupFrame();
-        const auto viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(viewport->Pos);
-        ImGui::SetNextWindowSize(viewport->Size);
-        ImGui::Begin("Starting EvoEngine", nullptr,
-                     ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
-        gui->DrawShaderPreparationProgress(Shader::GetCompileCacheStats().compilations, 0,
-                                           Shader::GetCurrentPreparation());
-        ImGui::End();
-        WindowLayer::Render();
-        Platform::LateUpdate();
+        const auto current = Shader::GetCurrentPreparation();
+        while (true) {
+          glfwPollEvents();
+          Platform::PreUpdate();
+          const auto window = ApplicationContext::Get().GetLayer<WindowLayer>();
+          if (window->window_size_.x == 0 || window->window_size_.y == 0)
+            return;
+          gui->BeginStartupFrame();
+          const auto viewport = ImGui::GetMainViewport();
+          const auto padding = ImGui::GetStyle().WindowPadding;
+          ImGui::SetNextWindowPos(viewport->Pos);
+          ImGui::SetNextWindowSize({ImGuiLayer::shader_preparation_width + 2 * padding.x, viewport->Size.y});
+          ImGui::Begin("Starting EvoEngine", nullptr,
+                       ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking);
+          ImGui::BeginGroup();
+          gui->DrawShaderPreparationProgress(Shader::GetCompileCacheStats().compilations, 0,
+                                             current.empty() ? "Initializing renderer..." : current);
+          ImGui::EndGroup();
+          const auto content = ImGui::GetItemRectSize();
+          const glm::ivec2 fitted_size{static_cast<int>(std::ceil(content.x + 2 * padding.x)),
+                                       static_cast<int>(std::ceil(content.y + 2 * padding.y))};
+          ImGui::End();
+          WindowLayer::Render();
+          Platform::LateUpdate();
+          int width, height;
+          glfwGetWindowSize(window->GetGlfwWindow(), &width, &height);
+          if (width == fitted_size.x && height == fitted_size.y)
+            return;
+          glfwSetWindowSize(window->GetGlfwWindow(), fitted_size.x, fitted_size.y);
+          window->CenterWindow();
+        }
       };
       Shader::SetPreparationPump(draw_progress);
+      // Render at the fitted swapchain size before showing the startup window.
       draw_progress();
+      window_layer->ShowWindow();
     }
   }
   if (this->initialization_settings.load_default_resources) {

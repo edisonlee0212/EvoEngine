@@ -13,6 +13,7 @@ class EVOENGINE_API ImGuiLayer final : public ILayer {
   std::vector<Input::InputEvent> gameplay_events_;
 
  public:
+  static constexpr float shader_preparation_width = 420;
   void DrawShaderPreparationProgress(size_t completed, size_t total, const std::string& current,
                                      const std::string& error = {});
   void BeginStartupFrame();

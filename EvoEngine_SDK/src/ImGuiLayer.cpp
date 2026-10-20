@@ -32,7 +32,7 @@ void ImGuiLayer::DrawShaderPreparationProgress(const size_t completed, const siz
   // The bootstrap has no fixed task list; animate until scene-specific requests establish a total.
   ImGui::ProgressBar(
       total ? static_cast<float>(completed) / static_cast<float>(total) : -static_cast<float>(ImGui::GetTime()),
-      ImVec2(420, 0), label.c_str());
+      ImVec2(shader_preparation_width, 0), label.c_str());
   if (!current.empty())
     ImGui::TextWrapped("%s", current.c_str());
   if (!error.empty())

@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 #include <imgui_internal.h>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <thread>
 #include "Application.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
@@ -14,6 +18,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "Shader.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 #include "WindowLayer.hpp"
@@ -45,6 +50,7 @@ namespace {
 class StartupWindowProbe final : public ILayer {
  public:
   bool observed = false;
+  std::filesystem::path capture_path;
 
   void OnCreate() override {
     const auto window = GetApplication().GetLayer<WindowLayer>()->GetGlfwWindow();
@@ -52,18 +58,37 @@ class StartupWindowProbe final : public ILayer {
     glfwGetWindowPos(window, &x, &y);
     glfwGetWindowSize(window, &width, &height);
     glfwGetMonitorWorkarea(glfwGetPrimaryMonitor(), &work_x, &work_y, &work_width, &work_height);
-    EXPECT_EQ(width, 640);
-    EXPECT_EQ(height, 240);
+    const auto startup = ImGui::FindWindowByName("Starting EvoEngine");
+    ASSERT_NE(startup, nullptr);
+    const auto padding = ImGui::GetStyle().WindowPadding;
+    EXPECT_NEAR(width, startup->DC.CursorMaxPos.x - startup->Pos.x + padding.x, 1);
+    EXPECT_NEAR(height, startup->DC.CursorMaxPos.y - startup->Pos.y + padding.y, 1);
+    EXPECT_LT(width, 640);
+    EXPECT_LT(height, 240);
     EXPECT_EQ(x, work_x + std::max(0, (work_width - width) / 2));
     EXPECT_EQ(y, work_y + std::max(0, (work_height - height) / 2));
     EXPECT_EQ(glfwGetWindowAttrib(window, GLFW_MAXIMIZED), GLFW_FALSE);
     observed = true;
+    if (!capture_path.empty()) {
+      const auto layer = GetApplication().GetLayer<WindowLayer>();
+      const auto current = Shader::GetCurrentPreparation();
+      const auto redraw = [&] {
+        return Shader::RunPreparationTask(current, [] {
+          std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        });
+      };
+      ASSERT_TRUE(redraw());
+      layer->RequestScreenshot(capture_path);
+      ASSERT_TRUE(redraw());
+      std::string error;
+      ASSERT_TRUE(layer->StoreCompletedScreenshot(error)) << error;
+    }
   }
 };
 }  // namespace
 
 TEST(ImGuiStartup, CompactWindowIsCenteredAndRestoresConfiguredDisplay) {
-  for (int mode = 0; mode < 3; ++mode) {
+  for (int mode = 0; mode < 4; ++mode) {
     SCOPED_TRACE(mode);
     Application app;
     ApplicationContextScope scope(app);
@@ -71,13 +96,17 @@ TEST(ImGuiStartup, CompactWindowIsCenteredAndRestoresConfiguredDisplay) {
     app.PushLayer<RenderLayer>("Rendering");
     app.PushLayer<ImGuiLayer>("GUI");
     const auto probe = app.PushLayer<StartupWindowProbe>("Startup probe");
+    if (const auto directory = std::getenv("EVOENGINE_EDITOR_STARTUP_CAPTURE")) {
+      std::filesystem::create_directories(directory);
+      probe->capture_path = std::filesystem::path(directory) / ("startup-" + std::to_string(mode) + ".png");
+    }
     ApplicationInitializationSettings settings;
     settings.allow_empty_project = true;
     settings.default_window_size = {800, 600};
     settings.full_screen = mode == 1;
     if (mode == 2)
       settings.window_mode = WindowDisplayMode::Windowed;
-    settings.use_custom_title_bar = false;
+    settings.use_custom_title_bar = mode == 3;
     settings.load_project_assets = settings.load_project_start_scene = false;
     settings.redirect_standard_streams_to_console = false;
     settings.graphics_settings.use_ray_tracing = settings.graphics_settings.use_mesh_shader = false;
