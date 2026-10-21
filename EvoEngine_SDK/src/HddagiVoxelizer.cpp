@@ -24,7 +24,9 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
     if (region.offset == glm::ivec3(0) && region.size == cascades[region.cascade].size)
       plan.full_cascades |= 1u << region.cascade;
   }
-  plan.reset_history_cascades = plan.full_cascades;
+  for (uint32_t cascade = 0; cascade < cascades.size(); ++cascade)
+    if (cascades[cascade].full_redraw)
+      plan.reset_history_cascades |= 1u << cascade;
   return Create(resources, host_layout, contributors, plan, version);
 }
 

@@ -42,19 +42,10 @@ The headless dual-camera rendering gate emits these values together with rebuild
 fixed material descriptor binds, draw calls, command-recording CPU time, GPU frame time, and total descriptor metadata.
 The reported timing values are observations, not pass/fail thresholds.
 
-The 2026-08-30 Release snapshot for the 2560x1440 dual-camera Rendering Demo recorded 126/2048 occupied 2D slots and
-25/256 occupied cubemap slots, zero pending/retiring slots, zero overflow attempts, and 110,592 bytes of descriptor
-metadata across two frame mirrors. The stable 2D array rebuilt once. Dynamic reflection-probe writes advanced the
-cubemap descriptor revision and caused 1,543 full 256-entry mirror rebuilds over 1,803 frames (0.856 per frame), for
-9.65 ms total descriptor-update CPU time. The sampled frame recorded 3.59 ms command-recording CPU time, 31.67 ms GPU
-span, 472 draw calls, and zero fixed material descriptor binds. This rebuild frequency is a candidate for a separately
-authorized dirty-slot or batched-write optimization; the correctness migration deliberately retains full-array
-revision rebuilds.
-
-No pre-migration timing checkpoint was captured with the same executable, scene, driver, and profiler settings, so a
-numerical before/after performance delta would not be valid. The structural delta is verified: standard material,
-global IBL, and local-probe fixed asset bindings are absent, while the measurements above establish the reproducible
-post-migration baseline and identify the cubemap rebuild cost that should be compared in future optimization work.
+Dynamic reflection-probe publication can advance cubemap revisions frequently. Measure full-mirror rebuild counts,
+descriptor-update CPU time and fixed binds with the current scene and executable; historical counts are not performance
+guarantees. Compare the same device, render path, cache and profiler state before attributing a timing difference to
+descriptor policy.
 
 ## Review Gate
 

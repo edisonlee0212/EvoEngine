@@ -21,10 +21,10 @@ git submodule update --init --recursive
 
 ## 2. Build And Install Apps On Windows
 
-Windows is the primary development platform.
+Windows is the primary development platform. Install Visual Studio 2026 with C++ tools, CMake 4.2+, Vulkan SDK, Git,
+and 64-bit Python 3 with development files. See [requirements and Python selection](building.md#windows-requirements).
 
 ```bat
-python Scripts\build_project.py
 python Scripts\install_apps.py
 ```
 
@@ -40,6 +40,9 @@ Launch:
 out/install/vs2026-x64/bin/EvoEngineLauncher.exe
 ```
 
+The first launch prepares shaders and pipelines before the scene is ready. Later launches reuse compatible caches.
+For subsequent installs, use `python Scripts/install_apps.py --incremental`.
+
 ## 3. Open A Project
 
 Use the launcher to create or open a project. To start the editor directly:
@@ -48,11 +51,18 @@ Use the launcher to create or open a project. To start the editor directly:
 out\install\vs2026-x64\bin\EvoEngineEditor.exe --project path\to\project.eveproj
 ```
 
+To open a demo directly, use `EvoEngineEditor.exe --demo rendering` or `--demo sss`.
+Some profiles need [external demo assets](rendering-demos.md#preparing-generated-resources).
+
 Projects use `.eveproj` files. Project metadata can describe the application name, preferred editor, and runtime packages that should load when the project opens.
+
+Save your scenes and assets, then open **View > Build Manager** to export a standalone Windows x64 application.
+See [runtime builds](runtime-builds.md) for startup scenes, runtime GUI, and loading screens.
 
 ## 4. Run Tests
 
-Local render/GPU tests:
+The application installer disables native tests by default. Use the [test-enabled development setup](building.md#development-solution-and-tests)
+when working on the engine. Local render/GPU tests require suitable hardware:
 
 ```bat
 python Scripts\test.py

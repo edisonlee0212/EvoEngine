@@ -717,7 +717,8 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
 
   EXPECT_NE(ddgi_runtime.find("sizeof(DdgiProbeRayData)"), std::string::npos);
   EXPECT_NE(render_layer.find("runtime_state.selected_ray_diagnostics_buffers"), std::string::npos);
-  EXPECT_NE(render_layer.find("ddgi_emissive_population_changed ||"), std::string::npos);
+  const auto hard_refresh = ExtractBetween(render_layer, "const bool hard_ddgi_refresh =", "if (hard_ddgi_refresh)");
+  EXPECT_EQ(hard_refresh.find("ddgi_emissive_population_changed"), std::string::npos);
   EXPECT_NE(render_layer.find("!runtime_state.has_valid_probe_history && runtime_state.history_submissions.empty()"),
             std::string::npos);
   EXPECT_NE(render_layer.find("runtime_state.probe_ray_sequence_index + pending_updates"), std::string::npos);

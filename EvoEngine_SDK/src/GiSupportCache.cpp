@@ -1,4 +1,5 @@
 #include "GiSupportCache.hpp"
+#include <cstdlib>
 #include <stdexcept>
 #include "Camera.hpp"
 #include "ComputePipeline.hpp"
@@ -129,17 +130,30 @@ void GiSupportCache::Execute(const RenderGraphExecutionContext& context,
     view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     mask_view_ = std::make_shared<ImageView>(view, mask_);
   }
-  uint64_t signature = lighting_signature ^ runtime->content_version;
+  GiSupportParams params;
+  params.field = BuildHddagiGatherData(runtime->probes, runtime->settings, runtime->cascades,
+                                       runtime->frame.anchor.world_position);
+  uint64_t signature = 14695981039346656037ull;
   const auto mix = [&](const void* bytes, size_t size) {
     const auto* data = static_cast<const uint8_t*>(bytes);
     for (size_t i = 0; i < size; ++i)
       signature = (signature ^ data[i]) * 1099511628211ull;
   };
+  mix(&params.field.grid, sizeof(params.field.grid));
+  mix(&params.field.cascade_count, sizeof(params.field.cascade_count));
+  mix(&params.field.y_mult, sizeof(params.field.y_mult));
+  mix(&runtime->probes.base_probe_distance, sizeof(runtime->probes.base_probe_distance));
+  if (field_.lock() != field || layout_signature_ != signature) {
+    ++generation_;
+    field_ = field;
+    layout_signature_ = signature;
+    reset_pending_ = true;
+  }
+  signature ^= lighting_signature ^ runtime->content_version;
   for (const auto& cascade : field->light_inputs)
     for (const auto& lights : cascade)
       mix(lights.data(), lights.size() * sizeof(SdfgiLight));
   const auto& sky = field->sky_input;
-  mix(&runtime->probes.base_probe_distance, sizeof(runtime->probes.base_probe_distance));
   mix(&sky.constant_color, sizeof(sky.constant_color));
   mix(&runtime->settings.read_sky_light, sizeof(runtime->settings.read_sky_light));
   mix(&runtime->settings.bounce_feedback, sizeof(runtime->settings.bounce_feedback));
@@ -150,22 +164,23 @@ void GiSupportCache::Execute(const RenderGraphExecutionContext& context,
   mix(&sky.gamma, sizeof(sky.gamma));
   mix(&sky.rotation, sizeof(sky.rotation));
   mix(&sky.energy, sizeof(sky.energy));
-  if (field_.lock() != field || signature_ != signature) {
-    ++generation_;
-    field_ = field;
+  if (signature_ != signature) {
+    ++revision_;
     signature_ = signature;
     reset_pending_ = true;
   }
+  if (std::getenv("EVOENGINE_GI_SUPPORT_DIAGNOSTICS"))
+    EVOENGINE_LOG("GI_SUPPORT_DIAGNOSTICS frame=" + std::to_string(Platform::GetFrameCount()) +
+                  " generation=" + std::to_string(generation_) + " revision=" + std::to_string(revision_) +
+                  " camera=" + std::to_string(inputs.camera->GetHandle().GetValue()))
   reset_pending_ |= region_version_ != runtime->region_version;
   region_version_ = runtime->region_version;
   content_version_ = runtime->content_version;
-  GiSupportParams params;
-  params.field = BuildHddagiGatherData(runtime->probes, runtime->settings, runtime->cascades,
-                                       runtime->frame.anchor.world_position);
   params.viewport = viewport;
   params.camera_index = inputs.camera_index;
   params.frame = uint32_t(Platform::GetFrameCount());
   params.generation = generation_;
+  params.revision = revision_;
   params.sky_color_energy = glm::vec4(sky.color, sky.energy);
   params.sky_parameters = {sky.rotation, 1.0f / sky.gamma,
                            field->settings.read_sky_light ? (sky.constant_color ? 1.0f : 2.0f) : 0.0f,

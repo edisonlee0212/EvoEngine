@@ -1,9 +1,11 @@
 #include "PyEvoEngine.hpp"
+#include "Animator.hpp"
 #include "Cubemap.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "HddagiCamera.hpp"
 #include "HddagiResources.hpp"
+#include "HddagiVoxelizer.hpp"
 #include "ImGuiLayer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
@@ -488,6 +490,57 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("RunDemoWindowless", &RunDemoWindowless, py::arg("demo_setup_name"), py::arg("resource_folder_path"),
         py::arg("clear_generated_project_files") = true, py::arg("enable_ray_features") = true);
   m.def("ExerciseTextureLifecycleForCapture", &ExerciseTextureLifecycleForCapture);
+  m.def("ConfigureCurrentScenePostProcessingForCapture", [](bool ambient_occlusion, bool screen_space_reflection) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+    const auto stack = camera ? camera->post_processing_stack_ref.Get<PostProcessingStack>() : nullptr;
+    if (!stack)
+      throw py::value_error("The capture camera has no post-processing stack");
+    stack->enable_ambient_occlusion = ambient_occlusion;
+    stack->enable_screen_space_reflection = screen_space_reflection;
+  });
+  struct SponzaMotionCapture {
+    std::weak_ptr<Scene> scene;
+    Entity light, sphere;
+    bool move_light, move_sphere, animate_skin;
+  };
+  const auto motion = std::make_shared<SponzaMotionCapture>();
+  m.def("ConfigureSponzaMotionCapture", [motion](bool light, bool sphere, bool skin) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    if (!scene || ApplicationContext::Get().IsPlaying())
+      throw py::value_error("A stopped Sponza scene is required");
+    for (const auto entity : scene->UnsafeGetAllEntities()) {
+      if (scene->GetEntityName(entity) != "Left Point Light")
+        continue;
+      const auto original = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+      const auto sphere_entity = scene->CreateEntity("Capture Light Sphere");
+      const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(sphere_entity).lock();
+      renderer->mesh = original->mesh;
+      renderer->material = original->material;
+      renderer->cast_shadow = original->cast_shadow;
+      original->SetEnabled(false);
+      *motion = {scene, entity, sphere_entity, light, sphere, skin};
+      return sphere_entity;
+    }
+    throw py::value_error("Sponza's Left Point Light was not found");
+  });
+  m.def("SetSponzaMotionCaptureTime", [motion](float seconds) {
+    const auto scene = motion->scene.lock();
+    if (!scene || scene != ApplicationContext::Get().GetActiveScene())
+      throw py::value_error("Configure Sponza motion capture first");
+    const auto transform_at = [](float time) {
+      Transform transform;
+      transform.SetPosition(glm::vec3(3, 0, glm::cos(time / 2.5f) * 2.5f - 2.5f));
+      transform.SetScale(glm::vec3(0.1f));
+      return transform;
+    };
+    scene->SetDataComponent(motion->light, transform_at(motion->move_light ? seconds : 0));
+    if (scene->IsEntityValid(motion->sphere))
+      scene->SetDataComponent(motion->sphere, transform_at(motion->move_sphere ? seconds : 0));
+    if (const auto owners = scene->UnsafeGetPrivateComponentOwnersList<Animator>())
+      for (const auto owner : *owners)
+        scene->GetOrSetPrivateComponent<Animator>(owner).lock()->Animate(motion->animate_skin ? seconds * 60 : 0);
+  });
   m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
         py::arg("samples_per_frame"), py::arg("bounces"));
   m.def("ConfigureBistroCaptureView", [](const std::string& view) {
@@ -948,6 +1001,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
     py::dict result;
     result["application_frame"] = Platform::GetFrameCount();
+    if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+      const auto ddgi = render->GetDdgiInspectorSnapshot();
+      result["ddgi_update_reasons"] = ddgi.last_probe_update_reasons;
+      result["ddgi_history_cleared"] = ddgi.last_probe_history_cleared;
+    }
     if (Platform::Initialized()) {
       const auto memory = QueryGiValidationMemoryBytes();
       result["vma_allocation_bytes"] = memory[0];
@@ -997,6 +1055,14 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["hddagi_total_updated_regions"] = hddagi ? hddagi->total_updated_regions : 0;
     result["hddagi_update_count"] = hddagi ? hddagi->update_count : 0;
     result["hddagi_region_version"] = hddagi ? hddagi->region_version : 0;
+    uint32_t history_reset_mask = 0;
+    if (hddagi && hddagi->resources) {
+      const auto& frames = hddagi->resources->voxel_frames;
+      for (const auto& frame : frames)
+        if (frame && frame->scene_frame == hddagi->resources->last_voxel_frame)
+          history_reset_mask = frame->update_plan.reset_history_cascades;
+    }
+    result["hddagi_history_reset_mask"] = history_reset_mask;
     result["hddagi_temporal_bytes"] = hddagi && hddagi->resources ? hddagi->resources->temporal_bytes : 0;
     result["hddagi_retiring_bytes"] = hddagi ? hddagi->retiring_bytes : 0;
     result["hddagi_initialization_recorded"] =

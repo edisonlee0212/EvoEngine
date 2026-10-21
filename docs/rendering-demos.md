@@ -21,6 +21,9 @@ out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering
 | `3dgs` | Spatial Dragon Gaussian-splat scene. | Script-generated project. |
 | `bicycle` | INRIA Bicycle Gaussian-splat scene. | Script-generated project with a downloaded point cloud. |
 | `ecosyslab` | EcoSysLab package scene with an animated Acacia tree and split Scene/Plant Visual editor layout. | Tracked package demo project. |
+| `procedural-galaxy` | One generated 500,000-star cluster with overview/follow navigation. | Universe package and generated local project. |
+| `digital-agriculture` | DigitalAgriculture starter with camera, light and soil. | Tracked package demo; crops require authoring. |
+| `lsystem` | LSystem package starter. | Tracked starter; does not initially demonstrate a generated plant. |
 
 Rasterization, ray tracing, and ray query share scene and material intent but are not expected to be pixel-identical.
 Their integrators, sampling, capability paths, and temporal histories differ.
@@ -42,6 +45,15 @@ Windows when necessary.
 
 Launcher thumbnails live under `Resources/Launcher/DemoPreviews`. A preview should represent the profile's ordinary
 camera output rather than a synthetic substitute.
+
+The preparation script handles only its listed five profiles; `--demo sss` and the package starters are editor profiles,
+not preparation-script choices. SSS copies its bundled licensed head/profile assets into an ignored project; saved profile
+edits survive restarts. See [SSS authoring](subsurface-scattering.md#human-skin-demo) and [asset attribution](../Resources/SubsurfaceScattering/README.md).
+
+For automated authoring/captures, use a separate resource copy and `--resource-root <absolute Resources directory>`;
+generated demo setup can recreate project files. Run package profiles from the installed `bin` directory because package
+shader/resource paths can be working-directory-relative. Use absolute output paths. This differs from exported players,
+which resolve content relative to their executable. See [runtime demo validation](runtime-builds.md#demo-validation).
 
 ## Rendering Profile
 

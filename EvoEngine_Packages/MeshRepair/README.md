@@ -6,7 +6,7 @@ MeshRepair contains mesh visibility and coloring utilities. It is a small utilit
 
 ## Build Status
 
-- Registered in the Windows block of `EvoEngine_Packages/CMakeLists.txt` by default.
+- Discovered by `EvoEngine_Packages/CMakeLists.txt`; `PackageInfo.cmake` limits support to Windows.
 - Builds as the shared library target `MeshRepairPackage`.
 - Registers `MeshColoring` through `PackageRegistrar`.
 
@@ -26,6 +26,8 @@ MeshRepair contains mesh visibility and coloring utilities. It is a small utilit
 ## SDK Integration
 
 The package works with SDK `Scene`, `Entity`, `Mesh`, editor inspection, and private components.
+
+`MeshRepairEditorPackage` owns inspectors under `Editor/`; runtime visibility/coloring code has no editor dependency.
 
 ## Future Work Notes
 

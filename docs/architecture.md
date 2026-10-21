@@ -12,7 +12,7 @@ The SDK lives in `EvoEngine_SDK` and provides the reusable engine/runtime system
 - systems, transforms, hierarchy, prefabs, and scene cloning
 - project, folder, file, asset, and metadata management
 - YAML-based serialization and type registration
-- ImGui editor layer for scene, entity, asset, console, and inspector workflows
+- shared ImGui layer and runtime GUI infrastructure
 - Vulkan platform setup and rendering infrastructure
 - global geometry and texture storage
 - material, mesh, camera, light, render texture, and post-processing assets/components
@@ -20,13 +20,24 @@ The SDK lives in `EvoEngine_SDK` and provides the reusable engine/runtime system
 - resource copying and shader include registration support for Services
 - runtime package loading, guarded unloading/reloading, and package-owned type registration
 
+## Editor SDK and package companions
+
+`EvoEngine_EditorSDK` lives under `EvoEngine_SDK/Editor` and links the runtime SDK. It owns `EditorLayer`, inspector
+adapters, project/asset browsing, scene authoring, Build Manager and editor-only GUI extensions. Runtime packages own
+simulation and serialized types; companion libraries under each package's `Editor/` directory register authoring UI.
+The normal build checks runtime include/link dependencies so exported applications exclude editor tooling.
+
+Runtime components do not implement editor inspection methods. Register inspectors separately through the
+[editor extension workflow](editor-extension-workflow.md). Core ImGui and the presentation overlay are shared runtime
+facilities; see [runtime GUI](runtime-gui.md).
+
 ## Application Model
 
 An EvoEngine app is assembled by pushing layers before initialization. A typical interactive app uses:
 
 - `RenderLayer` for Vulkan rendering, render instance preparation, and external render callbacks
 - `WindowLayer` for GLFW windows, input callbacks, resize handling, and presentation
-- `ImGuiLayer` for editor UI integration
+- `ImGuiLayer` for shared GUI frame and presentation integration
 - `EditorLayer` for scene views, entity hierarchy, inspectors, asset browser, console, and editor tools
 - optional runtime package layers such as EcoSysLab, DigitalAgriculture, Universe, or other package-owned layers
 
@@ -52,11 +63,12 @@ EvoEngine uses two complementary component types:
 | Component type | Use for |
 | --- | --- |
 | Data components | Plain standard-layout structs stored by archetype/chunk. Use them for high-volume simulation and parallel `Scene::ForEach` iteration. |
-| Private components | Object-style components with lifecycle hooks, serialization, asset references, editor inspection, and per-entity behavior. |
+| Private components | Object-style components with lifecycle hooks, serialization, asset references and per-entity behavior; optional inspectors are separate editor adapters. |
 
 Scenes own entity metadata, hierarchy, data component storage, private component storage, systems, environment state, and the main camera reference. Scene APIs cover entity creation/destruction, parenting, enable/static/name state, data component access, private component access, systems, queries, cloning, serialization, and prefab conversion.
 
-Use data components when memory layout and parallel iteration matter most. Use private components when the feature needs editor UI, lifecycle methods, polymorphism, serialized state, or asset references.
+Use data components when memory layout and parallel iteration matter most. Use private components for lifecycle methods, polymorphism, serialized state or asset references. Their optional editor UI
+is registered through a separate inspection adapter.
 
 ## Rendering
 
@@ -83,6 +95,8 @@ Input is routed from GLFW callbacks through the engine input system and layer ev
 | --- | --- |
 | `EvoEngineLauncher` | Project launcher for demo profiles, recent projects, and new projects before starting the editor. |
 | `EvoEngineEditor` | Generic editor shell launched with a `.eveproj` path or `--demo <profile-id>`. |
+| `EvoEngineRuntime` | Standalone host used by exported Windows applications. |
+| `EvoEngineRuntimeExporter` | Validates and exports saved projects against a matching runtime template. |
 | `DemoApp` | Legacy opt-in standalone renderer/framework demo target. |
 | `EcoSysLabApp` | Legacy opt-in standalone digital forestry and ecosystem workflow target. |
 | `DigitalAgricultureApp` | Legacy opt-in standalone sorghum and agriculture workflow target. |

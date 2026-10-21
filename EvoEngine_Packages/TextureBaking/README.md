@@ -6,7 +6,7 @@ TextureBaking provides mesh-to-mesh texture transfer utilities. It is useful whe
 
 ## Build Status
 
-- Registered in the Windows block of `EvoEngine_Packages/CMakeLists.txt` by default.
+- Discovered by `EvoEngine_Packages/CMakeLists.txt`; `PackageInfo.cmake` limits support to Windows.
 - Builds as the shared library target `TextureBakingPackage`.
 - Registers `TextureBaking` through `PackageRegistrar`.
 
@@ -26,6 +26,9 @@ TextureBaking provides mesh-to-mesh texture transfer utilities. It is useful whe
 ## SDK Integration
 
 TextureBaking uses SDK meshes, materials, private component references, serialization, relinking, and editor inspection. The runtime package registers the `TextureBaking` private component when it is loaded.
+
+`TextureBakingEditorPackage` registers its inspector from `Editor/`; the runtime component retains only data/behavior and
+serialization support. This package is the minimal [editor companion example](../../docs/editor-extension-workflow.md).
 
 ## Future Work Notes
 

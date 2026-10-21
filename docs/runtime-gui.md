@@ -8,6 +8,10 @@
 2. Add GUI assets to its ordered list. `RuntimeDebugGui` (`.everuntimegui`) provides timing, a time-step control, texture/camera previews, and a resizable Images panel.
 3. Arrange windows while stopped, then save the scene. Window positions, sizes, collapse state, and resizable child sizes belong to the component.
 
+In the editor, open **View > Main Camera Window** to see the overlay; hiding that view also hides its GUI. Runtime GUI
+is not baked into the camera render texture, so renderer-only previews and camera-texture captures exclude it. A
+presentation/window screenshot includes it. A non-main camera reference remains assigned but draws nothing.
+
 Play copies the authored layout; Play/Pause layout edits are discarded on Stop. Duplicates and prefab instances copy layouts and then remain independent. Shared GUI assets share their fields, but each component has its own windows. Layouts use camera-relative positions and readable logical sizes; they do not enter the editor's `imgui.ini`.
 
 Standalone builds retain layout overrides in `UserData/RuntimeGuiLayouts.json`. Relaunching the same export restores them; a new export starts from its newly exported layouts. Automatic overrides currently cover authored startup-scene components. Dynamically created components remain session-only. Launches without `runtime_gui_layout_revision` use serialized layouts without cross-launch overrides.

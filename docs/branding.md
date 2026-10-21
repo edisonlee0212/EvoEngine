@@ -11,3 +11,20 @@ EvoEngine uses the rounded hexagon with a branching trunk and seven open interio
 All variants preserve the same aspect ratio and transparent padding. Keep white/black counterparts' alpha channels identical when updating them. PNG transparency includes the seven interior openings; no background color is baked into the images.
 
 New runtime exports include these default resources automatically. A project's explicitly selected custom startup logo continues to take precedence. Existing exported distributions retain their packaged assets until exported again. See [runtime builds](runtime-builds.md#startup-screen).
+
+## README images
+
+The README uses theme-aware white/black logo variants and lightweight WebP previews linked to full-resolution PNGs.
+Engine captures supply the images; thumbnail encoding only resizes/letterboxes and compresses them, without changing
+scene lighting or adding synthetic content.
+
+After refreshing captures, install Pillow in the image-processing Python environment and run
+`python Scripts/refresh_readme_thumbnails.py`. The script prints each preview's size and leaves original PNGs unchanged.
+Gallery captions identify demos and render paths; the SSS asset attribution is in
+[the demo README](../Resources/SubsurfaceScattering/README.md). Use disposable copies of demo resources for capture runs.
+
+The editor overview can be reproduced with `Scripts/capture_readme_editor_screenshot.py`; it builds the opt-in `DemoApp`
+screenshot target. Its screenshot-only layout uses a raster overview, hides camera overlays and floating package
+windows, and waits for scene presentation and shader preparation before warming up the capture. Ordinary demo layout
+behavior is unchanged. Renderer-only previews use the installed `EvoEngineEditor` with `--demo <id>`,
+`--capture-demo-preview <output.png>`, dimensions and warmup controls; see [rendering validation](rendering-validation.md).

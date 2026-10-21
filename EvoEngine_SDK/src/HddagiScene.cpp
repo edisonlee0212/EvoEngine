@@ -16,7 +16,6 @@ std::string evo_engine::BuildHddagiUpdatePlan(const GiProbeSettings& probes, con
   placement.probe_spacing_cells = 8;
   placement = DeriveSdfgiSettings(probes, placement);
   HddagiUpdatePlan plan;
-  bool edited_history = false;
   plan.cascades = previous;
   if (const auto failure = UpdateSdfgiCascades(placement, anchor, plan.cascades); !failure.empty())
     return failure;
@@ -28,7 +27,7 @@ std::string evo_engine::BuildHddagiUpdatePlan(const GiProbeSettings& probes, con
     const auto dimensions = field.size / 8;
     const size_t count = dimensions.x * dimensions.y * dimensions.z;
     std::vector<uint8_t> dirty(count, force_full || field.full_redraw ? 1 : 0);
-    if (force_full || field.full_redraw)
+    if (field.full_redraw)
       plan.reset_history_cascades |= 1u << cascade;
     const auto index = [&](const glm::ivec3 cell) {
       return cell.x + dimensions.x * (cell.y + dimensions.y * cell.z);
@@ -44,8 +43,6 @@ std::string evo_engine::BuildHddagiUpdatePlan(const GiProbeSettings& probes, con
         mark(region.offset / 8, (region.offset + region.size) / 8);
     for (const auto& change : changes) {
       if (change.flags & SdfgiUncertainBounds) {
-        edited_history = true;
-        plan.reset_history_cascades |= 1u << cascade;
         std::fill(dirty.begin(), dirty.end(), 1);
         break;
       }
@@ -63,9 +60,7 @@ std::string evo_engine::BuildHddagiUpdatePlan(const GiProbeSettings& probes, con
         if (glm::any(glm::lessThan(end, glm::dvec3(0))) ||
             glm::any(glm::greaterThanEqual(begin, glm::dvec3(field.size))))
           continue;
-        plan.reset_history_cascades |= 1u << cascade;
         begin = glm::clamp(begin, glm::dvec3(0), glm::dvec3(field.size));
-        edited_history = true;
         end = glm::clamp(end, glm::dvec3(0), glm::dvec3(field.size));
         mark(glm::ivec3(glm::floor(begin / 8.0)), glm::min(dimensions, glm::ivec3(glm::floor(end / 8.0)) + 1));
       }
@@ -133,9 +128,6 @@ std::string evo_engine::BuildHddagiUpdatePlan(const GiProbeSettings& probes, con
         plan.regions.push_back({core, border(1), border(2)});
       }
   }
-  // Probe paths can cross cascades, including paths that previously missed the edited geometry.
-  if (edited_history)
-    plan.reset_history_cascades = (1u << plan.cascades.size()) - 1u;
   output = std::move(plan);
   return {};
 }

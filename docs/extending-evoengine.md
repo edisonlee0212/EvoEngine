@@ -6,7 +6,8 @@ Use the smallest extension point that matches the feature.
 
 | Need | Add |
 | --- | --- |
-| Entity behavior with lifecycle hooks, editor UI, serialization, or asset references | Private component |
+| Entity behavior with lifecycle hooks, serialization, or asset references | Private component |
+| Inspector or authoring panel for a runtime type | Editor SDK/package companion adapter |
 | High-volume simulation data with chunked ECS iteration | Data component |
 | Scene-level behavior independent of one component instance | System |
 | Reusable project data that should be referenced and serialized | Asset |
@@ -17,7 +18,9 @@ Use the smallest extension point that matches the feature.
 
 ## Components
 
-Use data components when memory layout and parallel iteration matter most. Use private components when a feature needs editor UI, lifecycle methods, polymorphism, serialized state, or asset references.
+Use data components when memory layout and parallel iteration matter most. Use private components for lifecycle methods,
+polymorphism, serialized state, or asset references. Implement optional editing UI in a separate editor adapter; do not
+add GUI methods or editor dependencies to runtime types. See the [component and companion workflow](editor-extension-workflow.md).
 
 ## Systems
 
@@ -25,11 +28,15 @@ Add a system when behavior should run over a scene independently of one componen
 
 ## Assets
 
-Add an asset when data should be reusable, referenceable, and stored in projects. Persistent assets need type registration, serialization, editor inspection when useful, and asset-reference collection/relink support when they store asset or entity handles.
+Add an asset when data should be reusable, referenceable, and stored in projects. Persistent assets need type registration,
+serialization, and asset-reference collection/relink support when they store asset or entity handles. Register optional
+inspectors from the editor companion. An asset that draws a runtime overlay instead derives from `IRuntimeGui`; see
+[runtime GUI](runtime-gui.md).
 
 ## Layers
 
 Add a layer when behavior is global to the application or needs top-level UI, render, lifecycle, or input hooks.
+Authoring layers belong to editor targets; simulation and runtime presentation layers belong to runtime targets.
 
 ## Services
 
