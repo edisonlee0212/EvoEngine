@@ -107,6 +107,7 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   TreeVisualizationSettings tree_visualization_settings_;
   std::shared_ptr<ParticleInfoList> vector_matrices_;
   std::shared_ptr<Camera> visualization_camera_;
+  bool gpu_tree_mesh_was_enabled_ = false;
   bool visualization_camera_window_focused_ = false;
   struct DynamicStrandsSettings {
     DynamicStrandsVisualizationParameters visualization_parameters{};

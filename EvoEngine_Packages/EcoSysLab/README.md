@@ -30,6 +30,29 @@ Dynamic-strand bundle physics supports the compatibility-preserving `Legacy` mod
 `Hybrid` torque-capable modes. See [Dynamic-strand bundle solver](docs/dynamic-strands-bundle-solver.md) for selection,
 material controls, damage behavior, diagnostics, and current validation limits.
 
+## GPU tree rendering
+
+Add a **BranchRenderer** private component to the same entity as a **Tree**, then assign its branch material.
+The editor switches the Plant Visual camera to rasterization when either procedural renderer is present. The branch mode draws cylindrical shoot
+and root branches directly from packed skeleton nodes through task and mesh shaders. It updates for growth and skeleton
+changes without building CPU branch meshes, and the same forest buffer supplies camera and shadow draws. The task shader
+chooses each node's subdivision counts; mesh workgroups evaluate rings from the nodes and their parents. Every child
+starts from its parent's end ring, including at forks.
+
+Add **FoliageRenderer** to draw two-sided rectangular leaf cards from the same uploaded skeleton. Its material override
+takes priority over the foliage descriptor material. With neither assigned, EcoSysLab uses a green, rough thin-surface
+subsurface material. Opaque and alpha-masked foliage materials are supported. Each renderer component can be enabled
+independently; a disabled entity, Tree, or renderer component produces no procedural draw.
+
+The procedural modes need mesh shader support. BranchRenderer requires an opaque branch material. On unsupported
+devices these components produce no procedural draw. CPU geometry is generated only when explicitly requested, and
+its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer repacks and uploads the compact
+skeleton buffer each frame; a later revision can update only changed tree ranges or source it from a compute shader.
+
+The `ecosyslab` demo prepares the GPU pipelines before growth and adds BranchRenderer and FoliageRenderer to its Acacia. It does not build CPU
+geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry at
+the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
+
 ## Main Entry Points
 
 | Source | Role |

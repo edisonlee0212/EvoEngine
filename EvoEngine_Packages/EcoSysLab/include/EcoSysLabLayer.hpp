@@ -13,6 +13,7 @@
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
+class GpuTreeMeshRenderer;
 class EcoSysLabLayer : public ILayer {
  public:
   EcoSysLabLayer();
@@ -88,6 +89,7 @@ class EcoSysLabLayer : public ILayer {
   };
   void OnCreate() override;
   void RegisterStrandRenderingProcedure() const;
+  std::shared_ptr<GpuTreeMeshRenderer> gpu_tree_mesh_renderer_;
   void RegisterTypes(Application& application) override;
   void Update() override;
   void UpdateDemoTreeGrowth();

@@ -8,6 +8,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
@@ -19,6 +20,7 @@
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "FungusTest.hpp"
 #include "HeightField.hpp"
@@ -42,6 +44,22 @@ using namespace eco_sys_lab_package;
 using namespace evo_engine;
 
 namespace eco_sys_lab_package {
+void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target) {
+  target.material_ref.Save("material_ref", out);
+}
+
+void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target) {
+  target.material_ref.Load("material_ref", in);
+}
+
+void SerializeFoliageRenderer(YAML::Emitter& out, const FoliageRenderer& target) {
+  target.material_ref.Save("material_ref", out);
+}
+
+void DeserializeFoliageRenderer(const YAML::Node& in, FoliageRenderer& target) {
+  target.material_ref.Load("material_ref", in);
+}
+
 void SerializeSpatialPlantDistributionSimulator(YAML::Emitter&, const SpatialPlantDistributionSimulator&) {
 }
 
@@ -96,6 +114,10 @@ void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<DynamicStrandsDemo>(
       SerializeDynamicStrandsDemo, DeserializeDynamicStrandsDemo, owner_name, "DynamicStrandsDemo");
   Serialization::RegisterSerializationHandler<Tree>(SerializeTree, DeserializeTree, owner_name, "Tree");
+  Serialization::RegisterSerializationHandler<BranchRenderer>(SerializeBranchRenderer, DeserializeBranchRenderer,
+                                                              owner_name, "BranchRenderer");
+  Serialization::RegisterSerializationHandler<FoliageRenderer>(SerializeFoliageRenderer, DeserializeFoliageRenderer,
+                                                               owner_name, "FoliageRenderer");
   Serialization::RegisterSerializationHandler<Soil>(SerializeSoil, DeserializeSoil, owner_name, "Soil");
   Serialization::RegisterSerializationHandler<DsBoxCollider>(SerializeDsBoxCollider, DeserializeDsBoxCollider,
                                                              owner_name, "DsBoxCollider");
@@ -173,7 +195,10 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator") &&
       registrar->RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton") &&
       registrar->RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo") &&
-      registrar->RegisterPrivateComponent<Tree>("Tree") && registrar->RegisterPrivateComponent<Soil>("Soil") &&
+      registrar->RegisterPrivateComponent<Tree>("Tree") &&
+      registrar->RegisterPrivateComponent<BranchRenderer>("BranchRenderer") &&
+      registrar->RegisterPrivateComponent<FoliageRenderer>("FoliageRenderer") &&
+      registrar->RegisterPrivateComponent<Soil>("Soil") &&
       registrar->RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider") &&
       registrar->RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider") &&
       registrar->RegisterPrivateComponent<DsCylinderCollider>("DsCylinderCollider") &&

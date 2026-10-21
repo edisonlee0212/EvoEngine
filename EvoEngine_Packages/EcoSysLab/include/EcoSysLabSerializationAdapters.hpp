@@ -8,11 +8,13 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "HeightField.hpp"
 #include "ObjectRotator.hpp"
@@ -83,6 +85,10 @@ void SerializeTreeStructor(YAML::Emitter& out, const TreeStructor& target);
 void DeserializeTreeStructor(const YAML::Node& in, TreeStructor& target);
 void SerializeTree(YAML::Emitter& out, const Tree& target);
 void DeserializeTree(const YAML::Node& in, Tree& target);
+void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target);
+void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target);
+void SerializeFoliageRenderer(YAML::Emitter& out, const FoliageRenderer& target);
+void DeserializeFoliageRenderer(const YAML::Node& in, FoliageRenderer& target);
 void SerializeSoil(YAML::Emitter& out, const Soil& target);
 void DeserializeSoil(const YAML::Node& in, Soil& target);
 void SerializeDsBoxCollider(YAML::Emitter& out, const DsBoxCollider& target);

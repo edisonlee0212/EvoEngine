@@ -1,4 +1,8 @@
+#include "BranchRenderer.hpp"
 #include "EcoSysLabEditorLayer.hpp"
+#include "FoliageRenderer.hpp"
+
+#include <algorithm>
 using namespace evo_engine;
 using namespace eco_sys_lab_package;
 TreeEditorState::TreeEditorState(const Tree& tree) {
@@ -53,8 +57,25 @@ void EcoSysLabEditorLayer::Update() {
   const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!runtime)
     return;
-  if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>())
+  if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     runtime->demo_growth_enabled_ = editor->IsPlantVisualSplitLayoutReady();
+    const auto scene = GetScene();
+    const auto branches = scene ? scene->UnsafeGetPrivateComponentOwnersList<BranchRenderer>() : nullptr;
+    const auto foliage = scene ? scene->UnsafeGetPrivateComponentOwnersList<FoliageRenderer>() : nullptr;
+    const auto has_tree = [&](const std::vector<Entity>* renderers) {
+      return renderers && std::any_of(renderers->begin(), renderers->end(), [&](const Entity entity) {
+               return scene->HasPrivateComponent<Tree>(entity);
+             });
+    };
+    const bool has_gpu_renderer = has_tree(branches) || has_tree(foliage);
+    if (has_gpu_renderer && !gpu_tree_mesh_was_enabled_) {
+      if (visualization_camera_) {
+        visualization_camera_->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+        visualization_camera_->ResetFrameCount();
+      }
+    }
+    gpu_tree_mesh_was_enabled_ = has_gpu_renderer;
+  }
   if (scene_.lock() != GetScene()) {
     ClearSceneVisualization();
     selected_tree = {};

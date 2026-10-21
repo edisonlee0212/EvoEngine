@@ -20,6 +20,9 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
+#include "FoliageRenderer.hpp"
+#include "Platform/Platform.hpp"
 #include "Times.hpp"
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloudsConverter.hpp"
@@ -282,7 +285,8 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
       auto_time_grow = false;
       for (const auto& tree_entity : *tree_entities) {
         auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-        if (auto_generate_mesh_after_editing_) {
+        if (auto_generate_mesh_after_editing_ && !scene->HasPrivateComponent<BranchRenderer>(tree_entity) &&
+            !scene->HasPrivateComponent<FoliageRenderer>(tree_entity)) {
           tree->GenerateGeometryEntities(runtime->mesh_generator_settings, -1);
         }
         if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
@@ -327,7 +331,7 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
           ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
           ImGui::Checkbox("Background", &enable_visualization_background);
           uint32_t mode = static_cast<uint32_t>(visualization_camera_->camera_render_mode);
-          if (ImGui::Combo("Render Mode", {"Rasterization", "Ray Tracing"}, mode)) {
+          if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
             visualization_camera_->camera_render_mode = static_cast<Camera::CameraRenderMode>(mode);
             visualization_camera_->ResetFrameCount();
           }

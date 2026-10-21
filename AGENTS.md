@@ -47,20 +47,17 @@ For each non-trivial task, establish brief milestones before implementation and 
 
 - Grep for usages of any removed or renamed symbols to clean up dead references
 - Add unit tests for new logic when a test framework is available
+- For package-only changes, reuse a compatible configured build tree and build the affected runtime and/or editor package target. Build focused tests in a tree configured with `BUILD_TESTING=ON`; use a separate test-enabled tree if the existing one has tests disabled. Avoid the full build or application install target unless the change requires application validation. An empty build tree may still compile dependencies on its first build.
 - Build the relevant executable target before manual testing app/editor behavior, and report the exact executable path used for the manual test.
-- Install all executable applications after finishing a task, unless the user explicitly says not to, and report the exact install command and result.
+- For application changes or tasks that require application validation, install the applications after finishing, unless the user explicitly says not to. `Scripts/install_apps.py` builds the full `INSTALL` target; it cannot select one application. Report the exact install command and result.
 
-## GPT-5.6 Subagent Routing
+## Subagent Routing
 
-Route every GPT-5.6 task to the least expensive model that can complete it reliably:
+When delegation is authorized and available, choose the least expensive available model that can complete the task reliably. Do not require a specific model or spawn a subagent solely to satisfy this section.
 
-- Use `gpt-5.6-sol` with `ultra` reasoning for planning.
-- Use `gpt-5.6-sol` with `medium` reasoning for implementing an approved plan and for general coding tasks.
-- Use `gpt-5.6-terra` with `high` reasoning for quick context subagents, including reading the codebase and searching.
+Context subagents should run commands, inspect files, collect logs, narrow failures, and return concise findings. They must not modify source code or repository files, stage changes, commit, push, create pull requests, or make architecture/product decisions. If a context subagent finds a code issue, it should report the failure and suspected cause; an implementation agent should make the code change, then the context subagent can rerun the relevant verification.
 
-Terra context subagents should run commands, inspect files, collect logs, narrow failures, and return concise findings. They must not modify source code or repository files, stage changes, commit, push, create pull requests, or make architecture/product decisions. If a Terra subagent finds a code issue, it should report the failure and suspected cause; a Sol subagent should make the code change, then ask the Terra subagent to rerun the relevant verification.
-
-Suitable Terra context-subagent tasks:
+Suitable context-subagent tasks:
 
 - Test runner: run focused/full tests, retry flaky commands once, and report pass/fail with key logs.
 - Build/install runner: run package builds, app builds, install scripts, and verify expected binaries or manifests exist.

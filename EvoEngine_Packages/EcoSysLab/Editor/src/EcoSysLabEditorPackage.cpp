@@ -21,6 +21,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
@@ -32,6 +33,7 @@
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "FungusTest.hpp"
 #include "HeightField.hpp"
@@ -91,6 +93,16 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
         return GetTreeEditorState(target).Inspect(context, target);
       },
       "Tree");
+  registered &= registrar.RegisterInspector<BranchRenderer>(
+      [](InspectorContext& context, BranchRenderer& target) {
+        return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
+      },
+      "BranchRenderer");
+  registered &= registrar.RegisterInspector<FoliageRenderer>(
+      [](InspectorContext& context, FoliageRenderer& target) {
+        return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Foliage material");
+      },
+      "FoliageRenderer");
   registered &= registrar.RegisterInspector<DynamicStrandsInitializeParameters>(
       [state = std::make_shared<DynamicStrandsInitializationInspector>()](InspectorContext& context,
                                                                           DynamicStrandsInitializeParameters& target) {

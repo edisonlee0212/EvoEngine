@@ -86,8 +86,9 @@ TEST(LauncherUtils, EcoSysLabDemoAnimatesEightYearAcaciaGrowth) {
   ASSERT_NE(simulate_call, std::string::npos);
   EXPECT_EQ(growth_source.find("Simulate(growth_settings, simulation_stats)", simulate_call + 1), std::string::npos);
   EXPECT_EQ(growth_source.find("for (float elapsed_time"), std::string::npos);
-  EXPECT_NE(growth_source.find("demo_mesh_generator_settings.foliage_instancing = false"), std::string::npos);
-  EXPECT_NE(growth_source.find("GenerateGeometryEntities(demo_mesh_generator_settings)"), std::string::npos);
+  EXPECT_LT(growth_source.find("gpu_tree_mesh_renderer_->Prepare()"), growth_source.find("Simulate(growth_settings"));
+  EXPECT_NE(growth_source.find("GetOrSetPrivateComponent<BranchRenderer>(demo_tree_entity_)"), std::string::npos);
+  EXPECT_NE(growth_source.find("GetOrSetPrivateComponent<FoliageRenderer>(demo_tree_entity_)"), std::string::npos);
   EXPECT_NE(source.find("UpdateDemoTreeGrowth();"), std::string::npos);
 }
 

@@ -1,6 +1,7 @@
 #include "Application.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
+#include "EcoSysLabLayer.hpp"
 #include "TransformGraph.hpp"
 #include "Tree.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
@@ -828,6 +829,7 @@ void Tree::GenerateGeometryEntities(const TreeMeshGeneratorSettings& mesh_genera
   const auto children = scene->GetChildren(self);
   const auto tree_descriptor = tree_descriptor_ref.Get<TreeDescriptor>();
   ClearGeometryEntities();
+  tree_mesh_generator_settings = mesh_generator_settings;
   if (auto actual_iteration = iteration; actual_iteration < 0 || actual_iteration > shoot_model.CurrentIteration()) {
     actual_iteration = shoot_model.CurrentIteration();
   }
