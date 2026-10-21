@@ -12,6 +12,10 @@ Projects use `.eveproj` files. They can carry launch metadata used by `EvoEngine
 
 The generic editor reads package names from this metadata before project assets load, so package-backed projects can be opened from the launcher without hardcoding an app-specific entry point. Launcher-created projects write this metadata before the editor starts.
 
+Keep the `.eveproj`, `Assets/` tree and metadata sidecars together when moving a project. Sidecars preserve stable
+handles; copying only visible model/texture files can break saved references. Project `start_scene_handle` selects
+the editor startup scene. Export `build_settings.startup_scene_handle` is independent; see [runtime builds](runtime-builds.md).
+
 ## Assets And Metadata
 
 Assets are handle-based and managed by the asset, file, and project managers. Projects use asset sidecars such as:
@@ -41,5 +45,14 @@ Persistent engine types must be registered with the serialization system. New pe
 
 - a type registration such as `AssetRegistration`, `PrivateComponentRegistration`, `DataComponentRegistration`, or system registration
 - concrete `Serialize` and `Deserialize` methods, or explicit serialization registry handlers
-- a concrete `OnInspect` method or explicit inspector registry handler when editor editing is useful
+- a separate editor inspection adapter when editor editing is useful; runtime types do not declare `OnInspect`
 - concrete asset-reference collection and relink methods, or explicit support handlers, when the type stores `AssetRef`, `EntityRef`, or component/entity handles
+
+Runtime packages register their serialized types and handlers before project loading. Put GUI registrations in their
+editor companions, following the [extension workflow](editor-extension-workflow.md). In exported applications, unknown
+assets from unloaded providers remain opaque; missing types required by the startup scene fail validation.
+
+Imported source formats and native assets have different save contracts. Save modified imports as native assets before
+exporting. Generated glTF conversion textures under `Assets/.generated/GltfMaterialConversion/v1` are persistent project
+dependencies; their similarly named `Cache/` directory is disposable. Runtime loading does not regenerate project assets
+or repair missing sidecars.

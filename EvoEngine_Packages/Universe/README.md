@@ -16,7 +16,7 @@ Universe is a simulation and rendering demo runtime package focused on GPU-drive
 - Layer-owned FP64 compute and one direct-GPU forward billboard draw per camera for all enabled clusters.
 - Per-cluster density-wave, color, emission, timing, transform, and visual-radius parameters.
 - Planet terrain chunks with dynamic LOD behavior.
-- Editor UI for simulation parameters.
+- Editor companion UI for simulation parameters and view navigation.
 
 ## Main Entry Points
 
@@ -26,6 +26,7 @@ Universe is a simulation and rendering demo runtime package focused on GPU-drive
 | `StarCluster` | Authoring-only private component: star count, seed, density-wave settings, colors, emission, radius, phase, pause, and time scale. |
 | `PlanetTerrain` | Private component for planet terrain behavior and inspection. |
 | `TerrainChunk` | Terrain chunk state used by planet LOD. |
+| `Editor/` and `UniverseEditorLayer` | Authoring panels, inspector adapters and editor viewport navigation. |
 
 ## Registered Types
 
@@ -253,8 +254,9 @@ Continuous picking test/build/performance evidence and the remaining live UI che
 disable/enable, deletion, reset, and exact buffer layouts. Its GPU test uses test-only readback to compare mixed
 packed ranges and two 250,000-star clusters against double-precision CPU equations, including an output guard.
 
-Build the package and focused tests using `/p:BuildProjectReferences=false` on Windows after building the SDK when its
-viewport or scene-camera helper changes. The follow feature does not change SDK rendering coordinates or GPU layouts.
+Build the package and focused tests through the normal dependency graph. `/p:BuildProjectReferences=false` is only an
+incremental shortcut after the SDK and dependency targets are already current; it is not a clean-build recipe. The follow
+feature does not change SDK rendering coordinates or GPU layouts.
 
 See [batched rendering validation](docs/BatchedRenderingValidation.md) for test evidence, deployment commands,
 benchmark results, and remaining visual-validation limits.

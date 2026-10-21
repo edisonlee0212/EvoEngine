@@ -1730,7 +1730,22 @@ void ApplyReadmeScreenshotInspectionOptions(const DemoAppRuntimeConfig* config) 
 }
 
 void ApplyReadmeScreenshotEditorSetup(const DemoAppRuntimeConfig* config) {
-  ApplyRenderingDemoEditorSetup();
+  if (config) {
+    if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      EditorLayoutSettings layout;
+      layout.panels.camera = false;
+      layout.panels.scene_info = false;
+      layout.panels.runtime_package_manager = false;
+      EditorDockLayoutSettings docks;
+      docks.left_fraction = 0.15f;
+      docks.right_fraction = 0.22f;
+      docks.bottom_fraction = 0.24f;
+      layout.dock_layout = docks;
+      editor->RequestEditorLayout(layout);
+    }
+  } else {
+    ApplyRenderingDemoEditorSetup();
+  }
   ApplyReadmeScreenshotInspectionOptions(config);
 }
 
@@ -1802,10 +1817,34 @@ int RunEditorScreenshot(const DemoAppRuntimeConfig& config) {
   }
   ApplyReadmeScreenshotEditorSetup(&config);
 
-  for (size_t frame_index = 0; frame_index < config.warmup_frames; ++frame_index) {
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  while (render_layer && !render_layer->HasPresentedScene(application.GetActiveScene())) {
+    if (!application.Loop()) {
+      return FailEditorScreenshot(application, "application ended before scene presentation");
+    }
+    if (++load_frame_count >= config.max_load_frames) {
+      return FailEditorScreenshot(application, "scene presentation timed out");
+    }
+  }
+
+  if (const auto camera = editor_layer->GetSceneCamera()) {
+    camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  }
+  if (const auto camera = FindEntityByName(application.GetActiveScene(), "Main Camera")) {
+    editor_layer->SetSelectedEntity(*camera, false);
+  }
+  for (size_t frame_index = 0; frame_index < config.warmup_frames;) {
     if (!application.Loop()) {
       return FailEditorScreenshot(application, "application ended before screenshot warmup completed");
     }
+    if (++load_frame_count >= config.max_load_frames) {
+      return FailEditorScreenshot(application, "screenshot warmup timed out");
+    }
+    const auto progress = render_layer ? render_layer->GetShaderPreparationProgress() : ShaderPreparationProgress{};
+    if (!progress.error.empty()) {
+      return FailEditorScreenshot(application, progress.error);
+    }
+    frame_index = progress.completed < progress.total ? 0 : frame_index + 1;
   }
 
   if (const auto screenshot_result = StoreEditorWindowScreenshot(application, config); screenshot_result != 0) {

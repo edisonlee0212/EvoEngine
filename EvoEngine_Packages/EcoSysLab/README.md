@@ -34,7 +34,8 @@ material controls, damage behavior, diagnostics, and current validation limits.
 
 | Source | Role |
 | --- | --- |
-| `EcoSysLabLayer` | Main package layer, editor UI, simulation controls, visualization camera, and render callback registration. |
+| `EcoSysLabLayer` | Runtime simulation and render callback registration. |
+| `Editor/` and `EcoSysLabEditorLayer` | Authoring panels, inspectors, asset previews and visualization cameras. |
 | `Tree` | Private component for a simulated tree instance. |
 | `TreeDescriptor` | Asset describing tree generation/growth behavior. |
 | `TreeStructor` | Private component for tree reconstruction workflows. |
@@ -64,7 +65,7 @@ Package-specific apps request the package by name at startup instead of directly
 
 EcoSysLab uses almost every major SDK extension point:
 
-- layer UI through `EcoSysLabLayer::OnInspect`
+- editor panels and inspectors through `EcoSysLabEditorPackage` and its editor layer/adapters
 - private components for trees, climate, soil, reconstructors, simulators, and demos
 - assets for descriptors, volumes, patches, and graph data
 - serialization for persistent project data
@@ -75,3 +76,8 @@ EcoSysLab uses almost every major SDK extension point:
 ## Future Work Notes
 
 Most forestry features should live here rather than in the SDK. Add SDK functionality only when the feature is reusable outside forestry/agriculture. For new persistent EcoSysLab assets/components, make sure registration, serialization, editor inspection, and asset reference collection are all handled together.
+
+Runtime types and simulation remain usable without the editor companion. Put new inspectors/authoring state under
+`Editor/`, following the [extension workflow](../../docs/editor-extension-workflow.md). The `ecosyslab` profile creates
+its demo tree during editor startup; exporting that result requires saving the generated scene/assets. The launcher
+profile is not a standalone dataset-generation command.

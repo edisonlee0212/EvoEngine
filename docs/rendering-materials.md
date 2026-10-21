@@ -16,8 +16,10 @@ core metallic-roughness cannot represent arbitrary dielectric specular color or 
 mappings are rebased into the diffuse texture's mapping with an import warning; unreadable source pixels fall back to
 the corresponding factors. PNG, JPEG, TGA, embedded images, data URIs, and BC7 DDS alternatives are decoded directly
 for conversion without uploading specular-glossiness-only sources. Converted base-color and metallic-roughness mip
-chains are stored as disposable BC7 DDS pairs under `Cache/GltfMaterialConversion`; deleting this directory only makes
-the next import regenerate them. No specular-glossiness state is stored, edited, serialized, or evaluated at runtime.
+chains use a disposable conversion cache under `Cache/GltfMaterialConversion/v1`. Project imports also publish DDS assets
+under `Assets/.generated/GltfMaterialConversion/v1`; retain these assets and sidecars for scene references and runtime
+export. Deleting only the cache permits editor regeneration; exported runtimes require the published assets and do not
+regenerate them. No specular-glossiness state is edited, serialized, or evaluated at runtime.
 `KHR_materials_specular` remains independently supported and is not used by this workflow conversion.
 
 The raster geometry pass writes UV0/UV1 and their gradients, the face-oriented geometric normal and tangent, stable
@@ -78,8 +80,8 @@ invocation can resolve an arbitrary material index. They share the same host mat
 traversal additionally uses scene feature detection and specialized shader variants; missing variants compile
 asynchronously while an all-feature fallback remains available.
 
-Material and mesh thumbnails render through the normal fixed-descriptor raster path in a temporary scene. They disable
-DDGI and do not maintain a separate material implementation.
+Material and mesh thumbnails render through the normal raster material path in a temporary scene, with shared sampled
+asset arrays and explicit pass-local descriptors. They disable DDGI and do not maintain a separate material implementation.
 
 ## Geometry Participation
 

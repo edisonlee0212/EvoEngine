@@ -4,6 +4,16 @@
 
 EvoEngine uses CTest for local test execution. The test suite includes C++ unit tests, render/GPU tests, Python-driven render capture tests, app smoke tests, and Windows launcher smoke tests.
 
+## Build trees and prerequisites
+
+The default Windows `Scripts/test.py` tree is `out/build/vs2026-x64-tests`, separate from the application preset's
+`out/build/vs2026-x64`. The script configures with `BUILD_TESTING=ON`; a fresh plain app installation configures it off.
+To use the application tree, first run `python Scripts/build_project.py` and build the required test targets, then select
+it explicitly. Direct CTest commands below assume that test-enabled application tree already exists.
+
+CPU/source tests still need the native toolchain; GPU cases need their Vulkan features. Python capture tests also need
+the CMake-selected Python ABI and deployed module dependencies. See [building](building.md) for setup.
+
 ## Common Commands
 
 Local render/GPU tests:
@@ -27,6 +37,15 @@ List tests:
 ```bat
 python Scripts\test.py --list
 ```
+
+Listing still configures and builds by default. To inspect an already built tree without either step:
+
+```powershell
+python Scripts/test.py --build-dir out/build/vs2026-x64 --all --list --no-configure --no-build
+```
+
+For CPU/source tests, use `--exclude-render`. Use `--label <regex>` or repeated `--ctest-arg` options for a focused run.
+When filtering, keep prerequisite builds enabled unless the chosen test executables are already current.
 
 Run CTest directly:
 
@@ -64,6 +83,11 @@ Render comparisons report PSNR and SSIM when applicable.
 ## CI Scope
 
 GitHub Actions run repository-wide format checks and platform compilation checks. Rendering tests are intentionally local-only because they require a Vulkan-capable GPU environment and produce visual artifacts for inspection.
+
+The formatting workflow also runs Python runtime-boundary fixtures. Run tooling-only regressions with
+`python -m unittest discover -s Scripts/tests`; these are separate from CTest and include export/template/installer checks.
+Baseline acceptance rewrites golden files; use it only for an intentional, inspected change and rerun without acceptance.
+Source checks, unavailable/skipped GPU tests and finite-output smoke captures do not establish image-quality acceptance.
 
 ## Test Organization Notes
 

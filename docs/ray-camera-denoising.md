@@ -4,6 +4,10 @@ The ray camera uses NRD's diffuse/specular radiance denoisers. The standard Wind
 
 **Accumulated PT input** automatically replaces NRD's temporal accumulation with separate running diffuse and specular PT averages whenever Path Tracing, sample accumulation, and NRD are enabled. The two RGBA32F histories add 32 bytes per pixel (about 63.3 MiB at 1920x1080). Their alpha channels track per-pixel sample counts; reset frames initialize every pixel, including misses. NRD's own history restarts every frame while its spatial filtering remains active; hit distances and guides remain current-frame inputs. Scene or camera changes reset the PT averages. The camera inspector and demo captures use the existing accumulation control (`--preview-accumulate-samples enabled|disabled`) to select this behavior. Old `nrd_accumulated_input` values are ignored when loading saved cameras and editor layouts. Toggle regression captures use `--preview-nrd-toggle-after-frame N` and fail if the toggle reduces accumulated camera frames. For a resize regression capture, `--preview-resize-after-frame N` starts at half the requested resolution and resizes to `--preview-width` × `--preview-height` after frame N.
 
+The dedicated primary-direct **SSS ReSTIR** path runs inside the PT-style camera path rather than the ordinary ReSTIR
+pipeline. With accumulation enabled it also feeds running lobe averages and restarts NRD each frame. Its own SSS
+reservoir history is separate. Statements below about fresh ReSTIR input refer to ordinary, non-SSS ReSTIR.
+
 | NRD input | Current source | Remaining work |
 | --- | --- | --- |
 | World normal and linear roughness | The guide traces signed world normals and primary linear roughness independently of the optional `Camera.RayNormal` output. GGX alpha axes are reduced by geometric mean and square-rooted back to NRD linear roughness. All NRD-enabled integrators use pixel-center primary guides while beauty samples remain jittered. The guide pass packs the normal and roughness into `Camera.NrdNormalRoughness` using NRD's R10G10B10A2 octahedral formula. | Guide alpha encodes opaque (0), metal (1), and transmission (2) categories. Both denoisers reject category boundaries. Subpixel geometry coverage can still differ between the guide and the sampled signal. |
@@ -18,7 +22,10 @@ The final sample supplies the primary-hit guide and material factors used for de
 moving-object captures retain NRD history while raw camera accumulation resets. When NRD is active, its surviving
 history frame count is independent of the advancing path-sampling seed. Compare denoised and raw output at
 equal GPU time.
-In NRD-enabled builds, multiple ReSTIR samples use an 48-byte-per-pixel accumulation buffer for each frame in flight.
+In NRD-enabled builds, multiple ReSTIR samples use a 48-byte-per-pixel accumulation buffer for each frame in flight.
+
+SSS occupies material category 3 in addition to opaque, metal and transmission. That category distinguishes SSS from
+other lobes, but does not distinguish individual scattering profiles.
 
 ## Pass boundary
 
@@ -30,7 +37,8 @@ Path Tracing and ReSTIR share the guide, RELAX, and composite passes. Path Traci
 
 RELAX uses complete per-lobe hit distances without reconstruction, zero diffuse and specular prepass radii, and two A-trous iterations by default. REBLUR uses a 10-pixel maximum blur radius by default, the configurable settings below, and complete per-lobe hit distances without reconstruction. Its pack pass converts demodulated RGB to YCoCg and normalizes hit distance with NRD's default REBLUR parameters; the composite converts its output back to RGB. All NRD-enabled integrators trace a pixel-center primary guide for stable view Z, normal/roughness, and motion; the beauty path remains stochastic. NRD history remains valid through camera and rigid-object motion when the input history is valid. Current and previous projection matrices passed to NRD flip clip-space Y to match its top-left UV convention to the ray images' bottom-left UV convention. Motion Z uses positive depth differences because NRD converts right-handed matrices and signed depth internally.
 
-The earlier fresh-input baseline on a matched 1920×1080 Sponza setup against a 2048-frame Path Tracing reference measured denoised PT64 at 0.02730 RMSE versus raw PT79 at 0.05260; denoised Candidate64 at 0.02922 versus raw PT120 at 0.04228. Enhanced64 measured 0.03437 versus raw PT389 at 0.02175, missing the equal-GPU-time quality gate. These budgets include ray-camera and NRD passes; they do not measure the accumulated PT input now used by default. Bright material-edge residuals, long-history energy differences, and Enhanced's high ray cost remain open. Fresh unaccumulated frames are still noisy.
+Historical quality/timing measurements are retained in [denoising validation notes](ray-camera-denoising-validation.md).
+They are not a current benchmark of accumulated-input rendering.
 
 NRD's [input contract](https://github.com/NVIDIA-RTX/NRD/blob/master/README.md#inputs) defines the guide and signal requirements. Its [SDK license](https://github.com/NVIDIA-RTX/NRD/blob/master/LICENSE.txt) governs integration and distribution of the library.
 
@@ -51,6 +59,16 @@ Select **NRD Denoiser > RELAX** and expand **RELAX Settings**. Controls are save
 | Roughness edge stopping | On | Reject filtering across roughness differences |
 
 Fast history and history reconstruction are bounded by the selected lobe history limits. Prepass filtering is disabled by default in both denoisers. Checkerboard, reconstruction, confidence and material-input conventions remain tied to the engine's signal contract.
+
+A-trous iterations apply edge-aware spatial filtering with increasing sample spacing, reaching a wider neighborhood
+without a dense large kernel. More iterations cost additional passes and can soften detail; they do not add PT samples.
+RELAX's optional anti-firefly filter is off by default. REBLUR retains the pinned NRD default anti-firefly filter (on),
+without a separate editor toggle. These denoiser filters differ from PT's raw-output display filter; neither is a
+firefly clamp on the PT accumulation. High-energy input outliers can still harm denoising.
+
+The history controls bound NRD temporal blending, not a ring of full-resolution saved frames. Raising RELAX's limit
+to 255 does not allocate 255 images. In accumulated-input mode these temporal limits are overridden to zero and NRD
+uses `RESTART`; they affect fresh-input operation instead. NRD Temporal AA remains a separate history after denoising.
 
 ## Windows build
 
@@ -75,8 +93,8 @@ With a ray camera selected, enable **NRD Denoising**, select **REBLUR**, and exp
 Edits apply on the next frame and restart NRD history while retaining raw PT accumulation, without
 recreating the denoiser or recompiling shaders. **Reset REBLUR settings** restores the
 values above. Settings persist in scene cameras and editor camera layouts; older files
-use the defaults. NRD history is independent of ReSTIR's temporal history cap and the
-camera's **Accumulate Samples** control. Fast history and history reconstruction are
+use the defaults. NRD history is separate from ReSTIR's temporal reservoir cap; **Accumulate Samples** selects
+the input/history policy described above. Fast history and history reconstruction are
 bounded by the selected history limit. The minimum blur radius cannot exceed the maximum.
 New cameras default to RayQuery with Path Tracing, RGB REBLUR, NRD denoising and NRD Temporal AA enabled. Saved render modes, integrator choices and settings are retained.
 
@@ -106,7 +124,7 @@ and must reach NRD as 0.5. Anisotropic axes use the fourth root of their product
 
 Guide normals, roughness, depth, categories and material factors come from the same
 center hit. Each independent ReSTIR estimate prepares these factors before combine;
-Path Tracing's SH moments retain RGB moments until the final center factors are known.
+Path Tracing demodulates its RGB signals after the center factors are available.
 The signal pack pass supplies representative hit distances to both RELAX and REBLUR;
 only REBLUR performs YCoCg conversion and hit-distance normalization.
 
@@ -126,96 +144,12 @@ Reference audit: [nvpro-samples/vk_denoise_nrd](https://github.com/nvpro-samples
 at `a9119d11`. Its two full lobe paths and same-pixel temporal blend informed this
 integration; EvoEngine uses short probes and motion-aware temporal filtering.
 
-### Integration validation and limits
+## Validation and limitations
 
-At 1920x1080 Sponza on an RTX 5070, regular REBLUR with Enhanced, 64 frames,
-one sample per frame and temporal AA produced linear-HDR RMS error 0.05664
-against a 4096-sample PT reference. Correcting squared roughness reduced RMS
-error by 0.8%; absolute error was essentially unchanged. Translation and rotation
-endpoint captures still show noisy reflective surfaces. These captures do not
-establish sequence-level ghosting behavior or resolve the distant-noise root cause.
+Use matched raw PT references, static and moving cameras, resize and NRD toggle tests. Compare equal samples and equal
+camera GPU time separately; guide traces, reuse and filtering add work beyond beauty sampling. Check guide coverage,
+disocclusions, moving skinned geometry, reflected detail and material boundaries rather than only endpoint RMS.
 
-An approximately equal GPU budget comparison measured 41.59 seconds for Enhanced
-and 41.96 seconds for raw PT (49 frames, 32 samples per frame). PT RMS error was
-0.00945, substantially lower than Enhanced; this static quality gate does not pass.
-The PT reference and candidate share a deterministic sample prefix, which favors
-PT's reference error; this is a single-scene diagnostic, not a broad quality result.
-GPU budgets sum camera pass timestamps and exclude shader compilation and other
-frame work. Memory pressure and timing variability limit performance conclusions.
-
-In the corrected Enhanced static run, median guide time was 27.73 ms, NRD was
-2.12 ms, and temporal AA plus resolve was 0.24 ms. The receiving probes are
-expensive, and preparing guides for every independent estimate duplicates work.
-Reducing that cost and improving reflection signal correspondence remain follow-up
-work. Both lobe distances are explicitly generated at each valid center guide hit;
-per-pixel distance and history-rejection coverage still need dedicated readback.
-
-### PT and ReSTIR with REBLUR
-
-A subsequent 1920x1080 Sponza comparison used REBLUR and NRD Temporal AA in
-all modes, 64 frames, and 4096-sample raw PT references at matching final poses.
-PT samples per frame were selected separately to match each ReSTIR mode's
-measured camera GPU budget (within 3.6%). Temporal Only used 2 samples per
-frame; Enhanced used 1. PT used 18 for Temporal's budget, and 22–24 for Enhanced's.
-
-| Camera path | PT RMS reduction versus Temporal Only | PT RMS reduction versus Enhanced |
-| --- | ---: | ---: |
-| Static | 4.1% | 18.4% |
-| Translation, 0.02 units/frame | 17.9% | 35.0% |
-| Rotation, 0.2 degrees/frame | 10.6% | 18.4% |
-
-PT also had lower relative absolute error and sphere-grid crop error in every
-matched comparison. Reflective mottling was lower with static PT, but all modes
-still smeared reflective detail during motion. This favors PT + REBLUR as the
-current implementation's baseline for these tested settings. It is one scene and
-device, with deterministic sample overlap and endpoint captures; it does not
-establish sequence ghosting or general algorithm superiority. Camera GPU cost was
-about 478–658 ms/frame, so this is not a real-time quality gate. Denoising residual
-error remains significant even with many PT samples.
-
-An equal-sample follow-up used 1 and 2 samples per frame for every mode with the
-same 64-frame camera paths and denoising controls. PT had lower full-image RMS
-and sphere-grid crop RMS in all six cases. Static results were mixed: Temporal
-Only had lower average absolute error, while PT's RMS advantage was only 1–2.4%.
-Translation and rotation favored PT in both RMS and average absolute error.
-
-| Camera | Samples/frame | PT RMS | Temporal Only RMS | Enhanced RMS |
-| --- | ---: | ---: | ---: | ---: |
-| Static | 1 | 0.04936 | 0.05055 | 0.05664 |
-| Static | 2 | 0.04768 | 0.04824 | 0.05372 |
-| Translation | 1 | 0.05495 | 0.06048 | 0.07596 |
-| Translation | 2 | 0.05224 | 0.06035 | 0.07664 |
-| Rotation | 1 | 0.05775 | 0.06174 | 0.06557 |
-| Rotation | 2 | 0.05565 | 0.05997 | 0.06459 |
-
-PT measured about 37/64 ms of camera GPU work per frame at 1/2 samples. Temporal
-Only measured 167–175/478–496 ms; Enhanced measured 595–658/1486–1704 ms.
-Equal samples are independent estimates, rather than equal traced-ray counts;
-reuse/replay adds work. Nonlinear scaling and memory pressure limit general
-performance conclusions. Reflective detail remains noisy or smeared in all modes;
-the deterministic, single-scene endpoint comparison does not establish sequence
-quality or statistical significance for the small static differences.
-
-The camera backend matters in live comparisons: PT follows the Ray Tracing or
-Ray Query selection, while every ReSTIR mode uses Ray Query. A 1080p Sponza
-1-SPP/64-frame reproduction with NRD off measured PT at 73.0 ms with Ray Tracing,
-31.4 ms with Ray Query, and Temporal Only at 56.2 ms. Thus Temporal can outrun PT
-when PT uses the Ray Tracing backend; it did not beat PT Ray Query in that test.
-With REBLUR on, PT Ray Tracing measured 77.3 ms versus Temporal's 130.4 ms.
-These are camera GPU times, not the editor's rolling whole-frame FPS.
-
-Temporal currently selects separate scene-specialized raw combine/resolve shaders
-only with NRD off. NRD-on uses generic combine/resolve pipelines; in this run,
-combine cost 52.4 ms versus 1.7 ms raw, while NRD dispatch itself cost 2.2 ms.
-Reducing NRD Temporal shader overhead remains performance work. Scene variants
-are queued after general pipelines become available, explaining compilation and
-performance changes after a mode switch.
-
-The SER selector is additionally restricted by the camera pass: SER is disabled
-when linear swept sphere (LSS) support is enabled. LSS currently follows device
-capability rather than scene strand presence. On the RTX 5070, requested SER
-Disabled, Enabled, and Automatic therefore all execute without reordering,
-even in triangle-only Sponza. The inspector does not currently explain this
-restriction. Repeated raw PT captures measured Ray Tracing at 70–73 ms versus
-Ray Query at about 31 ms; active SER cannot explain that gap. Shader register,
-spill, occupancy, and scheduling attribution remains unmeasured.
+NRD cannot recover missing signals or guarantee unbiased convergence. Accumulated-input spatial filtering can preserve
+residual blur; temporal AA adds its own history and response delay. See the [historical validation notes](ray-camera-denoising-validation.md)
+for previously measured limitations and the [capture runbook](rendering-validation.md) for reproducible checks.

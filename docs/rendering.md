@@ -10,6 +10,10 @@ Focused guides:
 - [Texture access](rendering-texture-access.md)
 - [Global illumination: DDGI, SDFGI, and HDDAGI](rendering-gi.md)
 - [Reflection probes](reflection-probes.md)
+- [Stochastic SSR](rendering-ssr.md)
+- [ReSTIR path tracing](restir-path-tracing.md)
+- [Ray-camera denoising](ray-camera-denoising.md)
+- [Subsurface scattering](subsurface-scattering.md)
 - [Rendering demos](rendering-demos.md)
 - [Rendering validation](rendering-validation.md)
 
@@ -94,49 +98,9 @@ matched filtered and unfiltered comparisons without editing the scene.
 
 ### ReSTIR PT ray integrators
 
-**Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
-ReSTIR runs through inline RayQuery. Candidate Only generates a path reservoir; Spatial Only adds same-frame reuse;
-Temporal Only reprojects previous-frame reservoirs; Enhanced combines temporal and spatial reuse. These reuse modes
-remain experimental and have not established a broad equal-GPU-time quality advantage over ordinary PT.
-
-- **Spatial neighbors:** 1–16 reciprocal pairs, default 3, using approximately 16-pixel Gaussian offsets. More pairs
-  increase replay work and memory. Material, normal and distance checks reject incompatible neighbors.
-- **Temporal history cap:** 1–32, default 20. **Adaptive duplication cap**, enabled for new cameras, lowers confidence
-  toward 1 where nearby pixels share a path seed. It may reduce persistent fireflies but can increase variance or
-  change brightness; compare against PT. Disabling it skips the duplication pass and full-resolution duplication map.
-- **Hybrid shifts:** off by default. Spatial Only reconnects eligible three-vertex diffuse/emissive paths. Enhanced
-  also supports eligible longer opaque paths using footprint-selected reconnection vertices. Unsupported endpoints,
-  moving reconnection geometry, delta, transmission and volume events require full replay or remain unsupported.
-- **Accumulate Samples:** averages resolved radiance across frames. Disabling it preserves same-frame reuse.
-
-Every sample per frame runs an independent candidate/reuse/resolve estimate. Temporal estimates read the previous
-frame's reservoir and publish the last estimate for the next frame. All pixels continue sampling; adaptive stopping
-is unsupported. Sampling and spatial pairing use the advancing renderer frame, so clearing accumulation or reservoir
-history does not repeat the same random pattern. Ray debug views must be off for reuse.
-
-Ray-camera history retirement waits for submitted GPU work before releasing resources, including when a
-camera component or its owner is disabled or removed from the scene.
-
-Temporal modes retain reservoir history across camera motion and rigid mesh transforms while restarting radiance
-accumulation; other scene changes clear history. They use two reservoir/surface history slots and camera-owned scratch
-buffers synchronized by the render graph. ReSTIR texture footprints grow with path distance and capped roughness-aware
-spread; alpha, shadow and emissive visibility retain their existing LOD rules.
-
-Triangle meshes, supported strands, unlit/emissive/environment/punctual lighting, reflection, transmission, absorption
-and homogeneous scattering are supported. Dispersion and Gaussian splats are unavailable. Unsupported ordinary ReSTIR
-scenes report an error. SSS uses [dedicated direct reuse](subsurface-scattering.md) with its own eligibility and fallback
-rules. Inspect raw rendering separately from [NRD denoising](ray-camera-denoising.md).
-
-The six optional ray outputs describe fresh candidates before reuse: primary albedo/normal/roughness, candidate ray
-count/path length and candidate debug radiance. Timing currently reports zero. Temporal Only omits NRD signal work
-when denoising is disabled. Scene-specific shader activation resets history. The editor prioritizes selected camera
-modes and prepares other variants in the background; see [shader preparation](shader-preparation.md).
-
-Captures accept `--preview-ray-integrator`, `--preview-restir-spatial-neighbors`, `--preview-restir-spatial-hybrid`,
-`--preview-restir-temporal-history-cap`, `--preview-restir-temporal-adaptive-cap`, and `--preview-accumulate-samples`.
-`--preview-ray-profile-report` records shift outcomes, timing, memory and bright-pixel diagnostics;
-`--preview-restir-generated-profile` adds candidate statistics. Capture startup disables the unused scene main camera
-before waiting for readiness. See [validation](rendering-validation.md) for comparison procedures.
+Candidate Only, Spatial Only, Temporal Only and Enhanced run through RayQuery. Reuse is experimental; history confidence
+is not an independent-sample count, and raw accumulation can remain correlated. Ordinary PT is the comparison baseline.
+See [ReSTIR path tracing](restir-path-tracing.md) for controls, supported scenes, histories, signals and capture options.
 
 ### Ray-camera pass flow
 
@@ -195,44 +159,13 @@ resources and temporal histories are camera-owned. Assets must use the current f
 Bloom's **Compression start** (2) and **Source ceiling** (8) bound sampled HDR contributions before downsampling,
 preserving color ratios. They limit the bloom source, not the original scene color or final composited halo.
 
-When DDGI uses shared voxel occlusion, its occlusion lookup applies at least 1.1 voxel cells of normal offset,
-scaled per cascade and vertical cell spacing. Larger authored normal offsets are preserved. Probe selection and interpolation use the same offset as the voxel lookup so its parity channels remain aligned.
-Distance-moment visibility retains the authored world-space normal and view biases. Fully blocked valid probes
-remain dark rather than falling back to environment lighting.
+DDGI visibility and sparse-support controls are described in [GI](rendering-gi.md). Valid blocked probes stay dark.
 
 ### Stochastic SSR
 
-SSR traces one GGX visible-normal reflection sample per pixel per rendered frame, using the same
-visible-normal sampler, Schlick Fresnel and separable Smith masking functions as PT. The random sequence
-uses a pixel-scrambled R2 sequence indexed by the application frame count, not the frame-in-flight slot or
-PT accumulation count. Integer arithmetic preserves the sequence at large frame indices. Smooth materials
-use the exact mirror direction. Deferred shading publishes its resolved reflection fallback into the existing
-SSR swap texture: reflection probes take priority, followed by the active DDGI/SDFGI/HDDAGI provider,
-then environment lighting where GI has no valid coverage. SSR consumes the same fallback as the shaded
-scene, so unavailable GI does not replace environment lighting with black. Valid dark GI remains dark.
-Reflection RGB contains the signed difference between screen and fallback radiance, multiplied by
-BRDF/PDF weight, hit confidence and specular visibility; alpha contains coverage. Equal screen and
-fallback radiance produce zero correction. Spatial and temporal reconstruction average both channels,
-including missed rays. Composition adds this correction to existing lighting without applying the BRDF
-or visibility twice. The scratch texture is reused; no separate GI query pass or image allocation is needed.
-Geometry/material rejection discards invalid history. Neighborhood clipping ramps in over the first pixel of
-reprojection motion; stationary surfaces retain valid history across changing stochastic samples. Lighting and
-reflected-object changes still respond through temporal averaging. Stationary stochastic surfaces use
-95-99% history weight (roughness dependent); motion retains the existing 85-97% weights. This trades
-slower response to lighting changes for lower noise; mirrors retain their existing history weights. Spatial reconstruction checks depth,
-normals, roughness and specular F0. With spatial resolve and temporal stabilization enabled, two additional
-5x5 passes filter the temporal result at increasing radii. Their footprint scales with roughness, and local RGB
-variance controls the blend strength. The passes preserve signed reflection corrections and coverage, reuse
-existing scratch textures, and do not feed spatially blurred results back into temporal history.
-
-In the PostProcessingStack asset inspector, expand **SSR**. SSR fades to existing probe/environment
-specular between **Roughness fade start** (default 0.4) and **Roughness fade end** (default 0.8).
-**Roughness filter radius (1080p pixels)** (default 12, range 0-32) scales the edge-aware spatial filter
-by squared material roughness and viewport height in the initial pass, and by roughness with increasing scale
-in the post-temporal passes; enable **Edge-aware spatial resolve** to use it.
-Enable **Temporal stabilization** to smooth the changing samples. Disabling reconstruction exposes
-single-frame sampling noise. The controls are serialized; older assets use the new defaults.
-Screen-space visibility, spatial reuse and probe substitution remain approximations.
+SSR estimates a signed correction to existing specular lighting. Probe, GI and environment fallback remain available on
+misses. Roughness-aware spatial filtering and temporal reconstruction reduce sample noise without blurring diffuse light.
+See [SSR controls and limitations](rendering-ssr.md); one-frame samples, dynamic lighting and disocclusions can remain noisy.
 
 ## Geometry And Optional Features
 

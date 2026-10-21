@@ -18,20 +18,20 @@ git submodule update --init --recursive
 ## Windows Requirements
 
 - Visual Studio 2026 with Desktop development with C++
-- CMake
+- Git and 64-bit Python 3, including development headers/libraries for Python bindings
+- CMake 4.2 or newer (required by the Visual Studio 18 2026 generator)
 - Vulkan SDK
 - Git access to initialize the pinned NRD submodule in `Extern/3rdParty/NRD/NRD` (NRD fetches its pinned NRI dependency during CMake configure)
 
-Generate the Visual Studio build tree:
-
-```bat
-python Scripts\build_project.py
-```
-
-Build and install runnable app binaries:
+Configure, build and install runnable applications with one command:
 
 ```bat
 python Scripts\install_apps.py
+```
+
+For Debug instead:
+
+```bat
 python Scripts\install_apps.py --config Debug
 ```
 
@@ -59,6 +59,26 @@ Build one target from the build tree:
 ```bat
 cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target EvoEngineEditor
 ```
+
+### Development solution and tests
+
+`install_apps.py` configures the application build with `BUILD_TESTING=OFF` unless an incremental install reuses an
+existing cache. Generate a Visual Studio solution with native tests enabled when developing the engine:
+
+```powershell
+python Scripts/build_project.py
+cmake --build out/build/vs2026-x64 --config RelWithDebInfo --parallel 4
+ctest --test-dir out/build/vs2026-x64 -C RelWithDebInfo --output-on-failure
+```
+
+`build_project.py` only configures; it does not build executable applications. A later plain `install_apps.py` run
+reconfigures without tests. Use `install_apps.py --incremental` to reuse the configured test-enabled cache. See
+[testing](testing.md) for focused CPU/GPU selections before running the complete suite.
+
+CMake selects the Python interpreter and development installation for the binding. Use that same interpreter/ABI to
+import the installed module; a `cp315` module, for example, requires CPython 3.15. To select an interpreter explicitly, pass
+`--cmake-arg=-DPython3_EXECUTABLE=C:/path/to/python.exe` to either configuration script. Reconfigure/rebuild after changing
+Python installations; copying a module into a different Python version does not make it compatible.
 
 ### SDK Build Profiling
 

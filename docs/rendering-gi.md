@@ -26,7 +26,8 @@ doubles the interval. The main or explicitly selected anchor moves the field; au
 consume the same field without moving it.
 
 Small camera movements scroll the cascades, retaining overlapping data and clearing newly exposed probes. Large moves,
-incompatible settings, and relevant scene changes rebuild or invalidate affected data. Coarser cascades extend coverage;
+incompatible settings, and resource replacement reset affected locations. Ordinary scene edits refresh geometry and paths
+while preserving lighting at unchanged locations. Coarser cascades extend coverage;
 outside valid coverage, lighting blends to the environment. Increasing probe counts or history consumes memory as well
 as update time. Device limits and a strict history budget below 4 GiB are checked before allocation.
 
@@ -56,6 +57,10 @@ there is no inline-ray-query DDGI backend.
 
 Defaults trace 64 scene rays and eight emissive-triangle rays per updated probe. History count selects 5–30 updates
 in steps of five, defaulting to 30. Rolling irradiance and visibility histories continue updating after filling.
+
+These counts measure probe updates, not independent camera samples. SDFGI defaults to 30 history updates; HDDAGI
+defaults to 12 and permits 6, 12, 18, 24 or 32. Longer windows smooth noise but delay lighting response and increase
+history storage. They are separate from PT accumulation, ReSTIR reservoirs and NRD histories.
 
 **Use Occlusion** and **Probe Classification** default on. Classification independently disables probes inside geometry
 or far from surfaces. Occlusion uses HDDAGI's voxel occupancy and visibility field with fixed probes; fully blocked
@@ -130,8 +135,9 @@ Visible camera backgrounds are independent of indirect environment lighting. Env
 coverage; valid dark irradiance is not automatically treated as missing data. Local/global reflection probes and SSR
 retain their roles in raster specular composition. See [Reflection probes](reflection-probes.md).
 
-Reflection captures consume diffuse illumination from the selected provider. SDFGI and HDDAGI retain a stable snapshot
-across capture faces, without advancing the shared anchor or recursively sampling their sharp reflection output.
+Reflection captures consume diffuse illumination without moving the shared anchor or sampling sharp GI reflections.
+HDDAGI retains a lighting snapshot for a capture cycle; SDFGI reads the current publication per submission, so a multi-frame
+SDFGI capture can observe lighting changes across faces.
 
 ## Diagnostics and known limitations
 

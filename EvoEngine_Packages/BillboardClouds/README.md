@@ -29,6 +29,9 @@ BillboardClouds provides utilities for converting detailed geometry into billboa
 
 The package works with SDK `Mesh`, `Material`, private components, editor inspection, and generated geometry/texture outputs. It can be loaded from the app runtime `Packages` folder.
 
+Converter authoring UI lives in `Editor/` and `BillboardCloudsEditorPackage`. Runtime conversion data/algorithms remain in
+the runtime library. EcoSysLab declares BillboardClouds as a package dependency; its authoring tools also use the companion.
+
 ## Future Work Notes
 
 Keep billboard generation logic in this package. If a feature becomes a general mesh simplification, material transfer, or texture baking primitive, consider whether it belongs in the SDK or TextureBaking instead.

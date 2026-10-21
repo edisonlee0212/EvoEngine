@@ -62,6 +62,10 @@ DigitalAgriculture primarily uses private components, assets, editor inspection,
 
 PAR/CBTF data remains loadable and editable, but illumination estimation, BTF rendering, and device upload are intentionally unavailable until a Vulkan implementation replaces the removed backend.
 
+Authoring panels and inspectors live in `Editor/` and `DigitalAgricultureEditorPackage`; they are not runtime type methods.
+The `digital-agriculture` demo starts with a camera, light and soil rather than a generated crop. Package-specific
+`PyDigitalAgriculture` bindings remain disabled; the core Python module does not expose these C++ types.
+
 ## Future Work Notes
 
 Sorghum-specific modeling, data generation inputs, field layouts, and agricultural descriptors belong here. General mesh, asset, rendering, or editor improvements should stay in the SDK if they are reusable by other packages.

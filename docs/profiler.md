@@ -19,6 +19,10 @@ are disabled at startup, so ordinary editor runs do not record CPU events or wri
 
 If GPU timestamp queries are unavailable, Capture still records CPU data and the panel reports the GPU limitation.
 
+Native `--preview-raster-profile-report` captures enable profiling for their requested measurement window even with the
+panel hidden. Treat that explicit automation policy separately from startup-disabled interactive capture. See
+[the capture runbook](rendering-validation.md#raster-performance-baseline) for report fields and matched-run procedures.
+
 Global capture controls stay above five views. **Overview** contains aligned CPU, synchronization and GPU history;
 **Breakdown** contains rolling CPU/GPU budgets; **CPU** and **GPU** contain detailed timing views; and **Diagnostics**
 contains pinned-frame CPU/GPU timelines, stable detail tables and trace export.
@@ -150,6 +154,9 @@ are device-clock measurements and are not exported onto CPU Chrome-trace tracks 
 mapping is currently recorded.
 
 ## Validation snapshot
+
+The measurements below are historical observations from the stated machine and date. They were not rerun for the
+documentation refresh and are not a performance baseline for current scenes, shaders or drivers.
 
 On 2026-08-20, the installed Rendering/Sponza demo was measured on an AMD Ryzen 7 9800X3D and NVIDIA GeForce RTX 5070
 after a fixed warmup, with the profiler panel hidden in both cases. Three overlay samples averaged 21.47 FPS with capture

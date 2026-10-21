@@ -73,7 +73,7 @@ The capture uses the probe's authored bake background. Inherited environment rad
 environmental diffuse lighting as camera rendering. Specular fallback remains disabled to prevent recursive probe input.
 
 Probe capture includes opaque and alpha-masked geometry, direct lighting, shadows, emission, the visible bake
-background, and ready diffuse lighting from the selected DDGI or Automatic SDFGI provider. It excludes local reflection probes, screen-space effects, ambient
+background, and ready diffuse lighting from DDGI, SDFGI or HDDAGI. It excludes local reflection probes, screen-space effects, ambient
 occlusion, post-processing, transparent geometry, Gaussian splats, clouds, editor overlays, and external callbacks. This
 prevents recursive local-reflection feedback.
 
@@ -111,6 +111,8 @@ finish.
 - DDGI remains diffuse-only. Its visibility may occlude rough probe lighting, and its irradiance may provide a broad
   fallback where global probe weight is missing.
 - Reflection-probe captures include available diffuse GI from the selected provider but always exclude local reflection probes.
+- HDDAGI captures retain a diffuse/occlusion snapshot across a capture cycle and do not move the GI anchor or trace sharp
+  GI reflections. SDFGI's live publication behavior is described below; the two lifetimes are different.
 - Automatic SDFGI captures reuse the live camera-anchored field, including its occlusion and coverage fades. Missing,
   invalid, or uncovered GI uses normal environment diffuse fallback. Capture cameras never move the GI anchor or run
   extra convergence work. SDFGI specular and sharp SDF tracing are excluded from captures; main-camera reflections remain
@@ -121,3 +123,6 @@ finish.
 
 Contributor bake, selection, fallback, and dynamic-update checks live in
 [Rendering validation](rendering-validation.md).
+
+SSR uses the resolved specular fallback: available probes, then ready GI, then environment where GI coverage is missing.
+Valid dark GI is not missing coverage. See [SSR reconstruction](rendering-ssr.md) for filtering and temporal behavior.
