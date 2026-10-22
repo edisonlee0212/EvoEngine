@@ -355,17 +355,3 @@ void EcoSysLabEditorLayer::DynamicStrandsVisualization(const std::shared_ptr<Edi
 #pragma endregion
   }
 }
-
-void EcoSysLabEditorLayer::DynamicSkeletonSettings::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
-  const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  if (!runtime)
-    return;
-  ImGui::Checkbox("Physics", &runtime->dynamic_skeleton_settings_.enable_physics);
-  ImGui::Checkbox("Visualization", &enable_visualization);
-  if (runtime->dynamic_skeleton_settings_.enable_physics) {
-    InspectSettings(runtime->dynamic_skeleton_settings_.physics_parameters, editor_layer);
-  }
-  if (enable_visualization) {
-    InspectSettings(visualization_parameters, editor_layer);
-  }
-}

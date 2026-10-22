@@ -53,6 +53,19 @@ The `ecosyslab` demo prepares the GPU pipelines before growth and adds BranchRen
 geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry at
 the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
 
+## Shoot physics
+
+After tree growth finishes, select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
+**Initialize from growth pose** captures the shoot skeleton as a paused rod simulation. **Run physics** advances it in `EcoSysLabLayer::FixedUpdate`;
+**Pause physics** holds the current bend, and **Clear physics** restores the growth pose. The inspector exposes simulated
+time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, an anchor offset,
+and a force at an internode tip chosen by node handle. Reinitialize after changing density.
+
+BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
+are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no
+physics velocity. Growth is held while physics is initialized. Roots and generated CPU meshes do not deform in this
+first version.
+
 ## Main Entry Points
 
 | Source | Role |
@@ -64,7 +77,7 @@ the end of growth. If the startup scene has no Soil or Climate, the demo creates
 | `TreeStructor` | Private component for tree reconstruction workflows. |
 | `Climate` / `ClimateDescriptor` | Scene component and asset for climate state. |
 | `Soil` / `SoilDescriptor` | Scene component and assets for soil context. |
-| `DynamicTreeSkeleton` | Private component for dynamic skeleton simulation. |
+| `DynamicTreeSkeleton` | Private component for shoot rod physics settings and transient simulation state. |
 | `DynamicTreeStrands` | Strand-based tree representation and rendering support. |
 | `SpatialPlantDistributionSimulator` | Private component for spatial competition and plant distribution. |
 

@@ -1,38 +1,64 @@
 #pragma once
-#include "DynamicSkeleton.hpp"
+#include "Tree.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 
-/**
- * @class DynamicTreeSkeleton
- * @brief Represents a procedural tree skeleton with dynamic simulation capabilities.
- *
- * This class is responsible for managing a dynamic tree skeleton, allowing for physics-based
- * simulation and visualization of tree structures.
- */
 class DynamicTreeSkeleton : public IPrivateComponent {
  public:
-  /**
-   * @brief Represents the dynamic skeleton structure of the tree.
-   */
-  DynamicSkeleton dynamic_skeleton{};
+  struct PhysicsSettings {
+    float time_step = 1.0f / 120.0f;
+    int substeps = 4;
+    int iterations = 4;
+    float stretch_stiffness = 10000.0f;
+    float bend_stiffness = 50.0f;
+    float density = 750.0f;
+    float damping = 0.02f;
+    glm::vec3 gravity{0, -9.81f, 0};
+    glm::vec3 tip_force{};
+    SkeletonNodeHandle force_node = -1;
+    glm::vec3 anchor_offset{};
+  } physics_settings;
 
-  /**
-   * @brief Parameters used for initializing the dynamic skeleton.
-   */
-  DynamicSkeleton::InitializeParameters initialize_parameters{};
+  bool physics_running = false;
+  bool InitializePhysics(Tree& tree);
+  void ResetPhysics(Tree& tree);
+  void StepPhysics(Tree& tree);
+  [[nodiscard]] bool HasPhysics(const Tree& tree) const {
+    return !physics_rods_.empty() && model_revision_ == tree.GetShootModelRevision().content;
+  }
 
-  /**
-   * @brief Indicates whether the skeleton simulation is enabled.
-   */
-  bool simulate = false;
-
-  /**
-   * @brief Performs a physics simulation step on the dynamic skeleton.
-   *
-   * @param physics_parameters The parameters controlling the physics simulation step.
-   */
-  void PhysicsStep(const DynamicSkeleton::PhysicsParameters& physics_parameters);
+ private:
+  struct PhysicsVertex {
+    glm::vec3 position{};
+    glm::vec3 velocity{};
+    float inverse_mass = 0;
+    bool pinned = false;
+  };
+  struct PhysicsRod {
+    int start = -1;
+    int end = -1;
+    SkeletonNodeHandle node = -1;
+    float length = 0;
+    glm::quat rotation{1, 0, 0, 0};
+    glm::quat rest_rotation{1, 0, 0, 0};
+    glm::vec3 visual_offset{};
+    bool pinned = false;
+  };
+  struct PhysicsAngle {
+    int first = -1;
+    int second = -1;
+    glm::quat rest_relative{1, 0, 0, 0};
+  };
+  std::vector<PhysicsVertex> physics_vertices_;
+  std::vector<PhysicsRod> physics_rods_;
+  std::vector<PhysicsAngle> physics_angles_;
+  std::vector<int> physics_node_rods_;
+  std::vector<glm::vec3> physics_predicted_;
+  std::vector<glm::vec3> physics_previous_;
+  std::vector<std::vector<int>> physics_vertex_rods_;
+  std::vector<std::vector<int>> physics_rod_angles_;
+  std::vector<glm::vec3> physics_rest_positions_;
+  uint64_t model_revision_ = 0;
 };
 }  // namespace eco_sys_lab_package

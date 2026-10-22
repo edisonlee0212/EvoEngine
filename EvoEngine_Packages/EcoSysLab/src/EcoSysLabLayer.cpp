@@ -289,8 +289,23 @@ void EcoSysLabLayer::Update() {
       gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
     gpu_tree_mesh_renderer_->Register(GetScene());
   }
-  DynamicSkeletonPhysics();
   DynamicStrandSimulation();
+}
+
+void EcoSysLabLayer::FixedUpdate() {
+  const auto scene = GetScene();
+  if (!scene)
+    return;
+  if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>()) {
+    for (const auto entity : *entities) {
+      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
+      if (tree && tree->IsEnabled() && physics && physics->IsEnabled())
+        physics->StepPhysics(*tree);
+    }
+  }
 }
 
 void EcoSysLabLayer::OnCreate() {

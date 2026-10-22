@@ -66,10 +66,45 @@ void SerializeSpatialPlantDistributionSimulator(YAML::Emitter&, const SpatialPla
 void DeserializeSpatialPlantDistributionSimulator(const YAML::Node&, SpatialPlantDistributionSimulator&) {
 }
 
-void SerializeDynamicTreeSkeleton(YAML::Emitter&, const DynamicTreeSkeleton&) {
+void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton& target) {
+  const auto& p = target.physics_settings;
+  out << YAML::Key << "time_step" << YAML::Value << p.time_step;
+  out << YAML::Key << "substeps" << YAML::Value << p.substeps;
+  out << YAML::Key << "iterations" << YAML::Value << p.iterations;
+  out << YAML::Key << "stretch_stiffness" << YAML::Value << p.stretch_stiffness;
+  out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
+  out << YAML::Key << "density" << YAML::Value << p.density;
+  out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "gravity" << YAML::Value << p.gravity;
+  out << YAML::Key << "tip_force" << YAML::Value << p.tip_force;
+  out << YAML::Key << "force_node" << YAML::Value << p.force_node;
+  out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
 }
 
-void DeserializeDynamicTreeSkeleton(const YAML::Node&, DynamicTreeSkeleton&) {
+void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
+  auto& p = target.physics_settings;
+  if (in["time_step"])
+    p.time_step = in["time_step"].as<float>();
+  if (in["substeps"])
+    p.substeps = in["substeps"].as<int>();
+  if (in["iterations"])
+    p.iterations = in["iterations"].as<int>();
+  if (in["stretch_stiffness"])
+    p.stretch_stiffness = in["stretch_stiffness"].as<float>();
+  if (in["bend_stiffness"])
+    p.bend_stiffness = in["bend_stiffness"].as<float>();
+  if (in["density"])
+    p.density = in["density"].as<float>();
+  if (in["damping"])
+    p.damping = in["damping"].as<float>();
+  if (in["gravity"])
+    p.gravity = in["gravity"].as<glm::vec3>();
+  if (in["tip_force"])
+    p.tip_force = in["tip_force"].as<glm::vec3>();
+  if (in["force_node"])
+    p.force_node = in["force_node"].as<int>();
+  if (in["anchor_offset"])
+    p.anchor_offset = in["anchor_offset"].as<glm::vec3>();
 }
 
 void SerializeDynamicStrandsDemo(YAML::Emitter&, const DynamicStrandsDemo&) {

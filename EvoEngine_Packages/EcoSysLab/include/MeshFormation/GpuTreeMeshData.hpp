@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include "BasicBarkDescriptor.hpp"
+#include "ShootModel.hpp"
 #include "TreeMeshGenerator.hpp"
 
 namespace eco_sys_lab_package {
@@ -40,7 +41,8 @@ struct GpuTreeInstanceIndices {
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                         const TreeMeshGeneratorSettings& settings, const BasicBarkDescriptor* bark, uint32_t tree_index,
-                        bool shoot, std::vector<GpuTreeNode>& output) {
+                        bool shoot, std::vector<GpuTreeNode>& output,
+                        const std::vector<ShootModel::PhysicsPose>* physics_pose = nullptr) {
   const auto& sorted = skeleton.PeekSortedNodeList();
   const uint32_t base = static_cast<uint32_t>(output.size());
   std::vector<uint32_t> packed_indices(skeleton.PeekRawNodes().size(), UINT32_MAX);
@@ -49,12 +51,15 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
   for (const auto handle : sorted) {
     const auto& node = skeleton.PeekNode(handle);
     const auto& info = node.info;
+    const auto* pose = physics_pose && handle < physics_pose->size() ? &(*physics_pose)[handle] : nullptr;
     const auto parent = node.GetParentHandle();
     const float thickness = (settings.override_radius ? settings.radius : info.thickness) * settings.radius_multiplier;
     GpuTreeNode packed{};
-    packed.position_thickness = glm::vec4(info.global_position, glm::max(0.0f, thickness));
-    packed.direction_length = glm::vec4(info.GetGlobalDirection(), glm::max(0.0f, info.length));
-    packed.radial_axis_distance = glm::vec4(info.regulated_global_rotation * glm::vec3(1, 0, 0), info.root_distance);
+    packed.position_thickness = glm::vec4(pose ? pose->position : info.global_position, glm::max(0.0f, thickness));
+    packed.direction_length = glm::vec4(pose ? pose->rotation * glm::vec3(0, 0, -1) : info.GetGlobalDirection(),
+                                        glm::max(0.0f, pose ? pose->length : info.length));
+    packed.radial_axis_distance = glm::vec4(
+        (pose ? pose->regulated_rotation : info.regulated_global_rotation) * glm::vec3(1, 0, 0), info.root_distance);
     packed.subdivisions = {
         glm::max(0.0001f, settings.x_subdivision),
         glm::max(0.0001f, info.thickness >= settings.trunk_thickness ? settings.trunk_y_subdivision
@@ -67,8 +72,8 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
     }
     packed.links = {parent < 0 ? UINT32_MAX : packed_indices[parent], tree_index, UINT32_MAX, UINT32_MAX};
     packed.foliage = {info.leaves, info.end_distance, info.thickness, 0.0f};
-    packed.foliage_rotation = {info.global_rotation.x, info.global_rotation.y, info.global_rotation.z,
-                               info.global_rotation.w};
+    const auto rotation = pose ? pose->rotation : info.global_rotation;
+    packed.foliage_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
     packed.foliage_meta = {static_cast<uint32_t>(handle), shoot ? 1u : 0u, 0u, 0u};
     output.emplace_back(packed);
   }

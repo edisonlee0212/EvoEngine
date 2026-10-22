@@ -12,6 +12,16 @@ using namespace evo_engine;
  * @brief Represents the procedural structure and behavior of a tree model.
  */
 class ShootModel : public PlantModel {
+ public:
+  struct PhysicsPose {
+    glm::vec3 position{};
+    glm::quat rotation{1, 0, 0, 0};
+    glm::quat regulated_rotation{1, 0, 0, 0};
+    float length = 0;
+  };
+
+ private:
+  std::vector<PhysicsPose> physics_pose_;
 #pragma region Tree Growth
   /**
    * @brief Prunes internodes that do not contribute positively to the tree's growth.
@@ -114,6 +124,7 @@ class ShootModel : public PlantModel {
   void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller);
 
   friend class Tree;
+  friend class DynamicTreeSkeleton;
 #pragma endregion
 
   ShootSkeleton shoot_skeleton_;             ///< The skeletal structure representing the shoot.
@@ -134,6 +145,10 @@ class ShootModel : public PlantModel {
   uint32_t fruit_count_ = 0;
 
  public:
+  [[nodiscard]] const std::vector<PhysicsPose>& PeekPhysicsPose() const {
+    return physics_pose_;
+  }
+  void ResetPhysicsPose();
   /**
    * @brief Initializes the tree model with the given shoot growth controller.
    * @param shoot_growth_controller The controller that regulates shoot growth.

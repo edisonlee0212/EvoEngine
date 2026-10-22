@@ -17,13 +17,6 @@ struct FungusTestInspector {
   bool Inspect(evo_engine::InspectorContext& context, FungusTest& target);
 };
 struct DynamicTreeSkeletonInspector {
-  struct Preview {
-    std::weak_ptr<evo_engine::IPrivateComponent> owner;
-    std::shared_ptr<evo_engine::ParticleInfoList> matrices;
-  };
-  std::weak_ptr<evo_engine::Scene> scene;
-  std::unordered_map<const DynamicTreeSkeleton*, Preview> previews;
-  PrivateComponentRef dynamic_tree_skeleton_tree_ref{};
   bool Inspect(evo_engine::InspectorContext& context, DynamicTreeSkeleton& target);
 };
 struct ClimateDescriptorInspector {

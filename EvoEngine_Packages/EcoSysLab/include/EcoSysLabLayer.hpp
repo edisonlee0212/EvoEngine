@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include "Climate.hpp"
-#include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "ILayer.hpp"
@@ -25,7 +24,6 @@ class EcoSysLabLayer : public ILayer {
   void ExportAllTrees(const std::filesystem::path& path) const;
   static std::weak_ptr<Climate> FindClimate();
   static std::weak_ptr<Soil> FindSoil();
-  void GenerateDynamicSkeletonForAllTrees() const;
   void GenerateDynamicStrandsForAllTrees() const;
   void GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const;
   void GenerateSkeletalGraphs(const SkeletalGraphSettings& target_skeletal_graph_settings) const;
@@ -50,13 +48,7 @@ class EcoSysLabLayer : public ILayer {
 
  private:
   friend class EcoSysLabEditorLayer;
-  friend struct DynamicTreeSkeletonInspector;
   void ClearGroundFruitAndLeaf();
-  void DynamicSkeletonPhysics() const;
-  struct DynamicSkeletonSettings {
-    bool enable_physics = true;
-    DynamicSkeleton::PhysicsParameters physics_parameters{};
-  };
   void DynamicStrandSimulation();
   struct DynamicStrandsSettings {
     FoliageRenderParameters foliage_render_parameters{};
@@ -92,11 +84,11 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<GpuTreeMeshRenderer> gpu_tree_mesh_renderer_;
   void RegisterTypes(Application& application) override;
   void Update() override;
+  void FixedUpdate() override;
   void UpdateDemoTreeGrowth();
   Entity demo_tree_entity_{};
   bool demo_tree_growth_finished_ = false;
   bool demo_tree_initialized_ = false;
-  DynamicSkeletonSettings dynamic_skeleton_settings_;
   DynamicStrandsSettings dynamic_strands_settings_;
   std::vector<Flower> flowers_;
   std::vector<Fruit> fruits_;

@@ -264,14 +264,6 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
       }
       ImGui::TreePop();
     }
-
-    if (ImGui::TreeNodeEx("Dynamic Skeleton settings")) {
-      if (ImGui::Button("Initialize dynamic skeleton for all trees")) {
-        runtime->GenerateDynamicSkeletonForAllTrees();
-      }
-      dynamic_skeleton_settings_.DrawGui(editor_layer);
-      ImGui::TreePop();
-    }
   }
   ImGui::End();
   runtime->enable_inspection = open;

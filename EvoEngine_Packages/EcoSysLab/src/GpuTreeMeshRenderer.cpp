@@ -4,6 +4,7 @@
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "FoliageRenderer.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Material.hpp"
@@ -221,14 +222,30 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       continue;
     const size_t base = nodes.size();
     const auto tree_index = static_cast<uint32_t>(handles.size());
+    const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
+                             ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
+                             : nullptr;
+    const auto* physics_pose =
+        physics && physics->IsEnabled() && physics->HasPhysics(*tree) ? &tree->shoot_model.PeekPhysicsPose() : nullptr;
     if (!shoots.PeekSortedNodeList().empty())
-      AppendGpuTreeNodes(shoots, settings, bark.get(), tree_index, true, nodes);
+      AppendGpuTreeNodes(shoots, settings, bark.get(), tree_index, true, nodes, physics_pose);
     if (tree_handles.has_branch && !roots.PeekSortedNodeList().empty())
       AppendGpuTreeNodes(roots, settings, bark.get(), tree_index, false, nodes);
     handles.push_back(tree_handles);
     const BasicFoliageDescriptor fallback_descriptor;
     const auto& foliage = foliage_descriptor ? *foliage_descriptor : fallback_descriptor;
-    const float tree_size = glm::length(shoots.max - shoots.min);
+    float tree_size = glm::length(shoots.max - shoots.min);
+    if (physics_pose && !shoots.PeekSortedNodeList().empty()) {
+      glm::vec3 minimum = glm::vec3(nodes[base].position_thickness);
+      glm::vec3 maximum = minimum;
+      for (size_t i = base; i < base + shoots.PeekSortedNodeList().size(); ++i) {
+        const glm::vec3 start = glm::vec3(nodes[i].position_thickness);
+        const glm::vec3 end = start + glm::vec3(nodes[i].direction_length) * nodes[i].direction_length.w;
+        minimum = glm::min(minimum, glm::min(start, end));
+        maximum = glm::max(maximum, glm::max(start, end));
+      }
+      tree_size = glm::length(maximum - minimum);
+    }
     GpuTreeFoliageParams params{};
     params.size_count = {foliage.leaf_size.x, foliage.leaf_size.y, tree_size, static_cast<float>(foliage.leaf_count)};
     params.filters = {foliage.max_node_thickness, foliage.min_root_distance, foliage.max_end_distance,

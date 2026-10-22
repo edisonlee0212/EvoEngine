@@ -130,16 +130,3 @@ void EcoSysLabLayer::RefreshMeshForAllDynamicStrands() const {
     }
   }
 }
-
-void EcoSysLabLayer::GenerateDynamicSkeletonForAllTrees() const {
-  const auto scene = GetScene();
-  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      tree_entities && !tree_entities->empty()) {
-    for (auto tree_entity : *tree_entities) {
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      const auto ds = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
-      ds->initialize_parameters.root_transform = scene->GetDataComponent<GlobalTransform>(tree_entity);
-      ds->dynamic_skeleton.Initialize(ds->initialize_parameters, tree->shoot_strand_model.strand_model_skeleton);
-    }
-  }
-}

@@ -11,6 +11,7 @@
 
 #include "Application.hpp"
 #include "Climate.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "Octree.hpp"
@@ -18,6 +19,16 @@
 #include "StrandModelProfileSerializer.hpp"
 
 using namespace eco_sys_lab_package;
+
+namespace {
+void ClearPhysics(Tree& tree) {
+  const auto scene = tree.GetScene();
+  if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner())) {
+    if (const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner()).lock())
+      physics->ResetPhysics(tree);
+  }
+}
+}  // namespace
 
 TreeStatistics Tree::GetTreeStatistics() const {
   TreeStatistics ret_val{};
@@ -27,6 +38,7 @@ TreeStatistics Tree::GetTreeStatistics() const {
 }
 
 void Tree::Reset() {
+  ClearPhysics(*this);
   ClearSkeletalGraph();
   ClearGeometryEntities();
   ClearStrandModelMeshRenderer();
@@ -35,6 +47,8 @@ void Tree::Reset() {
   shoot_model.Clear();
   root_model.Clear();
   shoot_strand_model = {};
+  root_biomass_history = std::vector<float>{};
+  shoot_biomass_history = std::vector<float>{};
   shoot_model.shoot_skeleton_.data.entity_index = root_model.root_skeleton_.data.entity_index = GetOwner().GetIndex();
   ++shoot_model_revision_.content;
   ++shoot_model_revision_.topology;
@@ -69,6 +83,7 @@ void Tree::OnCreate() {
 }
 
 void Tree::OnDestroy() {
+  ClearPhysics(*this);
   shoot_model = {};
   root_model = {};
   shoot_strand_model = {};
@@ -122,6 +137,11 @@ void Tree::BuildStrandModel() {
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                    const bool pruning) {
   const auto scene = GetScene();
+  if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(GetOwner())) {
+    const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(GetOwner()).lock();
+    if (physics && physics->HasPhysics(*this))
+      return false;
+  }
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 
   const auto climate_candidate = EcoSysLabLayer::FindClimate();
@@ -232,6 +252,7 @@ void eco_sys_lab_package::SerializeTree(YAML::Emitter& out, const Tree& target) 
 }
 
 void eco_sys_lab_package::DeserializeTree(const YAML::Node& in, Tree& target) {
+  ClearPhysics(target);
   ++target.shoot_model_revision_.content;
   ++target.shoot_model_revision_.topology;
   ++target.root_model_revision_.content;
