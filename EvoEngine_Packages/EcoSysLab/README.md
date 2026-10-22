@@ -68,6 +68,10 @@ and a force at an internode tip chosen by node handle. Reinitialize after changi
 To test an earthquake-like response, run physics and move or rotate the tree entity (or its parent) in the editor.
 The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
 physics is paused carries the current bend with it. Changing entity scale clears the simulation; initialize it again.
+The rod solver scales stretch stiffness with branch cross section and bend stiffness with its second moment of area,
+so thick branches resist shaking more than thin branches. The default simulated step matches the SDK fixed update
+(0.016 seconds), and damping reduces lingering oscillation. Existing saved components retain their settings; set stretch
+stiffness to 100000, bend stiffness to 5000, and damping to 2 to use the new tuning, then reinitialize physics.
 
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no

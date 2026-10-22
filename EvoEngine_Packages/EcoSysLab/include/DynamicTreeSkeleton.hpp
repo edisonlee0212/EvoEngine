@@ -7,13 +7,13 @@ using namespace evo_engine;
 class DynamicTreeSkeleton : public IPrivateComponent {
  public:
   struct PhysicsSettings {
-    float time_step = 1.0f / 120.0f;
+    float time_step = 0.016f;
     int substeps = 4;
     int iterations = 4;
-    float stretch_stiffness = 10000.0f;
-    float bend_stiffness = 50.0f;
+    float stretch_stiffness = 100000.0f;
+    float bend_stiffness = 5000.0f;
     float density = 750.0f;
-    float damping = 0.02f;
+    float damping = 2.0f;
     glm::vec3 gravity{0, -9.81f, 0};
     glm::vec3 tip_force{};
     SkeletonNodeHandle force_node = -1;
@@ -42,6 +42,8 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     int end = -1;
     SkeletonNodeHandle node = -1;
     float length = 0;
+    float area_scale = 1;
+    float bend_scale = 1;
     glm::quat rotation{1, 0, 0, 0};
     glm::quat rest_rotation{1, 0, 0, 0};
     glm::vec3 visual_offset{};
