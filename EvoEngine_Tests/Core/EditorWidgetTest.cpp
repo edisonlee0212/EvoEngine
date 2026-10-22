@@ -11,6 +11,7 @@
 #include "EditorLayer.hpp"
 #include "EditorTextureRegistry.hpp"
 #include "EditorTheme.hpp"
+#include "EditorWidgets.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "ImGuiLayer.hpp"
 #include "MeshRenderer.hpp"
@@ -293,6 +294,22 @@ class EditorWidgetTest : public testing::Test {
   }
 };
 }  // namespace
+
+TEST_F(EditorWidgetTest, ComboClampsInvalidSelectionAndIgnoresEmptyItems) {
+  Begin();
+  unsigned unsigned_selection = 3;
+  EXPECT_FALSE(ImGui::Combo("Unsigned", {"A", "B", "C"}, unsigned_selection));
+  EXPECT_EQ(unsigned_selection, 2u);
+  int signed_selection = 3;
+  EXPECT_FALSE(ImGui::Combo("Signed", {"A", "B", "C"}, signed_selection));
+  EXPECT_EQ(signed_selection, 2);
+  signed_selection = -1;
+  EXPECT_FALSE(ImGui::Combo("Signed low", {"A", "B", "C"}, signed_selection));
+  EXPECT_EQ(signed_selection, 0);
+  EXPECT_FALSE(ImGui::Combo("Empty", {}, unsigned_selection));
+  EXPECT_FALSE(ImGui::Combo("Empty signed", {}, signed_selection));
+  End();
+}
 
 TEST_F(EditorWidgetTest, StatusBarReservesSpaceWithBothTitleBarsAndNarrowWindows) {
   Application app;

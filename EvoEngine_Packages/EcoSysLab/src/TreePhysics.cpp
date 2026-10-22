@@ -14,7 +14,16 @@ bool Finite(const glm::vec3& value) {
 }  // namespace
 
 bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
+  const auto scene = tree.GetScene();
+  return InitializePhysics(tree, scene ? scene->GetDataComponent<GlobalTransform>(tree.GetOwner()) : GlobalTransform{});
+}
+
+bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& model) {
   ResetPhysics(tree);
+  previous_model_ = model.value;
+  initial_scale_ = model.GetScale();
+  initial_rotation_ = model.GetRotation();
+  previous_rotation_ = initial_rotation_;
   const auto& skeleton = tree.shoot_model.PeekShootSkeleton();
   const auto& sorted = skeleton.PeekSortedNodeList();
   if (sorted.empty())
@@ -29,14 +38,15 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
     int start = parent < 0 ? -1 : end_vertices[parent];
     if (start < 0) {
       start = static_cast<int>(physics_vertices_.size());
-      physics_vertices_.push_back({info.global_position, {}, 0, true});
+      physics_vertices_.push_back({glm::vec3(model.value * glm::vec4(info.global_position, 1.0f)), {}, 0, true});
     }
     if (info.length <= 1e-6f || !Finite(info.global_position)) {
       end_vertices[handle] = start;
       continue;
     }
-    const glm::vec3 end = physics_vertices_[start].position + info.GetGlobalDirection() * info.length;
-    if (!Finite(end)) {
+    const glm::vec3 end = physics_vertices_[start].position +
+                          glm::vec3(model.value * glm::vec4(info.GetGlobalDirection() * info.length, 0.0f));
+    if (!Finite(end) || glm::length2(end - physics_vertices_[start].position) < 1e-12f) {
       end_vertices[handle] = start;
       continue;
     }
@@ -47,15 +57,18 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
     rod.start = start;
     rod.end = finish;
     rod.node = handle;
-    rod.length = info.length;
-    rod.rotation = rod.rest_rotation = glm::normalize(info.global_rotation * axis_to_shoot);
+    rod.length = glm::length(end - physics_vertices_[start].position);
+    rod.rotation = rod.rest_rotation =
+        glm::normalize(glm::rotation(initial_rotation_ * info.GetGlobalDirection(),
+                                     glm::normalize(end - physics_vertices_[start].position)) *
+                       initial_rotation_ * info.global_rotation * axis_to_shoot);
     rod.visual_offset =
         parent < 0 ? glm::vec3{} : info.global_position - skeleton.PeekNode(parent).info.GetGlobalEndPosition();
     rod.pinned = parent < 0 || (physics_node_rods_[parent] < 0 && skeleton.PeekNode(parent).GetParentHandle() < 0);
     physics_node_rods_[handle] = static_cast<int>(physics_rods_.size());
     physics_rods_.push_back(rod);
     const float radius = glm::max(1e-4f, info.thickness);
-    const float mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * radius * radius * info.length);
+    const float mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * radius * radius * rod.length);
     physics_vertices_[start].inverse_mass += 0.5f * mass;
     physics_vertices_[finish].inverse_mass += 0.5f * mass;
   }
@@ -85,8 +98,9 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
     }
   }
   physics_rest_positions_.reserve(physics_vertices_.size());
+  const glm::mat4 inverse_initial_model = glm::inverse(previous_model_);
   for (auto& vertex : physics_vertices_) {
-    physics_rest_positions_.push_back(vertex.position);
+    physics_rest_positions_.push_back(glm::vec3(inverse_initial_model * glm::vec4(vertex.position, 1.0f)));
     if (vertex.pinned)
       vertex.inverse_mass = 0;
     else
@@ -97,24 +111,52 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
 }
 
 void DynamicTreeSkeleton::StepPhysics(Tree& tree) {
+  const auto scene = tree.GetScene();
+  StepPhysics(tree, scene ? scene->GetDataComponent<GlobalTransform>(tree.GetOwner()) : GlobalTransform{});
+}
+
+void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) {
   if (!HasPhysics(tree)) {
     if (!physics_rods_.empty())
       ResetPhysics(tree);
     return;
   }
-  if (!physics_running)
+  if (glm::any(glm::greaterThan(glm::abs(model.GetScale() - initial_scale_), glm::vec3(1e-4f)))) {
+    ResetPhysics(tree);
     return;
+  }
+  if (!physics_running) {
+    if (model.value == previous_model_)
+      return;
+    const glm::mat4 delta = model.value * glm::inverse(previous_model_);
+    const glm::quat motion_rotation = glm::normalize(model.GetRotation() * glm::inverse(previous_rotation_));
+    for (auto& vertex : physics_vertices_) {
+      vertex.position = glm::vec3(delta * glm::vec4(vertex.position, 1.0f));
+      vertex.velocity = motion_rotation * vertex.velocity;
+    }
+    for (auto& rod : physics_rods_)
+      rod.rotation = glm::normalize(motion_rotation * rod.rotation);
+    previous_model_ = model.value;
+    previous_rotation_ = model.GetRotation();
+    return;
+  }
   const int substeps = glm::clamp(physics_settings.substeps, 1, 64);
   const int iterations = glm::clamp(physics_settings.iterations, 1, 64);
   const float h = glm::clamp(physics_settings.time_step, 1e-5f, 0.1f) / substeps;
   const float stretch = glm::max(0.0f, physics_settings.stretch_stiffness);
   const float bend = glm::max(0.0f, physics_settings.bend_stiffness);
+  const glm::quat model_rotation = model.GetRotation();
   for (int step = 0; step < substeps; ++step) {
+    const float anchor_fraction = static_cast<float>(step + 1) / substeps;
+    const glm::quat anchor_rotation = glm::normalize(glm::slerp(previous_rotation_, model_rotation, anchor_fraction) *
+                                                     glm::inverse(initial_rotation_));
     for (int i = 0; i < physics_vertices_.size(); ++i) {
       auto& vertex = physics_vertices_[i];
       physics_previous_[i] = vertex.position;
       if (vertex.pinned) {
-        vertex.position = physics_rest_positions_[i] + physics_settings.anchor_offset;
+        const glm::vec4 rest_local(physics_rest_positions_[i] + physics_settings.anchor_offset, 1.0f);
+        vertex.position =
+            glm::mix(glm::vec3(previous_model_ * rest_local), glm::vec3(model.value * rest_local), anchor_fraction);
         vertex.velocity = {};
         physics_predicted_[i] = vertex.position;
         continue;
@@ -148,8 +190,10 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree) {
       }
       for (int i = 0; i < physics_rods_.size(); ++i) {
         auto& rod = physics_rods_[i];
-        if (rod.pinned)
+        if (rod.pinned) {
+          rod.rotation = glm::normalize(anchor_rotation * rod.rest_rotation);
           continue;
+        }
         const glm::vec3 displacement = physics_vertices_[rod.end].position - physics_vertices_[rod.start].position;
         if (glm::length2(displacement) < 1e-12f)
           continue;
@@ -185,8 +229,12 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree) {
       }
     }
   }
+  previous_model_ = model.value;
+  previous_rotation_ = model_rotation;
   const auto& skeleton = tree.shoot_model.PeekShootSkeleton();
   auto& pose = tree.shoot_model.physics_pose_;
+  const glm::mat4 inverse_model = glm::inverse(model.value);
+  const glm::quat inverse_rotation = glm::inverse(model_rotation);
   for (const auto handle : skeleton.PeekSortedNodeList()) {
     const auto& node = skeleton.PeekNode(handle);
     const auto& info = node.info;
@@ -200,9 +248,8 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree) {
       const glm::vec3 parent_end =
           pose[parent].position + pose[parent].rotation * glm::vec3(0, 0, -1) * pose[parent].length;
       current.position = parent_end + parent_delta * (info.global_position - parent_info.GetGlobalEndPosition());
-    } else {
+    } else
       current.position += physics_settings.anchor_offset;
-    }
     const int rod_index = physics_node_rods_[handle];
     if (rod_index < 0) {
       current.rotation = glm::normalize(parent_delta * current.rotation);
@@ -215,14 +262,16 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree) {
         glm::length2(displacement) > 1e-12f
             ? glm::normalize(glm::rotation(rod.rotation * rod_axis, glm::normalize(displacement)) * rod.rotation)
             : rod.rotation;
-    const glm::quat delta = glm::normalize(frame * glm::inverse(rod.rest_rotation));
+    const glm::quat local_frame = glm::normalize(inverse_rotation * frame);
+    const glm::quat delta = glm::normalize(local_frame * glm::inverse(info.global_rotation * axis_to_shoot));
     if (parent < 0)
-      current.position = physics_vertices_[rod.start].position;
+      current.position = glm::vec3(inverse_model * glm::vec4(physics_vertices_[rod.start].position, 1.0f));
     else
       current.position = pose[parent].position + pose[parent].rotation * glm::vec3(0, 0, -1) * pose[parent].length +
                          parent_delta * rod.visual_offset;
-    current.rotation = glm::normalize(frame * glm::inverse(axis_to_shoot));
+    current.rotation = glm::normalize(local_frame * glm::inverse(axis_to_shoot));
     current.regulated_rotation = glm::normalize(delta * info.regulated_global_rotation);
-    current.length = glm::length(physics_vertices_[rod.end].position - physics_vertices_[rod.start].position);
+    current.length = glm::length(glm::vec3(
+        inverse_model * glm::vec4(physics_vertices_[rod.end].position - physics_vertices_[rod.start].position, 0.0f)));
   }
 }

@@ -4,12 +4,42 @@
 
 #include "ForestDescriptor.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
+#include "BasicBarkDescriptor.hpp"
+#include "BasicFoliageDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "FoliageRenderer.hpp"
+#include "Material.hpp"
 #include "Platform.hpp"
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
+
+namespace {
+void AddTreeRenderers(const std::shared_ptr<Scene>& scene, const Entity entity,
+                      const std::shared_ptr<TreeDescriptor>& descriptor, std::shared_ptr<Material>& fallback_material) {
+  const auto branch = scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock();
+  const auto foliage = scene->GetOrSetPrivateComponent<FoliageRenderer>(entity).lock();
+  if (descriptor) {
+    if (const auto bark = descriptor->bark_descriptor.Get<BasicBarkDescriptor>())
+      branch->material_ref = bark->bark_material_ref;
+    if (const auto leaves = descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>())
+      foliage->material_ref = leaves->leaf_material_ref;
+  }
+  if (!branch->material_ref.Get<Material>()) {
+    if (!fallback_material) {
+      fallback_material = AssetManager::CreateTemporaryAsset<Material>();
+      auto& shade = fallback_material->material_data.shade_material;
+      shade.pbr_base_color_factor = {109.0f / 255.0f, 79.0f / 255.0f, 75.0f / 255.0f, 1.0f};
+      shade.pbr_roughness_factor = 1.0f;
+      fallback_material->MarkDirty();
+    }
+    branch->material_ref = fallback_material;
+  }
+}
+}  // namespace
 
 Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setSimulationSettings) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
@@ -34,6 +64,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
   scene->SetParent(boundary, retVal);
 
   int index = 0;
+  std::shared_ptr<Material> fallback_material;
 
   const auto offset = glm::linearRand(glm::vec3(-10000), glm::vec3(10000));
   for (int i = 0; i < gridSize.x; i++) {
@@ -60,6 +91,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
       tree->shoot_model.tree_growth_settings = tree_growth_settings;
       tree->tree_descriptor_ref = tree_descriptor.Get<TreeDescriptor>();
+      AddTreeRenderers(scene, treeEntity, tree->tree_descriptor_ref.Get<TreeDescriptor>(), fallback_material);
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
         tree->generate_mesh = false;
@@ -104,6 +136,7 @@ Entity ForestPatch::InstantiatePatch(
   scene->SetParent(boundary, retVal);
 
   int index = 0;
+  std::shared_ptr<Material> fallback_material;
 
   const auto offset = glm::linearRand(glm::vec3(-10000), glm::vec3(10000));
   for (int i = 0; i < gridSize.x; i++) {
@@ -132,6 +165,7 @@ Entity ForestPatch::InstantiatePatch(
       const auto candidateIndex = glm::linearRand(0, static_cast<int>(candidates.size() - 1));
       tree->shoot_model.tree_growth_settings = candidates.at(candidateIndex).first;
       tree->tree_descriptor_ref = candidates.at(candidateIndex).second;  // tree_descriptor_ref.Get<TreeDescriptor>();
+      AddTreeRenderers(scene, treeEntity, candidates.at(candidateIndex).second, fallback_material);
       if (i == 0 || j == 0 || i == gridSize.x - 1 || j == gridSize.y - 1) {
         scene->SetParent(treeEntity, boundary);
         tree->generate_mesh = false;
@@ -337,6 +371,7 @@ Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed)
     parent = scene->CreateEntity("Forest (" + std::to_string(tree_infos.size()) + ") - " + GetTitle());
   }
   int i = 0;
+  std::shared_ptr<Material> fallback_material;
   for (const auto& gt : tree_infos) {
     auto tree_entity = scene->CreateEntity("Tree No." + std::to_string(i));
     i++;
@@ -344,6 +379,7 @@ Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed)
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     tree->shoot_model.tree_growth_settings = tree_growth_settings;
     tree->tree_descriptor_ref = gt.tree_descriptor;
+    AddTreeRenderers(scene, tree_entity, tree->tree_descriptor_ref.Get<TreeDescriptor>(), fallback_material);
     tree->shoot_model.seed = seed * tree_infos.size();
     if (set_parent)
       scene->SetParent(tree_entity, parent);

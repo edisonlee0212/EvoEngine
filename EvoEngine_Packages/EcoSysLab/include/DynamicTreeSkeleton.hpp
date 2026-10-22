@@ -22,8 +22,10 @@ class DynamicTreeSkeleton : public IPrivateComponent {
 
   bool physics_running = false;
   bool InitializePhysics(Tree& tree);
+  bool InitializePhysics(Tree& tree, const GlobalTransform& model);
   void ResetPhysics(Tree& tree);
   void StepPhysics(Tree& tree);
+  void StepPhysics(Tree& tree, const GlobalTransform& model);
   [[nodiscard]] bool HasPhysics(const Tree& tree) const {
     return !physics_rods_.empty() && model_revision_ == tree.GetShootModelRevision().content;
   }
@@ -59,6 +61,10 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   std::vector<std::vector<int>> physics_vertex_rods_;
   std::vector<std::vector<int>> physics_rod_angles_;
   std::vector<glm::vec3> physics_rest_positions_;
+  glm::mat4 previous_model_{1.0f};
+  glm::vec3 initial_scale_{1.0f};
+  glm::quat initial_rotation_{1, 0, 0, 0};
+  glm::quat previous_rotation_{1, 0, 0, 0};
   uint64_t model_revision_ = 0;
 };
 }  // namespace eco_sys_lab_package

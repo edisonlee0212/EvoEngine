@@ -44,6 +44,10 @@ takes priority over the foliage descriptor material. With neither assigned, EcoS
 subsurface material. Opaque and alpha-masked foliage materials are supported. Each renderer component can be enabled
 independently; a disabled entity, Tree, or renderer component produces no procedural draw.
 
+Trees instantiated by **ForestPatch** or **ForestDescriptor** receive both renderer components automatically. Their
+branch and foliage materials come from the tree's bark and foliage descriptors when available. Trees without a bark
+material share an opaque brown branch material within each instantiated patch.
+
 The procedural modes need mesh shader support. BranchRenderer requires an opaque branch material. On unsupported
 devices these components produce no procedural draw. CPU geometry is generated only when explicitly requested, and
 its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer repacks and uploads the compact
@@ -60,6 +64,10 @@ After tree growth finishes, select the `DynamicTreeSkeleton` component on the sa
 **Pause physics** holds the current bend, and **Clear physics** restores the growth pose. The inspector exposes simulated
 time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, an anchor offset,
 and a force at an internode tip chosen by node handle. Reinitialize after changing density.
+
+To test an earthquake-like response, run physics and move or rotate the tree entity (or its parent) in the editor.
+The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
+physics is paused carries the current bend with it. Changing entity scale clears the simulation; initialize it again.
 
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no

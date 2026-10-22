@@ -158,6 +158,74 @@ TEST(TreePhysics, LateralVisualOffsetFollowsBentJunction) {
   EXPECT_NEAR(glm::length(pose[2].position - junction), 0.05f, 1e-3f);
 }
 
+TEST(TreePhysics, EntityMotionShakesForkWithoutMovingLocalRoot) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  DynamicTreeSkeleton physics;
+  tree.shoot_model.Initialize(MakeFork());
+  evo_engine::GlobalTransform model;
+  model.SetValue({3, 0, 1}, glm::quat(glm::vec3(0, 0.3f, 0)), {1, 1, 1});
+  ASSERT_TRUE(physics.InitializePhysics(tree, model));
+  const auto rest = tree.shoot_model.PeekPhysicsPose();
+  physics.physics_settings.gravity = {};
+  physics.physics_running = true;
+  float maximum_tip_offset = 0;
+  float maximum_trunk_offset = 0;
+  float maximum_sibling_offset = 0;
+  for (int i = 0; i < 90; ++i) {
+    const float phase = 6.2831853f * i / 30.0f;
+    model.SetValue({3 + 0.2f * std::sin(phase), 0, 1}, glm::quat(glm::vec3(0, 0.3f, 0)), {1, 1, 1});
+    physics.StepPhysics(tree, model);
+    const auto& pose = tree.shoot_model.PeekPhysicsPose();
+    ASSERT_TRUE(physics.HasPhysics(tree));
+    for (const auto& node : pose)
+      ASSERT_TRUE(FinitePose(node));
+    EXPECT_NEAR(glm::length(pose[0].position - rest[0].position), 0.0f, 1e-4f);
+    const auto junction = pose[0].position + pose[0].rotation * glm::vec3(0, 0, -1) * pose[0].length;
+    EXPECT_NEAR(glm::length(pose[1].position - junction), 0.0f, 1e-3f);
+    EXPECT_NEAR(glm::length(pose[2].position - junction), 0.0f, 1e-3f);
+    const auto tip = pose[1].position + pose[1].rotation * glm::vec3(0, 0, -1) * pose[1].length;
+    const auto rest_tip = rest[1].position + rest[1].rotation * glm::vec3(0, 0, -1) * rest[1].length;
+    maximum_tip_offset = glm::max(maximum_tip_offset, glm::length(tip - rest_tip));
+    const auto rest_junction = rest[0].position + rest[0].rotation * glm::vec3(0, 0, -1) * rest[0].length;
+    maximum_trunk_offset = glm::max(maximum_trunk_offset, glm::length(junction - rest_junction));
+    const auto sibling_tip = pose[2].position + pose[2].rotation * glm::vec3(0, 0, -1) * pose[2].length;
+    const auto rest_sibling_tip = rest[2].position + rest[2].rotation * glm::vec3(0, 0, -1) * rest[2].length;
+    maximum_sibling_offset = glm::max(maximum_sibling_offset, glm::length(sibling_tip - rest_sibling_tip));
+  }
+  EXPECT_GT(maximum_tip_offset, 0.005f);
+  EXPECT_GT(maximum_trunk_offset, 0.001f);
+  EXPECT_GT(maximum_sibling_offset, 0.001f);
+
+  model.SetValue({3, 0, 1}, glm::quat(glm::vec3(0, 0.3f, 0)), {1, 1, 1});
+  ASSERT_TRUE(physics.InitializePhysics(tree, model));
+  physics.physics_running = true;
+  float maximum_rotation_offset = 0;
+  for (int i = 0; i < 60; ++i) {
+    const float phase = 6.2831853f * i / 30.0f;
+    model.SetValue({3, 0, 1}, glm::quat(glm::vec3(0, 0.3f + 0.15f * std::sin(phase), 0)), {1, 1, 1});
+    physics.StepPhysics(tree, model);
+    const auto& pose = tree.shoot_model.PeekPhysicsPose();
+    const auto tip = pose[1].position + pose[1].rotation * glm::vec3(0, 0, -1) * pose[1].length;
+    const auto rest_tip = rest[1].position + rest[1].rotation * glm::vec3(0, 0, -1) * rest[1].length;
+    maximum_rotation_offset = glm::max(maximum_rotation_offset, glm::length(tip - rest_tip));
+  }
+  EXPECT_GT(maximum_rotation_offset, 0.001f);
+
+  physics.physics_running = false;
+  const auto paused = tree.shoot_model.PeekPhysicsPose();
+  model.SetValue({5, 0, 1}, glm::quat(glm::vec3(0, 0.7f, 0)), {1, 1, 1});
+  physics.StepPhysics(tree, model);
+  EXPECT_NEAR(glm::length(tree.shoot_model.PeekPhysicsPose()[1].position - paused[1].position), 0.0f, 1e-6f);
+  physics.physics_running = true;
+  physics.StepPhysics(tree, model);
+  EXPECT_TRUE(physics.HasPhysics(tree));
+  model.SetScale({2, 2, 2});
+  physics.StepPhysics(tree, model);
+  EXPECT_FALSE(physics.HasPhysics(tree));
+}
+
 TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DynamicTreeSkeleton source;
   source.physics_settings.time_step = 0.01f;
