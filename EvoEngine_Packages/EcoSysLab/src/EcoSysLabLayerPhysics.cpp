@@ -99,27 +99,6 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
   }
 }
 
-void EcoSysLabLayer::DynamicSkeletonPhysics() const {
-  const auto scene = GetScene();
-  const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>();
-  const auto for_each_dts_entity =
-      [&](const std::function<void(const std::shared_ptr<DynamicTreeSkeleton>& dts)>& action) {
-        if (dts_entities && !dts_entities->empty()) {
-          for (const auto& i : *dts_entities) {
-            const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(i).lock();
-            action(dts);
-          }
-        }
-      };
-  if (dynamic_skeleton_settings_.enable_physics) {
-    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeSkeleton>& dts) {
-      if (dts->simulate) {
-        dts->PhysicsStep(dynamic_skeleton_settings_.physics_parameters);
-      }
-    });
-  }
-}
-
 void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();

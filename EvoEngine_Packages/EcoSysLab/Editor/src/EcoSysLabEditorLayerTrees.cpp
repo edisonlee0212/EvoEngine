@@ -12,10 +12,12 @@
 #include "BasicPruningDescriptor.hpp"
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "ClassRegistry.hpp"
 #include "Climate.hpp"
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
@@ -148,7 +150,9 @@ void EcoSysLabEditorLayer::TreeVisualization(const std::shared_ptr<EditorLayer>&
                   pruning_internode.data.buds.clear();
                   shoot_visualizer.checkpoint_iteration = shoot_model.CurrentIteration();
                   shoot_visualizer.need_update = true;
-                  if (auto_generate_mesh_after_editing_) {
+                  if (auto_generate_mesh_after_editing_ &&
+                      !scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner()) &&
+                      !scene->HasPrivateComponent<FoliageRenderer>(tree->GetOwner())) {
                     tree->GenerateGeometryEntities(runtime->mesh_generator_settings, -1);
                   }
                   if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
@@ -167,7 +171,9 @@ void EcoSysLabEditorLayer::TreeVisualization(const std::shared_ptr<EditorLayer>&
                   shoot_visualizer.selected_node_handle = -1;
                   shoot_visualizer.checkpoint_iteration = shoot_model.CurrentIteration();
                   shoot_visualizer.need_update = true;
-                  if (auto_generate_mesh_after_editing_) {
+                  if (auto_generate_mesh_after_editing_ &&
+                      !scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner()) &&
+                      !scene->HasPrivateComponent<FoliageRenderer>(tree->GetOwner())) {
                     tree->GenerateGeometryEntities(runtime->mesh_generator_settings, -1);
                   }
                   if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
@@ -257,7 +263,9 @@ void EcoSysLabEditorLayer::TreeVisualization(const std::shared_ptr<EditorLayer>&
                   shoot_visualizer.selected_node_handle = -1;
                   shoot_visualizer.checkpoint_iteration = shoot_model.CurrentIteration();
                   shoot_visualizer.need_update = true;
-                  if (auto_generate_mesh_after_editing_) {
+                  if (auto_generate_mesh_after_editing_ &&
+                      !scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner()) &&
+                      !scene->HasPrivateComponent<FoliageRenderer>(tree->GetOwner())) {
                     tree->GenerateGeometryEntities(runtime->mesh_generator_settings, -1);
                   }
                   if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
@@ -390,7 +398,8 @@ void EcoSysLabEditorLayer::TreeVisualization(const std::shared_ptr<EditorLayer>&
 
         if (EditorLayer::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Release &&
             may_need_geometry_generation) {
-          if (auto_generate_mesh_after_editing_) {
+          if (auto_generate_mesh_after_editing_ && !scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner()) &&
+              !scene->HasPrivateComponent<FoliageRenderer>(tree->GetOwner())) {
             tree->GenerateGeometryEntities(runtime->mesh_generator_settings, -1);
           }
           if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {

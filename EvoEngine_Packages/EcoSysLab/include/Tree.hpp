@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "BasicPruningDescriptor.hpp"
+#include "PrivateComponentRef.hpp"
 #include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloud.hpp"
@@ -12,6 +13,7 @@
 #include "Soil.hpp"
 #include "StrandModel.hpp"
 #include "StrandModelMeshGenerator.hpp"
+#include "Strands.hpp"
 #include "TreeControllers.hpp"
 #include "TreeDescriptor.hpp"
 #include "TreeIOTree.hpp"
@@ -80,10 +82,10 @@ class Tree : public IPrivateComponent {
  public:
   StrandModelParameters strand_model_parameters{};  ///< Parameters defining strand-based growth modeling.
 
-  bool split_root_test = true;         ///< Flag to enable or disable root split testing.
-  bool record_biomass_history = true;  ///< Flag to enable or disable biomass history recording.
-  float left_side_biomass;             ///< Recorded biomass for the left section of the tree.
-  float right_side_biomass;            ///< Recorded biomass for the right section of the tree.
+  bool split_root_test = true;          ///< Flag to enable or disable root split testing.
+  bool record_biomass_history = false;  ///< Flag to enable or disable biomass history recording.
+  float left_side_biomass;              ///< Recorded biomass for the left section of the tree.
+  float right_side_biomass;             ///< Recorded biomass for the right section of the tree.
 
   TreeMeshGeneratorSettings tree_mesh_generator_settings{};  ///< Mesh generation settings for the tree.
   StrandModelMeshGeneratorSettings

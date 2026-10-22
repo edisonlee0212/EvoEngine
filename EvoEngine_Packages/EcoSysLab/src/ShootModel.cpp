@@ -950,6 +950,7 @@ void ShootModel::CalculateSaggingStress(const SkeletonNodeHandle internode_handl
 }
 
 void ShootModel::Clear() {
+  physics_pose_.clear();
   shoot_skeleton_ = {};
   shoot_history_ = {};
   initialized_ = false;
@@ -964,6 +965,14 @@ void ShootModel::Clear() {
   flower_count_ = 0;
   fruit_count_ = 0;
   iteration_ = 0;
+}
+
+void ShootModel::ResetPhysicsPose() {
+  physics_pose_.assign(shoot_skeleton_.PeekRawNodes().size(), {});
+  for (const auto handle : shoot_skeleton_.PeekSortedNodeList()) {
+    const auto& info = shoot_skeleton_.PeekNode(handle).info;
+    physics_pose_[handle] = {info.global_position, info.global_rotation, info.regulated_global_rotation, info.length};
+  }
 }
 
 int ShootModel::GetLeafCount() const {
@@ -1247,6 +1256,7 @@ void ShootModel::Save(const std::string& name, YAML::Emitter& out) const {
 }
 
 void ShootModel::Load(const std::string& name, const YAML::Node& in) {
+  physics_pose_.clear();
   if (in[name]) {
     if (const auto& in_tree_model = in[name]) {
       const auto& in_shoot_skeleton = in_tree_model["shoot_skeleton"];
@@ -1445,4 +1455,5 @@ void ShootModel::Load(const std::string& name, const YAML::Node& in) {
       initialized_ = true;
     }
   }
+  ResetPhysicsPose();
 }

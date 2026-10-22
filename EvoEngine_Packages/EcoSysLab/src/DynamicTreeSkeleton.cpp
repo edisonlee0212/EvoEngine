@@ -2,24 +2,17 @@
 
 using namespace eco_sys_lab_package;
 
-void DynamicTreeSkeleton::PhysicsStep(const DynamicSkeleton::PhysicsParameters& physics_parameters) {
-  if (const auto& sorted_node_list = dynamic_skeleton.dts_skeleton.PeekSortedNodeList(); !sorted_node_list.empty()) {
-    const auto scene = GetScene();
-    const auto owner = GetOwner();
-    const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner);
-    auto& root_node = dynamic_skeleton.dts_skeleton.RefNode(sorted_node_list.front());
-    root_node.data.particle0.x = root_node.data.particle0.last_x = global_transform.GetPosition();
-    root_node.data.particle1.x = root_node.data.particle1.last_x = global_transform.TransformPoint(
-        root_node.data.particle1.x0 - initialize_parameters.root_transform.GetPosition());
-    root_node.data.q = root_node.data.last_q = global_transform.GetRotation() *
-                                               glm::inverse(initialize_parameters.root_transform.GetRotation()) *
-                                               root_node.data.q0;
-    root_node.data.inv_mass = 0.f;
-    dynamic_skeleton.Physics(
-        physics_parameters,
-        []() {
-        },
-        []() {
-        });
-  }
+void DynamicTreeSkeleton::ResetPhysics(Tree& tree) {
+  physics_running = false;
+  model_revision_ = 0;
+  decltype(physics_vertices_){}.swap(physics_vertices_);
+  decltype(physics_rods_){}.swap(physics_rods_);
+  decltype(physics_angles_){}.swap(physics_angles_);
+  decltype(physics_node_rods_){}.swap(physics_node_rods_);
+  decltype(physics_predicted_){}.swap(physics_predicted_);
+  decltype(physics_previous_){}.swap(physics_previous_);
+  decltype(physics_vertex_rods_){}.swap(physics_vertex_rods_);
+  decltype(physics_rod_angles_){}.swap(physics_rod_angles_);
+  decltype(physics_rest_positions_){}.swap(physics_rest_positions_);
+  tree.shoot_model.ResetPhysicsPose();
 }

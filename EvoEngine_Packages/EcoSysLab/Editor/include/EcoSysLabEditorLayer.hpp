@@ -7,7 +7,6 @@ namespace eco_sys_lab_package {
 class EcoSysLabEditorLayer : public evo_engine::ILayer {
   friend class ShootVisualizer;
   friend class RootVisualizer;
-  friend struct DynamicTreeSkeletonInspector;
   struct Entry {
     std::weak_ptr<evo_engine::IPrivateComponent> owner;
     std::unique_ptr<TreeEditorState> state;
@@ -107,6 +106,7 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   TreeVisualizationSettings tree_visualization_settings_;
   std::shared_ptr<ParticleInfoList> vector_matrices_;
   std::shared_ptr<Camera> visualization_camera_;
+  bool gpu_tree_mesh_was_enabled_ = false;
   bool visualization_camera_window_focused_ = false;
   struct DynamicStrandsSettings {
     DynamicStrandsVisualizationParameters visualization_parameters{};
@@ -122,13 +122,7 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
     bool cut_bend_twist_bundle_only = false;
     bool enable_visualization = true;
   };
-  struct DynamicSkeletonSettings {
-    bool enable_visualization = true;
-    DynamicSkeleton::VisualizationParameters visualization_parameters{};
-    void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
-  };
   DynamicStrandsSettings dynamic_strands_settings_;
-  DynamicSkeletonSettings dynamic_skeleton_settings_;
   EditorCameraFreeFlyState visualization_camera_free_fly_state_;
   uint64_t simulation_revision_ = 0;
   uint64_t reset_revision_ = 0;

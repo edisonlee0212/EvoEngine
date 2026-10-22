@@ -481,11 +481,16 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
     if (rings.empty()) {
       continue;
     }
+    auto meshed_parent_handle = parent_internode_handle;
+    while (meshed_parent_handle != -1 &&
+           vertex_last_ring_start_vertex_index.find(meshed_parent_handle) == vertex_last_ring_start_vertex_index.end())
+      meshed_parent_handle = skeleton.PeekNode(meshed_parent_handle).GetParentHandle();
+    need_stitching &= meshed_parent_handle != -1;
     // For stitching
     const int step = steps[internode_handle];
     int p_step = step;
     if (need_stitching) {
-      p_step = steps[parent_internode_handle];
+      p_step = steps[meshed_parent_handle];
     }
     float angle_step = 360.0f / static_cast<float>(step);
     float p_angle_step = 360.0f / static_cast<float>(p_step);
@@ -495,26 +500,20 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
     archetype.vertex_info2 = flow_handle + 1;
 
     if (!need_stitching) {
-      int parent_last_ring_start_vertex_index =
-          parent_internode_handle == -1 ? -1 : vertex_last_ring_start_vertex_index[parent_internode_handle];
       for (int p = 0; p < p_step; p++) {
-        if (parent_internode_handle != -1)
-          vertices.push_back(vertices.at(parent_last_ring_start_vertex_index + p));
-        else {
-          float x_factor = static_cast<float>(p) / p_step;
-          const auto& ring = rings.at(0);
-          float y_factor = ring.start_distance_to_root;
-          auto direction = ring.GetDirection(parent_up, p_angle_step * p, true);
-          archetype.position = ring.start_position + direction * ring.start_radius;
-          vertex_position_modifier(archetype.position, direction * ring.start_radius, x_factor, y_factor);
-          assert(!glm::any(glm::isnan(archetype.position)));
-          archetype.tex_coord = glm::vec2(x_factor, y_factor);
-          tex_coords_modifier(archetype.tex_coord, x_factor, y_factor);
-          if (settings.vertex_color_mode ==
-              static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor))
-            archetype.color = internode_info.color;
-          vertices.push_back(archetype);
-        }
+        float x_factor = static_cast<float>(p) / p_step;
+        const auto& ring = rings.at(0);
+        float y_factor = ring.start_distance_to_root;
+        auto direction = ring.GetDirection(parent_up, p_angle_step * p, true);
+        archetype.position = ring.start_position + direction * ring.start_radius;
+        vertex_position_modifier(archetype.position, direction * ring.start_radius, x_factor, y_factor);
+        assert(!glm::any(glm::isnan(archetype.position)));
+        archetype.tex_coord = glm::vec2(x_factor, y_factor);
+        tex_coords_modifier(archetype.tex_coord, x_factor, y_factor);
+        if (settings.vertex_color_mode ==
+            static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor))
+          archetype.color = internode_info.color;
+        vertices.push_back(archetype);
       }
     }
     std::vector<float> angles;
@@ -575,7 +574,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::Generate(
       }
       if (ring_index == 0) {
         if (need_stitching) {
-          int parent_last_ring_start_vertex_index = vertex_last_ring_start_vertex_index[parent_internode_handle];
+          int parent_last_ring_start_vertex_index = vertex_last_ring_start_vertex_index[meshed_parent_handle];
           for (int p = 0; p < p_step; p++) {
             if (p_target[p] == p_target[p == p_step - 1 ? 0 : p + 1]) {
               auto a = parent_last_ring_start_vertex_index + p;
@@ -858,15 +857,22 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
         }
       }
     }
+    if (internode_info.length == 0.0f)
+      continue;
     auto& rings = rings_list[internode_index];
     if (rings.empty()) {
       continue;
     }
+    auto meshed_parent_handle = parent_internode_handle;
+    while (meshed_parent_handle != -1 &&
+           vertex_last_ring_start_vertex_index.find(meshed_parent_handle) == vertex_last_ring_start_vertex_index.end())
+      meshed_parent_handle = skeleton.PeekNode(meshed_parent_handle).GetParentHandle();
+    need_stitching &= meshed_parent_handle != -1;
     // For stitching
     const int step = steps[internode_handle];
     int p_step = step;
     if (need_stitching) {
-      p_step = steps[parent_internode_handle];
+      p_step = steps[meshed_parent_handle];
     }
     float angle_step = 360.0f / static_cast<float>(step);
     float p_angle_step = 360.0f / static_cast<float>(p_step);
@@ -876,26 +882,20 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
     archetype.vertex_info1 = internode_handle + 1;
     archetype.vertex_info2 = flow_handle + 1;
     if (!need_stitching) {
-      int parent_last_ring_start_vertex_index =
-          has_parent ? vertex_last_ring_start_vertex_index[parent_internode_handle] : -1;
       for (int p = 0; p < p_step; p++) {
-        if (has_parent) {
-          vertices.push_back(vertices.at(parent_last_ring_start_vertex_index + p));
-        } else {
-          float x_factor = static_cast<float>(glm::min(p, p_step - p)) / p_step;
-          const auto& ring = rings.at(0);
-          float y_factor = ring.start_distance_to_root;
-          auto direction = ring.GetDirection(parent_up, p_angle_step * p, true);
-          archetype.position = ring.start_position + direction * ring.start_radius;
-          vertex_position_modifier(archetype.position, direction * ring.start_radius, x_factor, y_factor);
-          assert(!glm::any(glm::isnan(archetype.position)));
-          archetype.tex_coord = glm::vec2(x_factor, y_factor);
-          tex_coords_modifier(archetype.tex_coord, x_factor, y_factor);
-          if (settings.vertex_color_mode ==
-              static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor))
-            archetype.color = internode_info.color;
-          vertices.push_back(archetype);
-        }
+        float x_factor = static_cast<float>(glm::min(p, p_step - p)) / p_step;
+        const auto& ring = rings.at(0);
+        float y_factor = ring.start_distance_to_root;
+        auto direction = ring.GetDirection(parent_up, p_angle_step * p, true);
+        archetype.position = ring.start_position + direction * ring.start_radius;
+        vertex_position_modifier(archetype.position, direction * ring.start_radius, x_factor, y_factor);
+        assert(!glm::any(glm::isnan(archetype.position)));
+        archetype.tex_coord = glm::vec2(x_factor, y_factor);
+        tex_coords_modifier(archetype.tex_coord, x_factor, y_factor);
+        if (settings.vertex_color_mode ==
+            static_cast<unsigned>(TreeMeshGeneratorSettings::VertexColorMode::InternodeColor))
+          archetype.color = internode_info.color;
+        vertices.push_back(archetype);
       }
     }
     std::vector<float> angles;
@@ -956,7 +956,7 @@ void CylindricalMeshGenerator<SkeletonData, FlowData, NodeData>::GeneratePartial
       }
       if (ring_index == 0) {
         if (need_stitching) {
-          int parent_last_ring_start_vertex_index = vertex_last_ring_start_vertex_index[parent_internode_handle];
+          int parent_last_ring_start_vertex_index = vertex_last_ring_start_vertex_index[meshed_parent_handle];
           for (int p = 0; p < p_step; p++) {
             if (p_target[p] == p_target[p == p_step - 1 ? 0 : p + 1]) {
               auto a = parent_last_ring_start_vertex_index + p;

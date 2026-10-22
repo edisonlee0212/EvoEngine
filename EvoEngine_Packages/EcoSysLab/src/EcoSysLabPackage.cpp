@@ -8,6 +8,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
@@ -19,6 +20,7 @@
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "FungusTest.hpp"
 #include "HeightField.hpp"
@@ -42,16 +44,67 @@ using namespace eco_sys_lab_package;
 using namespace evo_engine;
 
 namespace eco_sys_lab_package {
+void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target) {
+  target.material_ref.Save("material_ref", out);
+}
+
+void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target) {
+  target.material_ref.Load("material_ref", in);
+}
+
+void SerializeFoliageRenderer(YAML::Emitter& out, const FoliageRenderer& target) {
+  target.material_ref.Save("material_ref", out);
+}
+
+void DeserializeFoliageRenderer(const YAML::Node& in, FoliageRenderer& target) {
+  target.material_ref.Load("material_ref", in);
+}
+
 void SerializeSpatialPlantDistributionSimulator(YAML::Emitter&, const SpatialPlantDistributionSimulator&) {
 }
 
 void DeserializeSpatialPlantDistributionSimulator(const YAML::Node&, SpatialPlantDistributionSimulator&) {
 }
 
-void SerializeDynamicTreeSkeleton(YAML::Emitter&, const DynamicTreeSkeleton&) {
+void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton& target) {
+  const auto& p = target.physics_settings;
+  out << YAML::Key << "time_step" << YAML::Value << p.time_step;
+  out << YAML::Key << "substeps" << YAML::Value << p.substeps;
+  out << YAML::Key << "iterations" << YAML::Value << p.iterations;
+  out << YAML::Key << "stretch_stiffness" << YAML::Value << p.stretch_stiffness;
+  out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
+  out << YAML::Key << "density" << YAML::Value << p.density;
+  out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "gravity" << YAML::Value << p.gravity;
+  out << YAML::Key << "tip_force" << YAML::Value << p.tip_force;
+  out << YAML::Key << "force_node" << YAML::Value << p.force_node;
+  out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
 }
 
-void DeserializeDynamicTreeSkeleton(const YAML::Node&, DynamicTreeSkeleton&) {
+void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
+  auto& p = target.physics_settings;
+  if (in["time_step"])
+    p.time_step = in["time_step"].as<float>();
+  if (in["substeps"])
+    p.substeps = in["substeps"].as<int>();
+  if (in["iterations"])
+    p.iterations = in["iterations"].as<int>();
+  if (in["stretch_stiffness"])
+    p.stretch_stiffness = in["stretch_stiffness"].as<float>();
+  if (in["bend_stiffness"])
+    p.bend_stiffness = in["bend_stiffness"].as<float>();
+  if (in["density"])
+    p.density = in["density"].as<float>();
+  if (in["damping"])
+    p.damping = in["damping"].as<float>();
+  if (in["gravity"])
+    p.gravity = in["gravity"].as<glm::vec3>();
+  if (in["tip_force"])
+    p.tip_force = in["tip_force"].as<glm::vec3>();
+  if (in["force_node"])
+    p.force_node = in["force_node"].as<int>();
+  if (in["anchor_offset"])
+    p.anchor_offset = in["anchor_offset"].as<glm::vec3>();
 }
 
 void SerializeDynamicStrandsDemo(YAML::Emitter&, const DynamicStrandsDemo&) {
@@ -96,6 +149,10 @@ void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
   Serialization::RegisterSerializationHandler<DynamicStrandsDemo>(
       SerializeDynamicStrandsDemo, DeserializeDynamicStrandsDemo, owner_name, "DynamicStrandsDemo");
   Serialization::RegisterSerializationHandler<Tree>(SerializeTree, DeserializeTree, owner_name, "Tree");
+  Serialization::RegisterSerializationHandler<BranchRenderer>(SerializeBranchRenderer, DeserializeBranchRenderer,
+                                                              owner_name, "BranchRenderer");
+  Serialization::RegisterSerializationHandler<FoliageRenderer>(SerializeFoliageRenderer, DeserializeFoliageRenderer,
+                                                               owner_name, "FoliageRenderer");
   Serialization::RegisterSerializationHandler<Soil>(SerializeSoil, DeserializeSoil, owner_name, "Soil");
   Serialization::RegisterSerializationHandler<DsBoxCollider>(SerializeDsBoxCollider, DeserializeDsBoxCollider,
                                                              owner_name, "DsBoxCollider");
@@ -173,7 +230,10 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator") &&
       registrar->RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton") &&
       registrar->RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo") &&
-      registrar->RegisterPrivateComponent<Tree>("Tree") && registrar->RegisterPrivateComponent<Soil>("Soil") &&
+      registrar->RegisterPrivateComponent<Tree>("Tree") &&
+      registrar->RegisterPrivateComponent<BranchRenderer>("BranchRenderer") &&
+      registrar->RegisterPrivateComponent<FoliageRenderer>("FoliageRenderer") &&
+      registrar->RegisterPrivateComponent<Soil>("Soil") &&
       registrar->RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider") &&
       registrar->RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider") &&
       registrar->RegisterPrivateComponent<DsCylinderCollider>("DsCylinderCollider") &&

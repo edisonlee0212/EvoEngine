@@ -6,6 +6,7 @@
 
 #include "AdvancedShootDescriptor.hpp"
 #include "Application.hpp"
+#include "AssetManager.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -13,6 +14,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "BranchRenderer.hpp"
 #include "Times.hpp"
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloudsConverter.hpp"
@@ -27,8 +29,12 @@
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
+#include "GpuTreeMeshRenderer.hpp"
 #include "HeightField.hpp"
+#include "Material.hpp"
+#include "Platform/Platform.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RadialBoundingVolume.hpp"
@@ -46,6 +52,7 @@
 using namespace eco_sys_lab_package;
 
 void EcoSysLabLayer::OnDestroy() {
+  gpu_tree_mesh_renderer_.reset();
   DsFungusInjection::ReleaseStaticGpuResources();
   DynamicStrands::ReleaseStaticGpuResources();
 }
@@ -64,6 +71,10 @@ void RegisterEcoSysLabSerializationHandlers() {
   evo_engine::Serialization::RegisterSerializationHandler<DynamicStrandsDemo>(
       SerializeDynamicStrandsDemo, DeserializeDynamicStrandsDemo, {}, "DynamicStrandsDemo");
   evo_engine::Serialization::RegisterSerializationHandler<Tree>(SerializeTree, DeserializeTree, {}, "Tree");
+  evo_engine::Serialization::RegisterSerializationHandler<BranchRenderer>(
+      SerializeBranchRenderer, DeserializeBranchRenderer, {}, "BranchRenderer");
+  evo_engine::Serialization::RegisterSerializationHandler<FoliageRenderer>(
+      SerializeFoliageRenderer, DeserializeFoliageRenderer, {}, "FoliageRenderer");
   evo_engine::Serialization::RegisterSerializationHandler<Soil>(SerializeSoil, DeserializeSoil, {}, "Soil");
   evo_engine::Serialization::RegisterSerializationHandler<DsBoxCollider>(SerializeDsBoxCollider,
                                                                          DeserializeDsBoxCollider, {}, "DsBoxCollider");
@@ -124,6 +135,8 @@ void EcoSysLabLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton");
   application.RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo");
   application.RegisterPrivateComponent<Tree>("Tree");
+  application.RegisterPrivateComponent<BranchRenderer>("BranchRenderer");
+  application.RegisterPrivateComponent<FoliageRenderer>("FoliageRenderer");
   application.RegisterPrivateComponent<Soil>("Soil");
   application.RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider");
   application.RegisterPrivateComponent<DsSphereCollider>("DsSphereCollider");
@@ -192,6 +205,32 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
   if (!demo_tree_initialized_) {
     if (!demo_growth_enabled_)
       return;
+    if (Platform::MeshShaderEnabled()) {
+      if (!gpu_tree_mesh_renderer_)
+        gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
+      if (!gpu_tree_mesh_renderer_->Prepare())
+        return;
+    }
+    if (FindClimate().expired()) {
+      const auto descriptor =
+          std::dynamic_pointer_cast<ClimateDescriptor>(ProjectManager::GetOrCreateAsset("Climate.climate"));
+      if (descriptor) {
+        const auto entity = scene->CreateEntity("Climate");
+        const auto climate = scene->GetOrSetPrivateComponent<Climate>(entity).lock();
+        climate->climate_descriptor_ref = descriptor;
+        climate->InitializeClimateModel();
+      }
+    }
+    if (FindSoil().expired()) {
+      const auto descriptor =
+          std::dynamic_pointer_cast<SoilDescriptor>(ProjectManager::GetOrCreateAsset("Soils/PlayGround.soil"));
+      if (descriptor) {
+        const auto entity = scene->CreateEntity("Soil");
+        const auto soil = scene->GetOrSetPrivateComponent<Soil>(entity).lock();
+        soil->soil_descriptor_ref = descriptor;
+        soil->InitializeSoilModel();
+      }
+    }
     const auto descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
         ProjectManager::GetOrCreateAsset("TreeDescriptors/Basic/Acacia.tree"));
     demo_tree_entity_ = descriptor ? descriptor->Instantiate() : Entity{};
@@ -199,6 +238,22 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
       EVOENGINE_ERROR("Failed to instantiate the EcoSysLab demo Acacia tree.")
       demo_tree_growth_finished_ = true;
       return;
+    }
+    {
+      const auto branch_renderer = scene->GetOrSetPrivateComponent<BranchRenderer>(demo_tree_entity_).lock();
+      if (const auto bark = descriptor->bark_descriptor.Get<BasicBarkDescriptor>())
+        branch_renderer->material_ref = bark->bark_material_ref;
+      if (!branch_renderer->material_ref.Get<Material>()) {
+        const auto material = AssetManager::CreateTemporaryAsset<Material>();
+        material->material_data.shade_material.pbr_base_color_factor = {109.0f / 255.0f, 79.0f / 255.0f, 75.0f / 255.0f,
+                                                                        1.0f};
+        material->material_data.shade_material.pbr_roughness_factor = 1.0f;
+        material->MarkDirty();
+        branch_renderer->material_ref = material;
+      }
+      const auto foliage_renderer = scene->GetOrSetPrivateComponent<FoliageRenderer>(demo_tree_entity_).lock();
+      if (const auto foliage = descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>())
+        foliage_renderer->material_ref = foliage->leaf_material_ref;
     }
     demo_tree_initialized_ = true;
     EVOENGINE_LOG("Started the EcoSysLab demo Acacia eight-year growth animation.")
@@ -213,13 +268,15 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
   if (simulated_time_ < target_growth_time) {
     return;
   }
-  auto demo_mesh_generator_settings = mesh_generator_settings;
-  demo_mesh_generator_settings.foliage_instancing = false;
-  scene->GetOrSetPrivateComponent<Tree>(demo_tree_entity_)
-      .lock()
-      ->GenerateGeometryEntities(demo_mesh_generator_settings);
+  if (!Platform::MeshShaderEnabled()) {
+    auto demo_mesh_generator_settings = mesh_generator_settings;
+    demo_mesh_generator_settings.foliage_instancing = false;
+    scene->GetOrSetPrivateComponent<Tree>(demo_tree_entity_)
+        .lock()
+        ->GenerateGeometryEntities(demo_mesh_generator_settings);
+  }
   demo_tree_growth_finished_ = true;
-  EVOENGINE_LOG("Finished the EcoSysLab demo Acacia eight-year growth animation and generated its mesh.")
+  EVOENGINE_LOG("Finished the EcoSysLab demo Acacia eight-year growth animation.")
 }
 
 void EcoSysLabLayer::Update() {
@@ -227,8 +284,28 @@ void EcoSysLabLayer::Update() {
     return;
   UpdateDemoTreeGrowth();
   RegisterStrandRenderingProcedure();
-  DynamicSkeletonPhysics();
+  if (Platform::MeshShaderEnabled()) {
+    if (!gpu_tree_mesh_renderer_)
+      gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
+    gpu_tree_mesh_renderer_->Register(GetScene());
+  }
   DynamicStrandSimulation();
+}
+
+void EcoSysLabLayer::FixedUpdate() {
+  const auto scene = GetScene();
+  if (!scene)
+    return;
+  if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>()) {
+    for (const auto entity : *entities) {
+      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
+      if (tree && tree->IsEnabled() && physics && physics->IsEnabled())
+        physics->StepPhysics(*tree);
+    }
+  }
 }
 
 void EcoSysLabLayer::OnCreate() {

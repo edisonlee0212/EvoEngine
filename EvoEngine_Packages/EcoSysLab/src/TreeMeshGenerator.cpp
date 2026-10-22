@@ -71,10 +71,14 @@ glm::vec3 RingSegment::GetPoint(const glm::vec3& normal_dir, const float angle, 
 }
 
 glm::vec3 RingSegment::GetDirection(const glm::vec3& normal_dir, float angle, const bool is_start) const {
-  glm::vec3 direction = glm::cross(normal_dir, is_start ? this->start_axis : this->end_axis);
-  direction = glm::rotate(direction, glm::radians(angle), is_start ? this->start_axis : this->end_axis);
-  direction = glm::normalize(direction);
-  return direction;
+  glm::vec3 axis = is_start ? start_axis : end_axis;
+  if (glm::dot(axis, axis) < 1e-12f)
+    axis = glm::vec3(0, 0, -1);
+  axis = glm::normalize(axis);
+  glm::vec3 direction = glm::cross(normal_dir, axis);
+  if (glm::dot(direction, direction) < 1e-12f)
+    direction = glm::cross(glm::abs(axis.y) < 0.9f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0), axis);
+  return glm::normalize(glm::rotate(direction, glm::radians(angle), axis));
 }
 
 void TreeMeshGeneratorSettings::Save(const std::string& name, YAML::Emitter& out) const {
