@@ -62,16 +62,19 @@ the end of growth. If the startup scene has no Soil or Climate, the demo creates
 After tree growth finishes, select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
 **Initialize from growth pose** captures the shoot skeleton as a paused rod simulation. **Run physics** advances it in `EcoSysLabLayer::FixedUpdate`;
 **Pause physics** holds the current bend, and **Clear physics** restores the growth pose. The inspector exposes simulated
-time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, an anchor offset,
-and a force at an internode tip chosen by node handle. Reinitialize after changing density.
+time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, and an anchor
+offset. Reinitialize after changing density.
 
 To test an earthquake-like response, run physics and move or rotate the tree entity (or its parent) in the editor.
 The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
 physics is paused carries the current bend with it. Changing entity scale clears the simulation; initialize it again.
-The rod solver scales stretch stiffness with branch cross section and bend stiffness with its second moment of area,
-so thick branches resist shaking more than thin branches. The default simulated step matches the SDK fixed update
-(0.016 seconds), and damping reduces lingering oscillation. Existing saved components retain their settings; set stretch
-stiffness to 100000, bend stiffness to 5000, and damping to 2 to use the new tuning, then reinitialize physics.
+The default physics settings advance 0.016 seconds per fixed update with 4 substeps and 8 solver iterations. Stretch
+stiffness is 8192, bend stiffness is 512, and damping is 0. Rod mass and stiffness scale with connected branch length
+and the internode's thickness; bend stiffness also accounts for thickness at each junction.
+The solver's structural-length scaling draws on the [Stable Cosserat Rods tree example](https://github.com/jerry060599/StableCosseratRods/blob/main/KittenEngine/Cosserat/examples/tree.cpp),
+but EcoSysLab uses one rod per internode and its own solver. Existing saved components retain their settings; press
+**Reset physics settings to defaults** in the `DynamicTreeSkeleton` inspector to restore all default physics settings
+and reinitialize physics from the growth pose.
 
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no

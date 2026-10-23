@@ -9,14 +9,12 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   struct PhysicsSettings {
     float time_step = 0.016f;
     int substeps = 4;
-    int iterations = 4;
-    float stretch_stiffness = 100000.0f;
-    float bend_stiffness = 5000.0f;
-    float density = 750.0f;
-    float damping = 2.0f;
-    glm::vec3 gravity{0, -9.81f, 0};
-    glm::vec3 tip_force{};
-    SkeletonNodeHandle force_node = -1;
+    int iterations = 8;
+    float stretch_stiffness = 8192.0f;
+    float bend_stiffness = 512.0f;
+    float density = 700.0f;
+    float damping = 0.0f;
+    glm::vec3 gravity{0, -9.8f, 0};
     glm::vec3 anchor_offset{};
   } physics_settings;
 
@@ -42,8 +40,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     int end = -1;
     SkeletonNodeHandle node = -1;
     float length = 0;
-    float area_scale = 1;
-    float bend_scale = 1;
+    float structural_length_scale = 1;
     glm::quat rotation{1, 0, 0, 0};
     glm::quat rest_rotation{1, 0, 0, 0};
     glm::vec3 visual_offset{};
@@ -53,6 +50,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     int first = -1;
     int second = -1;
     glm::quat rest_relative{1, 0, 0, 0};
+    float bend_scale = 1;
   };
   std::vector<PhysicsVertex> physics_vertices_;
   std::vector<PhysicsRod> physics_rods_;

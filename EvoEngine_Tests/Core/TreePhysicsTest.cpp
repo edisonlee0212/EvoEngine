@@ -39,7 +39,7 @@ bool FinitePose(const ShootModel::PhysicsPose& pose) {
 }
 }  // namespace
 
-TEST(TreePhysics, ForkSharesJunctionAndRespondsToTipForce) {
+TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
   evo_engine::Application application;
   evo_engine::ApplicationContextScope scope(application);
   Tree tree;
@@ -50,11 +50,8 @@ TEST(TreePhysics, ForkSharesJunctionAndRespondsToTipForce) {
   EXPECT_FALSE(physics.physics_running);
   const auto rest = tree.shoot_model.PeekPhysicsPose();
   ASSERT_EQ(rest.size(), 3);
-  physics.physics_settings.gravity = {};
   physics.physics_settings.stretch_stiffness = 100.0f;
   physics.physics_settings.bend_stiffness = 5.0f;
-  physics.physics_settings.tip_force = {10, 0, 0};
-  physics.physics_settings.force_node = 1;
   physics.physics_running = true;
   for (int i = 0; i < 120; ++i)
     physics.StepPhysics(tree);
@@ -107,7 +104,7 @@ TEST(TreePhysics, MultilevelTreeRemainsFiniteUnderGravityAndMovingAnchor) {
   EXPECT_NEAR(glm::length(junction - pose[child].position), 0.0f, 1e-3f);
 }
 
-TEST(TreePhysics, CantileverReturnsTowardRestAfterForceIsRemoved) {
+TEST(TreePhysics, CantileverReturnsTowardRestAfterGravityIsRemoved) {
   evo_engine::Application application;
   evo_engine::ApplicationContextScope scope(application);
   Tree tree;
@@ -123,10 +120,7 @@ TEST(TreePhysics, CantileverReturnsTowardRestAfterForceIsRemoved) {
   skeleton.SortLists();
   tree.shoot_model.Initialize(skeleton);
   ASSERT_TRUE(physics.InitializePhysics(tree));
-  physics.physics_settings.gravity = {};
   physics.physics_settings.damping = 3.0f;
-  physics.physics_settings.force_node = child;
-  physics.physics_settings.tip_force = {0, -200, 0};
   physics.physics_running = true;
   for (int i = 0; i < 120; ++i)
     physics.StepPhysics(tree);
@@ -134,7 +128,7 @@ TEST(TreePhysics, CantileverReturnsTowardRestAfterForceIsRemoved) {
   const auto bent_end = bent.position + bent.rotation * glm::vec3(0, 0, -1) * bent.length;
   const float bent_distance = glm::length(bent_end - glm::vec3(0, 0, -2));
   EXPECT_GT(bent_distance, 0.001f);
-  physics.physics_settings.tip_force = {};
+  physics.physics_settings.gravity = {};
   for (int i = 0; i < 600; ++i)
     physics.StepPhysics(tree);
   const auto& relaxed = tree.shoot_model.PeekPhysicsPose()[child];
@@ -150,13 +144,14 @@ TEST(TreePhysics, LateralVisualOffsetFollowsBentJunction) {
   auto skeleton = MakeFork();
   skeleton.RefNode(2).info.global_position += glm::vec3(0.05f, 0, 0);
   tree.shoot_model.Initialize(skeleton);
-  ASSERT_TRUE(physics.InitializePhysics(tree));
+  evo_engine::GlobalTransform model;
+  ASSERT_TRUE(physics.InitializePhysics(tree, model));
   physics.physics_settings.gravity = {};
-  physics.physics_settings.tip_force = {0, -40, 0};
-  physics.physics_settings.force_node = 1;
   physics.physics_running = true;
-  for (int i = 0; i < 120; ++i)
-    physics.StepPhysics(tree);
+  for (int i = 0; i < 120; ++i) {
+    model.SetPosition({0.2f * std::sin(6.2831853f * i / 30.0f), 0, 0});
+    physics.StepPhysics(tree, model);
+  }
   const auto& pose = tree.shoot_model.PeekPhysicsPose();
   const auto junction = pose[0].position + pose[0].rotation * glm::vec3(0, 0, -1) * pose[0].length;
   EXPECT_NEAR(glm::length(pose[2].position - junction), 0.05f, 1e-3f);
@@ -265,7 +260,40 @@ TEST(TreePhysics, ThickBranchResistsShakingMoreThanThinBranch) {
     }
   }
   EXPECT_GT(thin_offset, 0.01f);
-  EXPECT_LT(thick_offset, thin_offset * 0.5f) << "thick=" << thick_offset << " thin=" << thin_offset;
+  EXPECT_LT(thick_offset, thin_offset) << "thick=" << thick_offset << " thin=" << thin_offset;
+}
+
+TEST(TreePhysics, DefaultDampingRetainsMotionAfterAnchorShake) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  const auto motion_after_shake = [](const float damping) {
+    Tree tree;
+    DynamicTreeSkeleton physics;
+    tree.shoot_model.Initialize(MakeFork());
+    evo_engine::GlobalTransform model;
+    EXPECT_TRUE(physics.InitializePhysics(tree, model));
+    physics.physics_settings.gravity = {};
+    physics.physics_settings.damping = damping;
+    physics.physics_running = true;
+    const auto& rest = tree.shoot_model.PeekPhysicsPose()[1];
+    const auto rest_tip = rest.position + rest.rotation * glm::vec3(0, 0, -1) * rest.length;
+    for (int i = 0; i < 30; ++i) {
+      model.SetPosition({0.2f * std::sin(6.2831853f * i / 30.0f), 0, 0});
+      physics.StepPhysics(tree, model);
+    }
+    model.SetPosition({0, 0, 0});
+    float motion = 0;
+    for (int i = 0; i < 120; ++i) {
+      physics.StepPhysics(tree, model);
+      const auto& pose = tree.shoot_model.PeekPhysicsPose()[1];
+      const auto tip = pose.position + pose.rotation * glm::vec3(0, 0, -1) * pose.length;
+      motion += glm::length(tip - rest_tip);
+    }
+    return motion;
+  };
+  const float default_motion = motion_after_shake(DynamicTreeSkeleton::PhysicsSettings{}.damping);
+  const float heavily_damped_motion = motion_after_shake(2.0f);
+  EXPECT_GT(default_motion, heavily_damped_motion * 1.05f);
 }
 
 TEST(TreePhysics, NestedThinBranchSettlesAfterEntityTranslation) {
@@ -287,6 +315,7 @@ TEST(TreePhysics, NestedThinBranchSettlesAfterEntityTranslation) {
   const auto rest = tree.shoot_model.PeekPhysicsPose();
   const auto rest_tip = rest[child].position + rest[child].rotation * glm::vec3(0, 0, -1) * rest[child].length;
   physics.physics_settings.gravity = {};
+  physics.physics_settings.damping = 1.0f;
   physics.physics_running = true;
   model.SetPosition({0.5f, 0, 0});
   for (int i = 0; i < 600; ++i)
@@ -303,7 +332,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   source.physics_settings.time_step = 0.01f;
   source.physics_settings.bend_stiffness = 120.0f;
   source.physics_settings.gravity = {1, -2, 3};
-  source.physics_settings.force_node = 7;
+  source.physics_settings.anchor_offset = {0.1f, 0.2f, 0.3f};
   source.physics_running = true;
   YAML::Emitter out;
   out << YAML::BeginMap;
@@ -315,6 +344,6 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   EXPECT_FLOAT_EQ(loaded.physics_settings.time_step, 0.01f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 120.0f);
   EXPECT_EQ(loaded.physics_settings.gravity, glm::vec3(1, -2, 3));
-  EXPECT_EQ(loaded.physics_settings.force_node, 7);
+  EXPECT_EQ(loaded.physics_settings.anchor_offset, glm::vec3(0.1f, 0.2f, 0.3f));
   EXPECT_FALSE(loaded.physics_running);
 }

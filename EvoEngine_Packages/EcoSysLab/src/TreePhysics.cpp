@@ -6,6 +6,7 @@ using namespace eco_sys_lab_package;
 
 namespace {
 constexpr glm::vec3 rod_axis{1, 0, 0};
+constexpr float reference_radius = 0.02f;
 constexpr float reference_thickness = 0.05f;
 const glm::quat axis_to_shoot = glm::rotation(rod_axis, glm::vec3(0, 0, -1));
 
@@ -59,9 +60,6 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     rod.end = finish;
     rod.node = handle;
     rod.length = glm::length(end - physics_vertices_[start].position);
-    const float thickness_ratio = glm::max(1e-4f, info.thickness) / reference_thickness;
-    rod.area_scale = thickness_ratio * thickness_ratio;
-    rod.bend_scale = rod.area_scale * rod.area_scale;
     rod.rotation = rod.rest_rotation =
         glm::normalize(glm::rotation(initial_rotation_ * info.GetGlobalDirection(),
                                      glm::normalize(end - physics_vertices_[start].position)) *
@@ -71,10 +69,6 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     rod.pinned = parent < 0 || (physics_node_rods_[parent] < 0 && skeleton.PeekNode(parent).GetParentHandle() < 0);
     physics_node_rods_[handle] = static_cast<int>(physics_rods_.size());
     physics_rods_.push_back(rod);
-    const float radius = glm::max(1e-4f, info.thickness);
-    const float mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * radius * radius * rod.length);
-    physics_vertices_[start].inverse_mass += 0.5f * mass;
-    physics_vertices_[finish].inverse_mass += 0.5f * mass;
   }
   if (physics_rods_.empty()) {
     ResetPhysics(tree);
@@ -84,8 +78,23 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
   physics_rod_angles_.resize(physics_rods_.size());
   physics_predicted_.resize(physics_vertices_.size());
   physics_previous_.resize(physics_vertices_.size());
+  std::vector<float> structural_lengths(physics_vertices_.size(), 0.0f);
+  // The tree example counts each vertex's incoming edge in its structural length.
+  for (const auto& rod : physics_rods_)
+    structural_lengths[rod.end] = rod.length;
+  for (auto it = physics_rods_.rbegin(); it != physics_rods_.rend(); ++it)
+    structural_lengths[it->start] += it->length + structural_lengths[it->end];
+  std::vector<float> rod_bend_scales(physics_rods_.size());
   for (int i = 0; i < physics_rods_.size(); ++i) {
-    const auto& rod = physics_rods_[i];
+    auto& rod = physics_rods_[i];
+    const float thickness_ratio = glm::max(1e-4f, skeleton.PeekNode(rod.node).info.thickness) / reference_thickness;
+    const float area_scale = thickness_ratio * thickness_ratio;
+    rod.structural_length_scale = 0.5f * (structural_lengths[rod.start] + structural_lengths[rod.end]) * area_scale;
+    rod_bend_scales[i] = area_scale * area_scale;
+    const float mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * reference_radius * reference_radius *
+                                           rod.structural_length_scale);
+    physics_vertices_[rod.start].inverse_mass += 0.5f * mass;
+    physics_vertices_[rod.end].inverse_mass += 0.5f * mass;
     physics_vertex_rods_[rod.start].push_back(i);
     physics_vertex_rods_[rod.end].push_back(i);
   }
@@ -99,9 +108,12 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
         const auto& second = physics_rods_[second_index];
         if (second.start != vertex)
           continue;
+        const float average_length = 0.25f * (structural_lengths[first.start] + structural_lengths[first.end] +
+                                              structural_lengths[second.start] + structural_lengths[second.end]);
         const int angle_index = static_cast<int>(physics_angles_.size());
-        physics_angles_.push_back(
-            {first_index, second_index, glm::inverse(first.rest_rotation) * second.rest_rotation});
+        physics_angles_.push_back({first_index, second_index, glm::inverse(first.rest_rotation) * second.rest_rotation,
+                                   4.0f * std::pow(average_length, 1.8f) *
+                                       glm::min(rod_bend_scales[first_index], rod_bend_scales[second_index])});
         physics_rod_angles_[first_index].push_back(angle_index);
         physics_rod_angles_[second_index].push_back(angle_index);
       }
@@ -171,13 +183,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
         physics_predicted_[i] = vertex.position;
         continue;
       }
-      const auto force = physics_settings.force_node >= 0 && physics_settings.force_node < physics_node_rods_.size() &&
-                                 physics_node_rods_[physics_settings.force_node] >= 0 &&
-                                 physics_rods_[physics_node_rods_[physics_settings.force_node]].end == i
-                             ? physics_settings.tip_force
-                             : glm::vec3{};
-      physics_predicted_[i] =
-          vertex.position + h * vertex.velocity + h * h * (physics_settings.gravity + force * vertex.inverse_mass);
+      physics_predicted_[i] = vertex.position + h * vertex.velocity + h * h * physics_settings.gravity;
     }
     for (int iteration = 0; iteration < iterations; ++iteration) {
       for (int i = 0; i < physics_vertices_.size(); ++i) {
@@ -191,7 +197,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
           const auto& rod = physics_rods_[rod_index];
           const bool start = rod.start == i;
           const int other = start ? rod.end : rod.start;
-          const float stiffness = stretch * rod.area_scale / rod.length;
+          const float stiffness = stretch * rod.structural_length_scale / rod.length;
           numerator += stiffness * (physics_vertices_[other].position +
                                     (start ? -1.0f : 1.0f) * rod.length * (rod.rotation * rod_axis));
           denominator += stiffness;
@@ -209,7 +215,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
           continue;
         const glm::quat axis_rotation = glm::rotation(rod.rotation * rod_axis, glm::normalize(displacement));
         const glm::quat stretch_target = glm::normalize(axis_rotation * rod.rotation);
-        const float stretch_weight = stretch * rod.area_scale / rod.length;
+        const float stretch_weight = stretch * rod.structural_length_scale;
         glm::vec4 sum =
             stretch_weight * glm::vec4(stretch_target.x, stretch_target.y, stretch_target.z, stretch_target.w);
         float total = stretch_weight;
@@ -219,7 +225,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
           const auto& other = physics_rods_[first ? angle.second : angle.first];
           const glm::quat target =
               glm::normalize(other.rotation * (first ? glm::inverse(angle.rest_relative) : angle.rest_relative));
-          const float weight = bend * glm::min(rod.bend_scale, other.bend_scale) / (0.5f * (rod.length + other.length));
+          const float weight = bend * angle.bend_scale / (0.5f * (rod.length + other.length));
           const float sign = glm::dot(target, stretch_target) < 0 ? -1.0f : 1.0f;
           sum += sign * weight * glm::vec4(target.x, target.y, target.z, target.w);
           total += weight;
