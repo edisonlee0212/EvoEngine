@@ -75,6 +75,7 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
   out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
   out << YAML::Key << "density" << YAML::Value << p.density;
   out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "contact_friction" << YAML::Value << p.contact_friction;
   out << YAML::Key << "gravity" << YAML::Value << p.gravity;
   out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
   out << YAML::Key << "fracture_enabled" << YAML::Value << p.fracture_enabled;
@@ -98,6 +99,8 @@ void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& t
     p.density = in["density"].as<float>();
   if (in["damping"])
     p.damping = in["damping"].as<float>();
+  if (in["contact_friction"])
+    p.contact_friction = in["contact_friction"].as<float>();
   if (in["gravity"])
     p.gravity = in["gravity"].as<glm::vec3>();
   if (in["anchor_offset"])

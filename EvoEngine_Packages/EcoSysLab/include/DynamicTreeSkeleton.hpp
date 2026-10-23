@@ -14,6 +14,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     float bend_stiffness = 512.0f;
     float density = 700.0f;
     float damping = 0.0f;
+    float contact_friction = 0.6f;
     glm::vec3 gravity{0, -9.8f, 0};
     glm::vec3 anchor_offset{};
     bool fracture_enabled = false;

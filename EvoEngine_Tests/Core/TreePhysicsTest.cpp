@@ -3,11 +3,15 @@
 #include <glm/gtx/quaternion.hpp>
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "ApplicationInitializationSettings.hpp"
+#include "AssetManager.hpp"
+#include "DsColliders.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "GpuTreeMeshData.hpp"
 #include "PrivateComponentRef.hpp"
+#include "Scene.hpp"
 #include "Strands.hpp"
 #include "Tree.hpp"
 #include "TreePhysicsCollision.hpp"
@@ -39,6 +43,17 @@ bool FinitePose(const ShootModel::PhysicsPose& pose) {
   return std::isfinite(pose.position.x) && std::isfinite(pose.position.y) && std::isfinite(pose.position.z) &&
          std::isfinite(pose.length);
 }
+
+struct EcoSysLabResourceDirectory {
+  std::filesystem::path previous = std::filesystem::current_path();
+  EcoSysLabResourceDirectory() {
+    std::filesystem::current_path(std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+                                  "EvoEngine_Packages/EcoSysLab/Internals");
+  }
+  ~EcoSysLabResourceDirectory() {
+    std::filesystem::current_path(previous);
+  }
+};
 }  // namespace
 
 TEST(TreePhysics, BoxContactProjectsRodRadiusOutsideGround) {
@@ -70,6 +85,27 @@ TEST(TreePhysics, CylinderContactProjectsRodRadiusAtSideCapAndRim) {
   EXPECT_EQ(ProjectOutsideCylinder({1.2f, 2.2f, 0}, {}, rotation, 1, 2, 0.1f), glm::vec3(1.2f, 2.2f, 0));
   const auto tilted = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0, 0, 1));
   EXPECT_NEAR(ProjectOutsideCylinder({-1.95f, 0, 0}, {}, tilted, 1, 2, 0.1f).x, -2.1f, 1e-6f);
+}
+
+TEST(TreePhysics, InteriorContactTurnsRodThroughItsEndpoints) {
+  glm::vec3 start{-1, 0.2f, 0};
+  glm::vec3 end{1, 0.2f, 0};
+  constexpr float t = 0.75f;
+  const glm::vec3 contact = glm::mix(start, end, t);
+  const glm::vec3 projected = ProjectOutsideSphere(contact, {0.5f, 0, 0}, 0.3f, 0.1f);
+  ASSERT_TRUE(SolveRodContact(start, end, 1, 1, t, projected, contact, 0));
+  EXPECT_GT(end.y - start.y, 0.1f);
+  EXPECT_NEAR(glm::mix(start, end, t).y, 0.4f, 1e-5f);
+}
+
+TEST(TreePhysics, ContactFrictionOpposesLateralSlip) {
+  glm::vec3 start{-1, 0.2f, 0};
+  glm::vec3 end{1, 0.2f, 0};
+  const glm::vec3 contact = glm::mix(start, end, 0.5f);
+  ASSERT_TRUE(
+      SolveRodContact(start, end, 1, 1, 0.5f, contact + glm::vec3(0, 0.1f, 0), contact - glm::vec3(0.1f, 0, 0), 1.0f));
+  EXPECT_NEAR(glm::mix(start, end, 0.5f).x, -0.1f, 1e-5f);
+  EXPECT_NEAR(glm::mix(start, end, 0.5f).y, 0.3f, 1e-5f);
 }
 
 TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
@@ -199,6 +235,150 @@ TEST(TreePhysics, DetachedBranchAcceleratesUnderGravity) {
   const float y2 = tree.shoot_model.PeekPhysicsPose()[broken].position.y;
   EXPECT_LT(y1, y0);
   EXPECT_LT(y2 - y1, y1 - y0 - 0.5f);
+}
+
+TEST(TreePhysics, FallenBranchRotatesAfterTipHitsGround) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  evo_engine::ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterPrivateComponent<Tree>("Tree");
+  application.RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider");
+  auto scene = evo_engine::AssetManager::CreateTemporaryAsset<evo_engine::Scene>();
+  application.Attach(scene);
+
+  EcoSysLabResourceDirectory resource_directory;
+
+  const auto ground_entity = scene->CreateEntity("Ground");
+  const auto ground = scene->GetOrSetPrivateComponent<DsBoxCollider>(ground_entity).lock();
+  ASSERT_TRUE(ground);
+  ground->scale = {10, 0.5f, 10};
+  evo_engine::GlobalTransform ground_transform;
+  ground_transform.SetPosition({0, -0.5f, 0});
+  scene->SetDataComponent(ground_entity, ground_transform);
+
+  const auto tree_entity = scene->CreateEntity("Tree");
+  const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+  ASSERT_TRUE(tree);
+  auto skeleton = MakeFork();
+  skeleton.RefNode(1).info.thickness = 0.15f;
+  skeleton.RefNode(1).info.global_rotation = glm::rotation(glm::vec3(0, 0, -1), glm::normalize(glm::vec3(1, -1, 0)));
+  tree->shoot_model.Initialize(skeleton);
+  DynamicTreeSkeleton physics;
+  ASSERT_TRUE(physics.InitializePhysics(*tree));
+  physics.physics_settings.stretch_stiffness = 100.0f;
+  physics.physics_settings.bend_stiffness = 5.0f;
+  physics.physics_settings.fracture_enabled = true;
+  physics.physics_settings.fracture_angle_degrees = 0;
+  physics.physics_settings.fracture_duration = 0;
+  physics.physics_running = true;
+  bool tip_contact = false;
+  constexpr float contact_height = 0.15f;
+  for (int i = 0; i < 240; ++i) {
+    physics.StepPhysics(*tree);
+    const auto& pose = tree->shoot_model.PeekPhysicsPose()[1];
+    const glm::vec3 tip = pose.position + pose.rotation * glm::vec3(0, 0, -1) * pose.length;
+    if (pose.detached && tip.y <= contact_height + 0.01f && pose.position.y > tip.y + 0.3f) {
+      tip_contact = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(tip_contact);
+  physics.physics_settings.stretch_stiffness = 8192.0f;
+  physics.physics_settings.bend_stiffness = 512.0f;
+  const auto& contact_pose = tree->shoot_model.PeekPhysicsPose()[1];
+  const float initial_direction_y = (contact_pose.rotation * glm::vec3(0, 0, -1)).y;
+  for (int i = 0; i < 20; ++i)
+    physics.StepPhysics(*tree);
+  const auto& settled_pose = tree->shoot_model.PeekPhysicsPose()[1];
+  const glm::vec3 settled_tip =
+      settled_pose.position + settled_pose.rotation * glm::vec3(0, 0, -1) * settled_pose.length;
+  EXPECT_NEAR(settled_tip.y, contact_height, 0.05f);
+  EXPECT_LT(settled_pose.position.y, contact_height + 0.15f);
+  EXPECT_NEAR(settled_pose.length, 0.8f, 0.025f);
+  EXPECT_GT((settled_pose.rotation * glm::vec3(0, 0, -1)).y, initial_direction_y + 0.2f);
+}
+
+TEST(TreePhysics, NearlyUprightFallenBranchAcceleratesAroundGroundedTip) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  evo_engine::ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterPrivateComponent<Tree>("Tree");
+  application.RegisterPrivateComponent<DsBoxCollider>("DsBoxCollider");
+  auto scene = evo_engine::AssetManager::CreateTemporaryAsset<evo_engine::Scene>();
+  application.Attach(scene);
+  EcoSysLabResourceDirectory resource_directory;
+  const auto ground_entity = scene->CreateEntity("Ground");
+  const auto ground = scene->GetOrSetPrivateComponent<DsBoxCollider>(ground_entity).lock();
+  ASSERT_TRUE(ground);
+  ground->scale = {10, 0.5f, 10};
+  evo_engine::GlobalTransform ground_transform;
+  ground_transform.SetPosition({0, -0.5f, 0});
+  scene->SetDataComponent(ground_entity, ground_transform);
+
+  const auto tree_entity = scene->CreateEntity("Tree");
+  const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+  ASSERT_TRUE(tree);
+  auto skeleton = MakeFork();
+  skeleton.RefNode(1).info.thickness = 0.15f;
+  skeleton.RefNode(1).info.global_rotation = glm::rotation(glm::vec3(0, 0, -1), glm::normalize(glm::vec3(0.2f, -1, 0)));
+  tree->shoot_model.Initialize(skeleton);
+  DynamicTreeSkeleton physics;
+  ASSERT_TRUE(physics.InitializePhysics(*tree));
+  physics.physics_settings.stretch_stiffness = 100;
+  physics.physics_settings.bend_stiffness = 5;
+  physics.physics_settings.fracture_enabled = true;
+  physics.physics_settings.fracture_angle_degrees = 0;
+  physics.physics_settings.fracture_duration = 0;
+  physics.physics_running = true;
+  bool tip_contact = false;
+  for (int i = 0; i < 240; ++i) {
+    physics.StepPhysics(*tree);
+    const auto& pose = tree->shoot_model.PeekPhysicsPose()[1];
+    const glm::vec3 tip = pose.position + pose.rotation * glm::vec3(0, 0, -1) * pose.length;
+    if (pose.detached && tip.y <= 0.16f && pose.position.y > tip.y + 0.3f) {
+      tip_contact = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(tip_contact);
+  physics.physics_settings.stretch_stiffness = 8192;
+  physics.physics_settings.bend_stiffness = 512;
+  const auto angle = [&] {
+    const glm::vec3 direction = tree->shoot_model.PeekPhysicsPose()[1].rotation * glm::vec3(0, 0, -1);
+    return std::atan2(direction.x, -direction.y);
+  };
+  const float initial_angle = angle();
+  for (int i = 0; i < 5; ++i)
+    physics.StepPhysics(*tree);
+  const float first_angle = angle();
+  for (int i = 0; i < 5; ++i)
+    physics.StepPhysics(*tree);
+  const float second_angle = angle();
+  for (int i = 0; i < 5; ++i)
+    physics.StepPhysics(*tree);
+  const float third_angle = angle();
+  EXPECT_GT(second_angle - first_angle, 1.2f * (first_angle - initial_angle));
+  EXPECT_GT(third_angle - second_angle, 1.2f * (second_angle - first_angle));
+  EXPECT_LT(tree->shoot_model.PeekPhysicsPose()[1].position.y, 0.91f);
+  for (int i = 0; i < 120; ++i)
+    physics.StepPhysics(*tree);
+  const auto& settled = tree->shoot_model.PeekPhysicsPose()[1];
+  const glm::vec3 settled_tip = settled.position + settled.rotation * glm::vec3(0, 0, -1) * settled.length;
+  EXPECT_TRUE(FinitePose(settled));
+  EXPECT_NEAR(settled.position.y, 0.15f, 0.05f);
+  EXPECT_NEAR(settled_tip.y, 0.15f, 0.05f);
 }
 
 TEST(TreePhysics, MultilevelTreeRemainsFiniteUnderGravityAndMovingAnchor) {
@@ -459,6 +639,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DynamicTreeSkeleton source;
   source.physics_settings.time_step = 0.01f;
   source.physics_settings.bend_stiffness = 120.0f;
+  source.physics_settings.contact_friction = 0.8f;
   source.physics_settings.gravity = {1, -2, 3};
   source.physics_settings.anchor_offset = {0.1f, 0.2f, 0.3f};
   source.physics_settings.fracture_enabled = true;
@@ -474,6 +655,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DeserializeDynamicTreeSkeleton(YAML::Load(out.c_str()), loaded);
   EXPECT_FLOAT_EQ(loaded.physics_settings.time_step, 0.01f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 120.0f);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.contact_friction, 0.8f);
   EXPECT_EQ(loaded.physics_settings.gravity, glm::vec3(1, -2, 3));
   EXPECT_EQ(loaded.physics_settings.anchor_offset, glm::vec3(0.1f, 0.2f, 0.3f));
   EXPECT_TRUE(loaded.physics_settings.fracture_enabled);

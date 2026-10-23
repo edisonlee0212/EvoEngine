@@ -57,4 +57,27 @@ inline glm::vec3 ProjectOutsideCylinder(const glm::vec3& point, const glm::vec3&
   }
   return center + rotation * local;
 }
+
+inline bool SolveRodContact(glm::vec3& start, glm::vec3& end, const float start_inverse_mass,
+                            const float end_inverse_mass, const float t, const glm::vec3& projected,
+                            const glm::vec3& previous_contact, const float friction) {
+  const glm::vec3 contact = glm::mix(start, end, t);
+  const glm::vec3 separation = projected - contact;
+  const float depth = glm::length(separation);
+  const float start_weight = (1.0f - t) * start_inverse_mass;
+  const float end_weight = t * end_inverse_mass;
+  const float effective_mass = (1.0f - t) * start_weight + t * end_weight;
+  if (depth < 1e-6f || effective_mass <= 0)
+    return false;
+  const glm::vec3 normal = separation / depth;
+  glm::vec3 tangent = contact - previous_contact;
+  tangent -= glm::dot(tangent, normal) * normal;
+  const float tangent_length = glm::length(tangent);
+  if (tangent_length > 1e-6f)
+    tangent *= glm::min(1.0f, glm::max(0.0f, friction) * depth / tangent_length);
+  const glm::vec3 correction = (separation - tangent) / effective_mass;
+  start += start_weight * correction;
+  end += end_weight * correction;
+  return true;
+}
 }  // namespace eco_sys_lab_package

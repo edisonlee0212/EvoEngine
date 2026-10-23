@@ -84,8 +84,12 @@ The detached subtree stays in the simulation and accelerates under gravity.
 Its transient pose makes procedural branch and foliage rendering follow the falling subtree, while the saved growth
 skeleton remains unchanged. Resetting physics restores the original connections. Detached branches collide with enabled
 `DsBoxCollider`, `DsSphereCollider`, and `DsCylinderCollider` scene volumes used by DynamicStrands. Fracture is disabled
-by default; enable it in `DynamicTreeSkeleton` and tune the reference angle and exposure for the tree. The collision uses
-rod endpoint radii against these volumes; generated CPU meshes do not follow the detached subtree.
+by default; enable it in `DynamicTreeSkeleton` and tune the reference angle and exposure for the tree. Fallen rods sample
+their centerlines against these volumes using their radii, including interior points. Contact corrections are shared by the
+rod's endpoints and solved with its length and rotation constraints; contact friction limits sliding. The solver does not
+model full rigid-body angular inertia or continuous collision detection. When one end rests on a collider, a uniform-rod
+pivot approximation carries angular velocity forward and applies gravity torque, so the free end accelerates as it falls.
+Generated CPU meshes do not follow detached subtrees.
 
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no
