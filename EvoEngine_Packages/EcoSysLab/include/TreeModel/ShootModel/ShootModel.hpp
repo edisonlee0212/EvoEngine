@@ -18,6 +18,7 @@ class ShootModel : public PlantModel {
     glm::quat rotation{1, 0, 0, 0};
     glm::quat regulated_rotation{1, 0, 0, 0};
     float length = 0;
+    bool detached = false;
   };
 
  private:

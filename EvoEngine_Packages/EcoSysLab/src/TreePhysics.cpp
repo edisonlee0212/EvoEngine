@@ -1,6 +1,9 @@
+#include <algorithm>
 #include <cmath>
 #include <glm/gtx/quaternion.hpp>
+#include "DsColliders.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "TreePhysicsCollision.hpp"
 
 using namespace eco_sys_lab_package;
 
@@ -13,6 +16,7 @@ const glm::quat axis_to_shoot = glm::rotation(rod_axis, glm::vec3(0, 0, -1));
 bool Finite(const glm::vec3& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
+
 }  // namespace
 
 bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
@@ -40,7 +44,7 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     int start = parent < 0 ? -1 : end_vertices[parent];
     if (start < 0) {
       start = static_cast<int>(physics_vertices_.size());
-      physics_vertices_.push_back({glm::vec3(model.value * glm::vec4(info.global_position, 1.0f)), {}, 0, true});
+      physics_vertices_.push_back({glm::vec3(model.value * glm::vec4(info.global_position, 1.0f)), {}, 0, 0, true});
     }
     if (info.length <= 1e-6f || !Finite(info.global_position)) {
       end_vertices[handle] = start;
@@ -53,13 +57,15 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
       continue;
     }
     const int finish = static_cast<int>(physics_vertices_.size());
-    physics_vertices_.push_back({end, {}, 0, false});
+    physics_vertices_.push_back({end, {}, 0, 0, false});
     end_vertices[handle] = finish;
     PhysicsRod rod;
     rod.start = start;
     rod.end = finish;
     rod.node = handle;
     rod.length = glm::length(end - physics_vertices_[start].position);
+    const glm::vec3 scale = glm::abs(initial_scale_);
+    rod.radius = glm::max(1e-4f, info.thickness) * glm::max(scale.x, glm::max(scale.y, scale.z));
     rod.rotation = rod.rest_rotation =
         glm::normalize(glm::rotation(initial_rotation_ * info.GetGlobalDirection(),
                                      glm::normalize(end - physics_vertices_[start].position)) *
@@ -91,10 +97,12 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     const float area_scale = thickness_ratio * thickness_ratio;
     rod.structural_length_scale = 0.5f * (structural_lengths[rod.start] + structural_lengths[rod.end]) * area_scale;
     rod_bend_scales[i] = area_scale * area_scale;
-    const float mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * reference_radius * reference_radius *
-                                           rod.structural_length_scale);
-    physics_vertices_[rod.start].inverse_mass += 0.5f * mass;
-    physics_vertices_[rod.end].inverse_mass += 0.5f * mass;
+    rod.mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * reference_radius * reference_radius *
+                                   rod.structural_length_scale);
+    physics_vertices_[rod.start].inverse_mass += 0.5f * rod.mass;
+    physics_vertices_[rod.end].inverse_mass += 0.5f * rod.mass;
+    physics_vertices_[rod.start].radius = glm::max(physics_vertices_[rod.start].radius, rod.radius);
+    physics_vertices_[rod.end].radius = glm::max(physics_vertices_[rod.end].radius, rod.radius);
     physics_vertex_rods_[rod.start].push_back(i);
     physics_vertex_rods_[rod.end].push_back(i);
   }
@@ -168,6 +176,65 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
   const float stretch = glm::max(0.0f, physics_settings.stretch_stiffness);
   const float bend = glm::max(0.0f, physics_settings.bend_stiffness);
   const glm::quat model_rotation = model.GetRotation();
+  struct BoxContact {
+    glm::vec3 center;
+    glm::quat rotation;
+    glm::vec3 half_extent;
+  };
+  struct SphereContact {
+    glm::vec3 center;
+    float radius;
+  };
+  struct CylinderContact {
+    glm::vec3 center;
+    glm::quat rotation;
+    float radius;
+    float half_height;
+  };
+  std::vector<BoxContact> boxes;
+  std::vector<SphereContact> spheres;
+  std::vector<CylinderContact> cylinders;
+  if (const auto scene = tree.GetScene(); scene && (physics_settings.fracture_enabled || has_detached_branches_)) {
+    if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>()) {
+      for (const auto entity : *entities) {
+        if (!scene->IsEntityEnabled(entity))
+          continue;
+        const auto collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(entity).lock();
+        if (!collider || !collider->IsEnabled())
+          continue;
+        const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+        boxes.push_back({transform.GetPosition(), transform.GetRotation(),
+                         glm::max(glm::abs(collider->scale * transform.GetScale()), glm::vec3(0.001f))});
+      }
+    }
+    if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>()) {
+      for (const auto entity : *entities) {
+        if (!scene->IsEntityEnabled(entity))
+          continue;
+        const auto collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(entity).lock();
+        if (!collider || !collider->IsEnabled())
+          continue;
+        const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+        const auto scale = transform.GetScale();
+        spheres.push_back({transform.GetPosition(),
+                           glm::max(0.001f, collider->radius * glm::max(scale.x, glm::max(scale.y, scale.z)))});
+      }
+    }
+    if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>()) {
+      for (const auto entity : *entities) {
+        if (!scene->IsEntityEnabled(entity))
+          continue;
+        const auto collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(entity).lock();
+        if (!collider || !collider->IsEnabled())
+          continue;
+        const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+        const auto scale = transform.GetScale();
+        cylinders.push_back({transform.GetPosition(), transform.GetRotation(),
+                             glm::max(0.001f, collider->radius * glm::max(scale.x, scale.z)),
+                             glm::max(0.001f, collider->height * scale.y)});
+      }
+    }
+  }
   for (int step = 0; step < substeps; ++step) {
     const float anchor_fraction = static_cast<float>(step + 1) / substeps;
     const glm::quat anchor_rotation = glm::normalize(glm::slerp(previous_rotation_, model_rotation, anchor_fraction) *
@@ -184,6 +251,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
         continue;
       }
       physics_predicted_[i] = vertex.position + h * vertex.velocity + h * h * physics_settings.gravity;
+      vertex.position = physics_predicted_[i];
     }
     for (int iteration = 0; iteration < iterations; ++iteration) {
       for (int i = 0; i < physics_vertices_.size(); ++i) {
@@ -221,6 +289,8 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
         float total = stretch_weight;
         for (const int angle_index : physics_rod_angles_[i]) {
           const auto& angle = physics_angles_[angle_index];
+          if (angle.broken)
+            continue;
           const bool first = angle.first == i;
           const auto& other = physics_rods_[first ? angle.second : angle.first];
           const glm::quat target =
@@ -233,6 +303,85 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
         if (total > 0 && glm::length2(sum) > 1e-12f)
           rod.rotation = glm::normalize(glm::quat(sum.w, sum.x, sum.y, sum.z));
       }
+    }
+    if (physics_settings.fracture_enabled) {
+      for (auto& angle : physics_angles_) {
+        if (angle.broken)
+          continue;
+        const auto& parent = physics_rods_[angle.first];
+        const auto& child = physics_rods_[angle.second];
+        const float limit = physics_settings.FractureBendLimit(child.radius, 0.5f * (parent.length + child.length));
+        const glm::vec3 displacement = physics_vertices_[child.end].position - physics_vertices_[child.start].position;
+        if (glm::length2(displacement) < 1e-12f)
+          continue;
+        const glm::vec3 rest_direction = parent.rotation * angle.rest_relative * rod_axis;
+        const float bend_angle =
+            std::acos(glm::clamp(glm::dot(glm::normalize(displacement), rest_direction), -1.0f, 1.0f));
+        if (bend_angle <= limit) {
+          angle.over_limit_time = glm::max(0.0f, angle.over_limit_time - 0.01f * h);
+          continue;
+        }
+        angle.over_limit_time += h * glm::min(10.0f, bend_angle / glm::max(limit, 1e-4f));
+        if (angle.over_limit_time < glm::max(0.0f, physics_settings.fracture_duration))
+          continue;
+        const int old_start = child.start;
+        const int new_start = static_cast<int>(physics_vertices_.size());
+        PhysicsVertex separated = physics_vertices_[old_start];
+        const glm::vec3 previous_position = physics_previous_[old_start];
+        const glm::vec3 rest_position = physics_rest_positions_[old_start];
+        separated.pinned = false;
+        separated.fallen = true;
+        separated.radius = child.radius;
+        separated.inverse_mass = 2.0f / child.mass;
+        physics_vertices_.push_back(separated);
+        physics_predicted_.push_back(separated.position);
+        physics_previous_.push_back(previous_position);
+        physics_rest_positions_.push_back(rest_position);
+        auto& incident = physics_vertex_rods_[old_start];
+        incident.erase(std::remove(incident.begin(), incident.end(), angle.second), incident.end());
+        if (!physics_vertices_[old_start].pinned) {
+          float mass = 0;
+          float radius = 0;
+          for (const int index : incident) {
+            mass += 0.5f * physics_rods_[index].mass;
+            radius = glm::max(radius, physics_rods_[index].radius);
+          }
+          physics_vertices_[old_start].inverse_mass = 1.0f / glm::max(mass, 1e-6f);
+          physics_vertices_[old_start].radius = radius;
+        }
+        physics_vertex_rods_.push_back({angle.second});
+        auto& detached_rod = physics_rods_[angle.second];
+        detached_rod.start = new_start;
+        detached_rod.detached = true;
+        has_detached_branches_ = true;
+        angle.broken = true;
+        const auto& skeleton = tree.shoot_model.PeekShootSkeleton();
+        for (const auto handle : skeleton.PeekSortedNodeList()) {
+          const int index = physics_node_rods_[handle];
+          if (index < 0)
+            continue;
+          auto& rod = physics_rods_[index];
+          const int parent_handle = skeleton.PeekNode(handle).GetParentHandle();
+          if (index == angle.second || (parent_handle >= 0 && physics_node_rods_[parent_handle] >= 0 &&
+                                        physics_rods_[physics_node_rods_[parent_handle]].fallen))
+            rod.fallen = true;
+          if (rod.fallen) {
+            physics_vertices_[rod.start].fallen = true;
+            physics_vertices_[rod.end].fallen = true;
+          }
+        }
+      }
+    }
+    for (auto& vertex : physics_vertices_) {
+      if (vertex.pinned || !vertex.fallen)
+        continue;
+      for (const auto& box : boxes)
+        vertex.position = ProjectOutsideBox(vertex.position, box.center, box.rotation, box.half_extent, vertex.radius);
+      for (const auto& sphere : spheres)
+        vertex.position = ProjectOutsideSphere(vertex.position, sphere.center, sphere.radius, vertex.radius);
+      for (const auto& cylinder : cylinders)
+        vertex.position = ProjectOutsideCylinder(vertex.position, cylinder.center, cylinder.rotation, cylinder.radius,
+                                                 cylinder.half_height, vertex.radius);
     }
     for (int i = 0; i < physics_vertices_.size(); ++i) {
       auto& vertex = physics_vertices_[i];
@@ -273,6 +422,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
       continue;
     }
     const auto& rod = physics_rods_[rod_index];
+    current.detached = rod.detached;
     const glm::vec3 displacement = physics_vertices_[rod.end].position - physics_vertices_[rod.start].position;
     const glm::quat frame =
         glm::length2(displacement) > 1e-12f
@@ -280,7 +430,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
             : rod.rotation;
     const glm::quat local_frame = glm::normalize(inverse_rotation * frame);
     const glm::quat delta = glm::normalize(local_frame * glm::inverse(info.global_rotation * axis_to_shoot));
-    if (parent < 0)
+    if (parent < 0 || rod.detached)
       current.position = glm::vec3(inverse_model * glm::vec4(physics_vertices_[rod.start].position, 1.0f));
     else
       current.position = pose[parent].position + pose[parent].rotation * glm::vec3(0, 0, -1) * pose[parent].length +

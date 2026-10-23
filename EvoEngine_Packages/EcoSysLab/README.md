@@ -76,6 +76,17 @@ but EcoSysLab uses one rod per internode and its own solver. Existing saved comp
 **Reset physics settings to defaults** in the `DynamicTreeSkeleton` inspector to restore all default physics settings
 and reinitialize physics from the growth pose.
 
+Optional branch fracture disconnects a child internode from its parent after enough time above the bend limit. Exposure
+accumulates faster for stronger over-limit bending and decays slowly during recovery, so repeated shocks can break a
+branch. The reference angle is specified for a 1 m junction with a 0.05 m radius; each junction scales the limit by its
+length and radius.
+The detached subtree stays in the simulation and accelerates under gravity.
+Its transient pose makes procedural branch and foliage rendering follow the falling subtree, while the saved growth
+skeleton remains unchanged. Resetting physics restores the original connections. Detached branches collide with enabled
+`DsBoxCollider`, `DsSphereCollider`, and `DsCylinderCollider` scene volumes used by DynamicStrands. Fracture is disabled
+by default; enable it in `DynamicTreeSkeleton` and tune the reference angle and exposure for the tree. The collision uses
+rod endpoint radii against these volumes; generated CPU meshes do not follow the detached subtree.
+
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no
 physics velocity. Growth is held while physics is initialized. Roots and generated CPU meshes do not deform in this

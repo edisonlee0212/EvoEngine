@@ -70,7 +70,8 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
       packed.bark = {bark->bark_x_frequency, bark->bark_y_frequency, bark->bark_depth, bark->base_frequency};
       packed.bark_base = {bark->base_max_distance, bark->base_distance_decrease_factor, bark->base_depth, 0.0f};
     }
-    packed.links = {parent < 0 ? UINT32_MAX : packed_indices[parent], tree_index, UINT32_MAX, UINT32_MAX};
+    packed.links = {parent < 0 || (pose && pose->detached) ? UINT32_MAX : packed_indices[parent], tree_index,
+                    UINT32_MAX, UINT32_MAX};
     packed.foliage = {info.leaves, info.end_distance, info.thickness, 0.0f};
     const auto rotation = pose ? pose->rotation : info.global_rotation;
     packed.foliage_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};

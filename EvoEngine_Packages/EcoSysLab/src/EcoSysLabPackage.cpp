@@ -77,6 +77,9 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
   out << YAML::Key << "damping" << YAML::Value << p.damping;
   out << YAML::Key << "gravity" << YAML::Value << p.gravity;
   out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
+  out << YAML::Key << "fracture_enabled" << YAML::Value << p.fracture_enabled;
+  out << YAML::Key << "fracture_angle_degrees" << YAML::Value << p.fracture_angle_degrees;
+  out << YAML::Key << "fracture_duration" << YAML::Value << p.fracture_duration;
 }
 
 void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
@@ -99,6 +102,12 @@ void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& t
     p.gravity = in["gravity"].as<glm::vec3>();
   if (in["anchor_offset"])
     p.anchor_offset = in["anchor_offset"].as<glm::vec3>();
+  if (in["fracture_enabled"])
+    p.fracture_enabled = in["fracture_enabled"].as<bool>();
+  if (in["fracture_angle_degrees"])
+    p.fracture_angle_degrees = in["fracture_angle_degrees"].as<float>();
+  if (in["fracture_duration"])
+    p.fracture_duration = in["fracture_duration"].as<float>();
 }
 
 void SerializeDynamicStrandsDemo(YAML::Emitter&, const DynamicStrandsDemo&) {

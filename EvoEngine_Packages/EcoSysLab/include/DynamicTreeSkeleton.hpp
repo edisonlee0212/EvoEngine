@@ -16,6 +16,14 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     float damping = 0.0f;
     glm::vec3 gravity{0, -9.8f, 0};
     glm::vec3 anchor_offset{};
+    bool fracture_enabled = false;
+    float fracture_angle_degrees = 45.0f;
+    float fracture_duration = 0.05f;
+
+    [[nodiscard]] float FractureBendLimit(const float joint_radius, const float joint_length) const {
+      return glm::radians(glm::clamp(fracture_angle_degrees, 0.0f, 180.0f)) * 0.05f * joint_length /
+             glm::max(joint_radius, 1e-4f);
+    }
   } physics_settings;
 
   bool physics_running = false;
@@ -33,24 +41,32 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     glm::vec3 position{};
     glm::vec3 velocity{};
     float inverse_mass = 0;
+    float radius = 0;
     bool pinned = false;
+    bool fallen = false;
   };
   struct PhysicsRod {
     int start = -1;
     int end = -1;
     SkeletonNodeHandle node = -1;
     float length = 0;
+    float mass = 0;
+    float radius = 0;
     float structural_length_scale = 1;
     glm::quat rotation{1, 0, 0, 0};
     glm::quat rest_rotation{1, 0, 0, 0};
     glm::vec3 visual_offset{};
     bool pinned = false;
+    bool detached = false;
+    bool fallen = false;
   };
   struct PhysicsAngle {
     int first = -1;
     int second = -1;
     glm::quat rest_relative{1, 0, 0, 0};
     float bend_scale = 1;
+    float over_limit_time = 0;
+    bool broken = false;
   };
   std::vector<PhysicsVertex> physics_vertices_;
   std::vector<PhysicsRod> physics_rods_;
@@ -66,5 +82,6 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   glm::quat initial_rotation_{1, 0, 0, 0};
   glm::quat previous_rotation_{1, 0, 0, 0};
   uint64_t model_revision_ = 0;
+  bool has_detached_branches_ = false;
 };
 }  // namespace eco_sys_lab_package

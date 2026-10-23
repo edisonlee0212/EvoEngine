@@ -37,6 +37,11 @@ bool DynamicTreeSkeletonInspector::Inspect(InspectorContext&, DynamicTreeSkeleto
     changed |= ImGui::DragFloat("Physics damping", &physics.damping, 0.001f, 0.0f, 10.0f);
     changed |= ImGui::DragFloat3("Gravity", &physics.gravity.x, 0.1f);
     changed |= ImGui::DragFloat3("Anchor offset", &physics.anchor_offset.x, 0.01f);
+    changed |= ImGui::Checkbox("Enable branch fracture", &physics.fracture_enabled);
+    changed |=
+        ImGui::DragFloat("Reference fracture angle (degrees)", &physics.fracture_angle_degrees, 0.5f, 0.0f, 180.0f);
+    ImGui::TextDisabled("At 1 m length and 0.05 m radius; adjusted by each junction's length and radius.");
+    changed |= ImGui::DragFloat("Fracture exposure (seconds)", &physics.fracture_duration, 0.001f, 0.0f, 10.0f);
   } else {
     ImGui::TextUnformatted("Attach a Tree to this entity to simulate its shoot skeleton.");
   }

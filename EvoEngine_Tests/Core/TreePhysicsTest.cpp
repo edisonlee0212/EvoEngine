@@ -6,9 +6,11 @@
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
+#include "GpuTreeMeshData.hpp"
 #include "PrivateComponentRef.hpp"
 #include "Strands.hpp"
 #include "Tree.hpp"
+#include "TreePhysicsCollision.hpp"
 
 using namespace eco_sys_lab_package;
 
@@ -38,6 +40,37 @@ bool FinitePose(const ShootModel::PhysicsPose& pose) {
          std::isfinite(pose.length);
 }
 }  // namespace
+
+TEST(TreePhysics, BoxContactProjectsRodRadiusOutsideGround) {
+  const glm::quat rotation{1, 0, 0, 0};
+  const glm::vec3 half_extent{5, 0.5f, 5};
+  const glm::vec3 center{0, -0.5f, 0};
+  const auto projected = ProjectOutsideBox({0, -0.01f, 0}, center, rotation, half_extent, 0.05f);
+  EXPECT_NEAR(projected.y, 0.05f, 1e-6f);
+  EXPECT_EQ(ProjectOutsideBox({0, 1, 0}, center, rotation, half_extent, 0.05f), glm::vec3(0, 1, 0));
+  const glm::quat wall_rotation = glm::angleAxis(1.5707963f, glm::vec3(0, 0, 1));
+  const auto wall_contact = ProjectOutsideBox({-0.05f, 0, 0}, {}, wall_rotation, {0.5f, 0.1f, 1}, 0.05f);
+  EXPECT_NEAR(wall_contact.x, -0.15f, 1e-6f);
+}
+
+TEST(TreePhysics, SphereContactProjectsRodRadius) {
+  const glm::vec3 center{1, 2, 3};
+  EXPECT_EQ(ProjectOutsideSphere({1, 2, 3}, center, 0.5f, 0.1f), glm::vec3(1, 2.6f, 3));
+  EXPECT_NEAR(ProjectOutsideSphere({1.55f, 2, 3}, center, 0.5f, 0.1f).x, 1.6f, 1e-6f);
+  EXPECT_EQ(ProjectOutsideSphere({2, 2, 3}, center, 0.5f, 0.1f), glm::vec3(2, 2, 3));
+}
+
+TEST(TreePhysics, CylinderContactProjectsRodRadiusAtSideCapAndRim) {
+  const glm::quat rotation{1, 0, 0, 0};
+  EXPECT_NEAR(ProjectOutsideCylinder({0.95f, 0, 0}, {}, rotation, 1, 2, 0.1f).x, 1.1f, 1e-6f);
+  EXPECT_NEAR(ProjectOutsideCylinder({0, 1.95f, 0}, {}, rotation, 1, 2, 0.1f).y, 2.1f, 1e-6f);
+  EXPECT_NEAR(ProjectOutsideCylinder({0, 0, 0}, {}, rotation, 1, 2, 0.1f).z, 1.1f, 1e-6f);
+  const auto rim = ProjectOutsideCylinder({1.05f, 2.05f, 0}, {}, rotation, 1, 2, 0.1f);
+  EXPECT_NEAR(glm::length(rim - glm::vec3(1, 2, 0)), 0.1f, 1e-6f);
+  EXPECT_EQ(ProjectOutsideCylinder({1.2f, 2.2f, 0}, {}, rotation, 1, 2, 0.1f), glm::vec3(1.2f, 2.2f, 0));
+  const auto tilted = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0, 0, 1));
+  EXPECT_NEAR(ProjectOutsideCylinder({-1.95f, 0, 0}, {}, tilted, 1, 2, 0.1f).x, -2.1f, 1e-6f);
+}
 
 TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
   evo_engine::Application application;
@@ -71,6 +104,101 @@ TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
   physics.ResetPhysics(tree);
   EXPECT_FALSE(physics.HasPhysics(tree));
   EXPECT_NEAR(glm::length(tree.shoot_model.PeekPhysicsPose()[1].position - rest[1].position), 0.0f, 1e-6f);
+}
+
+TEST(TreePhysics, SustainedBendDetachesAndDropsBranchWithoutChangingGrowthSkeleton) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  DynamicTreeSkeleton physics;
+  tree.shoot_model.Initialize(MakeFork());
+  ASSERT_TRUE(physics.InitializePhysics(tree));
+  physics.physics_settings.stretch_stiffness = 100.0f;
+  physics.physics_settings.bend_stiffness = 5.0f;
+  physics.physics_settings.fracture_enabled = true;
+  physics.physics_settings.fracture_angle_degrees = 1.0f;
+  physics.physics_settings.fracture_duration = 0.04f;
+  physics.physics_running = true;
+  physics.StepPhysics(tree);
+  EXPECT_FALSE(tree.shoot_model.PeekPhysicsPose()[1].detached);
+  for (int i = 0; i < 120; ++i)
+    physics.StepPhysics(tree);
+  const auto& pose = tree.shoot_model.PeekPhysicsPose();
+  ASSERT_TRUE(pose[1].detached || pose[2].detached);
+  const int broken = pose[1].detached ? 1 : 2;
+  const auto junction = pose[0].position + pose[0].rotation * glm::vec3(0, 0, -1) * pose[0].length;
+  EXPECT_GT(glm::length(pose[broken].position - junction), 0.1f);
+  EXPECT_EQ(tree.shoot_model.PeekShootSkeleton().PeekNode(broken).GetParentHandle(), 0);
+  std::vector<GpuTreeNode> packed;
+  AppendGpuTreeNodes(tree.shoot_model.PeekShootSkeleton(), TreeMeshGeneratorSettings{}, nullptr, 0, true, packed,
+                     &pose);
+  EXPECT_EQ(packed[broken].links.x, UINT32_MAX);
+  physics.ResetPhysics(tree);
+  EXPECT_FALSE(tree.shoot_model.PeekPhysicsPose()[broken].detached);
+}
+
+TEST(TreePhysics, ThickJunctionNeedsLessAngularDeflectionForTheSameBendStrain) {
+  DynamicTreeSkeleton::PhysicsSettings settings;
+  const float reference = settings.FractureBendLimit(0.05f, 1.0f);
+  EXPECT_NEAR(reference, glm::radians(settings.fracture_angle_degrees), 1e-6f);
+  EXPECT_LT(settings.FractureBendLimit(0.2f, 1.0f), reference);
+  EXPECT_GT(settings.FractureBendLimit(0.01f, 1.0f), reference);
+  EXPECT_LT(settings.FractureBendLimit(0.05f, 0.5f), reference);
+}
+
+TEST(TreePhysics, StrongShakeCanDetachThickBranch) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  DynamicTreeSkeleton physics;
+  auto skeleton = MakeFork();
+  skeleton.RefNode(0).info.thickness = 0.25f;
+  skeleton.RefNode(1).info.thickness = 0.15f;
+  skeleton.RefNode(2).info.thickness = 0.01f;
+  tree.shoot_model.Initialize(skeleton);
+  evo_engine::GlobalTransform model;
+  ASSERT_TRUE(physics.InitializePhysics(tree, model));
+  physics.physics_settings.gravity = {};
+  physics.physics_settings.fracture_enabled = true;
+  physics.physics_running = true;
+  for (int i = 0; i < 180 && !tree.shoot_model.PeekPhysicsPose()[1].detached; ++i) {
+    model.SetValue({}, glm::angleAxis(i % 40 < 20 ? 2.0f : -2.0f, glm::vec3(0, 0, 1)), {1, 1, 1});
+    physics.StepPhysics(tree, model);
+  }
+  EXPECT_TRUE(tree.shoot_model.PeekPhysicsPose()[1].detached);
+}
+
+TEST(TreePhysics, DetachedBranchAcceleratesUnderGravity) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  DynamicTreeSkeleton physics;
+  tree.shoot_model.Initialize(MakeFork());
+  ASSERT_TRUE(physics.InitializePhysics(tree));
+  physics.physics_settings.stretch_stiffness = 100.0f;
+  physics.physics_settings.bend_stiffness = 5.0f;
+  physics.physics_settings.fracture_enabled = true;
+  physics.physics_settings.fracture_angle_degrees = 0;
+  physics.physics_settings.fracture_duration = 0;
+  physics.physics_running = true;
+  int broken = -1;
+  for (int i = 0; i < 120 && broken < 0; ++i) {
+    physics.StepPhysics(tree);
+    const auto& pose = tree.shoot_model.PeekPhysicsPose();
+    broken = pose[1].detached ? 1 : pose[2].detached ? 2 : -1;
+  }
+  ASSERT_GE(broken, 0);
+  physics.physics_settings.stretch_stiffness = 8192.0f;
+  physics.physics_settings.bend_stiffness = 512.0f;
+  const float y0 = tree.shoot_model.PeekPhysicsPose()[broken].position.y;
+  for (int i = 0; i < 20; ++i)
+    physics.StepPhysics(tree);
+  const float y1 = tree.shoot_model.PeekPhysicsPose()[broken].position.y;
+  for (int i = 0; i < 20; ++i)
+    physics.StepPhysics(tree);
+  const float y2 = tree.shoot_model.PeekPhysicsPose()[broken].position.y;
+  EXPECT_LT(y1, y0);
+  EXPECT_LT(y2 - y1, y1 - y0 - 0.5f);
 }
 
 TEST(TreePhysics, MultilevelTreeRemainsFiniteUnderGravityAndMovingAnchor) {
@@ -333,6 +461,9 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   source.physics_settings.bend_stiffness = 120.0f;
   source.physics_settings.gravity = {1, -2, 3};
   source.physics_settings.anchor_offset = {0.1f, 0.2f, 0.3f};
+  source.physics_settings.fracture_enabled = true;
+  source.physics_settings.fracture_angle_degrees = 30.0f;
+  source.physics_settings.fracture_duration = 0.2f;
   source.physics_running = true;
   YAML::Emitter out;
   out << YAML::BeginMap;
@@ -345,5 +476,8 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 120.0f);
   EXPECT_EQ(loaded.physics_settings.gravity, glm::vec3(1, -2, 3));
   EXPECT_EQ(loaded.physics_settings.anchor_offset, glm::vec3(0.1f, 0.2f, 0.3f));
+  EXPECT_TRUE(loaded.physics_settings.fracture_enabled);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.fracture_angle_degrees, 30.0f);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.fracture_duration, 0.2f);
   EXPECT_FALSE(loaded.physics_running);
 }
