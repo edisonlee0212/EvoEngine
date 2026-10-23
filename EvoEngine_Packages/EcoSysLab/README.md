@@ -86,7 +86,8 @@ skeleton remains unchanged. Resetting physics restores the original connections.
 `DsBoxCollider`, `DsSphereCollider`, and `DsCylinderCollider` scene volumes used by DynamicStrands. Fracture is disabled
 by default; enable it in `DynamicTreeSkeleton` and tune the reference angle and exposure for the tree. Fallen rods sample
 their centerlines against these volumes using their radii, including interior points. Contact corrections are shared by the
-rod's endpoints and solved with its length and rotation constraints; contact friction limits sliding. The solver does not
+rod's endpoints and solved with its length and rotation constraints; contact friction also slows supported endpoints after
+penetration is resolved, limiting persistent sliding. The solver does not
 model full rigid-body angular inertia or continuous collision detection. When one end rests on a collider, a uniform-rod
 pivot approximation carries angular velocity forward and applies gravity torque, so the free end accelerates as it falls.
 Generated CPU meshes do not follow detached subtrees.

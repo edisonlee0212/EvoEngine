@@ -108,6 +108,16 @@ TEST(TreePhysics, ContactFrictionOpposesLateralSlip) {
   EXPECT_NEAR(glm::mix(start, end, 0.5f).y, 0.3f, 1e-5f);
 }
 
+TEST(TreePhysics, SupportedContactFrictionStopsSlidingWithoutPenetration) {
+  const glm::vec3 normal{0, 1, 0};
+  const glm::vec3 gravity{0, -10, 0};
+  glm::vec3 velocity{0.05f, 0, 0};
+  velocity = ApplySupportFriction(velocity, normal, gravity, 0.01f, 0.5f);
+  EXPECT_NEAR(velocity.x, 0, 1e-6f);
+  EXPECT_EQ(ApplySupportFriction({1, 0, 0}, normal, gravity, 0.01f, 0), glm::vec3(1, 0, 0));
+  EXPECT_EQ(ApplySupportFriction({1, 0, 0}, normal, {0, 0, 0}, 0.01f, 0.5f), glm::vec3(1, 0, 0));
+}
+
 TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
   evo_engine::Application application;
   evo_engine::ApplicationContextScope scope(application);
@@ -379,6 +389,11 @@ TEST(TreePhysics, NearlyUprightFallenBranchAcceleratesAroundGroundedTip) {
   EXPECT_TRUE(FinitePose(settled));
   EXPECT_NEAR(settled.position.y, 0.15f, 0.05f);
   EXPECT_NEAR(settled_tip.y, 0.15f, 0.05f);
+  const glm::vec3 resting_position = settled.position;
+  for (int i = 0; i < 120; ++i)
+    physics.StepPhysics(*tree);
+  const glm::vec3 later_position = tree->shoot_model.PeekPhysicsPose()[1].position;
+  EXPECT_LT(glm::length(glm::vec2(later_position.x - resting_position.x, later_position.z - resting_position.z)), 0.1f);
 }
 
 TEST(TreePhysics, MultilevelTreeRemainsFiniteUnderGravityAndMovingAnchor) {

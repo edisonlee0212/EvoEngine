@@ -236,6 +236,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
     }
   }
   std::vector<bool> supported(physics_vertices_.size());
+  std::vector<glm::vec3> support_normals(physics_vertices_.size(), glm::vec3(0));
   struct PivotVelocity {
     int pivot;
     int free;
@@ -246,6 +247,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
     if (boxes.empty() && spheres.empty() && cylinders.empty())
       return false;
     supported.resize(physics_vertices_.size());
+    support_normals.resize(physics_vertices_.size(), glm::vec3(0));
     bool contacted = false;
     for (const auto& rod : physics_rods_) {
       if (!rod.fallen)
@@ -267,6 +269,9 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
           const glm::vec3 projected = project(point);
           const glm::vec3 previous = glm::mix(physics_previous_[rod.start], physics_previous_[rod.end], t);
           if (glm::dot(projected - point, -physics_settings.gravity) > 1e-6f) {
+            const glm::vec3 normal = glm::normalize(projected - point);
+            support_normals[rod.start] += (1.0f - t) * normal;
+            support_normals[rod.end] += t * normal;
             if (t == 0.0f)
               supported[rod.start] = true;
             else if (t == 1.0f)
@@ -321,6 +326,7 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
   };
   for (int step = 0; step < substeps; ++step) {
     supported.assign(physics_vertices_.size(), false);
+    support_normals.assign(physics_vertices_.size(), glm::vec3(0));
     pivot_velocities.clear();
     const float anchor_fraction = static_cast<float>(step + 1) / substeps;
     const glm::quat anchor_rotation = glm::normalize(glm::slerp(previous_rotation_, model_rotation, anchor_fraction) *
@@ -500,6 +506,9 @@ void DynamicTreeSkeleton::StepPhysics(Tree& tree, const GlobalTransform& model) 
       if (!vertex.pinned)
         vertex.velocity = (vertex.position - physics_previous_[i]) / h;
       vertex.velocity *= glm::max(0.0f, 1.0f - physics_settings.damping * h);
+      if (glm::length2(support_normals[i]) > 1e-12f)
+        vertex.velocity = ApplySupportFriction(vertex.velocity, glm::normalize(support_normals[i]),
+                                               physics_settings.gravity, h, physics_settings.contact_friction);
       if (!Finite(vertex.position) || !Finite(vertex.velocity)) {
         ResetPhysics(tree);
         return;

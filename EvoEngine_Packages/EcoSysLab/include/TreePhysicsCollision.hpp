@@ -80,4 +80,14 @@ inline bool SolveRodContact(glm::vec3& start, glm::vec3& end, const float start_
   end += end_weight * correction;
   return true;
 }
+
+inline glm::vec3 ApplySupportFriction(const glm::vec3& velocity, const glm::vec3& normal, const glm::vec3& gravity,
+                                      const float time_step, const float friction) {
+  const glm::vec3 tangent = velocity - glm::dot(velocity, normal) * normal;
+  const float speed = glm::length(tangent);
+  if (speed < 1e-6f)
+    return velocity;
+  const float reduction = glm::max(0.0f, friction) * glm::max(0.0f, glm::dot(-gravity, normal)) * time_step;
+  return velocity - tangent * glm::min(1.0f, reduction / speed);
+}
 }  // namespace eco_sys_lab_package
