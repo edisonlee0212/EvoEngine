@@ -8,6 +8,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "Blower.hpp"
 #include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -44,6 +45,24 @@ using namespace eco_sys_lab_package;
 using namespace evo_engine;
 
 namespace eco_sys_lab_package {
+void SerializeBlower(YAML::Emitter& out, const Blower& target) {
+  out << YAML::Key << "speed" << YAML::Value << target.speed;
+  out << YAML::Key << "particle_rate" << YAML::Value << target.particle_rate;
+  out << YAML::Key << "spread_degrees" << YAML::Value << target.spread_degrees;
+  out << YAML::Key << "seed" << YAML::Value << target.seed;
+}
+
+void DeserializeBlower(const YAML::Node& in, Blower& target) {
+  if (in["speed"])
+    target.speed = in["speed"].as<float>();
+  if (in["particle_rate"])
+    target.particle_rate = in["particle_rate"].as<float>();
+  if (in["spread_degrees"])
+    target.spread_degrees = in["spread_degrees"].as<float>();
+  if (in["seed"])
+    target.seed = in["seed"].as<uint32_t>();
+}
+
 void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target) {
   target.material_ref.Save("material_ref", out);
 }
@@ -68,6 +87,7 @@ void DeserializeSpatialPlantDistributionSimulator(const YAML::Node&, SpatialPlan
 
 void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton& target) {
   const auto& p = target.physics_settings;
+  out << YAML::Key << "gpu_physics_enabled" << YAML::Value << target.gpu_physics_enabled;
   out << YAML::Key << "time_step" << YAML::Value << p.time_step;
   out << YAML::Key << "substeps" << YAML::Value << p.substeps;
   out << YAML::Key << "iterations" << YAML::Value << p.iterations;
@@ -75,14 +95,18 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
   out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
   out << YAML::Key << "density" << YAML::Value << p.density;
   out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "contact_friction" << YAML::Value << p.contact_friction;
   out << YAML::Key << "gravity" << YAML::Value << p.gravity;
-  out << YAML::Key << "tip_force" << YAML::Value << p.tip_force;
-  out << YAML::Key << "force_node" << YAML::Value << p.force_node;
   out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
+  out << YAML::Key << "fracture_enabled" << YAML::Value << p.fracture_enabled;
+  out << YAML::Key << "fracture_angle_degrees" << YAML::Value << p.fracture_angle_degrees;
+  out << YAML::Key << "fracture_duration" << YAML::Value << p.fracture_duration;
 }
 
 void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
   auto& p = target.physics_settings;
+  if (in["gpu_physics_enabled"])
+    target.gpu_physics_enabled = in["gpu_physics_enabled"].as<bool>();
   if (in["time_step"])
     p.time_step = in["time_step"].as<float>();
   if (in["substeps"])
@@ -97,14 +121,19 @@ void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& t
     p.density = in["density"].as<float>();
   if (in["damping"])
     p.damping = in["damping"].as<float>();
+  if (in["contact_friction"])
+    p.contact_friction = in["contact_friction"].as<float>();
   if (in["gravity"])
     p.gravity = in["gravity"].as<glm::vec3>();
-  if (in["tip_force"])
-    p.tip_force = in["tip_force"].as<glm::vec3>();
-  if (in["force_node"])
-    p.force_node = in["force_node"].as<int>();
   if (in["anchor_offset"])
     p.anchor_offset = in["anchor_offset"].as<glm::vec3>();
+  if (in["fracture_enabled"])
+    p.fracture_enabled = in["fracture_enabled"].as<bool>();
+  if (in["fracture_angle_degrees"])
+    p.fracture_angle_degrees = in["fracture_angle_degrees"].as<float>();
+  if (in["fracture_duration"])
+    p.fracture_duration = in["fracture_duration"].as<float>();
+  target.RequestGpuPoseInitialization();
 }
 
 void SerializeDynamicStrandsDemo(YAML::Emitter&, const DynamicStrandsDemo&) {
@@ -138,6 +167,7 @@ PackageDescriptor descriptor{
     EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
+  Serialization::RegisterSerializationHandler<Blower>(SerializeBlower, DeserializeBlower, owner_name, "Blower");
   Serialization::RegisterSerializationHandler<TreeStructor>(SerializeTreeStructor, DeserializeTreeStructor, owner_name,
                                                             "TreeStructor");
   Serialization::RegisterSerializationHandler<Climate>(SerializeClimate, DeserializeClimate, owner_name, "Climate");
@@ -229,6 +259,7 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterPrivateComponent<Climate>("Climate") &&
       registrar->RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator") &&
       registrar->RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton") &&
+      registrar->RegisterPrivateComponent<Blower>("Blower") &&
       registrar->RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo") &&
       registrar->RegisterPrivateComponent<Tree>("Tree") &&
       registrar->RegisterPrivateComponent<BranchRenderer>("BranchRenderer") &&

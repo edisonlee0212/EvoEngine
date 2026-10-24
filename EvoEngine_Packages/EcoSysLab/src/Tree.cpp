@@ -137,10 +137,9 @@ void Tree::BuildStrandModel() {
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                    const bool pruning) {
   const auto scene = GetScene();
+  std::shared_ptr<DynamicTreeSkeleton> physics;
   if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(GetOwner())) {
-    const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(GetOwner()).lock();
-    if (physics && physics->HasPhysics(*this))
-      return false;
+    physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(GetOwner()).lock();
   }
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
 
@@ -161,6 +160,8 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
     EVOENGINE_ERROR("No climate model!")
     return false;
   }
+  if (physics && physics->HasPhysics(*this))
+    physics->ResetPhysics(*this);
   bool shoot_grown = false;
   bool root_grown = false;
   try {
@@ -264,6 +265,11 @@ void eco_sys_lab_package::DeserializeTree(const YAML::Node& in, Tree& target) {
 
   target.shoot_strand_model.Load("shoot_strand_model", in);
   target.shoot_model.Load("shoot_model", in);
+  if (const auto scene = target.GetScene();
+      scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(target.GetOwner())) {
+    if (const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(target.GetOwner()).lock())
+      physics->RequestGpuPoseInitialization();
+  }
 }
 
 void Tree::RegisterVoxel() {

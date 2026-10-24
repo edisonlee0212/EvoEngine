@@ -80,7 +80,7 @@ void main(in payload FoliageTaskPayload task, uint3 group_id : SV_GroupID, uint 
   right = dot(right, right) > 1e-8 ? normalize(right) : radial0;
   up = normalize(cross(right, front));
   float stem = params.distributions.x + params.distributions.y * LeafGaussian(seed + 7u);
-  float2 size = params.size_count.xy * params.size_count.z * 0.1;
+  float2 size = params.size_count.xy;
   center += front * (size.y + stem * 0.1);
   uint corner_index = lane & 3u;
   float2 corner = float2(corner_index & 1u, (corner_index >> 1u) & 1u);

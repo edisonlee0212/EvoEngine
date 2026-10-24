@@ -195,7 +195,8 @@ endif()
 
 if(TARGET EcoSysLabPackage)
 	add_executable(EcoSysLab_Tests Core/DynamicStrandsBundleTest.cpp Core/TreeModelRevisionTest.cpp
-		Core/TreeSkeletonMeshingTest.cpp Core/TreePhysicsTest.cpp)
+		Core/TreeSkeletonMeshingTest.cpp Core/TreePhysicsTest.cpp Core/GpuTreePhysicsTest.cpp
+		Core/ForestInstantiationTest.cpp)
 	target_link_libraries(EcoSysLab_Tests PRIVATE EcoSysLabPackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
 	target_compile_definitions(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
 	target_precompile_headers(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_PCH})

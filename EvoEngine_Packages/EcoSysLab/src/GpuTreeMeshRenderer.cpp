@@ -6,6 +6,7 @@
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "FoliageRenderer.hpp"
+#include "GpuTreePhysics.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Material.hpp"
 #include "Platform/Platform.hpp"
@@ -28,6 +29,51 @@ struct TreeMeshPushConstant {
   uint32_t padding0 = 0;
   uint32_t geometry_pass = 0;
 };
+
+struct DeformPushConstant {
+  uint32_t node_base = 0;
+  uint32_t node_count = 0;
+  uint32_t node_rods_base = 0;
+  uint32_t padding = 0;
+  glm::vec4 model_position{};
+  glm::vec4 model_scale{};
+  glm::vec4 inverse_rotation{};
+};
+static_assert(sizeof(DeformPushConstant) == 64);
+
+struct DeformTree {
+  uint32_t base;
+  uint32_t count;
+  uint32_t node_rods_base;
+  glm::vec4 position;
+  glm::vec4 scale;
+  glm::vec4 inverse_rotation;
+  std::shared_ptr<GpuTreePhysics> physics;
+};
+
+std::array<float, 18> PackParameters(const TreeMeshGeneratorSettings& settings, const BasicBarkDescriptor* bark) {
+  std::array<float, 18> values = {settings.trunk_thickness,
+                                  settings.x_subdivision,
+                                  settings.trunk_y_subdivision,
+                                  settings.branch_y_subdivision,
+                                  settings.radius_multiplier,
+                                  settings.radius,
+                                  settings.base_control_point_ratio,
+                                  settings.branch_control_point_ratio,
+                                  settings.override_radius ? 1.0f : 0.0f,
+                                  settings.smoothness ? 1.0f : 0.0f};
+  if (bark) {
+    values[10] = 1.0f;
+    values[11] = bark->bark_x_frequency;
+    values[12] = bark->bark_y_frequency;
+    values[13] = bark->bark_depth;
+    values[14] = bark->base_frequency;
+    values[15] = bark->base_max_distance;
+    values[16] = bark->base_distance_decrease_factor;
+    values[17] = bark->base_depth;
+  }
+  return values;
+}
 
 std::shared_ptr<GraphicsPipeline> MakePipeline(const std::shared_ptr<Shader>& task, const std::shared_ptr<Shader>& mesh,
                                                bool shadow, const std::shared_ptr<DescriptorSetLayout>& layout,
@@ -71,6 +117,17 @@ void GpuTreeMeshRenderer::Initialize() {
   layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                  VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
   layout_->Initialize();
+  deform_layout_ = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i = 0; i < 5; ++i)
+    deform_layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  deform_layout_->Initialize();
+  deform_pipeline_ = std::make_shared<ComputePipeline>();
+  deform_pipeline_->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              "./EcoSysLabResources/Shaders/Compute/DeformTreeNodes.slang");
+  deform_pipeline_->descriptor_set_layouts = {deform_layout_};
+  deform_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPushConstant)});
+  deform_pipeline_->Initialize();
   VkBufferCreateInfo buffer_info{};
   buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
   buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
@@ -85,6 +142,9 @@ void GpuTreeMeshRenderer::Initialize() {
   instance_allocation_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
   for (uint32_t i = 0; i < Platform::GetMaxFramesInFlight(); ++i) {
     node_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, allocation_info));
+    rest_node_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, allocation_info));
+    cached_nodes_.emplace_back();
+    cached_deform_ranges_.emplace_back();
     buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     buffer_info.size = sizeof(GpuTreeInstanceIndices);
     instance_index_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, instance_allocation_info));
@@ -94,6 +154,7 @@ void GpuTreeMeshRenderer::Initialize() {
     buffer_info.size = sizeof(GpuTreeNode);
     descriptor_sets_.emplace_back(std::make_shared<DescriptorSet>(layout_));
     tree_handles_.emplace_back();
+    deform_descriptor_sets_.emplace_back();
     instance_indices_ready_.push_back(false);
   }
   const auto task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
@@ -130,18 +191,25 @@ void GpuTreeMeshRenderer::Initialize() {
 
 bool GpuTreeMeshRenderer::Prepare() {
   Initialize();
-  return camera_pipeline_ && camera_pipeline_->Initialized() && shadow_pipeline_ && shadow_pipeline_->Initialized() &&
-         foliage_opaque_pipeline_ && foliage_opaque_pipeline_->Initialized() && foliage_masked_pipeline_ &&
+  return deform_pipeline_ && deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() &&
+         shadow_pipeline_ && shadow_pipeline_->Initialized() && foliage_opaque_pipeline_ &&
+         foliage_opaque_pipeline_->Initialized() && foliage_masked_pipeline_ &&
          foliage_masked_pipeline_->Initialized() && foliage_opaque_shadow_pipeline_ &&
          foliage_opaque_shadow_pipeline_->Initialized() && foliage_masked_shadow_pipeline_ &&
          foliage_masked_shadow_pipeline_->Initialized();
 }
 
 void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
+  if (cached_scene_.lock() != scene) {
+    tree_node_cache_.clear();
+    cached_scene_ = scene;
+  }
   const auto branch_entities = scene->UnsafeGetPrivateComponentOwnersList<BranchRenderer>();
   const auto foliage_entities = scene->UnsafeGetPrivateComponentOwnersList<FoliageRenderer>();
-  if ((!branch_entities || branch_entities->empty()) && (!foliage_entities || foliage_entities->empty()))
+  if ((!branch_entities || branch_entities->empty()) && (!foliage_entities || foliage_entities->empty())) {
+    tree_node_cache_.clear();
     return;
+  }
   if (!Prepare())
     return;
   std::unordered_set<Entity, Entity> tree_entities;
@@ -159,6 +227,9 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
   const auto frame = Platform::GetCurrentFrameIndex();
   auto& handles = tree_handles_[frame];
   handles.clear();
+  auto& deform_sets = deform_descriptor_sets_[frame];
+  deform_sets.clear();
+  std::vector<DeformTree> deform_trees;
   instance_indices_ready_[frame] = false;
   auto scene_bound = scene->GetBound();
   for (const auto& entity : tree_entities) {
@@ -180,8 +251,6 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     const auto& settings = tree->tree_mesh_generator_settings;
     const auto& shoots = tree->shoot_model.PeekShootSkeleton();
     const auto& roots = tree->root_model.PeekRootSkeleton();
-    if (shoots.PeekSortedNodeList().empty() && (!branch_enabled || roots.PeekSortedNodeList().empty()))
-      continue;
     std::shared_ptr<BasicBarkDescriptor> bark;
     std::shared_ptr<BasicFoliageDescriptor> foliage_descriptor;
     if (const auto descriptor = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
@@ -225,29 +294,51 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
                              ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
                              : nullptr;
-    const auto* physics_pose =
-        physics && physics->IsEnabled() && physics->HasPhysics(*tree) ? &tree->shoot_model.PeekPhysicsPose() : nullptr;
-    if (!shoots.PeekSortedNodeList().empty())
+    const auto gpu_physics =
+        physics && physics->IsEnabled() && physics->gpu_physics_enabled ? physics->GetGpuPhysics() : nullptr;
+    const auto* physics_pose = physics && physics->IsEnabled() && !gpu_physics && physics->HasPhysics(*tree)
+                                   ? &tree->shoot_model.PeekPhysicsPose()
+                                   : nullptr;
+    auto& cache = tree_node_cache_[entity];
+    const auto parameters = PackParameters(settings, bark.get());
+    if (cache.tree.lock() != tree || cache.parameters != parameters) {
+      cache = {};
+      cache.tree = tree;
+      cache.parameters = parameters;
+    }
+    if (physics_pose) {
       AppendGpuTreeNodes(shoots, settings, bark.get(), tree_index, true, nodes, physics_pose);
-    if (tree_handles.has_branch && !roots.PeekSortedNodeList().empty())
-      AppendGpuTreeNodes(roots, settings, bark.get(), tree_index, false, nodes);
+    } else {
+      if (cache.shoot_revision != tree->GetShootModelRevision().content) {
+        std::vector<GpuTreeNode> packed;
+        AppendGpuTreeNodes(shoots, settings, bark.get(), 0, true, packed);
+        cache.shoots = std::move(packed);
+        cache.shoot_revision = tree->GetShootModelRevision().content;
+      }
+      AppendPackedGpuTreeNodes(cache.shoots, tree_index, nodes);
+    }
+    if (gpu_physics && nodes.size() > base) {
+      const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+      const auto rotation = glm::inverse(transform.GetRotation());
+      deform_trees.push_back({static_cast<uint32_t>(base), static_cast<uint32_t>(nodes.size() - base),
+                              gpu_physics->GetTreeRange(physics->GetGpuTreeIndex()).node_rod_base,
+                              glm::vec4(transform.GetPosition(), 0.0f), glm::vec4(transform.GetScale(), 0.0f),
+                              glm::vec4(rotation.x, rotation.y, rotation.z, rotation.w), gpu_physics});
+    }
+    if (tree_handles.has_branch) {
+      if (cache.root_revision != tree->GetRootModelRevision().content) {
+        std::vector<GpuTreeNode> packed;
+        AppendGpuTreeNodes(roots, settings, bark.get(), 0, false, packed);
+        cache.roots = std::move(packed);
+        cache.root_revision = tree->GetRootModelRevision().content;
+      }
+      AppendPackedGpuTreeNodes(cache.roots, tree_index, nodes);
+    }
     handles.push_back(tree_handles);
     const BasicFoliageDescriptor fallback_descriptor;
     const auto& foliage = foliage_descriptor ? *foliage_descriptor : fallback_descriptor;
-    float tree_size = glm::length(shoots.max - shoots.min);
-    if (physics_pose && !shoots.PeekSortedNodeList().empty()) {
-      glm::vec3 minimum = glm::vec3(nodes[base].position_thickness);
-      glm::vec3 maximum = minimum;
-      for (size_t i = base; i < base + shoots.PeekSortedNodeList().size(); ++i) {
-        const glm::vec3 start = glm::vec3(nodes[i].position_thickness);
-        const glm::vec3 end = start + glm::vec3(nodes[i].direction_length) * nodes[i].direction_length.w;
-        minimum = glm::min(minimum, glm::min(start, end));
-        maximum = glm::max(maximum, glm::max(start, end));
-      }
-      tree_size = glm::length(maximum - minimum);
-    }
     GpuTreeFoliageParams params{};
-    params.size_count = {foliage.leaf_size.x, foliage.leaf_size.y, tree_size, static_cast<float>(foliage.leaf_count)};
+    params.size_count = {foliage.leaf_size.x, foliage.leaf_size.y, 0.0f, static_cast<float>(foliage.leaf_count)};
     params.filters = {foliage.max_node_thickness, foliage.min_root_distance, foliage.max_end_distance,
                       foliage.rotation_variance};
     params.distributions = {foliage.stem_length.mean, foliage.stem_length.deviation, foliage.branching_angle.mean,
@@ -274,19 +365,40 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
                                                         1.0f));
       const glm::vec3 padding(
           (node.position_thickness.w +
-           (tree_handles.has_foliage ? glm::max(params.size_count.x, params.size_count.y) * tree_size * 0.1f : 0.0f)) *
+           (tree_handles.has_foliage ? 2.0f * glm::max(params.size_count.x, params.size_count.y) : 0.0f)) *
           max_scale);
       scene_bound.min = glm::min(scene_bound.min, glm::min(start, end) - padding);
       scene_bound.max = glm::max(scene_bound.max, glm::max(start, end) + padding);
     }
+  }
+  for (auto it = tree_node_cache_.begin(); it != tree_node_cache_.end();) {
+    if (tree_entities.find(it->first) != tree_entities.end())
+      ++it;
+    else
+      it = tree_node_cache_.erase(it);
   }
   scene->SetBound(scene_bound);
   node_count_ = static_cast<uint32_t>(nodes.size());
   if (!node_count_)
     return;
   BufferUploadBatch upload;
-  upload.AddVector(node_buffers_[frame], nodes,
-                   {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+  auto& cached = cached_nodes_[frame];
+  std::vector<std::pair<uint32_t, uint32_t>> deform_ranges;
+  for (const auto& tree : deform_trees)
+    deform_ranges.emplace_back(tree.base, tree.count);
+  if (cached_deform_ranges_[frame] != deform_ranges || cached.size() != nodes.size() ||
+      std::memcmp(cached.data(), nodes.data(), nodes.size() * sizeof(GpuTreeNode))) {
+    upload.AddVector(node_buffers_[frame], nodes,
+                     {deform_trees.empty() ? BufferUploadUsage::StorageRead : BufferUploadUsage::StorageReadWrite,
+                      BufferUploadCapacityPolicy::GrowIfNeeded});
+    upload.AddVector(rest_node_buffers_[frame], nodes,
+                     {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+    cached = nodes;
+    cached_deform_ranges_[frame] = std::move(deform_ranges);
+  } else if (!node_cache_reported_ && !deform_trees.empty()) {
+    node_cache_reported_ = true;
+    EVOENGINE_LOG("GPU tree rest-node upload cache reused a frame buffer.")
+  }
   upload.AddVector(foliage_params_buffers_[frame], foliage_params,
                    {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
   upload.Record(upload_arena_);
@@ -295,6 +407,28 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       std::max(sizeof(GpuTreeInstanceIndices), handles.size() * sizeof(GpuTreeInstanceIndices)));
   descriptor_sets_[frame]->UpdateBufferDescriptorBinding(1, instance_index_buffers_[frame], 0);
   descriptor_sets_[frame]->UpdateBufferDescriptorBinding(2, foliage_params_buffers_[frame], 0);
+  for (const auto& tree : deform_trees) {
+    auto set = std::make_shared<DescriptorSet>(deform_layout_);
+    set->UpdateBufferDescriptorBinding(0, node_buffers_[frame]);
+    set->UpdateBufferDescriptorBinding(1, tree.physics->GetVertexBuffer());
+    set->UpdateBufferDescriptorBinding(2, tree.physics->GetRodBuffer());
+    set->UpdateBufferDescriptorBinding(3, tree.physics->GetNodeRodBuffer());
+    set->UpdateBufferDescriptorBinding(4, rest_node_buffers_[frame]);
+    deform_sets.push_back(set);
+  }
+  if (!deform_trees.empty())
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      deform_pipeline_->Bind(command);
+      for (size_t i = 0; i < deform_trees.size(); ++i) {
+        const auto& tree = deform_trees[i];
+        deform_pipeline_->BindDescriptorSet(command, 0, deform_sets[i]->GetVkDescriptorSet());
+        deform_pipeline_->PushConstant(command, 0,
+                                       DeformPushConstant{tree.base, tree.count, tree.node_rods_base, 0, tree.position,
+                                                          tree.scale, tree.inverse_rotation});
+        deform_pipeline_->Dispatch(command, (tree.count + 63) / 64, 1, 1);
+      }
+      Platform::EverythingBarrier(command);
+    });
   const auto self = shared_from_this();
   if (any_branch)
     render_layer->RawOpaqueRenderingAllCameras([self](VkCommandBuffer command_buffer, const auto& attachments,

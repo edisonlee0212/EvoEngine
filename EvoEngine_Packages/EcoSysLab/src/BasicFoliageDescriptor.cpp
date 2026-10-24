@@ -125,12 +125,10 @@ void BasicFoliageDescriptor::PrepareController(FoliageController& foliage_contro
 }
 
 void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& matrices,
-                                                     const SkeletonNodeInfo& internode_info,
-                                                     const float tree_size) const {
+                                                     const SkeletonNodeInfo& internode_info, const float) const {
   if (internode_info.thickness <= max_node_thickness && internode_info.root_distance >= min_root_distance &&
       internode_info.end_distance <= max_end_distance) {
     for (int i = 0; i < leaf_count * internode_info.leaves; i++) {
-      const auto current_leaf_size = leaf_size * tree_size * 0.1f;
       glm::quat rotation =
           internode_info.global_rotation *
           glm::quat(glm::radians(glm::vec3(glm::gaussRand(0.0f, rotation_variance), branching_angle.GetValue(),
@@ -144,11 +142,11 @@ void BasicFoliageDescriptor::GenerateFoliageMatrices(std::vector<glm::mat4>& mat
       }
       auto foliage_position =
           glm::mix(internode_info.global_position, internode_info.GetGlobalEndPosition(), glm::linearRand(0.f, 1.f)) +
-          front * (current_leaf_size.y + stem_length.GetValue() * 0.1f);
+          front * (leaf_size.y + stem_length.GetValue() * 0.1f);
       if (glm::any(glm::isnan(foliage_position)) || glm::any(glm::isnan(front)) || glm::any(glm::isnan(up)))
         continue;
       const auto leaf_transform = glm::translate(foliage_position) * glm::mat4_cast(glm::quatLookAt(front, up)) *
-                                  glm::scale(glm::vec3(current_leaf_size.x, 1.0f, current_leaf_size.y));
+                                  glm::scale(glm::vec3(leaf_size.x, 1.0f, leaf_size.y));
       matrices.emplace_back(leaf_transform);
     }
   }

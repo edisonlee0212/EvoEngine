@@ -17,8 +17,10 @@ bool ImGui::Splitter(bool split_vertically, float thickness, float& size1, float
 
 bool ImGui::Combo(const std::string& label, const std::vector<std::string>& items, unsigned& current_selection,
                   ImGuiComboFlags flags) {
+  if (items.empty())
+    return false;
   bool modified = false;
-  current_selection = glm::clamp(current_selection, 0u, static_cast<unsigned>(items.size()));
+  current_selection = glm::clamp(current_selection, 0u, static_cast<unsigned>(items.size() - 1));
   if (ImGui::BeginCombo(label.c_str(), items[current_selection].c_str(),
                         flags))  // The second parameter is the label previewed before opening the combo.
   {
@@ -40,8 +42,10 @@ bool ImGui::Combo(const std::string& label, const std::vector<std::string>& item
 
 bool ImGui::Combo(const std::string& label, const std::vector<std::string>& items, int& current_selection,
                   ImGuiComboFlags flags) {
+  if (items.empty())
+    return false;
   bool modified = false;
-  current_selection = glm::clamp(current_selection, 0, static_cast<int>(items.size()));
+  current_selection = glm::clamp(current_selection, 0, static_cast<int>(items.size() - 1));
   if (ImGui::BeginCombo(label.c_str(), items[current_selection].c_str(),
                         flags))  // The second parameter is the label previewed before opening the combo.
   {

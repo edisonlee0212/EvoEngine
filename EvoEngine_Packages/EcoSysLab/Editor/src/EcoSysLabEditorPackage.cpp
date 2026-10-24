@@ -21,6 +21,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "Blower.hpp"
 #include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -42,6 +43,7 @@
 #include "ParticlePhysics2DDemo.hpp"
 #include "Physics2DDemo.hpp"
 #include "RadialBoundingVolume.hpp"
+#include "Resources.hpp"
 #include "Serialization.hpp"
 #include "Soil.hpp"
 #include "SoilDescriptor.hpp"
@@ -98,6 +100,27 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
         return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
       },
       "BranchRenderer");
+  registered &= registrar.RegisterInspector<Blower>(
+      [](InspectorContext& context, Blower& target) {
+        bool changed = false;
+        changed |= ImGui::DragFloat("Speed", &target.speed, 0.1f, 0.0f, 100.0f);
+        changed |= ImGui::DragFloat("Particle rate", &target.particle_rate, 1.0f, 0.0f, 100000.0f);
+        changed |= ImGui::DragFloat("Spread (degrees)", &target.spread_degrees, 0.1f, 0.0f, 90.0f);
+        changed |= ImGui::InputScalar("Seed", ImGuiDataType_U32, &target.seed);
+        if (target.IsEnabled() && target.GetScene()->IsEntityEnabled(target.GetOwner())) {
+          GizmoSettings settings;
+          settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+          settings.draw_settings.blending = true;
+          context.editor_layer->DrawGizmoMesh(
+              Resources::GetInstance().GetPrimitives().quad, context.editor_layer->GetSceneCamera(),
+              {0.25f, 0.7f, 1.0f, 0.3f},
+              target.GetScene()->GetDataComponent<GlobalTransform>(target.GetOwner()).value *
+                  glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(1, 0, 0)),
+              1, settings);
+        }
+        return changed;
+      },
+      "Blower");
   registered &= registrar.RegisterInspector<FoliageRenderer>(
       [](InspectorContext& context, FoliageRenderer& target) {
         return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Foliage material");
@@ -269,7 +292,8 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
       },
       "SoilDescriptor");
   registered &= registrar.RegisterInspector<EcoSysLabLayer>(
-      [](InspectorContext& context, EcoSysLabLayer&) {
+      [](InspectorContext& context, EcoSysLabLayer& target) {
+        ImGui::Checkbox("Show wind particles", &target.visualize_wind_particles);
         if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabEditorLayer>())
           layer->DrawGui(context.editor_layer);
         return false;

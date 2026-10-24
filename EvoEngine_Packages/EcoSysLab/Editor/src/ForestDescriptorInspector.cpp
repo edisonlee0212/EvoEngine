@@ -18,7 +18,7 @@ bool ForestPatchInspector::Inspect(InspectorContext& context, ForestPatch& targe
   bool changed = false;
   editorLayer->DragAndDropButton<TreeDescriptor>(target.tree_descriptor, "TreeDescriptor");
 
-  ImGui::DragInt2("Grid size", &gridSize.x, 1, 0, 100);
+  changed |= ImGui::DragInt2("Grid size", &target.grid_size.x, 1, 1, 100);
   if (ImGui::DragFloat2("Grid distance", &target.grid_distance.x, 0.1f, 0.0f, 100.0f))
     changed = true;
   ImGui::Separator();
@@ -28,8 +28,6 @@ bool ForestPatchInspector::Inspect(InspectorContext& context, ForestPatch& targe
     changed = true;
   if (ImGui::DragFloat2("Rotation offset variance", &target.rotation_offset_variance.x, 0.01f, 0.0f, 5.f))
     changed = true;
-
-  ImGui::Checkbox("Set Parent", &setParent);
 
   ImGui::Checkbox("Set Simulation settings", &setSimulationSettings);
   if (ImGui::TreeNodeEx("Simulation Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -44,7 +42,7 @@ bool ForestPatchInspector::Inspect(InspectorContext& context, ForestPatch& targe
     changed = true;
 
   if (ImGui::Button("Instantiate")) {
-    target.InstantiatePatch(gridSize, setParent);
+    target.InstantiatePatch(target.grid_size, setSimulationSettings);
   }
   EditorFileDialogs::OpenFolder("Create forest from folder...", [&](const std::filesystem::path& folderPath) {
     int index = 0;
@@ -73,7 +71,7 @@ bool ForestPatchInspector::Inspect(InspectorContext& context, ForestPatch& targe
       }
     }
     if (!treeDescriptors.empty()) {
-      const auto patch = target.InstantiatePatch(treeDescriptors, gridSize, setParent);
+      const auto patch = target.InstantiatePatch(treeDescriptors, target.grid_size, setSimulationSettings);
     }
   });
   return changed;
