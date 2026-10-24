@@ -12,16 +12,23 @@ bool DynamicTreeSkeletonInspector::Inspect(InspectorContext&, DynamicTreeSkeleto
                         ? target_scene->GetOrSetPrivateComponent<Tree>(target.GetOwner()).lock()
                         : nullptr;
   if (tree) {
-    if (ImGui::Button("Initialize from growth pose"))
+    if (ImGui::Button(target.gpu_physics_enabled ? "Reset GPU pose to growth" : "Initialize from growth pose"))
       target.InitializePhysics(*tree);
-    ImGui::SameLine();
-    if (ImGui::Button(target.physics_running ? "Pause physics" : "Run physics") && target.HasPhysics(*tree))
-      target.physics_running = !target.physics_running;
-    ImGui::SameLine();
-    if (ImGui::Button("Clear physics"))
-      target.ResetPhysics(*tree);
-    ImGui::TextUnformatted(target.HasPhysics(*tree) ? "Growth is frozen while physics is initialized."
-                                                    : "Initialize after growth finishes.");
+    if (target.gpu_physics_enabled) {
+      ImGui::TextUnformatted("GPU physics runs whenever growth is idle.");
+    } else {
+      ImGui::SameLine();
+      if (ImGui::Button(target.physics_running ? "Pause physics" : "Run physics") && target.HasPhysics(*tree))
+        target.physics_running = !target.physics_running;
+      ImGui::SameLine();
+      if (ImGui::Button("Clear physics"))
+        target.ResetPhysics(*tree);
+    }
+    if (ImGui::Checkbox("GPU physics (experimental)", &target.gpu_physics_enabled)) {
+      target.InitializePhysics(*tree);
+      changed = true;
+    }
+    ImGui::TextDisabled("GPU mode currently supports fixed roots and rod motion; fracture and contacts use CPU mode.");
     auto& physics = target.physics_settings;
     if (ImGui::Button("Reset physics settings to defaults")) {
       physics = DynamicTreeSkeleton::PhysicsSettings{};

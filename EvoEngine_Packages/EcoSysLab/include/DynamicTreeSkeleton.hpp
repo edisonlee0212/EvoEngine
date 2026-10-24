@@ -3,9 +3,38 @@
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
+class GpuTreePhysics;
 
 class DynamicTreeSkeleton : public IPrivateComponent {
  public:
+  struct GpuRestState {
+    glm::mat4 initial_model{1.0f};
+    struct Vertex {
+      glm::vec4 position_inverse_mass;
+      glm::vec4 velocity_radius;
+      glm::vec4 rest_local;
+      glm::uvec4 incident_rods;
+    };
+    struct Rod {
+      glm::uvec4 links;
+      glm::vec4 length_scale_mass_radius;
+      glm::vec4 rotation;
+      glm::vec4 rest_rotation;
+      glm::uvec4 incident_angles;
+    };
+    struct Angle {
+      glm::uvec4 rods;
+      glm::vec4 rest_relative;
+      glm::vec4 bend_scale;
+    };
+    std::vector<Vertex> vertices;
+    std::vector<Rod> rods;
+    std::vector<Angle> angles;
+    std::vector<uint32_t> vertex_rods;
+    std::vector<uint32_t> rod_angles;
+    std::vector<uint32_t> node_rods;
+  };
+
   struct PhysicsSettings {
     float time_step = 0.016f;
     int substeps = 4;
@@ -28,16 +57,37 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   } physics_settings;
 
   bool physics_running = false;
+  bool gpu_physics_enabled = false;
   bool InitializePhysics(Tree& tree);
   bool InitializePhysics(Tree& tree, const GlobalTransform& model);
+  void RequestGpuPoseInitialization() {
+    restore_gpu_pose_on_load_ = gpu_physics_enabled;
+  }
+  void RestoreGpuPoseAfterLoad(Tree& tree);
+  bool SyncGpuPhysics(Tree& tree, const GlobalTransform& model, bool growing);
+  [[nodiscard]] GpuRestState ExportGpuRestState() const;
   void ResetPhysics(Tree& tree);
   void StepPhysics(Tree& tree);
   void StepPhysics(Tree& tree, const GlobalTransform& model);
+  void SetGpuPhysics(std::shared_ptr<GpuTreePhysics> physics, uint32_t tree_index) {
+    gpu_physics_ = std::move(physics);
+    gpu_tree_index_ = tree_index;
+  }
+  [[nodiscard]] std::shared_ptr<GpuTreePhysics> GetGpuPhysics() const {
+    return gpu_physics_;
+  }
+  [[nodiscard]] uint32_t GetGpuTreeIndex() const {
+    return gpu_tree_index_;
+  }
   [[nodiscard]] bool HasPhysics(const Tree& tree) const {
     return !physics_rods_.empty() && model_revision_ == tree.GetShootModelRevision().content;
   }
+  [[nodiscard]] bool GpuScaleChanged(const GlobalTransform& model) const {
+    return glm::any(glm::greaterThan(glm::abs(model.GetScale() - initial_scale_), glm::vec3(1e-4f)));
+  }
 
  private:
+  bool restore_gpu_pose_on_load_ = false;
   struct PhysicsVertex {
     glm::vec3 position{};
     glm::vec3 velocity{};
@@ -84,5 +134,10 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   glm::quat previous_rotation_{1, 0, 0, 0};
   uint64_t model_revision_ = 0;
   bool has_detached_branches_ = false;
+  std::shared_ptr<GpuTreePhysics> gpu_physics_;
+  uint32_t gpu_tree_index_ = 0;
 };
+static_assert(sizeof(DynamicTreeSkeleton::GpuRestState::Vertex) == 64);
+static_assert(sizeof(DynamicTreeSkeleton::GpuRestState::Rod) == 80);
+static_assert(sizeof(DynamicTreeSkeleton::GpuRestState::Angle) == 48);
 }  // namespace eco_sys_lab_package

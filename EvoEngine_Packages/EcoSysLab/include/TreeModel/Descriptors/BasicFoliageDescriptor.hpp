@@ -69,7 +69,7 @@ class BasicFoliageDescriptor : public IFoliageDescriptor {
    * @brief Generates foliage transformation matrices based on internode information.
    * @param[out] matrices Vector to store the transformation matrices.
    * @param[in] internode_info Information about the skeleton node internode.
-   * @param[in] tree_size The overall tree size.
+   * @param[in] tree_size Unused; leaf_size is the size in tree-local units.
    */
   void GenerateFoliageMatrices(std::vector<glm::mat4>& matrices, const SkeletonNodeInfo& internode_info,
                                float tree_size) const override;

@@ -12,11 +12,31 @@
 #include "GpuTreeMeshData.hpp"
 #include "PrivateComponentRef.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 #include "Strands.hpp"
 #include "Tree.hpp"
 #include "TreePhysicsCollision.hpp"
 
 using namespace eco_sys_lab_package;
+
+TEST(Blower, SettingsRoundTrip) {
+  Blower source;
+  source.speed = 12.0f;
+  source.particle_rate = 2400.0f;
+  source.spread_degrees = 15.0f;
+  source.seed = 42;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeBlower(out, source);
+  out << YAML::EndMap;
+
+  Blower loaded;
+  DeserializeBlower(YAML::Load(out.c_str()), loaded);
+  EXPECT_FLOAT_EQ(loaded.speed, source.speed);
+  EXPECT_FLOAT_EQ(loaded.particle_rate, source.particle_rate);
+  EXPECT_FLOAT_EQ(loaded.spread_degrees, source.spread_degrees);
+  EXPECT_EQ(loaded.seed, source.seed);
+}
 
 namespace {
 BaseSkeleton MakeFork() {
@@ -150,6 +170,31 @@ TEST(TreePhysics, ForkSharesJunctionUnderGravity) {
   physics.ResetPhysics(tree);
   EXPECT_FALSE(physics.HasPhysics(tree));
   EXPECT_NEAR(glm::length(tree.shoot_model.PeekPhysicsPose()[1].position - rest[1].position), 0.0f, 1e-6f);
+}
+
+TEST(TreePhysics, GpuRestStatePreservesForkTopologyAndDownstreamScaling) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  tree.shoot_model.Initialize(MakeFork());
+  DynamicTreeSkeleton physics;
+  ASSERT_TRUE(physics.InitializePhysics(tree));
+  const auto state = physics.ExportGpuRestState();
+  ASSERT_EQ(state.vertices.size(), 4u);
+  ASSERT_EQ(state.rods.size(), 3u);
+  ASSERT_EQ(state.angles.size(), 2u);
+  EXPECT_FLOAT_EQ(state.vertices[0].position_inverse_mass.w, 0.0f);
+  const uint32_t junction = state.rods[0].links.y;
+  EXPECT_EQ(state.rods[1].links.x, junction);
+  EXPECT_EQ(state.rods[2].links.x, junction);
+  EXPECT_EQ(state.vertices[junction].incident_rods.y, 3u);
+  EXPECT_GT(state.rods[0].length_scale_mass_radius.y, state.rods[1].length_scale_mass_radius.y);
+  EXPECT_GT(state.rods[0].length_scale_mass_radius.z, state.rods[1].length_scale_mass_radius.z);
+  EXPECT_EQ(state.node_rods[0], 0u);
+  EXPECT_EQ(state.node_rods[1], 1u);
+  EXPECT_EQ(state.node_rods[2], 2u);
+  for (const auto& angle : state.angles)
+    EXPECT_GT(angle.bend_scale.x, 0.0f);
 }
 
 TEST(TreePhysics, SustainedBendDetachesAndDropsBranchWithoutChangingGrowthSkeleton) {
@@ -661,6 +706,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   source.physics_settings.fracture_angle_degrees = 30.0f;
   source.physics_settings.fracture_duration = 0.2f;
   source.physics_running = true;
+  source.gpu_physics_enabled = true;
   YAML::Emitter out;
   out << YAML::BeginMap;
   SerializeDynamicTreeSkeleton(out, source);
@@ -677,4 +723,86 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   EXPECT_FLOAT_EQ(loaded.physics_settings.fracture_angle_degrees, 30.0f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.fracture_duration, 0.2f);
   EXPECT_FALSE(loaded.physics_running);
+  EXPECT_TRUE(loaded.gpu_physics_enabled);
+}
+
+TEST(TreePhysics, LoadedGpuPhysicsStartsPausedFromOriginalPose) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  evo_engine::Serialization::RegisterSerializationHandler<evo_engine::AssetRef>(
+      [](YAML::Emitter& out, const evo_engine::AssetRef& reference) {
+        reference.Serialize(out);
+      },
+      [](const YAML::Node& in, evo_engine::AssetRef& reference) {
+        reference.Deserialize(in);
+      },
+      {}, "AssetRef");
+  Tree source;
+  source.shoot_model.Initialize(MakeFork());
+  YAML::Emitter tree_out;
+  tree_out << YAML::BeginMap;
+  SerializeTree(tree_out, source);
+  tree_out << YAML::EndMap;
+
+  DynamicTreeSkeleton saved_physics;
+  saved_physics.gpu_physics_enabled = true;
+  saved_physics.physics_running = true;
+  YAML::Emitter physics_out;
+  physics_out << YAML::BeginMap;
+  SerializeDynamicTreeSkeleton(physics_out, saved_physics);
+  physics_out << YAML::EndMap;
+
+  Tree loaded_tree;
+  DynamicTreeSkeleton loaded_physics;
+  DeserializeDynamicTreeSkeleton(YAML::Load(physics_out.c_str()), loaded_physics);
+  DeserializeTree(YAML::Load(tree_out.c_str()), loaded_tree);
+  loaded_physics.RestoreGpuPoseAfterLoad(loaded_tree);
+  ASSERT_TRUE(loaded_physics.HasPhysics(loaded_tree));
+  EXPECT_FALSE(loaded_physics.physics_running);
+  const auto state = loaded_physics.ExportGpuRestState();
+  ASSERT_EQ(state.rods.size(), 3u);
+  const auto& pose = loaded_tree.shoot_model.PeekPhysicsPose();
+  ASSERT_EQ(pose.size(), 3u);
+  for (uint32_t node = 0; node < pose.size(); ++node) {
+    const auto& original = loaded_tree.shoot_model.PeekShootSkeleton().PeekNode(node).info;
+    EXPECT_EQ(pose[node].position, original.global_position);
+    EXPECT_EQ(pose[node].rotation, original.global_rotation);
+    const auto rod = state.node_rods[node];
+    ASSERT_NE(rod, UINT32_MAX);
+    const auto vertex = state.rods[rod].links.x;
+    EXPECT_LT(glm::length(glm::vec3(state.vertices[vertex].position_inverse_mass) - original.global_position), 1e-5f);
+  }
+
+  loaded_physics.ResetPhysics(loaded_tree);
+  loaded_physics.RestoreGpuPoseAfterLoad(loaded_tree);
+  EXPECT_FALSE(loaded_physics.HasPhysics(loaded_tree));
+}
+
+TEST(TreePhysics, GpuGrowthReplacesDynamicRestAndResumesAfterward) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  tree.shoot_model.Initialize(MakeFork());
+  DynamicTreeSkeleton physics;
+  physics.gpu_physics_enabled = true;
+  ASSERT_TRUE(physics.SyncGpuPhysics(tree, GlobalTransform{}, false));
+  EXPECT_TRUE(physics.physics_running);
+  const auto original = physics.ExportGpuRestState();
+
+  physics.ResetPhysics(tree);
+  auto grown = MakeFork();
+  grown.RefNode(1).info.length = 1.2f;
+  tree.shoot_model.Initialize(grown);
+  ASSERT_TRUE(physics.SyncGpuPhysics(tree, GlobalTransform{}, true));
+  EXPECT_FALSE(physics.physics_running);
+  const auto current = physics.ExportGpuRestState();
+  const auto tip = [](const DynamicTreeSkeleton::GpuRestState& state) {
+    return glm::vec3(state.vertices[state.rods[state.node_rods[1]].links.y].position_inverse_mass);
+  };
+  EXPECT_GT(glm::length(tip(current) - tip(original)), 0.3f);
+  EXPECT_FLOAT_EQ(tree.shoot_model.PeekShootSkeleton().PeekNode(1).info.length, 1.2f);
+
+  ASSERT_TRUE(physics.SyncGpuPhysics(tree, GlobalTransform{}, false));
+  EXPECT_TRUE(physics.physics_running);
+  EXPECT_LT(glm::length(tip(physics.ExportGpuRestState()) - tip(current)), 1e-5f);
 }

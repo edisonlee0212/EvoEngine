@@ -65,7 +65,7 @@ TEST(LauncherUtils, PackageAvailabilityTracksManifestAndLibraryState) {
   EXPECT_FALSE(launcher::IsPackageAvailable(availability, "MissingPackage"));
 }
 
-TEST(LauncherUtils, EcoSysLabDemoAnimatesEightYearAcaciaGrowth) {
+TEST(LauncherUtils, EcoSysLabDemoAnimatesFourYearAppleForestGrowth) {
   const auto source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                                    "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
   const auto growth_start = source.find("void EcoSysLabLayer::UpdateDemoTreeGrowth()");
@@ -75,20 +75,22 @@ TEST(LauncherUtils, EcoSysLabDemoAnimatesEightYearAcaciaGrowth) {
   const auto growth_source = source.substr(growth_start, growth_end - growth_start);
 
   EXPECT_NE(source.find("project_path.parent_path().filename() != \"EcoSysLabProject\""), std::string::npos);
-  EXPECT_NE(source.find("TreeDescriptors/Basic/Acacia.tree"), std::string::npos);
+  EXPECT_NE(growth_source.find("AppleForest.forestpatch"), std::string::npos);
+  EXPECT_NE(growth_source.find("patch->InstantiatePatch(patch->grid_size, false)"), std::string::npos);
+  EXPECT_NE(growth_source.find("shader_progress.completed != shader_progress.total"), std::string::npos);
+  EXPECT_NE(growth_source.find("AssetManager::GetAssetLoadSnapshot().Active()"), std::string::npos);
   EXPECT_NE(growth_source.find("if (!demo_growth_enabled_)"), std::string::npos);
   const auto editor_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                                           "EvoEngine_Packages/EcoSysLab/Editor/src/TreeEditorState.cpp");
   EXPECT_NE(editor_source.find("runtime->demo_growth_enabled_ = editor->IsPlantVisualSplitLayoutReady()"),
             std::string::npos);
-  EXPECT_NE(growth_source.find("8.0f * 365.0f"), std::string::npos);
+  EXPECT_NE(growth_source.find("4.0f * 365.0f"), std::string::npos);
   const auto simulate_call = growth_source.find("Simulate(growth_settings, simulation_stats)");
   ASSERT_NE(simulate_call, std::string::npos);
   EXPECT_EQ(growth_source.find("Simulate(growth_settings, simulation_stats)", simulate_call + 1), std::string::npos);
   EXPECT_EQ(growth_source.find("for (float elapsed_time"), std::string::npos);
   EXPECT_LT(growth_source.find("gpu_tree_mesh_renderer_->Prepare()"), growth_source.find("Simulate(growth_settings"));
-  EXPECT_NE(growth_source.find("GetOrSetPrivateComponent<BranchRenderer>(demo_tree_entity_)"), std::string::npos);
-  EXPECT_NE(growth_source.find("GetOrSetPrivateComponent<FoliageRenderer>(demo_tree_entity_)"), std::string::npos);
+  EXPECT_NE(growth_source.find("demo_tree_entities_.assign("), std::string::npos);
   EXPECT_NE(source.find("UpdateDemoTreeGrowth();"), std::string::npos);
 }
 

@@ -8,6 +8,7 @@
 #include "BasicReproductionModuleDescriptor.hpp"
 #include "BasicRootDescriptor.hpp"
 #include "BasicShootDescriptor.hpp"
+#include "Blower.hpp"
 #include "BranchRenderer.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -87,6 +88,8 @@ void SerializeTree(YAML::Emitter& out, const Tree& target);
 void DeserializeTree(const YAML::Node& in, Tree& target);
 void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target);
 void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target);
+void SerializeBlower(YAML::Emitter& out, const Blower& target);
+void DeserializeBlower(const YAML::Node& in, Blower& target);
 void SerializeFoliageRenderer(YAML::Emitter& out, const FoliageRenderer& target);
 void DeserializeFoliageRenderer(const YAML::Node& in, FoliageRenderer& target);
 void SerializeSoil(YAML::Emitter& out, const Soil& target);

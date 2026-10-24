@@ -50,24 +50,45 @@ material share an opaque brown branch material within each instantiated patch.
 
 The procedural modes need mesh shader support. BranchRenderer requires an opaque branch material. On unsupported
 devices these components produce no procedural draw. CPU geometry is generated only when explicitly requested, and
-its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer repacks and uploads the compact
-skeleton buffer each frame; a later revision can update only changed tree ranges or source it from a compute shader.
+its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer caches packed rest nodes per
+tree and refreshes them when the skeleton revision, mesh settings, or bark parameters change. CPU physics poses are
+packed each frame while active. Packed node buffers are uploaded only when their content or GPU deformation ranges
+change; foliage parameters and render-instance indices remain frame specific.
 
-The `ecosyslab` demo prepares the GPU pipelines before growth and adds BranchRenderer and FoliageRenderer to its Acacia. It does not build CPU
+The `ecosyslab` demo prepares the GPU pipelines and instantiates the 2×2 `AppleForest.forestpatch`. It waits for background asset, upload, and shader preparation work to finish before growing the four trees for four years. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build CPU
 geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry at
 the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
+On mesh-shader devices, each growth iteration replaces the current GPU shoot pose from the saved growth skeleton.
+The rod solver stays paused during continuous growth and runs after growth stops. The live GPU pose feeds procedural
+branch, foliage, and shadow draws.
 
 ## Shoot physics
 
-After tree growth finishes, select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
-**Initialize from growth pose** captures the shoot skeleton as a paused rod simulation. **Run physics** advances it in `EcoSysLabLayer::FixedUpdate`;
-**Pause physics** holds the current bend, and **Clear physics** restores the growth pose. The inspector exposes simulated
+Select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
+In CPU mode, **Initialize from growth pose** captures the shoot skeleton as a paused rod simulation. **Run physics**
+advances it in `EcoSysLabLayer::FixedUpdate`; **Pause physics** holds the current bend, and **Clear physics** restores
+the growth pose. The inspector exposes simulated
 time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, and an anchor
 offset. Reinitialize after changing density.
 
-To test an earthquake-like response, run physics and move or rotate the tree entity (or its parent) in the editor.
+The experimental **GPU physics** option uses fixed roots and GPU rod constraints. Enabled trees in a scene share
+vertex and rod buffers and solver dispatches while retaining their own time step, stiffness, damping, and gravity.
+The shared state is rebuilt when its tree set or a shoot skeleton revision changes, or physics is reinitialized;
+rebuilding starts every tree in that scene from its growth pose. Growth always uses this original shoot skeleton,
+never the bent GPU pose. On each growth iteration, the new skeleton replaces the GPU dynamic state before rendering;
+GPU solving pauses during continuous growth and resumes automatically when growth is idle. Enabled GPU physics also
+starts automatically from the original pose after loading. Use **Reset GPU pose to growth** to discard a bend.
+Its pose feeds procedural rendering without copying bent poses back to the CPU. Moving or rotating a tree or its forest
+parent moves its pinned roots; paused trees follow rigidly, while running trees bend in response. Changing scale
+reinitializes GPU physics from the growth pose.
+Use the CPU mode for branch fracture and collider contact.
+The renderer caches packed growth nodes and uploads them only when they change. GPU physics deforms a separate draw
+buffer using the cached rest nodes; there is no CPU readback of the bent pose.
+
+To test an earthquake-like response, move or rotate the tree entity (or its parent) in the editor.
 The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
-physics is paused carries the current bend with it. Changing entity scale clears the simulation; initialize it again.
+physics is paused carries the current bend with it. Changing entity scale reinitializes GPU physics; CPU physics
+must be initialized again manually.
 The default physics settings advance 0.016 seconds per fixed update with 4 substeps and 8 solver iterations. Stretch
 stiffness is 8192, bend stiffness is 512, and damping is 0. Rod mass and stiffness scale with connected branch length
 and the internode's thickness; bend stiffness also accounts for thickness at each junction.
@@ -94,8 +115,17 @@ Generated CPU meshes do not follow detached subtrees.
 
 BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
 are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no
-physics velocity. Growth is held while physics is initialized. Roots and generated CPU meshes do not deform in this
+physics velocity. A new growth step resets the transient physics pose before changing the original skeleton. Roots and generated CPU meshes do not deform in this
 first version.
+
+## Wind authoring
+
+Add a `Blower` private component to an entity to define a wind emission surface. Its editor quad follows the entity
+transform; the local +Z axis is the intended flow direction, and the entity's X/Y scale sets the surface dimensions.
+Speed, particle rate, spread angle, and random seed are saved with the scene. Enabled Blowers emit into one scene-wide GPU
+particle pool. The particles move at their emitted velocity for three seconds and are recycled when the bounded pool fills.
+The EcoSysLab layer's **Show wind particles** option draws colored debug discs directly from that GPU pool; color changes
+with speed. This first flow view has no SPH pressure, viscosity, obstacles, or tree forces yet.
 
 ## Main Entry Points
 
@@ -146,5 +176,5 @@ Most forestry features should live here rather than in the SDK. Add SDK function
 
 Runtime types and simulation remain usable without the editor companion. Put new inspectors/authoring state under
 `Editor/`, following the [extension workflow](../../docs/editor-extension-workflow.md). The `ecosyslab` profile creates
-its demo tree during editor startup; exporting that result requires saving the generated scene/assets. The launcher
+its four demo trees during editor startup; exporting that result requires saving the generated scene/assets. The launcher
 profile is not a standalone dataset-generation command.

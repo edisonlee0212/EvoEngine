@@ -80,4 +80,16 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
   }
 }
 
+inline void AppendPackedGpuTreeNodes(const std::vector<GpuTreeNode>& packed, uint32_t tree_index,
+                                     std::vector<GpuTreeNode>& output) {
+  const auto base = static_cast<uint32_t>(output.size());
+  output.reserve(output.size() + packed.size());
+  for (auto node : packed) {
+    if (node.links.x != UINT32_MAX)
+      node.links.x += base;
+    node.links.y = tree_index;
+    output.emplace_back(node);
+  }
+}
+
 }  // namespace eco_sys_lab_package

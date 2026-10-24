@@ -7,6 +7,7 @@
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
@@ -89,4 +90,33 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
   EXPECT_EQ(first_material, second_material);
   EXPECT_TRUE(glm::all(glm::equal(first_material->material_data.shade_material.pbr_base_color_factor,
                                   glm::vec4(109.0f, 79.0f, 75.0f, 255.0f) / 255.0f)));
+
+  patch.tree_descriptor = descriptor;
+  patch.grid_size = {2, 2};
+  patch.InstantiatePatch(patch.grid_size, false);
+  ASSERT_EQ(trees->size(), 9);
+  for (size_t i = 5; i < 9; ++i) {
+    EXPECT_TRUE(scene->HasPrivateComponent<BranchRenderer>((*trees)[i]));
+    EXPECT_TRUE(scene->HasPrivateComponent<FoliageRenderer>((*trees)[i]));
+  }
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeForestPatch(out, patch);
+  out << YAML::EndMap;
+
+  ForestPatch loaded;
+  DeserializeForestPatch(YAML::Load(out.c_str()), loaded);
+  EXPECT_EQ(loaded.grid_size, glm::ivec2(2, 2));
+
+  ForestPatch legacy;
+  DeserializeForestPatch(YAML::Load("grid_distance: [1, 1]"), legacy);
+  EXPECT_EQ(legacy.grid_size, glm::ivec2(8, 8));
+}
+
+TEST(ForestPatch, AppleForestAssetUsesFourTrees) {
+  const auto path = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
+                    "Resources/EcoSysLabProject/Assets/AppleForest.forestpatch";
+  const auto asset = YAML::LoadFile(path.string());
+  EXPECT_EQ(asset["grid_size"].as<glm::ivec2>(), glm::ivec2(2, 2));
+  EXPECT_FLOAT_EQ(asset["simulation_time"].as<float>(), 4.0f);
 }

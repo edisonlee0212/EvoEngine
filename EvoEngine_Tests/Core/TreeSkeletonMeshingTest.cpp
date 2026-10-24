@@ -4,6 +4,7 @@
 
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "BasicFoliageDescriptor.hpp"
 #include "GpuTreeMeshData.hpp"
 #include "Jobs.hpp"
 #include "TreeMeshGenerator.hpp"
@@ -37,6 +38,27 @@ void ExpectValidMesh(const std::vector<VertexType>& vertices, const std::vector<
     EXPECT_LT(index, vertices.size());
 }
 }  // namespace
+
+TEST(TreeSkeletonMeshing, LeafSizeDoesNotDependOnTreeExtent) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  BasicFoliageDescriptor foliage;
+  foliage.leaf_count = 1;
+  foliage.gravitropism = 0.0f;
+  SkeletonNodeInfo node;
+  node.thickness = 0.01f;
+  node.root_distance = 1.0f;
+  node.end_distance = 0.0f;
+  std::vector<glm::mat4> small_tree, large_tree;
+  foliage.GenerateFoliageMatrices(small_tree, node, 1.0f);
+  foliage.GenerateFoliageMatrices(large_tree, node, 10.0f);
+  ASSERT_EQ(small_tree.size(), 1);
+  ASSERT_EQ(large_tree.size(), 1);
+  for (const auto& matrices : {small_tree, large_tree}) {
+    EXPECT_NEAR(glm::length(glm::vec3(matrices[0][0])), foliage.leaf_size.x, 1e-5f);
+    EXPECT_NEAR(glm::length(glm::vec3(matrices[0][2])), foliage.leaf_size.y, 1e-5f);
+  }
+}
 
 TEST(TreeSkeletonMeshing, SkipsZeroLengthParentWithoutLosingChild) {
   evo_engine::Application application;
@@ -189,4 +211,26 @@ TEST(TreeSkeletonMeshing, PacksForkParentsAndRebasesTreeRanges) {
   EXPECT_EQ(nodes[5].links.x, 3);
   EXPECT_EQ(nodes[4].links.y, 7);
   EXPECT_EQ(nodes[4].foliage_meta.y, 0u);
+}
+
+TEST(TreeSkeletonMeshing, ReusesPackedNodesAtDifferentTreeOffsets) {
+  BaseSkeleton skeleton;
+  skeleton.Extend(0, false);
+  skeleton.SortLists();
+  std::vector<GpuTreeNode> packed;
+  AppendGpuTreeNodes(skeleton, {}, nullptr, 0, true, packed);
+
+  std::vector<GpuTreeNode> nodes;
+  AppendPackedGpuTreeNodes(packed, 3, nodes);
+  AppendPackedGpuTreeNodes(packed, 7, nodes);
+
+  ASSERT_EQ(nodes.size(), 4);
+  EXPECT_EQ(nodes[0].links.x, UINT32_MAX);
+  EXPECT_EQ(nodes[1].links.x, 0u);
+  EXPECT_EQ(nodes[2].links.x, UINT32_MAX);
+  EXPECT_EQ(nodes[3].links.x, 2u);
+  EXPECT_EQ(nodes[0].links.y, 3u);
+  EXPECT_EQ(nodes[3].links.y, 7u);
+  EXPECT_EQ(packed[1].links.x, 0u);
+  EXPECT_EQ(packed[1].links.y, 0u);
 }

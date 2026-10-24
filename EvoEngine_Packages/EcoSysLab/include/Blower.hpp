@@ -1,0 +1,15 @@
+#pragma once
+
+#include "IPrivateComponent.hpp"
+
+namespace eco_sys_lab_package {
+using namespace evo_engine;
+
+class Blower : public IPrivateComponent {
+ public:
+  float speed = 5.0f;
+  float particle_rate = 1000.0f;
+  float spread_degrees = 0.0f;
+  uint32_t seed = 1;
+};
+}  // namespace eco_sys_lab_package

@@ -36,8 +36,6 @@ struct HeightFieldInspector {
   bool Inspect(evo_engine::InspectorContext& context, HeightField& target);
 };
 struct ForestPatchInspector {
-  glm::ivec2 gridSize = {8, 8};
-  bool setParent = true;
   bool setSimulationSettings = true;
   bool Inspect(evo_engine::InspectorContext& context, ForestPatch& target);
 };

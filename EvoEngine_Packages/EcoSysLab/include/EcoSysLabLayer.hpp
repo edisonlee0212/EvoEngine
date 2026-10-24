@@ -13,9 +13,13 @@
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 class GpuTreeMeshRenderer;
+class GpuTreePhysics;
+class DynamicTreeSkeleton;
+class WindParticleField;
 class EcoSysLabLayer : public ILayer {
  public:
   EcoSysLabLayer();
+  bool visualize_wind_particles = true;
   std::vector<glm::vec4> soil_layer_colors;
   void ClearMeshes() const;
   void ClearSkeletalGraphs() const;
@@ -82,13 +86,26 @@ class EcoSysLabLayer : public ILayer {
   void OnCreate() override;
   void RegisterStrandRenderingProcedure() const;
   std::shared_ptr<GpuTreeMeshRenderer> gpu_tree_mesh_renderer_;
+  struct GpuPhysicsEntry {
+    Entity entity;
+    std::weak_ptr<Tree> tree;
+    std::weak_ptr<DynamicTreeSkeleton> physics;
+    uint64_t revision = 0;
+  };
+  std::shared_ptr<GpuTreePhysics> gpu_tree_physics_;
+  std::weak_ptr<Scene> gpu_physics_scene_;
+  std::vector<GpuPhysicsEntry> gpu_physics_entries_;
+  void SyncGpuTreePhysics();
+  std::shared_ptr<WindParticleField> wind_particle_field_;
   void RegisterTypes(Application& application) override;
   void Update() override;
   void FixedUpdate() override;
   void UpdateDemoTreeGrowth();
-  Entity demo_tree_entity_{};
+  std::vector<Entity> demo_tree_entities_;
   bool demo_tree_growth_finished_ = false;
   bool demo_tree_initialized_ = false;
+  bool demo_growth_started_ = false;
+  size_t demo_background_idle_frames_ = 0;
   DynamicStrandsSettings dynamic_strands_settings_;
   std::vector<Flower> flowers_;
   std::vector<Fruit> fruits_;

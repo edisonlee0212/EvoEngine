@@ -191,6 +191,7 @@ void ForestPatch::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 void eco_sys_lab_package::SerializeForestPatch(YAML::Emitter& out, const ForestPatch& target) {
+  out << YAML::Key << "grid_size" << YAML::Value << target.grid_size;
   out << YAML::Key << "grid_distance" << YAML::Value << target.grid_distance;
   out << YAML::Key << "position_offset_mean" << YAML::Value << target.position_offset_mean;
   out << YAML::Key << "position_offset_variance" << YAML::Value << target.position_offset_variance;
@@ -205,6 +206,8 @@ void eco_sys_lab_package::SerializeForestPatch(YAML::Emitter& out, const ForestP
 }
 
 void eco_sys_lab_package::DeserializeForestPatch(const YAML::Node& in, ForestPatch& target) {
+  if (in["grid_size"])
+    target.grid_size = in["grid_size"].as<glm::ivec2>();
   if (in["grid_distance"])
     target.grid_distance = in["grid_distance"].as<glm::vec2>();
   if (in["position_offset_mean"])

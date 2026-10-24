@@ -11,6 +11,9 @@ using namespace evo_engine;
  */
 class ForestPatch : public IAsset {
  public:
+  /// Number of trees along each grid axis.
+  glm::ivec2 grid_size = {8, 8};
+
   /// Distance between grid points when laying out trees.
   glm::vec2 grid_distance = glm::vec2(1.5f);
 
