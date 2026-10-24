@@ -9,6 +9,8 @@ class Blower : public IPrivateComponent {
  public:
   float speed = 5.0f;
   float particle_rate = 1000.0f;
+  float particle_radius = 0.1f;
+  float air_density = 1.225f;
   float spread_degrees = 0.0f;
   uint32_t seed = 1;
 };

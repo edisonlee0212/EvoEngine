@@ -48,6 +48,8 @@ namespace eco_sys_lab_package {
 void SerializeBlower(YAML::Emitter& out, const Blower& target) {
   out << YAML::Key << "speed" << YAML::Value << target.speed;
   out << YAML::Key << "particle_rate" << YAML::Value << target.particle_rate;
+  out << YAML::Key << "particle_radius" << YAML::Value << target.particle_radius;
+  out << YAML::Key << "air_density" << YAML::Value << target.air_density;
   out << YAML::Key << "spread_degrees" << YAML::Value << target.spread_degrees;
   out << YAML::Key << "seed" << YAML::Value << target.seed;
 }
@@ -57,6 +59,10 @@ void DeserializeBlower(const YAML::Node& in, Blower& target) {
     target.speed = in["speed"].as<float>();
   if (in["particle_rate"])
     target.particle_rate = in["particle_rate"].as<float>();
+  if (in["particle_radius"])
+    target.particle_radius = in["particle_radius"].as<float>();
+  if (in["air_density"])
+    target.air_density = in["air_density"].as<float>();
   if (in["spread_degrees"])
     target.spread_degrees = in["spread_degrees"].as<float>();
   if (in["seed"])
@@ -95,6 +101,7 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
   out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
   out << YAML::Key << "density" << YAML::Value << p.density;
   out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "wind_drag" << YAML::Value << p.wind_drag;
   out << YAML::Key << "contact_friction" << YAML::Value << p.contact_friction;
   out << YAML::Key << "gravity" << YAML::Value << p.gravity;
   out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
@@ -121,6 +128,8 @@ void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& t
     p.density = in["density"].as<float>();
   if (in["damping"])
     p.damping = in["damping"].as<float>();
+  if (in["wind_drag"])
+    p.wind_drag = in["wind_drag"].as<float>();
   if (in["contact_friction"])
     p.contact_friction = in["contact_friction"].as<float>();
   if (in["gravity"])

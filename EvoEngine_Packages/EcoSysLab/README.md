@@ -81,6 +81,9 @@ starts automatically from the original pose after loading. Use **Reset GPU pose 
 Its pose feeds procedural rendering without copying bent poses back to the CPU. Moving or rotating a tree or its forest
 parent moves its pinned roots; paused trees follow rigidly, while running trees bend in response. Changing scale
 reinitializes GPU physics from the growth pose.
+Nearby live wind particles drive GPU branches through the component's **Wind drag** setting. The solver tests particles
+against branch capsules using rendered branch radius and each particle's collision radius; paused or growing trees receive no wind force.
+The initial wind drag value is 20 and can be adjusted per tree.
 Use the CPU mode for branch fracture and collider contact.
 The renderer caches packed growth nodes and uploads them only when they change. GPU physics deforms a separate draw
 buffer using the cached rest nodes; there is no CPU readback of the bent pose.
@@ -122,10 +125,15 @@ first version.
 
 Add a `Blower` private component to an entity to define a wind emission surface. Its editor quad follows the entity
 transform; the local +Z axis is the intended flow direction, and the entity's X/Y scale sets the surface dimensions.
-Speed, particle rate, spread angle, and random seed are saved with the scene. Enabled Blowers emit into one scene-wide GPU
-particle pool. The particles move at their emitted velocity for three seconds and are recycled when the bounded pool fills.
+Speed, particle rate, collision radius, air density, spread angle, and random seed are saved with the scene. Air density
+defaults to 1.225 kg/m³; doubling it doubles the particle drag force until the solver's acceleration cap is reached.
+New particles start at random positions behind the surface over one simulation step, spreading each frame's emission into
+a continuous flow. Enabled Blowers emit into one scene-wide GPU particle pool. The particles move at their emitted
+velocity for three seconds and are recycled when the bounded pool fills. Density changes reach all live particles within
+that lifetime.
 The EcoSysLab layer's **Show wind particles** option draws colored debug discs directly from that GPU pool; color changes
-with speed. This first flow view has no SPH pressure, viscosity, obstacles, or tree forces yet.
+with speed. The particles now drive branches with one-way drag. SPH pressure, viscosity, obstacles, and branch feedback
+into the flow remain future work.
 
 ## Main Entry Points
 

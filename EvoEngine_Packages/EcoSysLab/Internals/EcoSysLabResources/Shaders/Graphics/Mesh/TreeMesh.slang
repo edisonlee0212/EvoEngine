@@ -36,8 +36,14 @@ void main(in payload TreeTaskPayload task, uint3 group_id : SV_GroupID, uint lan
   uint start_count = span == 0u ? task.start_radial : task.radial;
   uint3 samples, ring_ids;
   TreeZipper(triangle, start_count, task.radial, samples, ring_ids);
-  GpuTreeNode start_node = span == 0u && node.links.x != 0xffffffffu ? tree_nodes[node.links.x] : node;
-  float t0 = span == 0u && node.links.x != 0xffffffffu ? 1.0 : float(span) / float(task.rings);
+  bool parent_valid = false;
+  GpuTreeNode start_node = node;
+  if (span == 0u && node.links.x != 0xffffffffu) {
+    GpuTreeNode parent = tree_nodes[node.links.x];
+    parent_valid = parent.links.z != 0xffffffffu && parent.direction_length.w > 1e-6;
+    if (parent_valid) start_node = parent;
+  }
+  float t0 = span == 0u && parent_valid ? 1.0 : float(span) / float(task.rings);
   float t1 = float(span + 1u) / float(task.rings);
   uint instance_index = tree_instance_indices[node.links.y].branch;
   float4x4 model = EE_INSTANCES[instance_index].model;

@@ -65,7 +65,9 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     rod.node = handle;
     rod.length = glm::length(end - physics_vertices_[start].position);
     const glm::vec3 scale = glm::abs(initial_scale_);
-    rod.radius = glm::max(1e-4f, info.thickness) * glm::max(scale.x, glm::max(scale.y, scale.z));
+    const auto& mesh = tree.tree_mesh_generator_settings;
+    const float thickness = (mesh.override_radius ? mesh.radius : info.thickness) * mesh.radius_multiplier;
+    rod.radius = 0.5f * glm::max(0.0f, thickness) * glm::max(scale.x, glm::max(scale.y, scale.z));
     rod.rotation = rod.rest_rotation =
         glm::normalize(glm::rotation(initial_rotation_ * info.GetGlobalDirection(),
                                      glm::normalize(end - physics_vertices_[start].position)) *

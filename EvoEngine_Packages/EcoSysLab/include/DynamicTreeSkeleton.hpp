@@ -43,6 +43,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     float bend_stiffness = 512.0f;
     float density = 700.0f;
     float damping = 0.0f;
+    float wind_drag = 20.0f;
     float contact_friction = 0.6f;
     glm::vec3 gravity{0, -9.8f, 0};
     glm::vec3 anchor_offset{};
@@ -81,6 +82,9 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   }
   [[nodiscard]] bool HasPhysics(const Tree& tree) const {
     return !physics_rods_.empty() && model_revision_ == tree.GetShootModelRevision().content;
+  }
+  [[nodiscard]] bool HasPhysicsRodForNode(SkeletonNodeHandle node) const {
+    return node >= 0 && static_cast<size_t>(node) < physics_node_rods_.size() && physics_node_rods_[node] >= 0;
   }
   [[nodiscard]] bool GpuScaleChanged(const GlobalTransform& model) const {
     return glm::any(glm::greaterThan(glm::abs(model.GetScale() - initial_scale_), glm::vec3(1e-4f)));

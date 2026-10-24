@@ -57,14 +57,22 @@ void main(uint3 thread_id : SV_DispatchThreadID) {
   if (i >= node_count) return;
   GpuTreeNode node = rest_nodes[node_base + i];
   uint rod_index = node_rods[node_rods_base + node.foliage_meta.x];
-  if (rod_index == 0xffffffffu) return;
+  if (rod_index == 0xffffffffu) {
+    tree_nodes[node_base + i] = node;
+    return;
+  }
   TreePhysicsRod rod = rods[rod_index];
   float3 start = vertices[rod.links.x].position_inverse_mass.xyz;
   float3 end = vertices[rod.links.y].position_inverse_mass.xyz;
   float3 local_start = QuatRotate(inverse_rotation, start - model_position.xyz) / model_scale.xyz;
   float3 local_displacement = QuatRotate(inverse_rotation, end - start) / model_scale.xyz;
   float length = length(local_displacement);
-  if (length < 1e-6) return;
+  if (length < 1e-6) {
+    node.links.z = 0xffffffffu;
+    node.links.w = 0xffffffffu;
+    tree_nodes[node_base + i] = node;
+    return;
+  }
   const float4 axis_to_shoot_inverse = float4(0, -0.70710678118, 0, 0.70710678118);
   float4 local_frame = QuatMultiply(inverse_rotation, rod.rotation);
   float4 current_rotation = normalize(QuatMultiply(local_frame, axis_to_shoot_inverse));

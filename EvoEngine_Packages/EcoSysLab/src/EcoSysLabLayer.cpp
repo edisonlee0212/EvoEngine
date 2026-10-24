@@ -356,7 +356,12 @@ void EcoSysLabLayer::FixedUpdate() {
       steps.push_back(
           {physics->physics_settings, physics->physics_running, scene->GetDataComponent<GlobalTransform>(item.entity)});
     }
-    gpu_tree_physics_->Step(steps);
+    GpuTreePhysics::WindInput wind;
+    if (wind_particle_field_)
+      wind = {wind_particle_field_->GetDescriptorSet(), wind_particle_field_->GetParticleCount(),
+              WindParticleField::grid_bucket_count, WindParticleField::grid_cell_size,
+              wind_particle_field_->GetMaxParticleRadius()};
+    gpu_tree_physics_->Step(steps, wind);
   }
 }
 

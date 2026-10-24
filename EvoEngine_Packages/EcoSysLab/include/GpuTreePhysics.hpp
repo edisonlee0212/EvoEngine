@@ -24,12 +24,22 @@ class GpuTreePhysics {
     bool running = true;
     GlobalTransform model{};
   };
+  struct WindInput {
+    std::shared_ptr<DescriptorSet> descriptor_set;
+    uint32_t particle_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1.0f;
+    float max_particle_radius = 0.0f;
+  };
 
   [[nodiscard]] static PackedRestState PackRestStates(const std::vector<DynamicTreeSkeleton::GpuRestState>& states);
   bool Initialize(const DynamicTreeSkeleton::GpuRestState& rest_state);
   bool Initialize(const std::vector<DynamicTreeSkeleton::GpuRestState>& rest_states);
   void Step(const DynamicTreeSkeleton::PhysicsSettings& settings);
-  void Step(const std::vector<TreeStep>& trees);
+  void Step(const std::vector<TreeStep>& trees, const WindInput& wind = {});
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetWindDescriptorSetLayout() const {
+    return wind_layout_;
+  }
   [[nodiscard]] const TreeRange& GetTreeRange(uint32_t index) const {
     return ranges_[index];
   }
@@ -49,6 +59,10 @@ class GpuTreePhysics {
     uint32_t rod_count = 0;
     uint32_t substep = 0;
     uint32_t iteration = 0;
+    uint32_t particle_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1.0f;
+    float max_particle_radius = 0.0f;
   };
   struct TreeParameters {
     glm::vec4 mechanics{};
@@ -62,10 +76,13 @@ class GpuTreePhysics {
     glm::vec4 rotation_delta{0, 0, 0, 1};
     glm::vec4 anchor_offset{};
   };
-  static_assert(sizeof(Parameters) == 16);
+  static_assert(sizeof(Parameters) == 32);
   static_assert(sizeof(TreeParameters) == 304);
 
   std::shared_ptr<DescriptorSetLayout> layout_;
+  std::shared_ptr<DescriptorSetLayout> wind_layout_;
+  std::shared_ptr<DescriptorSet> empty_wind_set_;
+  std::array<std::shared_ptr<Buffer>, 3> empty_wind_buffers_;
   std::array<std::shared_ptr<DescriptorSet>, 4> descriptor_sets_;
   std::array<std::shared_ptr<Buffer>, 2> vertices_;
   std::array<std::shared_ptr<Buffer>, 2> rods_;

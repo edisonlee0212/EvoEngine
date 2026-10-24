@@ -14,12 +14,18 @@ void main(uint3 group_id : SV_GroupID) {
   GpuTreeNode node = tree_nodes[node_index];
   TreeTaskPayload payload;
   payload.node_index = node_index;
-  if (node.links.z == 0xffffffffu) {
+  if (node.links.z == 0xffffffffu || node.direction_length.w <= 1e-6 ||
+      dot(node.direction_length.xyz, node.direction_length.xyz) <= 1e-8) {
     DispatchMesh(0u, 1u, 1u, payload);
     return;
   }
   payload.radial = TreeRadialCount(node);
-  payload.start_radial = node.links.x == 0xffffffffu ? payload.radial : TreeRadialCount(tree_nodes[node.links.x]);
+  payload.start_radial = payload.radial;
+  if (node.links.x != 0xffffffffu) {
+    GpuTreeNode parent = tree_nodes[node.links.x];
+    if (parent.links.z != 0xffffffffu && parent.direction_length.w > 1e-6)
+      payload.start_radial = TreeRadialCount(parent);
+  }
   uint requested_rings = max(1u, uint(ceil(node.direction_length.w / node.subdivisions.y)));
   // Twenty triangles per mesh workgroup fit the 64-vertex and 40-primitive limits.
   payload.rings = min(requested_rings, max(1u, (65535u * 20u - payload.start_radial + payload.radial) /

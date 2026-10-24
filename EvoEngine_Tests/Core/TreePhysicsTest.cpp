@@ -23,6 +23,8 @@ TEST(Blower, SettingsRoundTrip) {
   Blower source;
   source.speed = 12.0f;
   source.particle_rate = 2400.0f;
+  source.particle_radius = 0.35f;
+  source.air_density = 2.45f;
   source.spread_degrees = 15.0f;
   source.seed = 42;
   YAML::Emitter out;
@@ -34,6 +36,8 @@ TEST(Blower, SettingsRoundTrip) {
   DeserializeBlower(YAML::Load(out.c_str()), loaded);
   EXPECT_FLOAT_EQ(loaded.speed, source.speed);
   EXPECT_FLOAT_EQ(loaded.particle_rate, source.particle_rate);
+  EXPECT_FLOAT_EQ(loaded.particle_radius, source.particle_radius);
+  EXPECT_FLOAT_EQ(loaded.air_density, source.air_density);
   EXPECT_FLOAT_EQ(loaded.spread_degrees, source.spread_degrees);
   EXPECT_EQ(loaded.seed, source.seed);
 }
@@ -193,8 +197,33 @@ TEST(TreePhysics, GpuRestStatePreservesForkTopologyAndDownstreamScaling) {
   EXPECT_EQ(state.node_rods[0], 0u);
   EXPECT_EQ(state.node_rods[1], 1u);
   EXPECT_EQ(state.node_rods[2], 2u);
+  EXPECT_FLOAT_EQ(state.rods[0].length_scale_mass_radius.w, 0.05f);
+  EXPECT_FLOAT_EQ(state.rods[1].length_scale_mass_radius.w, 0.025f);
   for (const auto& angle : state.angles)
     EXPECT_GT(angle.bend_scale.x, 0.0f);
+}
+
+TEST(TreePhysics, ZeroLengthShootNodeHasNoRodButItsChildDoes) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  auto skeleton = MakeFork();
+  skeleton.RefNode(1).info.length = 0.0f;
+  const auto child = skeleton.Extend(1, false);
+  auto& info = skeleton.RefNode(child).info;
+  info.global_position = {0, 1, 0};
+  info.length = 0.4f;
+  info.thickness = 0.02f;
+  info.global_rotation = glm::rotation(glm::vec3(0, 0, -1), glm::vec3(0, 1, 0));
+  skeleton.SortLists();
+  tree.shoot_model.Initialize(skeleton);
+  DynamicTreeSkeleton physics;
+  ASSERT_TRUE(physics.InitializePhysics(tree));
+  EXPECT_FALSE(physics.HasPhysicsRodForNode(1));
+  EXPECT_TRUE(physics.HasPhysicsRodForNode(child));
+  const auto state = physics.ExportGpuRestState();
+  EXPECT_EQ(state.node_rods[1], UINT32_MAX);
+  EXPECT_NE(state.node_rods[child], UINT32_MAX);
 }
 
 TEST(TreePhysics, SustainedBendDetachesAndDropsBranchWithoutChangingGrowthSkeleton) {
@@ -333,7 +362,7 @@ TEST(TreePhysics, FallenBranchRotatesAfterTipHitsGround) {
   physics.physics_settings.fracture_duration = 0;
   physics.physics_running = true;
   bool tip_contact = false;
-  constexpr float contact_height = 0.15f;
+  constexpr float contact_height = 0.075f;
   for (int i = 0; i < 240; ++i) {
     physics.StepPhysics(*tree);
     const auto& pose = tree->shoot_model.PeekPhysicsPose()[1];
@@ -402,7 +431,7 @@ TEST(TreePhysics, NearlyUprightFallenBranchAcceleratesAroundGroundedTip) {
     physics.StepPhysics(*tree);
     const auto& pose = tree->shoot_model.PeekPhysicsPose()[1];
     const glm::vec3 tip = pose.position + pose.rotation * glm::vec3(0, 0, -1) * pose.length;
-    if (pose.detached && tip.y <= 0.16f && pose.position.y > tip.y + 0.3f) {
+    if (pose.detached && tip.y <= 0.085f && pose.position.y > tip.y + 0.3f) {
       tip_contact = true;
       break;
     }
@@ -432,8 +461,8 @@ TEST(TreePhysics, NearlyUprightFallenBranchAcceleratesAroundGroundedTip) {
   const auto& settled = tree->shoot_model.PeekPhysicsPose()[1];
   const glm::vec3 settled_tip = settled.position + settled.rotation * glm::vec3(0, 0, -1) * settled.length;
   EXPECT_TRUE(FinitePose(settled));
-  EXPECT_NEAR(settled.position.y, 0.15f, 0.05f);
-  EXPECT_NEAR(settled_tip.y, 0.15f, 0.05f);
+  EXPECT_NEAR(settled.position.y, 0.075f, 0.05f);
+  EXPECT_NEAR(settled_tip.y, 0.075f, 0.05f);
   const glm::vec3 resting_position = settled.position;
   for (int i = 0; i < 120; ++i)
     physics.StepPhysics(*tree);
@@ -699,6 +728,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DynamicTreeSkeleton source;
   source.physics_settings.time_step = 0.01f;
   source.physics_settings.bend_stiffness = 120.0f;
+  source.physics_settings.wind_drag = 7.5f;
   source.physics_settings.contact_friction = 0.8f;
   source.physics_settings.gravity = {1, -2, 3};
   source.physics_settings.anchor_offset = {0.1f, 0.2f, 0.3f};
@@ -716,6 +746,7 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DeserializeDynamicTreeSkeleton(YAML::Load(out.c_str()), loaded);
   EXPECT_FLOAT_EQ(loaded.physics_settings.time_step, 0.01f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 120.0f);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.wind_drag, 7.5f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.contact_friction, 0.8f);
   EXPECT_EQ(loaded.physics_settings.gravity, glm::vec3(1, -2, 3));
   EXPECT_EQ(loaded.physics_settings.anchor_offset, glm::vec3(0.1f, 0.2f, 0.3f));

@@ -32,6 +32,12 @@ struct TreePhysicsTreeParameters {
   float4 anchor_offset;
 };
 
+struct WindParticle {
+  float4 position_age;
+  float4 velocity_lifetime;
+  float4 collision;
+};
+
 [[vk::binding(0, 0)]] StructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices_in;
 [[vk::binding(1, 0)]] RWStructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices_out;
 [[vk::binding(2, 0)]] StructuredBuffer<TreePhysicsRod, Std430DataLayout> rods_in;
@@ -42,13 +48,60 @@ struct TreePhysicsTreeParameters {
 [[vk::binding(7, 0)]] RWStructuredBuffer<float4> predicted;
 [[vk::binding(8, 0)]] RWStructuredBuffer<float4> previous;
 [[vk::binding(9, 0)]] StructuredBuffer<TreePhysicsTreeParameters, Std430DataLayout> tree_parameters;
+[[vk::binding(0, 1)]] StructuredBuffer<WindParticle> wind_particles;
+[[vk::binding(1, 1)]] StructuredBuffer<uint> wind_heads;
+[[vk::binding(2, 1)]] StructuredBuffer<uint> wind_next;
 
 [[vk::push_constant]] cbuffer TreePhysicsParameters {
   uint vertex_count;
   uint rod_count;
   uint substep;
   uint iteration;
+  uint particle_count;
+  uint bucket_count;
+  float cell_size;
+  float max_particle_radius;
 };
+
+uint HashWindCell(int3 cell) {
+  uint3 value = uint3(cell) * uint3(73856093u, 19349663u, 83492791u);
+  return (value.x ^ value.y ^ value.z) % bucket_count;
+}
+
+float4 SampleWind(float3 start, float3 end, float rod_radius) {
+  if (particle_count == 0) return 0;
+  float reach = rod_radius + max_particle_radius;
+  int3 lower = int3(floor((min(start, end) - reach) / cell_size));
+  int3 upper = int3(floor((max(start, end) + reach) / cell_size));
+  float3 segment = end - start;
+  float segment_length_squared = dot(segment, segment);
+  float3 velocity = 0;
+  float weight_sum = 0;
+  float density_sum = 0;
+  for (int z = lower.z; z <= upper.z; ++z)
+    for (int y = lower.y; y <= upper.y; ++y)
+      for (int x = lower.x; x <= upper.x; ++x) {
+        int3 cell = int3(x, y, z);
+        uint particle_index = wind_heads[HashWindCell(cell)];
+        for (uint visited = 0; particle_index != 0xffffffffu && visited < 48; ++visited) {
+          WindParticle particle = wind_particles[particle_index];
+          if (all(int3(floor(particle.position_age.xyz / cell_size)) == cell) &&
+              particle.velocity_lifetime.w > particle.position_age.w) {
+            float3 offset = particle.position_age.xyz - start;
+            float t = segment_length_squared > 1e-12 ? saturate(dot(offset, segment) / segment_length_squared) : 0.0;
+            float distance = length(offset - t * segment);
+            float radius = rod_radius + particle.collision.x;
+            float weight = radius > 0.0 ? saturate(1.0 - distance / radius) : 0.0;
+            velocity += weight * particle.velocity_lifetime.xyz;
+            weight_sum += weight;
+            density_sum += weight * particle.collision.y;
+          }
+          particle_index = wind_next[particle_index];
+        }
+      }
+  return weight_sum > 0.0 ? float4(velocity / weight_sum,
+                                   saturate(weight_sum * 0.25) * density_sum / (weight_sum * 1.225)) : 0;
+}
 
 float4 QuatMultiply(float4 a, float4 b) {
   return float4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz),
@@ -110,7 +163,30 @@ void Predict(uint3 thread_id : SV_DispatchThreadID) {
                     mul(float4(rest, 1.0), tree.current_model).xyz, fraction);
     vertex.velocity_radius.xyz = float3(0, 0, 0);
   } else {
-    position += time_step * vertex.velocity_radius.xyz + time_step * time_step * tree.gravity.xyz;
+    float3 acceleration = tree.gravity.xyz;
+    if (particle_count != 0 && tree.gravity.w > 0.0) {
+      float3 drag = 0;
+      for (uint j = 0; j < vertex.incident_rods.y; ++j) {
+        TreePhysicsRod rod = rods_in[vertex_rods[vertex.incident_rods.x + j]];
+        uint other = rod.links.x == i ? rod.links.y : rod.links.x;
+        float3 other_position = vertices_in[other].position_inverse_mass.xyz;
+        float4 wind = SampleWind(position, other_position, rod.length_scale_mass_radius.w);
+        if (wind.w <= 0.0) continue;
+        float3 direction = other_position - position;
+        float length_squared = dot(direction, direction);
+        if (length_squared <= 1e-12) continue;
+        direction *= rsqrt(length_squared);
+        float3 relative = wind.xyz - vertex.velocity_radius.xyz;
+        float3 crosswind = relative - dot(relative, direction) * direction;
+        drag += wind.w * rod.length_scale_mass_radius.w * rod.length_scale_mass_radius.x *
+                length(crosswind) * crosswind;
+      }
+      float drag_length = length(drag);
+      if (drag_length > 0.0)
+        acceleration += min(50.0, drag_length * 0.6 * tree.gravity.w *
+                                      vertex.position_inverse_mass.w) * drag / drag_length;
+    }
+    position += time_step * vertex.velocity_radius.xyz + time_step * time_step * acceleration;
   }
   vertex.position_inverse_mass.xyz = position;
   predicted[i] = float4(position, 0);

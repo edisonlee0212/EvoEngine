@@ -42,6 +42,8 @@ bool DynamicTreeSkeletonInspector::Inspect(InspectorContext&, DynamicTreeSkeleto
     changed |= ImGui::DragFloat("Bend stiffness", &physics.bend_stiffness, 1.0f, 0.0f, 100000.0f);
     changed |= ImGui::DragFloat("Wood density (reinitialize)", &physics.density, 1.0f, 0.001f, 2000.0f);
     changed |= ImGui::DragFloat("Physics damping", &physics.damping, 0.001f, 0.0f, 10.0f);
+    if (target.gpu_physics_enabled)
+      changed |= ImGui::DragFloat("Wind drag", &physics.wind_drag, 0.1f, 0.0f, 100.0f);
     changed |= ImGui::DragFloat("Contact friction", &physics.contact_friction, 0.01f, 0.0f, 2.0f);
     changed |= ImGui::DragFloat3("Gravity", &physics.gravity.x, 0.1f);
     changed |= ImGui::DragFloat3("Anchor offset", &physics.anchor_offset.x, 0.01f);

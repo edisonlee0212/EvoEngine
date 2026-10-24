@@ -318,6 +318,13 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       AppendPackedGpuTreeNodes(cache.shoots, tree_index, nodes);
     }
     if (gpu_physics && nodes.size() > base) {
+      for (size_t i = base; i < nodes.size(); ++i) {
+        auto& node = nodes[i];
+        if (physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(node.foliage_meta.x)))
+          while (node.links.x != UINT32_MAX &&
+                 !physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(nodes[node.links.x].foliage_meta.x)))
+            node.links.x = nodes[node.links.x].links.x;
+      }
       const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
       const auto rotation = glm::inverse(transform.GetRotation());
       deform_trees.push_back({static_cast<uint32_t>(base), static_cast<uint32_t>(nodes.size() - base),
@@ -325,6 +332,7 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
                               glm::vec4(transform.GetPosition(), 0.0f), glm::vec4(transform.GetScale(), 0.0f),
                               glm::vec4(rotation.x, rotation.y, rotation.z, rotation.w), gpu_physics});
     }
+    const size_t shoot_end = nodes.size();
     if (tree_handles.has_branch) {
       if (cache.root_revision != tree->GetRootModelRevision().content) {
         std::vector<GpuTreeNode> packed;
@@ -354,9 +362,11 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
                                      glm::max(glm::length(glm::vec3(model[1])), glm::length(glm::vec3(model[2]))));
     for (size_t i = base; i < nodes.size(); ++i) {
       nodes[i].foliage_meta.z = entity.GetIndex() ^ (entity.GetVersion() * 0x9e3779b9u);
-      if (tree_handles.has_branch)
+      const bool drawable = !(gpu_physics && i < shoot_end) ||
+                            physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(nodes[i].foliage_meta.x));
+      if (tree_handles.has_branch && drawable)
         nodes[i].links.z = static_cast<uint32_t>(branch_material_index);
-      if (tree_handles.has_foliage && nodes[i].foliage_meta.y)
+      if (tree_handles.has_foliage && drawable && nodes[i].foliage_meta.y)
         nodes[i].links.w = static_cast<uint32_t>(foliage_material_index);
       const auto& node = nodes[i];
       const glm::vec3 start = glm::vec3(model * glm::vec4(glm::vec3(node.position_thickness), 1.0f));

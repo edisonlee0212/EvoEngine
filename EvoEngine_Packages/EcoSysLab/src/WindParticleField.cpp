@@ -13,13 +13,16 @@ using namespace eco_sys_lab_package;
 
 bool WindParticleField::Prepare() {
   if (render_pipeline_)
-    return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && render_pipeline_->Initialized();
+    return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
+           grid_pipeline_->Initialized() && render_pipeline_->Initialized();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return false;
   layout_ = std::make_shared<DescriptorSetLayout>();
   layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                  VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0);
+  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout_->Initialize();
 
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -30,8 +33,14 @@ bool WindParticleField::Prepare() {
   allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   particles_ = std::make_shared<Buffer>(buffer_info, allocation_info);
   particles_->UploadVector(std::vector<Particle>(capacity));
+  buffer_info.size = grid_bucket_count * sizeof(uint32_t);
+  grid_heads_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.size = capacity * sizeof(uint32_t);
+  grid_next_ = std::make_shared<Buffer>(buffer_info, allocation_info);
   descriptor_set_ = std::make_shared<DescriptorSet>(layout_);
   descriptor_set_->UpdateBufferDescriptorBinding(0, particles_);
+  descriptor_set_->UpdateBufferDescriptorBinding(1, grid_heads_);
+  descriptor_set_->UpdateBufferDescriptorBinding(2, grid_next_);
 
   const auto compute_shader = [](const char* path) {
     return Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
@@ -47,6 +56,16 @@ bool WindParticleField::Prepare() {
   emit_pipeline_->descriptor_set_layouts = {layout_};
   emit_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(EmitParameters)});
   emit_pipeline_->Initialize();
+  clear_grid_pipeline_ = std::make_shared<ComputePipeline>();
+  clear_grid_pipeline_->compute_shader = compute_shader("ClearGrid.slang");
+  clear_grid_pipeline_->descriptor_set_layouts = {layout_};
+  clear_grid_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GridParameters)});
+  clear_grid_pipeline_->Initialize();
+  grid_pipeline_ = std::make_shared<ComputePipeline>();
+  grid_pipeline_->compute_shader = compute_shader("BuildGrid.slang");
+  grid_pipeline_->descriptor_set_layouts = {layout_};
+  grid_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GridParameters)});
+  grid_pipeline_->Initialize();
 
   const auto graphics_shader = [](ShaderType type, const char* path) {
     return Shader::CreateTemporary(type, Platform::GetShaderGlobalDefines(),
@@ -64,19 +83,25 @@ bool WindParticleField::Prepare() {
   render_pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color};
   render_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RenderParameters)});
   render_pipeline_->Initialize();
-  return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && render_pipeline_->Initialized();
+  return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
+         grid_pipeline_->Initialized() && render_pipeline_->Initialized();
 }
 
 void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float time_step) {
   if (scene_.lock() != scene) {
     particles_.reset();
+    grid_heads_.reset();
+    grid_next_.reset();
     descriptor_set_.reset();
     layout_.reset();
     advect_pipeline_.reset();
     emit_pipeline_.reset();
+    clear_grid_pipeline_.reset();
+    grid_pipeline_.reset();
     render_pipeline_.reset();
     emission_remainders_.clear();
     emitted_ = 0;
+    max_particle_radius_ = 0.0f;
     scene_ = scene;
   }
   const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Blower>();
@@ -97,35 +122,51 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       Platform::EverythingBarrier(command_buffer);
     });
   }
-  if (!owners)
-    return;
-  for (const auto entity : *owners) {
-    if (!scene->IsEntityEnabled(entity))
-      continue;
-    const auto blower = scene->GetOrSetPrivateComponent<Blower>(entity).lock();
-    if (!blower || !blower->IsEnabled())
-      continue;
-    const uint64_t key = (static_cast<uint64_t>(entity.GetVersion()) << 32) | entity.GetIndex();
-    float& remainder = emission_remainders_[key];
-    const float requested = remainder + glm::max(0.0f, blower->particle_rate) * dt;
-    const uint32_t count = static_cast<uint32_t>(glm::min(std::floor(requested), 2048.0f));
-    remainder = requested - std::floor(requested);
-    if (!count)
-      continue;
-    EmitParameters parameters;
-    parameters.model = scene->GetDataComponent<GlobalTransform>(entity).value;
-    parameters.speed_spread_lifetime = {glm::max(0.0f, blower->speed),
-                                        glm::radians(glm::clamp(blower->spread_degrees, 0.0f, 90.0f)), 3.0f, 0.0f};
-    parameters.base_count_seed_capacity = {static_cast<uint32_t>(emitted_), count, blower->seed, capacity};
+  if (owners)
+    for (const auto entity : *owners) {
+      if (!scene->IsEntityEnabled(entity))
+        continue;
+      const auto blower = scene->GetOrSetPrivateComponent<Blower>(entity).lock();
+      if (!blower || !blower->IsEnabled())
+        continue;
+      const uint64_t key = (static_cast<uint64_t>(entity.GetVersion()) << 32) | entity.GetIndex();
+      float& remainder = emission_remainders_[key];
+      const float requested = remainder + glm::max(0.0f, blower->particle_rate) * dt;
+      const uint32_t count = static_cast<uint32_t>(glm::min(std::floor(requested), 2048.0f));
+      remainder = requested - std::floor(requested);
+      if (!count)
+        continue;
+      EmitParameters parameters;
+      parameters.model = scene->GetDataComponent<GlobalTransform>(entity).value;
+      parameters.speed_spread_lifetime = {glm::max(0.0f, blower->speed),
+                                          glm::radians(glm::clamp(blower->spread_degrees, 0.0f, 90.0f)), 3.0f, dt};
+      parameters.collision.x = glm::clamp(blower->particle_radius, 0.0f, 1.0f);
+      parameters.collision.y = glm::clamp(blower->air_density, 0.0f, 20.0f);
+      max_particle_radius_ = glm::max(max_particle_radius_, parameters.collision.x);
+      parameters.base_count_seed_capacity = {static_cast<uint32_t>(emitted_), count, blower->seed, capacity};
+      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command_buffer) {
+        emit_pipeline_->Bind(command_buffer);
+        emit_pipeline_->BindDescriptorSet(command_buffer, 0, descriptor_set_->GetVkDescriptorSet());
+        emit_pipeline_->PushConstant(command_buffer, 0, parameters);
+        emit_pipeline_->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      });
+      emitted_ += count;
+    }
+  if (emitted_)
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer command_buffer) {
-      emit_pipeline_->Bind(command_buffer);
-      emit_pipeline_->BindDescriptorSet(command_buffer, 0, descriptor_set_->GetVkDescriptorSet());
-      emit_pipeline_->PushConstant(command_buffer, 0, parameters);
-      emit_pipeline_->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
+      const GridParameters parameters{GetParticleCount(), grid_bucket_count, grid_cell_size};
+      clear_grid_pipeline_->Bind(command_buffer);
+      clear_grid_pipeline_->BindDescriptorSet(command_buffer, 0, descriptor_set_->GetVkDescriptorSet());
+      clear_grid_pipeline_->PushConstant(command_buffer, 0, parameters);
+      clear_grid_pipeline_->Dispatch(command_buffer, (grid_bucket_count + 63) / 64, 1, 1);
+      Platform::EverythingBarrier(command_buffer);
+      grid_pipeline_->Bind(command_buffer);
+      grid_pipeline_->BindDescriptorSet(command_buffer, 0, descriptor_set_->GetVkDescriptorSet());
+      grid_pipeline_->PushConstant(command_buffer, 0, parameters);
+      grid_pipeline_->Dispatch(command_buffer, (GetParticleCount() + 63) / 64, 1, 1);
       Platform::EverythingBarrier(command_buffer);
     });
-    emitted_ += count;
-  }
 }
 
 void WindParticleField::RegisterRender(const bool visible) {

@@ -99,6 +99,17 @@ bool GpuTreePhysics::Initialize(const std::vector<DynamicTreeSkeleton::GpuRestSt
   for (uint32_t i = 0; i < 10; ++i)
     layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout_->Initialize();
+  wind_layout_ = std::make_shared<DescriptorSetLayout>();
+  wind_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                      VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0);
+  wind_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  wind_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  wind_layout_->Initialize();
+  empty_wind_set_ = std::make_shared<DescriptorSet>(wind_layout_);
+  empty_wind_buffers_ = {MakeBuffer(std::vector<glm::vec4>(2)), MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX)),
+                         MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX))};
+  for (uint32_t i = 0; i < empty_wind_buffers_.size(); ++i)
+    empty_wind_set_->UpdateBufferDescriptorBinding(i, empty_wind_buffers_[i]);
   for (uint32_t vertex = 0; vertex < 2; ++vertex) {
     for (uint32_t rod = 0; rod < 2; ++rod) {
       auto& set = descriptor_sets_[vertex * 2 + rod];
@@ -121,7 +132,7 @@ bool GpuTreePhysics::Initialize(const std::vector<DynamicTreeSkeleton::GpuRestSt
         ShaderType::Compute,
         Platform::GetShaderGlobalDefines() + "\n#define TREE_PHYSICS_PASS " + std::to_string(pass) + "\n",
         "./EcoSysLabResources/Shaders/Compute/TreePhysics.slang");
-    pipeline->descriptor_set_layouts = {layout_};
+    pipeline->descriptor_set_layouts = {layout_, wind_layout_};
     pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters)});
     pipeline->Initialize();
     return pipeline;
@@ -141,7 +152,7 @@ void GpuTreePhysics::Step(const DynamicTreeSkeleton::PhysicsSettings& settings) 
   Step(std::vector<TreeStep>{{settings, true, model}});
 }
 
-void GpuTreePhysics::Step(const std::vector<TreeStep>& trees) {
+void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& wind) {
   if (!vertex_count_ || !predict_ || !predict_->Initialized() || !solve_position_->Initialized() ||
       !solve_rotation_->Initialized() || !update_velocity_->Initialized() || trees.size() != ranges_.size())
     return;
@@ -171,7 +182,7 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees) {
     tree_parameters.push_back({glm::vec4(glm::clamp(settings.time_step, 1e-5f, 0.1f) / tree_substeps,
                                          glm::max(0.0f, settings.stretch_stiffness),
                                          glm::max(0.0f, settings.bend_stiffness), glm::max(0.0f, settings.damping)),
-                               glm::vec4(settings.gravity, 0.0f),
+                               glm::vec4(settings.gravity, glm::max(0.0f, settings.wind_drag)),
                                glm::uvec4(tree_substeps, tree_iterations, tree.running ? 1u : 0u,
                                           tree.model.value != previous_models_[i] ? 1u : 0u),
                                previous_models_[i],
@@ -188,13 +199,17 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees) {
   upload.AddVector(tree_parameters_, tree_parameters,
                    {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
   upload.Record(upload_arena_);
+  const auto wind_set = wind.descriptor_set ? wind.descriptor_set : empty_wind_set_;
+  const uint32_t particle_count = wind.descriptor_set ? wind.particle_count : 0;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
     const auto timing = Platform::BeginGpuTimestampScope(
         command, {"EcoSysLabTreePhysics", "EcoSysLab Tree Physics", "EcoSysLab", GpuTimestampQueue::Compute});
-    Parameters parameters{vertex_count_, rod_count_, 0, 0};
+    Parameters parameters{vertex_count_,           rod_count_, 0, 0, particle_count, wind.bucket_count, wind.cell_size,
+                          wind.max_particle_radius};
     const auto dispatch = [&](const std::shared_ptr<ComputePipeline>& pipeline, const uint32_t count) {
       pipeline->Bind(command);
       pipeline->BindDescriptorSet(command, 0, descriptor_sets_[vertex_index_ * 2 + rod_index_]->GetVkDescriptorSet());
+      pipeline->BindDescriptorSet(command, 1, wind_set->GetVkDescriptorSet());
       pipeline->PushConstant(command, 0, parameters);
       pipeline->Dispatch(command, (count + 63) / 64, 1, 1);
       Platform::EverythingBarrier(command);
