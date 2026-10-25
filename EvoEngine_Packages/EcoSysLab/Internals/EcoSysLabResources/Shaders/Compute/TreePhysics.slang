@@ -147,8 +147,15 @@ void Predict(uint3 thread_id : SV_DispatchThreadID) {
       for (uint j = 0; j < vertex.incident_rods.y; ++j) {
         TreePhysicsRod rod = rods_in[vertex_rods[vertex.incident_rods.x + j]];
         uint other = rod.links.x == i ? rod.links.y : rod.links.x;
-        float3 other_position = vertices_in[other].position_inverse_mass.xyz;
-        float4 wind = SampleWind(position, other_position);
+        TreePhysicsVertex other_vertex = vertices_in[other];
+        float3 other_position = other_vertex.position_inverse_mass.xyz;
+        float3 sample_start = position;
+        float3 sample_end = other_position;
+        if (cell_size < 0.1) {
+          sample_start = mul(float4(vertex.rest_local.xyz + tree.anchor_offset.xyz, 1.0), tree.current_model).xyz;
+          sample_end = mul(float4(other_vertex.rest_local.xyz + tree.anchor_offset.xyz, 1.0), tree.current_model).xyz;
+        }
+        float4 wind = SampleWind(sample_start, sample_end);
         if (wind.w <= 0.0) continue;
         float3 direction = other_position - position;
         float length_squared = dot(direction, direction);

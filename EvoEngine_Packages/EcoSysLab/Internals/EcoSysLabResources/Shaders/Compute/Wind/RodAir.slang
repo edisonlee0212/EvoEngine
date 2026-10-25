@@ -17,7 +17,8 @@ struct Parameters {
   uint cell_count;
   uint rod_count;
   uint bucket_count;
-  float cell_size;
+  float rod_cell_size;
+  float air_cell_size;
   float time_step;
 };
 [[vk::binding(0, 0)]] StructuredBuffer<AirGridAddresses> air_addresses;
@@ -32,26 +33,27 @@ struct Parameters {
 void main(uint3 id : SV_DispatchThreadID) {
   if (id.x >= parameters.cell_count || parameters.rod_count == 0) return;
   int3 coordinate = AirGridReadCell(air_addresses, id.x).coordinate_next.xyz;
-  float3 center = (float3(coordinate) + 0.5) * parameters.cell_size;
-  int reach = int(ceil(asfloat(max_rod_extent[0]) / parameters.cell_size)) + 1;
+  float3 center = (float3(coordinate) + 0.5) * parameters.air_cell_size;
+  int reach = int(ceil(asfloat(max_rod_extent[0]) / parameters.rod_cell_size)) + 1;
+  int3 rod_cell = int3(floor(center / parameters.rod_cell_size));
   float3 motion = 0;
   float occupancy = 0;
   for (int z = -reach; z <= reach; ++z)
     for (int y = -reach; y <= reach; ++y)
       for (int x = -reach; x <= reach; ++x) {
-        int3 neighbor = coordinate + int3(x, y, z);
+        int3 neighbor = rod_cell + int3(x, y, z);
         uint rod_index = rod_heads[AirGridHash(neighbor, parameters.bucket_count)];
         while (rod_index != 0xffffffffu) {
           TreePhysicsRod rod = rods[rod_index];
           float3 start = vertices[rod.links.x].position_inverse_mass.xyz;
           float3 end = vertices[rod.links.y].position_inverse_mass.xyz;
           float3 segment = end - start;
-          if (all(int3(floor((start + end) * 0.5 / parameters.cell_size)) == neighbor)) {
+          if (all(int3(floor((start + end) * 0.5 / parameters.rod_cell_size)) == neighbor)) {
             float fraction = saturate(dot(center - start, segment) / max(dot(segment, segment), 1e-8));
             float distance = length(center - (start + fraction * segment));
             float radius = rod.length_scale_mass_radius.w;
-            float weight = saturate((radius + 0.866 * parameters.cell_size - distance) / parameters.cell_size) *
-                           saturate(radius / parameters.cell_size);
+            float weight = saturate((radius + 0.866 * parameters.air_cell_size - distance) / parameters.air_cell_size) *
+                           saturate(radius / parameters.air_cell_size);
             motion += weight * lerp(vertices[rod.links.x].velocity_radius.xyz,
                                     vertices[rod.links.y].velocity_radius.xyz, fraction);
             occupancy += weight;

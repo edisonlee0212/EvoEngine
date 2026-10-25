@@ -21,6 +21,7 @@ class EcoSysLabLayer : public ILayer {
   EcoSysLabLayer();
   bool visualize_wind_particles = true;
   bool visualize_air_grid = false;
+  bool visualize_air_coverage = false;
   std::vector<glm::vec4> soil_layer_colors;
   void ClearMeshes() const;
   void ClearSkeletalGraphs() const;
@@ -43,7 +44,7 @@ class EcoSysLabLayer : public ILayer {
   void OnDestroy() override;
   void RefreshMeshForAllDynamicStrands() const;
   void ResetAllTrees(const std::vector<Entity>* tree_entities);
-  void ResetAirGrid();
+  void ResetAirGrid(float cell_size = -1.0f);
   bool Simulate();
   TreeMeshGeneratorSettings mesh_generator_settings;
   SimulationSettings simulation_settings{};

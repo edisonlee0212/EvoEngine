@@ -23,11 +23,13 @@ class ClimateDescriptor : public IAsset {
  */
 class Climate : public IPrivateComponent {
  public:
+  static constexpr float default_air_cell_size = 0.1f;
   float air_temperature_c = 20.0f;
   float air_relative_humidity = 0.5f;
   float air_pressure_pa = 101325.0f;
   float air_coupling_rate = 4.0f;
   float air_friction = 4.0f;
+  float air_cell_size = default_air_cell_size;
 
   [[nodiscard]] static float SpecificHumidity(float temperature_c, float relative_humidity, float pressure_pa) {
     const float saturation = 610.94f * std::exp(17.625f * temperature_c / (temperature_c + 243.04f));

@@ -56,8 +56,12 @@ bool WindParticleField::Prepare() {
   air_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   air_layout_->Initialize();
   grid_render_layout_ = std::make_shared<DescriptorSetLayout>();
-  grid_render_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+  grid_render_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  grid_render_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
   grid_render_layout_->Initialize();
+  grid_depth_layout_ = std::make_shared<DescriptorSetLayout>();
+  grid_depth_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  grid_depth_layout_->Initialize();
   air_update_layout_ = std::make_shared<DescriptorSetLayout>();
   for (uint32_t i = 0; i < 5; ++i)
     air_update_layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -135,16 +139,18 @@ bool WindParticleField::Prepare() {
   render_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RenderParameters)});
   render_pipeline_->Initialize();
   grid_render_pipeline_ = std::make_shared<GraphicsPipeline>();
-  grid_render_pipeline_->vertex_shader = graphics_shader(ShaderType::Vertex, "AirGrid.vert.slang");
-  grid_render_pipeline_->fragment_shader = graphics_shader(ShaderType::Fragment, "AirGrid.frag.slang");
+  grid_render_pipeline_->vertex_shader = graphics_shader(ShaderType::Vertex, "AirVolume.vert.slang");
+  grid_render_pipeline_->fragment_shader = graphics_shader(ShaderType::Fragment, "AirVolume.frag.slang");
   grid_render_pipeline_->geometry_type = GeometryType::Mesh;
   grid_render_pipeline_->vertex_input_enabled = false;
-  grid_render_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-  grid_render_pipeline_->descriptor_set_layouts = {render_layer->GetPerFrameDescriptorSetLayout(), grid_render_layout_};
-  grid_render_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+  grid_render_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  grid_render_pipeline_->descriptor_set_layouts = {render_layer->GetPerFrameDescriptorSetLayout(), grid_render_layout_,
+                                                   grid_depth_layout_};
+  grid_render_pipeline_->depth_attachment_format = VK_FORMAT_UNDEFINED;
   grid_render_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   grid_render_pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color};
-  grid_render_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GridRenderParameters)});
+  grid_render_pipeline_->push_constant_ranges.push_back(
+      {VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(GridRenderParameters)});
   grid_render_pipeline_->Initialize();
   return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
          grid_pipeline_->Initialized() && air_update_pipeline_->Initialized() && trace_pipeline_->Initialized() &&
@@ -183,7 +189,29 @@ void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkelet
       local_lower = glm::min(local_lower, local);
       local_upper = glm::max(local_upper, local);
     }
-    tree_bounds_.push_back({local_lower, local_upper, tree.initial_model});
+    TreeBounds bounds{local_lower, local_upper, tree.initial_model};
+    if (air_grid_.GetCellSize() < 0.1f) {
+      std::vector<std::pair<glm::vec3, glm::vec3>> segments;
+      segments.reserve(tree.rods.size() * 2);
+      bounds.local_segments.reserve(tree.rods.size() * 2);
+      for (const auto& rod : tree.rods) {
+        const glm::vec3 start(tree.vertices[rod.links.x].position_inverse_mass);
+        const glm::vec3 end(tree.vertices[rod.links.y].position_inverse_mass);
+        segments.emplace_back(start, end);
+        bounds.local_segments.emplace_back(glm::vec3(inverse_model * glm::vec4(start, 1.0f)),
+                                           glm::vec3(inverse_model * glm::vec4(end, 1.0f)));
+        const glm::vec3 rest_start(tree.vertices[rod.links.x].rest_local);
+        const glm::vec3 rest_end(tree.vertices[rod.links.y].rest_local);
+        bounds.local_segments.emplace_back(rest_start, rest_end);
+        segments.emplace_back(glm::vec3(tree.initial_model * glm::vec4(rest_start, 1.0f)),
+                              glm::vec3(tree.initial_model * glm::vec4(rest_end, 1.0f)));
+      }
+      tree_bounds_.push_back(std::move(bounds));
+      if (air_grid_.RegisterSegments(segments))
+        InvalidateAirSets();
+      continue;
+    }
+    tree_bounds_.push_back(std::move(bounds));
     const glm::vec3 center = (lower + upper) * 0.5f;
     const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
     const glm::vec3 half_width = glm::max((upper - lower) * 0.5f, glm::vec3(air_grid_.GetCellSize() * 0.5f));
@@ -200,6 +228,17 @@ void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models)
     auto& bounds = tree_bounds_[i];
     if (bounds.model == models[i])
       continue;
+    if (air_grid_.GetCellSize() < 0.1f) {
+      std::vector<std::pair<glm::vec3, glm::vec3>> segments;
+      segments.reserve(bounds.local_segments.size());
+      for (const auto& [start, end] : bounds.local_segments)
+        segments.emplace_back(glm::vec3(models[i] * glm::vec4(start, 1.0f)),
+                              glm::vec3(models[i] * glm::vec4(end, 1.0f)));
+      if (air_grid_.RegisterSegments(segments))
+        InvalidateAirSets();
+      bounds.model = models[i];
+      continue;
+    }
     glm::vec3 lower(std::numeric_limits<float>::max());
     glm::vec3 upper(std::numeric_limits<float>::lowest());
     for (uint32_t corner = 0; corner < 8; ++corner) {
@@ -222,7 +261,7 @@ void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models)
 }
 
 void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
-                                     const std::shared_ptr<GpuTreePhysics>& physics) {
+                                     const std::shared_ptr<GpuTreePhysics>& physics, const float cell_size) {
   auto poses = trees;
   if (physics) {
     size_t count = 0;
@@ -235,8 +274,11 @@ void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuR
       for (auto& vertex : tree.vertices)
         vertex.position_inverse_mass = vertices[offset++].position_inverse_mass;
   }
-  air_grid_.Reset();
   InvalidateAirSets();
+  if (cell_size > 0.0f && cell_size != air_grid_.GetCellSize())
+    air_grid_ = GpuSpatialGrid(cell_size);
+  else
+    air_grid_.Reset();
   RegisterTreeCoverage(poses);
 }
 
@@ -262,6 +304,8 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     air_layout_.reset();
     grid_render_layout_.reset();
     grid_render_set_.reset();
+    grid_depth_layout_.reset();
+    grid_depth_sets_.clear();
     grid_render_pipeline_.reset();
     air_update_layout_.reset();
     air_descriptor_set_.reset();
@@ -306,7 +350,8 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     trace_set_->UpdateBufferDescriptorBinding(1, air_grid_.GetHeads());
     trace_set_->UpdateBufferDescriptorBinding(2, air_grid_.GetAddresses());
     grid_render_set_ = std::make_shared<DescriptorSet>(grid_render_layout_);
-    grid_render_set_->UpdateBufferDescriptorBinding(0, air_grid_.GetAddresses());
+    grid_render_set_->UpdateBufferDescriptorBinding(0, air_grid_.GetHeads());
+    grid_render_set_->UpdateBufferDescriptorBinding(1, air_grid_.GetAddresses());
   }
   const float dt = glm::clamp(time_step, 0.0f, 0.1f);
   if (dt <= 0.0f)
@@ -376,7 +421,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     const AirParameters parameters{
         air_grid_.GetCellCount(), grid_bucket_count, air_grid_.GetCellSize(),    dt,
         air_coupling_rate,        air_friction,      ambient_temperature_kelvin, ambient_specific_humidity,
-        ambient_pressure_pa};
+        ambient_pressure_pa,      grid_cell_size};
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer command_buffer) {
       const auto timing = Platform::BeginGpuTimestampScope(
           command_buffer, {"EcoSysLabAirField", "EcoSysLab Air Field", "EcoSysLab", GpuTimestampQueue::Compute});
@@ -435,9 +480,9 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     air->UpdateBufferDescriptorBinding(5, physics->GetRodBuffer());
     frame.physics.push_back(physics);
     frame.buffers.push_back(rod_next_);
-    const RodParameters rod_parameters{GetParticleCount(), rod_count, grid_bucket_count, air_grid_.GetCellSize()};
-    const RodAirParameters air_parameters{air_grid_.GetCellCount(), rod_count, grid_bucket_count,
-                                          air_grid_.GetCellSize(), dt};
+    const RodParameters rod_parameters{GetParticleCount(), rod_count, grid_bucket_count, grid_cell_size};
+    const RodAirParameters air_parameters{air_grid_.GetCellCount(), rod_count, grid_bucket_count, grid_cell_size,
+                                          air_grid_.GetCellSize(),  dt};
     Platform::RecordCommandsMainQueue([&, rods, air](VkCommandBuffer command_buffer) {
       const auto timing = Platform::BeginGpuTimestampScope(
           command_buffer, {"EcoSysLabRodAir", "EcoSysLab Rod Air", "EcoSysLab", GpuTimestampQueue::Compute});
@@ -459,7 +504,8 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
   }
 }
 
-void WindParticleField::RegisterRender(const bool particles_visible, const bool grid_visible) {
+void WindParticleField::RegisterRender(const bool particles_visible, const bool grid_visible,
+                                       const bool coverage_visible) {
   if ((!particles_visible || !emitted_) && (!grid_visible || !air_grid_.GetCellCount()))
     return;
   if (!render_pipeline_ || !render_pipeline_->Initialized() || !grid_render_pipeline_ ||
@@ -469,16 +515,30 @@ void WindParticleField::RegisterRender(const bool particles_visible, const bool 
   if (!render_layer)
     return;
   const auto self = shared_from_this();
-  render_layer->ForwardRenderingAllCameras(
-      [self, particles_visible, grid_visible](VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera,
-                                              const RenderLayer::ForwardRenderingView& view) {
-        return self->Draw(command_buffer, camera, view.viewport, view.camera_index, particles_visible, grid_visible);
-      });
+  if (particles_visible && emitted_)
+    render_layer->ForwardRenderingAllCameras([self](VkCommandBuffer command_buffer,
+                                                    const std::shared_ptr<Camera>& camera,
+                                                    const RenderLayer::ForwardRenderingView& view) {
+      return self->Draw(command_buffer, camera, view.viewport, view.camera_index);
+    });
+  if (grid_visible && air_grid_.GetCellCount())
+    render_layer->RegisterCameraRenderPass(
+        {"EcoSysLab.AirVolume",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Camera,
+         {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+          {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
+         {},
+         RenderPassProfilerGroup::Other,
+         "Air Volume"},
+        [self, coverage_visible](VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera,
+                                 const RenderLayer::ForwardRenderingView& view, const RenderGraphExecutionContext&) {
+          return self->DrawVolume(command_buffer, camera, view.viewport, view.camera_index, coverage_visible);
+        });
 }
 
 uint32_t WindParticleField::Draw(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera,
-                                 const glm::ivec4& viewport, const uint32_t camera_index, const bool particles_visible,
-                                 const bool grid_visible) {
+                                 const glm::ivec4& viewport, const uint32_t camera_index) {
   if (!camera || !camera->GetRenderTexture() || !RenderLayer::GetPerFrameDescriptorSet())
     return 0;
   std::vector<VkRenderingAttachmentInfo> colors;
@@ -495,7 +555,7 @@ uint32_t WindParticleField::Draw(VkCommandBuffer command_buffer, const std::shar
   rendering.pDepthAttachment = &depth;
   Platform::BeginRendering(command_buffer, rendering);
   uint32_t primitives = 0;
-  if (particles_visible && emitted_) {
+  if (emitted_) {
     render_pipeline_->states.ResetAllStates(1);
     render_pipeline_->states.SetViewportScissor(viewport);
     render_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
@@ -512,23 +572,59 @@ uint32_t WindParticleField::Draw(VkCommandBuffer command_buffer, const std::shar
     Platform::Draw(command_buffer, 6, count);
     primitives += count * 2;
   }
-  if (grid_visible && air_grid_.GetCellCount() && grid_render_set_) {
-    grid_render_pipeline_->states.ResetAllStates(1);
-    grid_render_pipeline_->states.SetViewportScissor(viewport);
-    grid_render_pipeline_->states.depth_test = true;
-    grid_render_pipeline_->states.depth_write = false;
-    grid_render_pipeline_->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-    grid_render_pipeline_->states.color_blend_attachment_states[0].blendEnable = VK_TRUE;
-    grid_render_pipeline_->states.ApplyAllStates(command_buffer);
-    grid_render_pipeline_->Bind(command_buffer);
-    grid_render_pipeline_->BindDescriptorSet(command_buffer, 0,
-                                             RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-    grid_render_pipeline_->BindDescriptorSet(command_buffer, 1, grid_render_set_->GetVkDescriptorSet());
-    grid_render_pipeline_->PushConstant(command_buffer, 0,
-                                        GridRenderParameters{camera_index, air_grid_.GetCellSize(), 0.1f, 0.0f});
-    Platform::Draw(command_buffer, 30, air_grid_.GetCellCount());
-    primitives += air_grid_.GetCellCount() * 15;
-  }
   Platform::EndRendering(command_buffer);
   return primitives;
+}
+
+uint32_t WindParticleField::DrawVolume(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera,
+                                       const glm::ivec4& viewport, const uint32_t camera_index,
+                                       const bool coverage_visible) {
+  if (!camera || !camera->GetRenderTexture() || !grid_render_set_ || !RenderLayer::GetPerFrameDescriptorSet())
+    return 0;
+  const auto& texture = camera->GetRenderTexture();
+  const auto& depth_view = texture->GetDepthImageView();
+  auto& cached = grid_depth_sets_[texture.get()];
+  if (cached.first != depth_view) {
+    if (cached.second)
+      retired_air_sets_.push_back({Platform::GetFrameCount(), cached.second});
+    cached.first = depth_view;
+    cached.second = std::make_shared<DescriptorSet>(grid_depth_layout_);
+    VkDescriptorImageInfo image_info{};
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    image_info.imageView = depth_view->GetVkImageView();
+    cached.second->UpdateImageDescriptorBinding(0, image_info);
+  }
+  std::vector<VkRenderingAttachmentInfo> colors;
+  texture->AppendColorAttachmentInfos(colors, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE);
+  VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+  rendering.renderArea = {{viewport.x, viewport.y},
+                          {static_cast<uint32_t>(viewport.z), static_cast<uint32_t>(viewport.w)}};
+  rendering.layerCount = 1;
+  rendering.colorAttachmentCount = static_cast<uint32_t>(colors.size());
+  rendering.pColorAttachments = colors.data();
+  Platform::BeginRendering(command_buffer, rendering);
+  grid_render_pipeline_->states.ResetAllStates(1);
+  grid_render_pipeline_->states.SetViewportScissor(viewport);
+  grid_render_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
+  grid_render_pipeline_->states.depth_test = false;
+  grid_render_pipeline_->states.depth_write = false;
+  grid_render_pipeline_->states.color_blend_attachment_states[0].blendEnable = VK_TRUE;
+  grid_render_pipeline_->states.ApplyAllStates(command_buffer);
+  grid_render_pipeline_->Bind(command_buffer);
+  grid_render_pipeline_->BindDescriptorSet(command_buffer, 0,
+                                           RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  grid_render_pipeline_->BindDescriptorSet(command_buffer, 1, grid_render_set_->GetVkDescriptorSet());
+  grid_render_pipeline_->BindDescriptorSet(command_buffer, 2, cached.second->GetVkDescriptorSet());
+  const float size = air_grid_.GetCellSize();
+  const GridRenderParameters parameters{
+      camera_index,
+      size,
+      ambient_temperature_kelvin,
+      GpuSpatialGrid::bucket_count,
+      glm::vec4(glm::vec3(air_grid_.GetLowerCell()) * size, coverage_visible ? 0.1f : 0.0f),
+      glm::vec4(glm::vec3(air_grid_.GetUpperCell() + 1) * size, 0.0f)};
+  grid_render_pipeline_->PushConstant(command_buffer, 0, parameters);
+  Platform::Draw(command_buffer, 3, 1);
+  Platform::EndRendering(command_buffer);
+  return 1;
 }

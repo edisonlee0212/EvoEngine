@@ -75,6 +75,17 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
   const auto window_title = runtime->GetLayerName();
   bool open = runtime->enable_inspection;
   if (ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::SeparatorText("Wind and air");
+    ImGui::Checkbox("Show wind particles", &runtime->visualize_wind_particles);
+    ImGui::Checkbox("Show air volume", &runtime->visualize_air_grid);
+    if (runtime->visualize_air_grid) {
+      ImGui::TextDisabled("Blue = cool, orange = warm; opacity = wind speed");
+      ImGui::Checkbox("Show registered coverage", &runtime->visualize_air_coverage);
+      ImGui::TextDisabled("Green = registered still air");
+    }
+    if (ImGui::Button("Reset air grid"))
+      runtime->ResetAirGrid();
+    ImGui::Separator();
     ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
     if (tree_visualization_settings_.enable) {
       const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();

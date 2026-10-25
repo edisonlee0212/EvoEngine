@@ -112,15 +112,22 @@ The EcoSysLab layer's **Show wind particles** option draws colored debug discs d
 with speed. Trees register a grow-only, sparse GPU air grid around their shoot skeletons. Wind samples deposit weighted
 velocity into registered cells as acceleration; cells retain velocity with adjustable friction and mix temperature and
 humidity with incoming samples. GPU rods sample these cells for drag and locally slow or drive the air based on their
-current motion. Samples in registered cells take on the local airflow without hard-surface reflection. Cells remain
-registered as trees grow or move until **Reset air grid** is pressed in the EcoSysLab layer inspector or all trees are
-reset. The manual reset re-registers from current GPU tree poses without changing those poses.
+current motion. Tracer particles keep their velocity through branches while mixing temperature and humidity with local
+air. Cells remain registered as trees grow or move until **Reset air grid** is pressed in the EcoSysLab layer inspector
+or all trees are reset. The manual reset re-registers from current GPU tree poses without changing those poses.
 
 The `Climate` private component supplies scene-level ambient temperature, relative humidity, pressure, air coupling,
-and friction through its **Air** inspector. Existing scenes with an `AirEnvironment` component transfer those settings
-to `Climate` when loaded. Air density is estimated from cell temperature, specific humidity, and ambient pressure.
+friction, and air-grid cell size through its **Air** inspector. Cell size defaults to 0.1 m and accepts 0.01–0.2 m.
+Press Enter after editing to rebuild registered cells from the trees' current GPU poses without changing those poses.
+Below 0.1 m, cells are registered along branches instead of filling each tree's coverage box. The solver samples those
+cells at the branches' rest positions as they bend. Rebuilding clears the current airflow. Existing scenes with an
+`AirEnvironment` component transfer those settings to `Climate` when loaded. Air density is estimated from cell
+temperature, specific humidity, and ambient pressure.
 This initial model mixes heat and moisture without phase changes or a pressure solver. The EcoSysLab layer's
-**Show air grid** option draws registered cells and their velocity arrows directly from the GPU grid buffers.
+**Show air volume** raymarches tree-registered cells directly from the GPU grid buffers, clipped by scene depth.
+Blue and orange show air cooler and warmer than ambient; opacity increases with wind speed, so still air is invisible.
+To inspect registration after a reset, enable **Show registered coverage** under **Show air volume** in the EcoSysLab
+panel. Registered still-air cells appear green; normal wind visualization keeps them invisible.
 
 ## Main Entry Points
 

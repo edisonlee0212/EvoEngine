@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "GraphicsResources.hpp"
@@ -35,12 +36,19 @@ class GpuSpatialGrid {
       : cell_size_(cell_size), value_stride_(value_stride) {
   }
   bool RegisterBox(const glm::vec3& lower, const glm::vec3& upper);
+  bool RegisterSegments(const std::vector<std::pair<glm::vec3, glm::vec3>>& segments);
   void Reset();
   [[nodiscard]] uint32_t GetCellCount() const {
     return static_cast<uint32_t>(lookup_.size());
   }
   [[nodiscard]] float GetCellSize() const {
     return cell_size_;
+  }
+  [[nodiscard]] const glm::ivec3& GetLowerCell() const {
+    return lower_cell_;
+  }
+  [[nodiscard]] const glm::ivec3& GetUpperCell() const {
+    return upper_cell_;
   }
   [[nodiscard]] const std::shared_ptr<Buffer>& GetHeads() const {
     return heads_;
@@ -67,6 +75,8 @@ class GpuSpatialGrid {
   void Upload(uint32_t first_new_cell);
 
   float cell_size_;
+  glm::ivec3 lower_cell_{INT32_MAX};
+  glm::ivec3 upper_cell_{INT32_MIN};
   uint32_t value_stride_;
   std::unordered_map<Coordinate, uint32_t, CoordinateHash> lookup_;
   std::vector<uint32_t> head_indices_;

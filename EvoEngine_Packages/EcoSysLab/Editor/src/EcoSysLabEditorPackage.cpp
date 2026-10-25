@@ -296,11 +296,7 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
       },
       "SoilDescriptor");
   registered &= registrar.RegisterInspector<EcoSysLabLayer>(
-      [](InspectorContext& context, EcoSysLabLayer& target) {
-        ImGui::Checkbox("Show wind particles", &target.visualize_wind_particles);
-        ImGui::Checkbox("Show air grid", &target.visualize_air_grid);
-        if (ImGui::Button("Reset air grid"))
-          target.ResetAirGrid();
+      [](InspectorContext& context, EcoSysLabLayer&) {
         if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabEditorLayer>())
           layer->DrawGui(context.editor_layer);
         return false;

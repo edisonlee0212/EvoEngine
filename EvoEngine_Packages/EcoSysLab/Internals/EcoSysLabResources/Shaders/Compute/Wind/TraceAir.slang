@@ -28,7 +28,6 @@ void main(uint3 id : SV_DispatchThreadID) {
   AirGridValue air = AirGridReadValue(air_addresses, index);
   if (air.velocity_temperature.w <= 0.0) return;
   float mix = 1.0 - exp(-parameters.coupling_rate * parameters.time_step);
-  particle.velocity_lifetime.xyz = lerp(particle.velocity_lifetime.xyz, air.velocity_temperature.xyz, mix);
   particle.collision.z = lerp(particle.collision.z, air.humidity_strength_density.x, mix);
   particle.collision.w = lerp(particle.collision.w, air.velocity_temperature.w, mix);
   particles[id.x] = particle;

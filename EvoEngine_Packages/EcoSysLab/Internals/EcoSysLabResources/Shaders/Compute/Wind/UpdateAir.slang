@@ -16,7 +16,7 @@ struct Parameters {
   float ambient_temperature;
   float ambient_humidity;
   float ambient_pressure;
-  float padding;
+  float particle_cell_size;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<WindParticle> particles;
@@ -42,18 +42,20 @@ void main(uint3 id : SV_DispatchThreadID) {
   float humidity_sum = 0;
   float strength_sum = 0;
   float weight_sum = 0;
-  for (int z = -1; z <= 1; ++z)
-    for (int y = -1; y <= 1; ++y)
-      for (int x = -1; x <= 1; ++x) {
-        int3 neighbor = coordinate + int3(x, y, z);
+  float support = parameters.cell_size * 1.75 + 1.0;
+  int3 first = int3(floor((center - support) / parameters.particle_cell_size));
+  int3 last = int3(floor((center + support) / parameters.particle_cell_size));
+  for (int z = first.z; z <= last.z; ++z)
+    for (int y = first.y; y <= last.y; ++y)
+      for (int x = first.x; x <= last.x; ++x) {
+        int3 neighbor = int3(x, y, z);
         uint particle_index = particle_heads[AirGridHash(neighbor, parameters.bucket_count)];
         while (particle_index != 0xffffffffu) {
           WindParticle particle = particles[particle_index];
           if (particle.velocity_lifetime.w > particle.position_age.w &&
-              all(int3(floor(particle.position_age.xyz / parameters.cell_size)) == neighbor)) {
+              all(int3(floor(particle.position_age.xyz / parameters.particle_cell_size)) == neighbor)) {
             float distance = length(particle.position_age.xyz - center);
-            float support = parameters.cell_size * 1.75 + particle.collision.x;
-            float weight = saturate(1.0 - distance / support);
+            float weight = saturate(1.0 - distance / (parameters.cell_size * 1.75 + particle.collision.x));
             velocity_sum += weight * particle.velocity_lifetime.xyz;
             temperature_sum += weight * particle.collision.w;
             humidity_sum += weight * particle.collision.z;

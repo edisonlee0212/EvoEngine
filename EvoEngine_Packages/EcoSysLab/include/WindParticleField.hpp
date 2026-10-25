@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include "Climate.hpp"
 #include "ComputePipeline.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "GpuSpatialGrid.hpp"
@@ -19,12 +20,15 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   static constexpr uint32_t grid_bucket_count = 32768;
   static constexpr float grid_cell_size = 1.0f;
 
+  WindParticleField() : air_grid_(Climate::default_air_cell_size) {
+  }
+
   void Step(const std::shared_ptr<Scene>& scene, float time_step, const std::shared_ptr<GpuTreePhysics>& physics);
-  void RegisterRender(bool particles_visible, bool grid_visible);
+  void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible);
   void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees);
   void RegisterTreeModels(const std::vector<glm::mat4>& models);
   void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
-                    const std::shared_ptr<GpuTreePhysics>& physics);
+                    const std::shared_ptr<GpuTreePhysics>& physics, float cell_size = -1.0f);
   [[nodiscard]] uint32_t GetParticleCount() const {
     return static_cast<uint32_t>(std::min<uint64_t>(emitted_, capacity));
   }
@@ -77,8 +81,10 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   struct GridRenderParameters {
     uint32_t camera_index = 0;
     float cell_size = 1.0f;
-    float velocity_scale = 0.1f;
-    float padding = 0.0f;
+    float ambient_temperature = 293.15f;
+    uint32_t bucket_count = GpuSpatialGrid::bucket_count;
+    glm::vec4 lower{};  // w is the optional registered-cell opacity density.
+    glm::vec4 upper{};
   };
   struct AirParameters {
     uint32_t cell_count = 0;
@@ -90,7 +96,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     float ambient_temperature = 293.15f;
     float ambient_humidity = 0.007f;
     float ambient_pressure = 101325.0f;
-    float padding = 0;
+    float particle_cell_size = grid_cell_size;
   };
   struct TraceParameters {
     uint32_t particle_count = 0;
@@ -109,7 +115,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     uint32_t cell_count = 0;
     uint32_t rod_count = 0;
     uint32_t bucket_count = 0;
-    float cell_size = 1;
+    float rod_cell_size = grid_cell_size;
+    float air_cell_size = 1;
     float time_step = 0;
   };
   struct RodFrame {
@@ -121,17 +128,20 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   };
   static_assert(sizeof(AirParameters) == 40);
   static_assert(sizeof(TraceParameters) == 20);
-  static_assert(sizeof(RodAirParameters) == 20);
+  static_assert(sizeof(RodAirParameters) == 24);
   struct TreeBounds {
     glm::vec3 lower_local{};
     glm::vec3 upper_local{};
     glm::mat4 model{1.0f};
+    std::vector<std::pair<glm::vec3, glm::vec3>> local_segments;
   };
 
   bool Prepare();
   void InvalidateAirSets();
   uint32_t Draw(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,
-                uint32_t camera_index, bool particles_visible, bool grid_visible);
+                uint32_t camera_index);
+  uint32_t DrawVolume(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,
+                      uint32_t camera_index, bool coverage_visible);
 
   std::weak_ptr<Scene> scene_;
   std::shared_ptr<Buffer> particles_;
@@ -148,6 +158,9 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<DescriptorSet> air_descriptor_set_;
   std::shared_ptr<DescriptorSetLayout> grid_render_layout_;
   std::shared_ptr<DescriptorSet> grid_render_set_;
+  std::shared_ptr<DescriptorSetLayout> grid_depth_layout_;
+  std::unordered_map<const RenderTexture*, std::pair<std::shared_ptr<ImageView>, std::shared_ptr<DescriptorSet>>>
+      grid_depth_sets_;
   std::shared_ptr<DescriptorSetLayout> air_update_layout_;
   std::shared_ptr<DescriptorSet> air_update_set_;
   std::shared_ptr<ComputePipeline> air_update_pipeline_;

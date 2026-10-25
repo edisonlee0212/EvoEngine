@@ -37,6 +37,12 @@ bool ClimateInspector::Inspect(InspectorContext& context, Climate& target) {
     changed |= ImGui::DragFloat("Ambient pressure (Pa)", &target.air_pressure_pa, 100.0f, 10000.0f, 120000.0f);
     changed |= ImGui::DragFloat("Air coupling (1/s)", &target.air_coupling_rate, 0.1f, 0.0f, 100.0f);
     changed |= ImGui::DragFloat("Air friction (1/s)", &target.air_friction, 0.1f, 0.0f, 100.0f);
+    float cell_size = target.air_cell_size;
+    if (ImGui::InputFloat("Grid cell size (m)", &cell_size, 0.0f, 0.0f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+      target.air_cell_size = glm::clamp(cell_size, 0.01f, 0.2f);
+      changed = true;
+    }
+    ImGui::TextDisabled("0.01-0.2 m; press Enter to rebuild");
     ImGui::TreePop();
   }
   return changed;

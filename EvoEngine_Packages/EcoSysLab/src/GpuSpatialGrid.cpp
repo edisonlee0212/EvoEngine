@@ -24,6 +24,8 @@ void GpuSpatialGrid::Add(const Coordinate& coordinate) {
   const uint32_t index = GetCellCount();
   const uint32_t bucket = Hash(coordinate);
   lookup_.emplace(coordinate, index);
+  lower_cell_ = glm::min(lower_cell_, glm::ivec3(coordinate.x, coordinate.y, coordinate.z));
+  upper_cell_ = glm::max(upper_cell_, glm::ivec3(coordinate.x, coordinate.y, coordinate.z));
   if (index % chunk_capacity == 0)
     cells_.emplace_back();
   cells_.back().push_back(
@@ -39,10 +41,30 @@ bool GpuSpatialGrid::RegisterBox(const glm::vec3& lower, const glm::vec3& upper)
                         static_cast<int>(std::floor(upper.y / cell_size_)),
                         static_cast<int>(std::floor(upper.z / cell_size_))};
   const uint32_t before = GetCellCount();
+  lower_cell_ = glm::min(lower_cell_, glm::ivec3(first.x, first.y, first.z));
+  upper_cell_ = glm::max(upper_cell_, glm::ivec3(last.x, last.y, last.z));
   for (int z = first.z; z <= last.z; ++z)
     for (int y = first.y; y <= last.y; ++y)
       for (int x = first.x; x <= last.x; ++x)
         Add({x, y, z});
+  if (GetCellCount() == before)
+    return false;
+  Upload(before);
+  return true;
+}
+
+bool GpuSpatialGrid::RegisterSegments(const std::vector<std::pair<glm::vec3, glm::vec3>>& segments) {
+  const uint32_t before = GetCellCount();
+  for (const auto& [start, end] : segments) {
+    const int steps = std::max(1, static_cast<int>(std::ceil(glm::length(end - start) / cell_size_)));
+    for (int step = 0; step <= steps; ++step) {
+      const glm::ivec3 center(glm::floor(glm::mix(start, end, static_cast<float>(step) / steps) / cell_size_));
+      for (int z = -1; z <= 1; ++z)
+        for (int y = -1; y <= 1; ++y)
+          for (int x = -1; x <= 1; ++x)
+            Add({center.x + x, center.y + y, center.z + z});
+    }
+  }
   if (GetCellCount() == before)
     return false;
   Upload(before);
@@ -94,6 +116,8 @@ void GpuSpatialGrid::Upload(uint32_t first_new_cell) {
 }
 
 void GpuSpatialGrid::Reset() {
+  lower_cell_ = glm::ivec3(INT32_MAX);
+  upper_cell_ = glm::ivec3(INT32_MIN);
   lookup_.clear();
   head_indices_.clear();
   cells_.clear();

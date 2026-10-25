@@ -70,14 +70,24 @@ TEST(AirEnvironment, SettingsRoundTrip) {
 TEST(Climate, AirSettingsLoadAndHumidity) {
   Climate loaded;
   DeserializeClimate(YAML::Load("air_temperature_c: 35\nair_relative_humidity: 0.8\n"
-                                "air_pressure_pa: 93000\nair_coupling_rate: 6\nair_friction: 1.5"),
+                                "air_pressure_pa: 93000\nair_coupling_rate: 6\nair_friction: 1.5\n"
+                                "air_cell_size: 0.1"),
                      loaded);
   EXPECT_FLOAT_EQ(loaded.air_temperature_c, 35.0f);
   EXPECT_FLOAT_EQ(loaded.air_relative_humidity, 0.8f);
   EXPECT_FLOAT_EQ(loaded.air_pressure_pa, 93000.0f);
   EXPECT_FLOAT_EQ(loaded.air_coupling_rate, 6.0f);
   EXPECT_FLOAT_EQ(loaded.air_friction, 1.5f);
+  EXPECT_FLOAT_EQ(loaded.air_cell_size, 0.1f);
   EXPECT_GT(loaded.AirSpecificHumidity(), Climate{}.AirSpecificHumidity());
+  Climate legacy;
+  DeserializeClimate(YAML::Load("air_temperature_c: 20"), legacy);
+  EXPECT_FLOAT_EQ(legacy.air_cell_size, Climate::default_air_cell_size);
+  EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.1f);
+  DeserializeClimate(YAML::Load("air_cell_size: 0.005"), legacy);
+  EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.01f);
+  DeserializeClimate(YAML::Load("air_cell_size: 0.5"), legacy);
+  EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.2f);
 }
 
 namespace {

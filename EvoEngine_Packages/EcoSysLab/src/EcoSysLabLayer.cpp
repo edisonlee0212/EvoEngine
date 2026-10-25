@@ -355,6 +355,8 @@ void EcoSysLabLayer::Update() {
     wind_particle_field_->ambient_pressure_pa = environment->air_pressure_pa;
     wind_particle_field_->air_coupling_rate = environment->air_coupling_rate;
     wind_particle_field_->air_friction = environment->air_friction;
+    if (wind_particle_field_->GetAirCellSize() != environment->air_cell_size)
+      ResetAirGrid(environment->air_cell_size);
     std::vector<glm::mat4> models;
     models.reserve(gpu_physics_entries_.size());
     for (const auto& item : gpu_physics_entries_)
@@ -363,7 +365,7 @@ void EcoSysLabLayer::Update() {
   }
   RegisterStrandRenderingProcedure();
   if (wind_particle_field_)
-    wind_particle_field_->RegisterRender(visualize_wind_particles, visualize_air_grid);
+    wind_particle_field_->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage);
   if (Platform::MeshShaderEnabled()) {
     if (!gpu_tree_mesh_renderer_)
       gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
@@ -372,7 +374,7 @@ void EcoSysLabLayer::Update() {
   DynamicStrandSimulation();
 }
 
-void EcoSysLabLayer::ResetAirGrid() {
+void EcoSysLabLayer::ResetAirGrid(const float cell_size) {
   if (!wind_particle_field_)
     return;
   std::vector<DynamicTreeSkeleton::GpuRestState> states;
@@ -381,7 +383,7 @@ void EcoSysLabLayer::ResetAirGrid() {
     if (const auto physics = item.physics.lock())
       states.push_back(physics->ExportGpuRestState());
   Platform::WaitForFrameSubmissions("EcoSysLab air grid reset");
-  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_);
+  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_, cell_size);
 }
 
 void EcoSysLabLayer::FixedUpdate() {

@@ -20,6 +20,7 @@ void eco_sys_lab_package::SerializeClimate(YAML::Emitter& out, const Climate& ta
   out << YAML::Key << "air_pressure_pa" << YAML::Value << target.air_pressure_pa;
   out << YAML::Key << "air_coupling_rate" << YAML::Value << target.air_coupling_rate;
   out << YAML::Key << "air_friction" << YAML::Value << target.air_friction;
+  out << YAML::Key << "air_cell_size" << YAML::Value << target.air_cell_size;
 }
 
 void Climate::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -84,4 +85,6 @@ void eco_sys_lab_package::DeserializeClimate(const YAML::Node& in, Climate& targ
     target.air_coupling_rate = in["air_coupling_rate"].as<float>();
   if (in["air_friction"])
     target.air_friction = in["air_friction"].as<float>();
+  if (in["air_cell_size"])
+    target.air_cell_size = glm::clamp(in["air_cell_size"].as<float>(), 0.01f, 0.2f);
 }
