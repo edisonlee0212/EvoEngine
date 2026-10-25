@@ -55,7 +55,7 @@ tree and refreshes them when the skeleton revision, mesh settings, or bark param
 uploaded only when their content or GPU deformation ranges
 change; foliage parameters and render-instance indices remain frame specific.
 
-The `ecosyslab` demo prepares the GPU pipelines and instantiates the 2×2 `AppleForest.forestpatch`. It waits for background asset, upload, and shader preparation work to finish before growing the four trees for four years. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build CPU
+The `ecosyslab` demo prepares the GPU pipelines and instantiates the 2×2 `AppleForest.forestpatch`. It waits for background asset, upload, and shader preparation work to finish before growing the four trees for four years. Forest patches and descriptors attach DynamicTreeSkeleton to each tree so GPU physics and wind can move their branches. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build CPU
 geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry at
 the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
 On mesh-shader devices, each growth iteration replaces the current GPU shoot pose from the saved growth skeleton.
@@ -75,8 +75,8 @@ starts automatically from the original pose after loading. Use **Reset GPU pose 
 Its pose feeds procedural rendering without copying bent poses back to the CPU. Moving or rotating a tree or its forest
 parent moves its pinned roots, and branches bend in response. Changing scale
 reinitializes GPU physics from the growth pose.
-Nearby live wind particles drive GPU branches through the component's **Wind drag** setting. The solver tests particles
-against branch capsules at their rendered radius; growing trees receive no wind force.
+GPU branches sample the local air-cell velocity through the component's **Wind drag** setting. Air cells retain
+momentum briefly after the emitting particles move away; growing trees receive no wind force.
 The initial wind drag value is 20 and can be adjusted per tree.
 The renderer caches packed growth nodes and uploads them only when they change. GPU physics deforms a separate draw
 buffer using the cached rest nodes; there is no CPU readback of the bent pose.
@@ -102,19 +102,25 @@ velocity. A new growth step resets the GPU dynamic pose. Roots and generated CPU
 
 Add a `Blower` private component to an entity to define a wind emission surface. Its editor quad follows the entity
 transform; the local +Z axis is the intended flow direction, and the entity's X/Y scale sets the surface dimensions.
-Speed, particle rate, particle influence radius, air density, spread angle, and random seed are saved with the scene. Air density
-defaults to 1.225 kg/m³ and scales branch drag at a given local flow speed, subject to the solver's acceleration cap.
+Speed, particle rate, influence radius, wind strength, temperature, relative humidity, spread angle, and random seed
+are saved with the scene. Older saved `air_density` values migrate to wind strength relative to 1.225 kg/m³.
 New particles start at random positions behind the surface over one simulation step, spreading each frame's emission into
-a continuous flow. Enabled Blowers emit into one scene-wide GPU particle pool. Particles carry their Blower settings for
-three seconds, interact with neighboring air and branches, and are recycled when the bounded pool fills. Updated Blower
-settings affect newly emitted particles.
+a continuous flow. Enabled Blowers emit into one scene-wide GPU particle pool. Particles carry velocity, temperature,
+and specific humidity for three seconds and are recycled when the bounded pool fills. Updated Blower settings affect
+newly emitted particles.
 The EcoSysLab layer's **Show wind particles** option draws colored debug discs directly from that GPU pool; color changes
-with speed. Neighboring particles exchange pressure and viscosity through a GPU spatial grid. Moving branch rods form a
-boundary at their rendered radius: nearby air slows its inward motion, while only particles that numerically enter wood
-are projected back to the surface. The influence radius controls branch sampling and boundary smoothing; the airflow
-kernel has a 0.35 m minimum support so sparse emitters remain stable. Blower area, speed, rate, and air density determine
-the mass represented by each emitted particle. Branches still receive the sampled-flow drag force; reciprocal rod forces
-and other obstacles remain future work.
+with speed. Trees register a grow-only, sparse GPU air grid around their shoot skeletons. Wind samples deposit weighted
+velocity into registered cells as acceleration; cells retain velocity with adjustable friction and mix temperature and
+humidity with incoming samples. GPU rods sample these cells for drag and locally slow or drive the air based on their
+current motion. Samples in registered cells take on the local airflow without hard-surface reflection. Cells remain
+registered as trees grow or move until **Reset air grid** is pressed in the EcoSysLab layer inspector or all trees are
+reset. The manual reset re-registers from current GPU tree poses without changing those poses.
+
+The `Climate` private component supplies scene-level ambient temperature, relative humidity, pressure, air coupling,
+and friction through its **Air** inspector. Existing scenes with an `AirEnvironment` component transfer those settings
+to `Climate` when loaded. Air density is estimated from cell temperature, specific humidity, and ambient pressure.
+This initial model mixes heat and moisture without phase changes or a pressure solver. The EcoSysLab layer's
+**Show air grid** option draws registered cells and their velocity arrows directly from the GPU grid buffers.
 
 ## Main Entry Points
 
@@ -125,7 +131,7 @@ and other obstacles remain future work.
 | `Tree` | Private component for a simulated tree instance. |
 | `TreeDescriptor` | Asset describing tree generation/growth behavior. |
 | `TreeStructor` | Private component for tree reconstruction workflows. |
-| `Climate` / `ClimateDescriptor` | Scene component and asset for climate state. |
+| `Climate` / `ClimateDescriptor` | Scene climate and ambient air settings for growth and GPU wind simulation. |
 | `Soil` / `SoilDescriptor` | Scene component and assets for soil context. |
 | `DynamicTreeSkeleton` | Private component for shoot rod physics settings and transient simulation state. |
 | `DynamicTreeStrands` | Strand-based tree representation and rendering support. |

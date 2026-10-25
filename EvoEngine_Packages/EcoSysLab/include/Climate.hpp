@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cmath>
+
 #include "ClimateModel.hpp"
 
 namespace eco_sys_lab_package {
@@ -21,6 +23,21 @@ class ClimateDescriptor : public IAsset {
  */
 class Climate : public IPrivateComponent {
  public:
+  float air_temperature_c = 20.0f;
+  float air_relative_humidity = 0.5f;
+  float air_pressure_pa = 101325.0f;
+  float air_coupling_rate = 4.0f;
+  float air_friction = 4.0f;
+
+  [[nodiscard]] static float SpecificHumidity(float temperature_c, float relative_humidity, float pressure_pa) {
+    const float saturation = 610.94f * std::exp(17.625f * temperature_c / (temperature_c + 243.04f));
+    const float vapor = glm::min(glm::clamp(relative_humidity, 0.0f, 1.0f) * saturation, pressure_pa * 0.99f);
+    return 0.622f * vapor / glm::max(pressure_pa - 0.378f * vapor, 1.0f);
+  }
+  [[nodiscard]] float AirSpecificHumidity() const {
+    return SpecificHumidity(air_temperature_c, air_relative_humidity, air_pressure_pa);
+  }
+
   /// The climate model used for simulation.
   ClimateModel climate_model;
 

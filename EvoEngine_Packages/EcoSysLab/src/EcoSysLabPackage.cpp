@@ -1,6 +1,7 @@
 #include "PackageManager.hpp"
 
 #include "AdvancedShootDescriptor.hpp"
+#include "AirEnvironment.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -45,11 +46,34 @@ using namespace eco_sys_lab_package;
 using namespace evo_engine;
 
 namespace eco_sys_lab_package {
+void SerializeAirEnvironment(YAML::Emitter& out, const AirEnvironment& target) {
+  out << YAML::Key << "temperature_c" << YAML::Value << target.temperature_c;
+  out << YAML::Key << "relative_humidity" << YAML::Value << target.relative_humidity;
+  out << YAML::Key << "pressure_pa" << YAML::Value << target.pressure_pa;
+  out << YAML::Key << "coupling_rate" << YAML::Value << target.coupling_rate;
+  out << YAML::Key << "friction" << YAML::Value << target.friction;
+}
+
+void DeserializeAirEnvironment(const YAML::Node& in, AirEnvironment& target) {
+  if (in["temperature_c"])
+    target.temperature_c = in["temperature_c"].as<float>();
+  if (in["relative_humidity"])
+    target.relative_humidity = in["relative_humidity"].as<float>();
+  if (in["pressure_pa"])
+    target.pressure_pa = in["pressure_pa"].as<float>();
+  if (in["coupling_rate"])
+    target.coupling_rate = in["coupling_rate"].as<float>();
+  if (in["friction"])
+    target.friction = in["friction"].as<float>();
+}
+
 void SerializeBlower(YAML::Emitter& out, const Blower& target) {
   out << YAML::Key << "speed" << YAML::Value << target.speed;
   out << YAML::Key << "particle_rate" << YAML::Value << target.particle_rate;
   out << YAML::Key << "particle_radius" << YAML::Value << target.particle_radius;
-  out << YAML::Key << "air_density" << YAML::Value << target.air_density;
+  out << YAML::Key << "wind_strength" << YAML::Value << target.wind_strength;
+  out << YAML::Key << "temperature_c" << YAML::Value << target.temperature_c;
+  out << YAML::Key << "relative_humidity" << YAML::Value << target.relative_humidity;
   out << YAML::Key << "spread_degrees" << YAML::Value << target.spread_degrees;
   out << YAML::Key << "seed" << YAML::Value << target.seed;
 }
@@ -61,8 +85,14 @@ void DeserializeBlower(const YAML::Node& in, Blower& target) {
     target.particle_rate = in["particle_rate"].as<float>();
   if (in["particle_radius"])
     target.particle_radius = in["particle_radius"].as<float>();
-  if (in["air_density"])
-    target.air_density = in["air_density"].as<float>();
+  if (in["wind_strength"])
+    target.wind_strength = in["wind_strength"].as<float>();
+  else if (in["air_density"])
+    target.wind_strength = in["air_density"].as<float>() / 1.225f;
+  if (in["temperature_c"])
+    target.temperature_c = in["temperature_c"].as<float>();
+  if (in["relative_humidity"])
+    target.relative_humidity = in["relative_humidity"].as<float>();
   if (in["spread_degrees"])
     target.spread_degrees = in["spread_degrees"].as<float>();
   if (in["seed"])
@@ -173,6 +203,8 @@ PackageDescriptor descriptor{
     EVOENGINE_PACKAGE_SOURCE_ID};
 
 void RegisterEcoSysLabSerializationHandlers(const std::string& owner_name) {
+  Serialization::RegisterSerializationHandler<AirEnvironment>(SerializeAirEnvironment, DeserializeAirEnvironment,
+                                                              owner_name, "AirEnvironment");
   Serialization::RegisterSerializationHandler<Blower>(SerializeBlower, DeserializeBlower, owner_name, "Blower");
   Serialization::RegisterSerializationHandler<TreeStructor>(SerializeTreeStructor, DeserializeTreeStructor, owner_name,
                                                             "TreeStructor");
@@ -265,6 +297,7 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterPrivateComponent<Climate>("Climate") &&
       registrar->RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator") &&
       registrar->RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton") &&
+      registrar->RegisterPrivateComponent<AirEnvironment>("AirEnvironment") &&
       registrar->RegisterPrivateComponent<Blower>("Blower") &&
       registrar->RegisterPrivateComponent<DynamicStrandsDemo>("DynamicStrandsDemo") &&
       registrar->RegisterPrivateComponent<Tree>("Tree") &&

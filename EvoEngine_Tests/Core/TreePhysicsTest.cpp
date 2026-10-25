@@ -1,8 +1,10 @@
 #include <gtest/gtest.h>
 #include <glm/gtx/quaternion.hpp>
+#include "AirEnvironment.hpp"
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Blower.hpp"
+#include "Climate.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
@@ -16,7 +18,9 @@ TEST(Blower, SettingsRoundTrip) {
   source.speed = 12.0f;
   source.particle_rate = 2400.0f;
   source.particle_radius = 0.35f;
-  source.air_density = 2.45f;
+  source.wind_strength = 2.0f;
+  source.temperature_c = 32.0f;
+  source.relative_humidity = 0.8f;
   source.spread_degrees = 15.0f;
   source.seed = 42;
   YAML::Emitter out;
@@ -29,9 +33,51 @@ TEST(Blower, SettingsRoundTrip) {
   EXPECT_FLOAT_EQ(loaded.speed, source.speed);
   EXPECT_FLOAT_EQ(loaded.particle_rate, source.particle_rate);
   EXPECT_FLOAT_EQ(loaded.particle_radius, source.particle_radius);
-  EXPECT_FLOAT_EQ(loaded.air_density, source.air_density);
+  EXPECT_FLOAT_EQ(loaded.wind_strength, source.wind_strength);
+  EXPECT_FLOAT_EQ(loaded.temperature_c, source.temperature_c);
+  EXPECT_FLOAT_EQ(loaded.relative_humidity, source.relative_humidity);
   EXPECT_FLOAT_EQ(loaded.spread_degrees, source.spread_degrees);
   EXPECT_EQ(loaded.seed, source.seed);
+}
+
+TEST(Blower, LegacyDensityMigratesToWindStrength) {
+  Blower loaded;
+  DeserializeBlower(YAML::Load("air_density: 2.45"), loaded);
+  EXPECT_FLOAT_EQ(loaded.wind_strength, 2.0f);
+}
+
+TEST(AirEnvironment, SettingsRoundTrip) {
+  AirEnvironment source;
+  source.temperature_c = 35.0f;
+  source.relative_humidity = 0.8f;
+  source.pressure_pa = 93000.0f;
+  source.coupling_rate = 6.0f;
+  source.friction = 1.5f;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeAirEnvironment(out, source);
+  out << YAML::EndMap;
+  AirEnvironment loaded;
+  DeserializeAirEnvironment(YAML::Load(out.c_str()), loaded);
+  EXPECT_FLOAT_EQ(loaded.temperature_c, source.temperature_c);
+  EXPECT_FLOAT_EQ(loaded.relative_humidity, source.relative_humidity);
+  EXPECT_FLOAT_EQ(loaded.pressure_pa, source.pressure_pa);
+  EXPECT_FLOAT_EQ(loaded.coupling_rate, source.coupling_rate);
+  EXPECT_FLOAT_EQ(loaded.friction, source.friction);
+  EXPECT_GT(loaded.SpecificHumidity(), AirEnvironment{}.SpecificHumidity());
+}
+
+TEST(Climate, AirSettingsLoadAndHumidity) {
+  Climate loaded;
+  DeserializeClimate(YAML::Load("air_temperature_c: 35\nair_relative_humidity: 0.8\n"
+                                "air_pressure_pa: 93000\nair_coupling_rate: 6\nair_friction: 1.5"),
+                     loaded);
+  EXPECT_FLOAT_EQ(loaded.air_temperature_c, 35.0f);
+  EXPECT_FLOAT_EQ(loaded.air_relative_humidity, 0.8f);
+  EXPECT_FLOAT_EQ(loaded.air_pressure_pa, 93000.0f);
+  EXPECT_FLOAT_EQ(loaded.air_coupling_rate, 6.0f);
+  EXPECT_FLOAT_EQ(loaded.air_friction, 1.5f);
+  EXPECT_GT(loaded.AirSpecificHumidity(), Climate{}.AirSpecificHumidity());
 }
 
 namespace {

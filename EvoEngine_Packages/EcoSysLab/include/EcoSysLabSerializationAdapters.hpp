@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AdvancedShootDescriptor.hpp"
+#include "AirEnvironment.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -90,6 +91,8 @@ void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target);
 void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target);
 void SerializeBlower(YAML::Emitter& out, const Blower& target);
 void DeserializeBlower(const YAML::Node& in, Blower& target);
+void SerializeAirEnvironment(YAML::Emitter& out, const AirEnvironment& target);
+void DeserializeAirEnvironment(const YAML::Node& in, AirEnvironment& target);
 void SerializeFoliageRenderer(YAML::Emitter& out, const FoliageRenderer& target);
 void DeserializeFoliageRenderer(const YAML::Node& in, FoliageRenderer& target);
 void SerializeSoil(YAML::Emitter& out, const Soil& target);

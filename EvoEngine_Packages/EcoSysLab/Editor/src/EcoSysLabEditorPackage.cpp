@@ -106,7 +106,9 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
         changed |= ImGui::DragFloat("Speed", &target.speed, 0.1f, 0.0f, 100.0f);
         changed |= ImGui::DragFloat("Particle rate", &target.particle_rate, 1.0f, 0.0f, 100000.0f);
         changed |= ImGui::DragFloat("Particle influence radius", &target.particle_radius, 0.01f, 0.0f, 1.0f);
-        changed |= ImGui::DragFloat("Air density (kg/m^3)", &target.air_density, 0.05f, 0.0f, 20.0f);
+        changed |= ImGui::DragFloat("Wind strength", &target.wind_strength, 0.05f, 0.0f, 20.0f);
+        changed |= ImGui::DragFloat("Temperature (C)", &target.temperature_c, 0.5f, -50.0f, 100.0f);
+        changed |= ImGui::SliderFloat("Relative humidity", &target.relative_humidity, 0.0f, 1.0f);
         changed |= ImGui::DragFloat("Spread (degrees)", &target.spread_degrees, 0.1f, 0.0f, 90.0f);
         changed |= ImGui::InputScalar("Seed", ImGuiDataType_U32, &target.seed);
         if (target.IsEnabled() && target.GetScene()->IsEntityEnabled(target.GetOwner())) {
@@ -296,6 +298,9 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
   registered &= registrar.RegisterInspector<EcoSysLabLayer>(
       [](InspectorContext& context, EcoSysLabLayer& target) {
         ImGui::Checkbox("Show wind particles", &target.visualize_wind_particles);
+        ImGui::Checkbox("Show air grid", &target.visualize_air_grid);
+        if (ImGui::Button("Reset air grid"))
+          target.ResetAirGrid();
         if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabEditorLayer>())
           layer->DrawGui(context.editor_layer);
         return false;

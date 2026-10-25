@@ -7,12 +7,14 @@
 #include "Application.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "GeometryStorage.hpp"
+#include "GpuSpatialGrid.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Jobs.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
+#include "WindParticleField.hpp"
 
 namespace evo_engine {
 class PlatformLifecycleTestAccess final {
@@ -58,6 +60,7 @@ class ScopedTreeGpuPlatform {
     ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
     std::filesystem::current_path(std::filesystem::path(__FILE__).parent_path().parent_path().parent_path() /
                                   "EvoEngine_Packages/EcoSysLab/Internals");
+    Shader::RegisterShaderIncludePath("./EcoSysLabResources/Shaders/Modules");
   }
 
   ~ScopedTreeGpuPlatform() {
@@ -316,31 +319,65 @@ TEST(GpuTreePhysics, SimulationDoesNotChangeGrowthSkeleton) {
   EXPECT_LT(glm::length(glm::vec3(restored.vertices[tip].position_inverse_mass) - original_tip), 1e-5f);
 }
 
-TEST(GpuTreePhysics, WindBendsRunningBranchesWithoutMovingCalmOrPausedTrees) {
+TEST(GpuTreePhysics, RegisteredAirCellsDriveBranchesAfterParticleDeposition) {
   ScopedTreeGpuPlatform platform;
   Tree tree;
   tree.shoot_model.Initialize(MakeGpuPhysicsChain());
   DynamicTreeSkeleton component;
   ASSERT_TRUE(component.InitializePhysics(tree));
   const auto rest = component.ExportGpuRestState();
-  GpuTreePhysics physics;
-  ASSERT_TRUE(physics.Initialize(std::vector<DynamicTreeSkeleton::GpuRestState>(3, rest)));
-  struct Particle {
-    glm::vec4 position_age;
-    glm::vec4 velocity_lifetime;
-    glm::vec4 collision;
-  };
-  constexpr uint32_t bucket_count = 128;
-  std::vector<Particle> particles;
-  std::vector<uint32_t> heads(bucket_count, UINT32_MAX);
+  auto physics = std::make_shared<GpuTreePhysics>();
+  ASSERT_TRUE(physics->Initialize({rest, rest, rest}));
+  GpuSpatialGrid air;
+  glm::vec3 lower(rest.vertices.front().position_inverse_mass);
+  glm::vec3 upper = lower;
   for (const auto& vertex : rest.vertices) {
-    if (vertex.position_inverse_mass.w <= 0)
-      continue;
-    const glm::vec3 position(vertex.position_inverse_mass);
-    for (int i = 0; i < 8; ++i)
-      particles.push_back({glm::vec4(position, 0), {0, 0, 5, 3}, {0.1f, 1.225f, 0, 0}});
+    const glm::vec3 point(vertex.position_inverse_mass);
+    lower = glm::min(lower, point);
+    upper = glm::max(upper, point);
   }
-  std::vector<uint32_t> next(particles.size(), UINT32_MAX);
+  ASSERT_TRUE(air.RegisterBox(lower - glm::vec3(1), upper + glm::vec3(1)));
+  const uint32_t origin_cell = air.Find({0, 0, 0});
+  ASSERT_NE(origin_cell, UINT32_MAX);
+  const auto first_chunk = air.GetValueChunk(0);
+  const auto first_heads = air.GetHeads();
+  struct Addresses {
+    uint64_t cells, values;
+  };
+  std::vector<Addresses> addresses;
+  air.GetAddresses()->DownloadVector(addresses, 1);
+  ASSERT_TRUE(air.RegisterBox({100, 0, 0}, {101, 1, 1}));
+  std::vector<Addresses> grown;
+  air.GetAddresses()->DownloadVector(grown, 1);
+  EXPECT_EQ(grown[0].cells, addresses[0].cells);
+  EXPECT_EQ(grown[0].values, addresses[0].values);
+  EXPECT_EQ(air.GetValueChunk(0), first_chunk);
+  EXPECT_NE(air.GetHeads(), first_heads);
+  EXPECT_EQ(air.Find({0, 0, 0}), origin_cell);
+  GpuSpatialGrid independent(2.0f, sizeof(glm::vec4));
+  ASSERT_TRUE(independent.RegisterBox({0, 0, 0}, {1, 1, 1}));
+  EXPECT_EQ(independent.GetCellCount(), 1u);
+  EXPECT_EQ(independent.GetValueChunk(0)->GetSize(), GpuSpatialGrid::chunk_capacity * sizeof(glm::vec4));
+
+  struct Particle {
+    glm::vec4 position_age, velocity_lifetime, collision;
+  };
+  std::vector<Particle> particles;
+  constexpr uint32_t bucket_count = 128;
+  std::vector<uint32_t> heads(bucket_count, UINT32_MAX);
+  std::vector<uint32_t> next;
+  for (const auto& rod : rest.rods) {
+    const glm::vec3 a(rest.vertices[rod.links.x].position_inverse_mass);
+    const glm::vec3 b(rest.vertices[rod.links.y].position_inverse_mass);
+    const glm::vec3 position = (a + b) * 0.5f;
+    const glm::ivec3 cell(glm::floor(position));
+    const uint32_t hash = (static_cast<uint32_t>(cell.x) * 73856093u ^ static_cast<uint32_t>(cell.y) * 19349663u ^
+                           static_cast<uint32_t>(cell.z) * 83492791u) %
+                          bucket_count;
+    next.push_back(heads[hash]);
+    heads[hash] = static_cast<uint32_t>(particles.size());
+    particles.push_back({glm::vec4(position, 0), {0, 0, 5, 3}, {0.35f, 1.0f, 0.007f, 293.15f}});
+  }
   const auto make_buffer = [](const auto& data) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = data.size() * sizeof(data[0]);
@@ -352,88 +389,75 @@ TEST(GpuTreePhysics, WindBendsRunningBranchesWithoutMovingCalmOrPausedTrees) {
     buffer->UploadVector(data);
     return buffer;
   };
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i = 0; i < 5; ++i)
+    layout->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto set = std::make_shared<DescriptorSet>(layout);
   const auto particle_buffer = make_buffer(particles);
   const auto head_buffer = make_buffer(heads);
   const auto next_buffer = make_buffer(next);
-  auto wind_set = std::make_shared<DescriptorSet>(physics.GetWindDescriptorSetLayout());
-  wind_set->UpdateBufferDescriptorBinding(0, particle_buffer);
-  wind_set->UpdateBufferDescriptorBinding(1, head_buffer);
-  wind_set->UpdateBufferDescriptorBinding(2, next_buffer);
-  struct GridParameters {
-    uint32_t count;
-    uint32_t bucket_count;
-    float cell_size;
-    float padding;
+  set->UpdateBufferDescriptorBinding(0, particle_buffer);
+  set->UpdateBufferDescriptorBinding(1, head_buffer);
+  set->UpdateBufferDescriptorBinding(2, next_buffer);
+  set->UpdateBufferDescriptorBinding(3, air.GetHeads());
+  set->UpdateBufferDescriptorBinding(4, air.GetAddresses());
+  auto update = std::make_shared<ComputePipeline>();
+  update->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                   "./EcoSysLabResources/Shaders/Compute/Wind/UpdateAir.slang");
+  update->descriptor_set_layouts = {layout};
+  struct Parameters {
+    uint32_t cell_count, bucket_count;
+    float cell_size, time_step, coupling_rate, friction, temperature, humidity, pressure, padding;
   };
-  auto clear = std::make_shared<ComputePipeline>();
-  clear->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                                  "./EcoSysLabResources/Shaders/Compute/Wind/ClearGrid.slang");
-  clear->descriptor_set_layouts = {physics.GetWindDescriptorSetLayout()};
-  clear->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GridParameters)});
-  clear->Initialize();
-  ASSERT_TRUE(clear->Initialized());
-  auto grid = std::make_shared<ComputePipeline>();
-  grid->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                                 "./EcoSysLabResources/Shaders/Compute/Wind/BuildGrid.slang");
-  grid->descriptor_set_layouts = {physics.GetWindDescriptorSetLayout()};
-  grid->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GridParameters)});
-  grid->Initialize();
-  ASSERT_TRUE(grid->Initialized());
+  update->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters)});
+  update->Initialize();
+  ASSERT_TRUE(update->Initialized());
+  evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+    update->Bind(command);
+    update->BindDescriptorSet(command, 0, set->GetVkDescriptorSet());
+    update->PushConstant(command, 0,
+                         Parameters{air.GetCellCount(), bucket_count, 1, 0.016f, 64, 0, 293.15f, 0.007f, 101325.0f, 0});
+    update->Dispatch(command, (air.GetCellCount() + 63) / 64, 1, 1);
+    Platform::EverythingBarrier(command);
+  });
+  evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("air cell deposition");
+  auto wind_set = std::make_shared<DescriptorSet>(physics->GetWindDescriptorSetLayout());
+  wind_set->UpdateBufferDescriptorBinding(0, air.GetHeads());
+  wind_set->UpdateBufferDescriptorBinding(1, air.GetAddresses());
   auto windy = component.physics_settings;
   windy.gravity = {};
   windy.wind_drag = 20.0f;
   auto calm = windy;
-  calm.wind_drag = 0.0f;
+  calm.wind_drag = 0;
   for (int i = 0; i < 60; ++i) {
     evo_engine::PlatformLifecycleTestAccess::PreUpdate();
-    if (i == 0)
-      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
-        const GridParameters parameters{static_cast<uint32_t>(particles.size()), bucket_count, 1.0f, 0.0f};
-        clear->Bind(command);
-        clear->BindDescriptorSet(command, 0, wind_set->GetVkDescriptorSet());
-        clear->PushConstant(command, 0, parameters);
-        clear->Dispatch(command, (bucket_count + 63) / 64, 1, 1);
-        Platform::EverythingBarrier(command);
-        grid->Bind(command);
-        grid->BindDescriptorSet(command, 0, wind_set->GetVkDescriptorSet());
-        grid->PushConstant(command, 0, parameters);
-        grid->Dispatch(command, (static_cast<uint32_t>(particles.size()) + 63) / 64, 1, 1);
-        Platform::EverythingBarrier(command);
-      });
-    physics.Step({{windy, true}, {calm, true}, {windy, false}},
-                 {wind_set, static_cast<uint32_t>(particles.size()), bucket_count, 1.0f, 0.1f});
+    physics->Step({{windy, true}, {calm, true}, {windy, false}},
+                  {wind_set, air.GetCellCount(), GpuSpatialGrid::bucket_count, 1});
     evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   }
-  Platform::WaitForFrameSubmissions("GPU branch wind coupling");
+  Platform::WaitForFrameSubmissions("air cell branch force");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer()->DownloadVector(vertices, rest.vertices.size() * 3);
+  physics->GetVertexBuffer()->DownloadVector(vertices, rest.vertices.size() * 3);
   const uint32_t tip = rest.rods[rest.node_rods.back()].links.y;
-  const float normal_bend =
-      vertices[tip].position_inverse_mass.z - vertices[tip + rest.vertices.size()].position_inverse_mass.z;
-  EXPECT_GT(normal_bend, 0.001f);
+  EXPECT_GT(vertices[tip].position_inverse_mass.z - vertices[tip + rest.vertices.size()].position_inverse_mass.z,
+            0.001f);
   EXPECT_NEAR(vertices[tip + 2 * rest.vertices.size()].position_inverse_mass.z,
               rest.vertices[tip].position_inverse_mass.z, 1e-4f);
-  EXPECT_NEAR(tree.shoot_model.PeekShootSkeleton().PeekNode(4).info.GetGlobalEndPosition().z,
-              rest.vertices[tip].position_inverse_mass.z, 1e-4f);
-  for (auto& particle : particles)
-    particle.collision.y = 2.45f;
-  particle_buffer->UploadVector(particles);
-  ASSERT_TRUE(physics.Initialize(std::vector<DynamicTreeSkeleton::GpuRestState>(3, rest)));
-  auto dense_wind_set = std::make_shared<DescriptorSet>(physics.GetWindDescriptorSetLayout());
-  dense_wind_set->UpdateBufferDescriptorBinding(0, particle_buffer);
-  dense_wind_set->UpdateBufferDescriptorBinding(1, head_buffer);
-  dense_wind_set->UpdateBufferDescriptorBinding(2, next_buffer);
-  for (int i = 0; i < 60; ++i) {
-    evo_engine::PlatformLifecycleTestAccess::PreUpdate();
-    physics.Step({{windy, true}, {calm, true}, {windy, false}},
-                 {dense_wind_set, static_cast<uint32_t>(particles.size()), bucket_count, 1.0f, 0.1f});
-    evo_engine::PlatformLifecycleTestAccess::LateUpdate();
-  }
-  Platform::WaitForFrameSubmissions("GPU branch air density scaling");
-  physics.GetVertexBuffer()->DownloadVector(vertices, rest.vertices.size() * 3);
-  const float dense_bend =
-      vertices[tip].position_inverse_mass.z - vertices[tip + rest.vertices.size()].position_inverse_mass.z;
-  EXPECT_GT(dense_bend, normal_bend * 1.2f);
+  EXPECT_FLOAT_EQ(tree.shoot_model.PeekShootSkeleton().PeekNode(4).info.GetGlobalEndPosition().z,
+                  rest.vertices[tip].position_inverse_mass.z);
+  WindParticleField field;
+  field.RegisterTreeCoverage({rest, rest, rest});
+  field.ResetAirGrid({rest, rest, rest}, physics);
+  EXPECT_GT(field.GetAirCellCount(), 0u);
+  std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> after_reset;
+  physics->GetVertexBuffer()->DownloadVector(after_reset, vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i)
+    EXPECT_EQ(after_reset[i].position_inverse_mass, vertices[i].position_inverse_mass);
+  air.Reset();
+  EXPECT_EQ(air.GetCellCount(), 0u);
 }
 
 TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
@@ -446,7 +470,7 @@ TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
   struct EmitParameters {
     glm::mat4 model{1.0f};
     glm::vec4 speed_spread_lifetime{10.0f, 0.0f, 3.0f, 0.1f};
-    glm::vec4 collision{0.3f, 2.45f, 0, 0};
+    glm::vec4 collision{0.3f, 2.0f, 0.01f, 303.15f};
     glm::uvec4 base_count_seed_capacity{0, 64, 17, 64};
   };
   auto layout = std::make_shared<DescriptorSetLayout>();
@@ -485,190 +509,14 @@ TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
     EXPECT_GE(particle.position_age.z, -1.0f);
     EXPECT_LE(particle.position_age.z, 0.0f);
     EXPECT_FLOAT_EQ(particle.collision.x, 0.3f);
-    EXPECT_FLOAT_EQ(particle.collision.y, 2.45f);
+    EXPECT_FLOAT_EQ(particle.collision.y, 2.0f);
+    EXPECT_FLOAT_EQ(particle.collision.z, 0.01f);
+    EXPECT_FLOAT_EQ(particle.collision.w, 303.15f);
     near_surface |= particle.position_age.z > -0.2f;
     far_behind |= particle.position_age.z < -0.8f;
   }
   EXPECT_TRUE(near_surface);
   EXPECT_TRUE(far_behind);
-}
-
-TEST(GpuTreePhysics, WindParticlesExchangePressureAndViscosity) {
-  ScopedTreeGpuPlatform platform;
-  struct Particle {
-    glm::vec4 position_age;
-    glm::vec4 velocity_lifetime;
-    glm::vec4 collision;
-  };
-  std::vector<Particle> particles = {{{-0.05f, 0, 0, 0}, {0, 1, 0, 3}, {0.35f, 1.225f, 0.01f, 0}},
-                                     {{0.05f, 0, 0, 0}, {0, -1, 0, 3}, {0.35f, 1.225f, 0.01f, 0}}};
-  const auto make_buffer = [](const auto& data) {
-    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = data.size() * sizeof(data[0]);
-    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    VmaAllocationCreateInfo allocation{};
-    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    auto buffer = std::make_shared<Buffer>(info, allocation);
-    buffer->UploadVector(data);
-    return buffer;
-  };
-  auto particle_buffer = make_buffer(particles);
-  auto heads = make_buffer(std::vector<uint32_t>{1});
-  auto next = make_buffer(std::vector<uint32_t>{UINT32_MAX, 0});
-  auto density = make_buffer(std::vector<float>(2));
-  auto next_velocity = make_buffer(std::vector<glm::vec4>(2));
-  auto layout = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t i = 0; i < 10; ++i)
-    layout->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  layout->Initialize();
-  auto descriptor = std::make_shared<DescriptorSet>(layout);
-  descriptor->UpdateBufferDescriptorBinding(0, particle_buffer);
-  descriptor->UpdateBufferDescriptorBinding(6, heads);
-  descriptor->UpdateBufferDescriptorBinding(7, next);
-  descriptor->UpdateBufferDescriptorBinding(8, density);
-  descriptor->UpdateBufferDescriptorBinding(9, next_velocity);
-  struct Parameters {
-    uint32_t particle_count = 2;
-    uint32_t rod_count = 0;
-    uint32_t bucket_count = 1;
-    float cell_size = 1.0f;
-    float time_step = 0.016f;
-    float max_support = 0.35f;
-  };
-  const auto make_pipeline = [&](const char* name) {
-    auto pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                std::filesystem::path("./EcoSysLabResources/Shaders/Compute/Wind") / name);
-    pipeline->descriptor_set_layouts = {layout};
-    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters)});
-    pipeline->Initialize();
-    return pipeline;
-  };
-  const auto density_pipeline = make_pipeline("Density.slang");
-  const auto flow_pipeline = make_pipeline("Flow.slang");
-  const auto apply_pipeline = make_pipeline("ApplyFlow.slang");
-  ASSERT_TRUE(density_pipeline->Initialized());
-  ASSERT_TRUE(flow_pipeline->Initialized());
-  ASSERT_TRUE(apply_pipeline->Initialized());
-  evo_engine::PlatformLifecycleTestAccess::PreUpdate();
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
-    for (const auto& pipeline : {density_pipeline, flow_pipeline, apply_pipeline}) {
-      pipeline->Bind(command);
-      pipeline->BindDescriptorSet(command, 0, descriptor->GetVkDescriptorSet());
-      pipeline->PushConstant(command, 0, Parameters{});
-      pipeline->Dispatch(command, 1, 1, 1);
-      Platform::EverythingBarrier(command);
-    }
-  });
-  evo_engine::PlatformLifecycleTestAccess::LateUpdate();
-  Platform::WaitForFrameSubmissions("GPU wind pressure and viscosity");
-  particle_buffer->DownloadVector(particles, particles.size());
-  EXPECT_LT(particles[0].velocity_lifetime.x, -0.01f);
-  EXPECT_GT(particles[1].velocity_lifetime.x, 0.01f);
-  EXPECT_LT(particles[0].velocity_lifetime.y, 1.0f);
-  EXPECT_GT(particles[1].velocity_lifetime.y, -1.0f);
-}
-
-TEST(GpuTreePhysics, WindParticlesFollowMovingRodBoundaryAcrossTrees) {
-  ScopedTreeGpuPlatform platform;
-  Tree tree;
-  tree.shoot_model.Initialize(MakeGpuPhysicsFork());
-  DynamicTreeSkeleton component;
-  ASSERT_TRUE(component.InitializePhysics(tree));
-  auto first = component.ExportGpuRestState();
-  auto second = first;
-  for (auto& vertex : first.vertices)
-    vertex.velocity_radius.x = 2.0f;
-  for (auto& vertex : second.vertices) {
-    vertex.position_inverse_mass.x += 5.0f;
-    vertex.velocity_radius.x = -2.0f;
-  }
-  GpuTreePhysics physics;
-  ASSERT_TRUE(physics.Initialize({first, second}));
-  struct Particle {
-    glm::vec4 position_age;
-    glm::vec4 velocity_lifetime;
-    glm::vec4 collision;
-  };
-  std::vector<Particle> particles = {{{0.02f, 0.5f, 0, 0}, {-1, 0, 0, 3}, {0.1f, 1.225f, 0, 0}},
-                                     {{4.98f, 0.5f, 0, 0}, {1, 0, 0, 3}, {0.1f, 1.225f, 0, 0}},
-                                     {{2.5f, 0.5f, 0, 0}, {1, 0, 0, 3}, {0.1f, 1.225f, 0, 0}}};
-  const auto make_buffer = [](const auto& data) {
-    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = data.size() * sizeof(data[0]);
-    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    VmaAllocationCreateInfo allocation{};
-    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    auto buffer = std::make_shared<Buffer>(info, allocation);
-    buffer->UploadVector(data);
-    return buffer;
-  };
-  constexpr uint32_t bucket_count = 128;
-  const auto particle_buffer = make_buffer(particles);
-  const auto head_buffer = make_buffer(std::vector<uint32_t>(bucket_count, UINT32_MAX));
-  const auto next_buffer = make_buffer(std::vector<uint32_t>(physics.GetRodCount(), UINT32_MAX));
-  const auto extent_buffer = make_buffer(std::vector<uint32_t>(1, 0));
-  auto layout = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t i = 0; i < 6; ++i)
-    layout->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  layout->Initialize();
-  auto descriptor = std::make_shared<DescriptorSet>(layout);
-  descriptor->UpdateBufferDescriptorBinding(0, particle_buffer);
-  descriptor->UpdateBufferDescriptorBinding(1, head_buffer);
-  descriptor->UpdateBufferDescriptorBinding(2, next_buffer);
-  descriptor->UpdateBufferDescriptorBinding(3, extent_buffer);
-  descriptor->UpdateBufferDescriptorBinding(4, physics.GetVertexBuffer());
-  descriptor->UpdateBufferDescriptorBinding(5, physics.GetRodBuffer());
-  struct Parameters {
-    uint32_t particle_count;
-    uint32_t rod_count;
-    uint32_t bucket_count;
-    float cell_size;
-  };
-  const auto make_pipeline = [&](const char* name) {
-    auto pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                std::filesystem::path("./EcoSysLabResources/Shaders/Compute/Wind") / name);
-    pipeline->descriptor_set_layouts = {layout};
-    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters)});
-    pipeline->Initialize();
-    return pipeline;
-  };
-  const auto clear = make_pipeline("ClearRods.slang");
-  const auto build = make_pipeline("BuildRods.slang");
-  const auto collide = make_pipeline("CollideRods.slang");
-  ASSERT_TRUE(clear->Initialized());
-  ASSERT_TRUE(build->Initialized());
-  ASSERT_TRUE(collide->Initialized());
-  evo_engine::PlatformLifecycleTestAccess::PreUpdate();
-  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
-    const Parameters parameters{static_cast<uint32_t>(particles.size()), physics.GetRodCount(), bucket_count, 1.0f};
-    const auto dispatch = [&](const auto& pipeline, uint32_t count) {
-      pipeline->Bind(command);
-      pipeline->BindDescriptorSet(command, 0, descriptor->GetVkDescriptorSet());
-      pipeline->PushConstant(command, 0, parameters);
-      pipeline->Dispatch(command, (count + 63) / 64, 1, 1);
-      Platform::EverythingBarrier(command);
-    };
-    dispatch(clear, bucket_count);
-    dispatch(build, physics.GetRodCount());
-    dispatch(collide, static_cast<uint32_t>(particles.size()));
-  });
-  evo_engine::PlatformLifecycleTestAccess::LateUpdate();
-  Platform::WaitForFrameSubmissions("GPU wind rod collision");
-  particle_buffer->DownloadVector(particles, particles.size());
-  EXPECT_GT(particles[0].position_age.x, 0.02f);
-  EXPECT_LT(particles[0].position_age.x, 0.149f);
-  EXPECT_NEAR(particles[0].velocity_lifetime.x, 2.0f, 1e-4f);
-  EXPECT_LT(particles[1].position_age.x, 4.98f);
-  EXPECT_GT(particles[1].position_age.x, 4.851f);
-  EXPECT_NEAR(particles[1].velocity_lifetime.x, -2.0f, 1e-4f);
-  EXPECT_FLOAT_EQ(particles[2].position_age.x, 2.5f);
-  EXPECT_FLOAT_EQ(particles[2].velocity_lifetime.x, 1.0f);
 }
 
 TEST(GpuTreePhysics, DISABLED_ForestScaleTiming) {

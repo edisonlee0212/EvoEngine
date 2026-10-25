@@ -100,14 +100,11 @@ bool GpuTreePhysics::Initialize(const std::vector<DynamicTreeSkeleton::GpuRestSt
     layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout_->Initialize();
   wind_layout_ = std::make_shared<DescriptorSetLayout>();
-  wind_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                      VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_VERTEX_BIT, 0);
+  wind_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   wind_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  wind_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   wind_layout_->Initialize();
   empty_wind_set_ = std::make_shared<DescriptorSet>(wind_layout_);
-  empty_wind_buffers_ = {MakeBuffer(std::vector<glm::vec4>(2)), MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX)),
-                         MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX))};
+  empty_wind_buffers_ = {MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX)), MakeBuffer(std::vector<glm::u64vec2>(1))};
   for (uint32_t i = 0; i < empty_wind_buffers_.size(); ++i)
     empty_wind_set_->UpdateBufferDescriptorBinding(i, empty_wind_buffers_[i]);
   for (uint32_t vertex = 0; vertex < 2; ++vertex) {
@@ -200,12 +197,11 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& w
                    {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
   upload.Record(upload_arena_);
   const auto wind_set = wind.descriptor_set ? wind.descriptor_set : empty_wind_set_;
-  const uint32_t particle_count = wind.descriptor_set ? wind.particle_count : 0;
+  const uint32_t cell_count = wind.descriptor_set ? wind.cell_count : 0;
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
     const auto timing = Platform::BeginGpuTimestampScope(
         command, {"EcoSysLabTreePhysics", "EcoSysLab Tree Physics", "EcoSysLab", GpuTimestampQueue::Compute});
-    Parameters parameters{vertex_count_,           rod_count_, 0, 0, particle_count, wind.bucket_count, wind.cell_size,
-                          wind.max_particle_radius};
+    Parameters parameters{vertex_count_, rod_count_, 0, 0, cell_count, wind.bucket_count, wind.cell_size, 0.0f};
     const auto dispatch = [&](const std::shared_ptr<ComputePipeline>& pipeline, const uint32_t count) {
       pipeline->Bind(command);
       pipeline->BindDescriptorSet(command, 0, descriptor_sets_[vertex_index_ * 2 + rod_index_]->GetVkDescriptorSet());

@@ -32,11 +32,7 @@ struct TreePhysicsTreeParameters {
   float4 anchor_offset;
 };
 
-struct WindParticle {
-  float4 position_age;
-  float4 velocity_lifetime;
-  float4 collision;
-};
+import EcoSysLab.AirGrid;
 
 [[vk::binding(0, 0)]] StructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices_in;
 [[vk::binding(1, 0)]] RWStructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices_out;
@@ -48,59 +44,41 @@ struct WindParticle {
 [[vk::binding(7, 0)]] RWStructuredBuffer<float4> predicted;
 [[vk::binding(8, 0)]] RWStructuredBuffer<float4> previous;
 [[vk::binding(9, 0)]] StructuredBuffer<TreePhysicsTreeParameters, Std430DataLayout> tree_parameters;
-[[vk::binding(0, 1)]] StructuredBuffer<WindParticle> wind_particles;
-[[vk::binding(1, 1)]] StructuredBuffer<uint> wind_heads;
-[[vk::binding(2, 1)]] StructuredBuffer<uint> wind_next;
+[[vk::binding(0, 1)]] StructuredBuffer<uint> wind_heads;
+[[vk::binding(1, 1)]] StructuredBuffer<AirGridAddresses> wind_addresses;
 
 [[vk::push_constant]] cbuffer TreePhysicsParameters {
   uint vertex_count;
   uint rod_count;
   uint substep;
   uint iteration;
-  uint particle_count;
+  uint cell_count;
   uint bucket_count;
   float cell_size;
-  float max_particle_radius;
+  float padding;
 };
 
-uint HashWindCell(int3 cell) {
-  uint3 value = uint3(cell) * uint3(73856093u, 19349663u, 83492791u);
-  return (value.x ^ value.y ^ value.z) % bucket_count;
-}
-
-float4 SampleWind(float3 start, float3 end, float rod_radius) {
-  if (particle_count == 0) return 0;
-  float reach = rod_radius + max_particle_radius;
-  int3 lower = int3(floor((min(start, end) - reach) / cell_size));
-  int3 upper = int3(floor((max(start, end) + reach) / cell_size));
-  float3 segment = end - start;
-  float segment_length_squared = dot(segment, segment);
-  float3 velocity = 0;
-  float weight_sum = 0;
-  float density_sum = 0;
-  for (int z = lower.z; z <= upper.z; ++z)
-    for (int y = lower.y; y <= upper.y; ++y)
-      for (int x = lower.x; x <= upper.x; ++x) {
-        int3 cell = int3(x, y, z);
-        uint particle_index = wind_heads[HashWindCell(cell)];
-        for (uint visited = 0; particle_index != 0xffffffffu && visited < 48; ++visited) {
-          WindParticle particle = wind_particles[particle_index];
-          if (all(int3(floor(particle.position_age.xyz / cell_size)) == cell) &&
-              particle.velocity_lifetime.w > particle.position_age.w) {
-            float3 offset = particle.position_age.xyz - start;
-            float t = segment_length_squared > 1e-12 ? saturate(dot(offset, segment) / segment_length_squared) : 0.0;
-            float distance = length(offset - t * segment);
-            float radius = rod_radius + particle.collision.x;
-            float weight = radius > 0.0 ? saturate(1.0 - distance / radius) : 0.0;
-            velocity += weight * particle.velocity_lifetime.xyz;
-            weight_sum += weight;
-            density_sum += weight * particle.collision.y;
-          }
-          particle_index = wind_next[particle_index];
-        }
+float4 SampleWind(float3 start, float3 end) {
+  if (cell_count == 0) return 0;
+  float3 position = (start + end) * (0.5 / cell_size) - 0.5;
+  int3 base = int3(floor(position));
+  float3 fraction = frac(position);
+  float4 result = 0;
+  float total = 0;
+  for (int z = 0; z < 2; ++z)
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 2; ++x) {
+        uint index = AirGridFind(wind_heads, wind_addresses, base + int3(x, y, z), bucket_count);
+        if (index == 0xffffffffu) continue;
+        AirGridValue value = AirGridReadValue(wind_addresses, index);
+        float weight = (x != 0 ? fraction.x : 1.0 - fraction.x) *
+                       (y != 0 ? fraction.y : 1.0 - fraction.y) *
+                       (z != 0 ? fraction.z : 1.0 - fraction.z);
+        result += weight * float4(value.velocity_temperature.xyz,
+                                  value.humidity_strength_density.y * value.humidity_strength_density.z / 1.225);
+        total += weight;
       }
-  return weight_sum > 0.0 ? float4(velocity / weight_sum,
-                                   saturate(weight_sum * 0.25) * density_sum / (weight_sum * 1.225)) : 0;
+  return total > 0.0 ? result / total : 0;
 }
 
 float4 QuatMultiply(float4 a, float4 b) {
@@ -164,13 +142,13 @@ void Predict(uint3 thread_id : SV_DispatchThreadID) {
     vertex.velocity_radius.xyz = float3(0, 0, 0);
   } else {
     float3 acceleration = tree.gravity.xyz;
-    if (particle_count != 0 && tree.gravity.w > 0.0) {
+    if (cell_count != 0 && tree.gravity.w > 0.0) {
       float3 drag = 0;
       for (uint j = 0; j < vertex.incident_rods.y; ++j) {
         TreePhysicsRod rod = rods_in[vertex_rods[vertex.incident_rods.x + j]];
         uint other = rod.links.x == i ? rod.links.y : rod.links.x;
         float3 other_position = vertices_in[other].position_inverse_mass.xyz;
-        float4 wind = SampleWind(position, other_position, rod.length_scale_mass_radius.w);
+        float4 wind = SampleWind(position, other_position);
         if (wind.w <= 0.0) continue;
         float3 direction = other_position - position;
         float length_squared = dot(direction, direction);

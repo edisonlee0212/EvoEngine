@@ -33,6 +33,7 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
       tree->Reset();
     }
   }
+  wind_particle_field_.reset();
 
   ++simulation_revision_;
   simulation_stats = {};

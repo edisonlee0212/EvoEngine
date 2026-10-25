@@ -26,10 +26,9 @@ class GpuTreePhysics {
   };
   struct WindInput {
     std::shared_ptr<DescriptorSet> descriptor_set;
-    uint32_t particle_count = 0;
+    uint32_t cell_count = 0;
     uint32_t bucket_count = 0;
     float cell_size = 1.0f;
-    float max_particle_radius = 0.0f;
   };
 
   [[nodiscard]] static PackedRestState PackRestStates(const std::vector<DynamicTreeSkeleton::GpuRestState>& states);
@@ -62,10 +61,10 @@ class GpuTreePhysics {
     uint32_t rod_count = 0;
     uint32_t substep = 0;
     uint32_t iteration = 0;
-    uint32_t particle_count = 0;
+    uint32_t cell_count = 0;
     uint32_t bucket_count = 0;
     float cell_size = 1.0f;
-    float max_particle_radius = 0.0f;
+    float padding = 0.0f;
   };
   struct TreeParameters {
     glm::vec4 mechanics{};
@@ -85,7 +84,7 @@ class GpuTreePhysics {
   std::shared_ptr<DescriptorSetLayout> layout_;
   std::shared_ptr<DescriptorSetLayout> wind_layout_;
   std::shared_ptr<DescriptorSet> empty_wind_set_;
-  std::array<std::shared_ptr<Buffer>, 3> empty_wind_buffers_;
+  std::array<std::shared_ptr<Buffer>, 2> empty_wind_buffers_;
   std::array<std::shared_ptr<DescriptorSet>, 4> descriptor_sets_;
   std::array<std::shared_ptr<Buffer>, 2> vertices_;
   std::array<std::shared_ptr<Buffer>, 2> rods_;

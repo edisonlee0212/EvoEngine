@@ -19,6 +19,7 @@
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloudsConverter.hpp"
 #endif
+#include "AirEnvironment.hpp"
 #include "Blower.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -308,19 +309,79 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
 }
 
 void EcoSysLabLayer::Update() {
-  if (const auto scene = GetScene(); !scene)
+  const auto scene = GetScene();
+  if (!scene)
     return;
   UpdateDemoTreeGrowth();
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<AirEnvironment>()) {
+    const std::vector<Entity> legacy_entities = *owners;
+    bool migrated = false;
+    for (const auto entity : legacy_entities) {
+      if (!scene->IsEntityValid(entity))
+        continue;
+      const auto legacy = scene->GetOrSetPrivateComponent<AirEnvironment>(entity).lock();
+      if (!migrated && legacy && legacy->IsEnabled() && scene->IsEntityEnabled(entity)) {
+        auto climate = FindClimate().lock();
+        if (!climate)
+          climate = scene->GetOrSetPrivateComponent<Climate>(scene->CreateEntity("Climate")).lock();
+        climate->air_temperature_c = legacy->temperature_c;
+        climate->air_relative_humidity = legacy->relative_humidity;
+        climate->air_pressure_pa = legacy->pressure_pa;
+        climate->air_coupling_rate = legacy->coupling_rate;
+        climate->air_friction = legacy->friction;
+        migrated = true;
+      }
+      scene->RemovePrivateComponent<AirEnvironment>(entity);
+    }
+  }
   SyncGpuTreePhysics();
+  if (wind_particle_field_) {
+    Climate defaults;
+    std::shared_ptr<Climate> selected;
+    const Climate* environment = &defaults;
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Climate>())
+      for (const auto entity : *owners) {
+        if (!scene->IsEntityEnabled(entity))
+          continue;
+        const auto current = scene->GetOrSetPrivateComponent<Climate>(entity).lock();
+        if (current && current->IsEnabled()) {
+          selected = current;
+          environment = selected.get();
+          break;
+        }
+      }
+    wind_particle_field_->ambient_temperature_kelvin = environment->air_temperature_c + 273.15f;
+    wind_particle_field_->ambient_specific_humidity = environment->AirSpecificHumidity();
+    wind_particle_field_->ambient_pressure_pa = environment->air_pressure_pa;
+    wind_particle_field_->air_coupling_rate = environment->air_coupling_rate;
+    wind_particle_field_->air_friction = environment->air_friction;
+    std::vector<glm::mat4> models;
+    models.reserve(gpu_physics_entries_.size());
+    for (const auto& item : gpu_physics_entries_)
+      models.push_back(scene->GetDataComponent<GlobalTransform>(item.entity).value);
+    wind_particle_field_->RegisterTreeModels(models);
+  }
   RegisterStrandRenderingProcedure();
   if (wind_particle_field_)
-    wind_particle_field_->RegisterRender(visualize_wind_particles);
+    wind_particle_field_->RegisterRender(visualize_wind_particles, visualize_air_grid);
   if (Platform::MeshShaderEnabled()) {
     if (!gpu_tree_mesh_renderer_)
       gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
     gpu_tree_mesh_renderer_->Register(GetScene());
   }
   DynamicStrandSimulation();
+}
+
+void EcoSysLabLayer::ResetAirGrid() {
+  if (!wind_particle_field_)
+    return;
+  std::vector<DynamicTreeSkeleton::GpuRestState> states;
+  states.reserve(gpu_physics_entries_.size());
+  for (const auto& item : gpu_physics_entries_)
+    if (const auto physics = item.physics.lock())
+      states.push_back(physics->ExportGpuRestState());
+  Platform::WaitForFrameSubmissions("EcoSysLab air grid reset");
+  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_);
 }
 
 void EcoSysLabLayer::FixedUpdate() {
@@ -344,9 +405,8 @@ void EcoSysLabLayer::FixedUpdate() {
     }
     GpuTreePhysics::WindInput wind;
     if (wind_particle_field_)
-      wind = {wind_particle_field_->GetDescriptorSet(), wind_particle_field_->GetParticleCount(),
-              WindParticleField::grid_bucket_count, WindParticleField::grid_cell_size,
-              wind_particle_field_->GetMaxParticleRadius()};
+      wind = {wind_particle_field_->GetAirDescriptorSet(), wind_particle_field_->GetAirCellCount(),
+              GpuSpatialGrid::bucket_count, wind_particle_field_->GetAirCellSize()};
     gpu_tree_physics_->Step(steps, wind);
   }
 }
@@ -390,6 +450,8 @@ void EcoSysLabLayer::SyncGpuTreePhysics() {
     }
   }
   if (rebuild) {
+    if (gpu_physics_scene_.lock() != scene)
+      wind_particle_field_.reset();
     for (const auto& entry : gpu_physics_entries_)
       if (const auto physics = entry.physics.lock())
         physics->SetGpuPhysics(nullptr, 0);
@@ -401,6 +463,9 @@ void EcoSysLabLayer::SyncGpuTreePhysics() {
       states.reserve(active.size());
       for (const auto& item : active)
         states.push_back(item.physics->ExportGpuRestState());
+      if (!wind_particle_field_)
+        wind_particle_field_ = std::make_shared<WindParticleField>();
+      wind_particle_field_->RegisterTreeCoverage(states);
       auto shared = std::make_shared<GpuTreePhysics>();
       if (shared->Initialize(states)) {
         gpu_tree_physics_ = shared;

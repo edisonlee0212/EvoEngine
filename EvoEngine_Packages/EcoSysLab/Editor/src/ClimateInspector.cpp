@@ -31,5 +31,13 @@ bool ClimateInspector::Inspect(InspectorContext& context, Climate& target) {
 
   if (target.climate_descriptor_ref.Get<ClimateDescriptor>()) {
   }
+  if (ImGui::TreeNode("Air")) {
+    changed |= ImGui::DragFloat("Ambient temperature (C)", &target.air_temperature_c, 0.5f, -50.0f, 100.0f);
+    changed |= ImGui::SliderFloat("Ambient relative humidity", &target.air_relative_humidity, 0.0f, 1.0f);
+    changed |= ImGui::DragFloat("Ambient pressure (Pa)", &target.air_pressure_pa, 100.0f, 10000.0f, 120000.0f);
+    changed |= ImGui::DragFloat("Air coupling (1/s)", &target.air_coupling_rate, 0.1f, 0.0f, 100.0f);
+    changed |= ImGui::DragFloat("Air friction (1/s)", &target.air_friction, 0.1f, 0.0f, 100.0f);
+    ImGui::TreePop();
+  }
   return changed;
 }

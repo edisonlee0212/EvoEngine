@@ -4,6 +4,8 @@
 #include <unordered_map>
 
 #include "ComputePipeline.hpp"
+#include "DynamicTreeSkeleton.hpp"
+#include "GpuSpatialGrid.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Scene.hpp"
 
@@ -18,16 +20,29 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   static constexpr float grid_cell_size = 1.0f;
 
   void Step(const std::shared_ptr<Scene>& scene, float time_step, const std::shared_ptr<GpuTreePhysics>& physics);
-  void RegisterRender(bool visible);
+  void RegisterRender(bool particles_visible, bool grid_visible);
+  void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees);
+  void RegisterTreeModels(const std::vector<glm::mat4>& models);
+  void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
+                    const std::shared_ptr<GpuTreePhysics>& physics);
   [[nodiscard]] uint32_t GetParticleCount() const {
     return static_cast<uint32_t>(std::min<uint64_t>(emitted_, capacity));
   }
-  [[nodiscard]] float GetMaxParticleRadius() const {
-    return max_particle_radius_;
+  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetAirDescriptorSet() const {
+    return air_descriptor_set_;
   }
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const {
-    return descriptor_set_;
+  [[nodiscard]] uint32_t GetAirCellCount() const {
+    return air_grid_.GetCellCount();
   }
+  [[nodiscard]] float GetAirCellSize() const {
+    return air_grid_.GetCellSize();
+  }
+
+  float ambient_temperature_kelvin = 293.15f;
+  float ambient_specific_humidity = 0.007f;
+  float ambient_pressure_pa = 101325.0f;
+  float air_coupling_rate = 4.0f;
+  float air_friction = 4.0f;
 
  private:
   struct Particle {
@@ -54,35 +69,69 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     float cell_size = 1.0f;
     float padding = 0;
   };
-  struct RodCollisionParameters {
-    uint32_t particle_count = 0;
-    uint32_t rod_count = 0;
-    uint32_t bucket_count = 0;
-    float cell_size = 1.0f;
-  };
-  struct FlowParameters {
-    uint32_t particle_count = 0;
-    uint32_t rod_count = 0;
-    uint32_t bucket_count = 0;
-    float cell_size = 1.0f;
-    float time_step = 0.0f;
-    float max_support = 0.0f;
-  };
   struct RenderParameters {
     uint32_t camera_index = 0;
     glm::vec2 viewport_size{};
     float point_radius = 3.0f;
   };
-  struct RodCollisionFrame {
+  struct GridRenderParameters {
+    uint32_t camera_index = 0;
+    float cell_size = 1.0f;
+    float velocity_scale = 0.1f;
+    float padding = 0.0f;
+  };
+  struct AirParameters {
+    uint32_t cell_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1;
+    float time_step = 0;
+    float coupling_rate = 0;
+    float friction = 0;
+    float ambient_temperature = 293.15f;
+    float ambient_humidity = 0.007f;
+    float ambient_pressure = 101325.0f;
+    float padding = 0;
+  };
+  struct TraceParameters {
+    uint32_t particle_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1;
+    float time_step = 0;
+    float coupling_rate = 0;
+  };
+  struct RodParameters {
+    uint32_t particle_count = 0;
+    uint32_t rod_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1;
+  };
+  struct RodAirParameters {
+    uint32_t cell_count = 0;
+    uint32_t rod_count = 0;
+    uint32_t bucket_count = 0;
+    float cell_size = 1;
+    float time_step = 0;
+  };
+  struct RodFrame {
     uint32_t frame_count = UINT32_MAX;
-    std::vector<std::shared_ptr<DescriptorSet>> descriptor_sets;
+    size_t used = 0;
+    std::vector<std::shared_ptr<DescriptorSet>> sets;
     std::vector<std::shared_ptr<GpuTreePhysics>> physics;
-    std::vector<std::shared_ptr<Buffer>> rod_next_buffers;
+    std::vector<std::shared_ptr<Buffer>> buffers;
+  };
+  static_assert(sizeof(AirParameters) == 40);
+  static_assert(sizeof(TraceParameters) == 20);
+  static_assert(sizeof(RodAirParameters) == 20);
+  struct TreeBounds {
+    glm::vec3 lower_local{};
+    glm::vec3 upper_local{};
+    glm::mat4 model{1.0f};
   };
 
   bool Prepare();
+  void InvalidateAirSets();
   uint32_t Draw(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,
-                uint32_t camera_index);
+                uint32_t camera_index, bool particles_visible, bool grid_visible);
 
   std::weak_ptr<Scene> scene_;
   std::shared_ptr<Buffer> particles_;
@@ -91,25 +140,33 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<Buffer> rod_heads_;
   std::shared_ptr<Buffer> rod_next_;
   std::shared_ptr<Buffer> rod_max_extent_;
-  std::shared_ptr<Buffer> particle_density_;
-  std::shared_ptr<Buffer> particle_velocity_;
   std::shared_ptr<DescriptorSetLayout> layout_;
   std::shared_ptr<DescriptorSet> descriptor_set_;
-  std::shared_ptr<DescriptorSetLayout> rod_collision_layout_;
-  std::vector<RodCollisionFrame> rod_collision_frames_;
+  GpuSpatialGrid air_grid_;
+  std::vector<TreeBounds> tree_bounds_;
+  std::shared_ptr<DescriptorSetLayout> air_layout_;
+  std::shared_ptr<DescriptorSet> air_descriptor_set_;
+  std::shared_ptr<DescriptorSetLayout> grid_render_layout_;
+  std::shared_ptr<DescriptorSet> grid_render_set_;
+  std::shared_ptr<DescriptorSetLayout> air_update_layout_;
+  std::shared_ptr<DescriptorSet> air_update_set_;
+  std::shared_ptr<ComputePipeline> air_update_pipeline_;
+  std::shared_ptr<DescriptorSetLayout> trace_layout_;
+  std::shared_ptr<DescriptorSet> trace_set_;
+  std::shared_ptr<ComputePipeline> trace_pipeline_;
+  std::shared_ptr<DescriptorSetLayout> rod_layout_;
+  std::vector<RodFrame> rod_frames_;
+  std::shared_ptr<ComputePipeline> clear_rods_pipeline_;
+  std::shared_ptr<ComputePipeline> build_rods_pipeline_;
+  std::shared_ptr<ComputePipeline> rod_air_pipeline_;
+  std::vector<std::pair<uint32_t, std::shared_ptr<DescriptorSet>>> retired_air_sets_;
   std::shared_ptr<ComputePipeline> advect_pipeline_;
   std::shared_ptr<ComputePipeline> emit_pipeline_;
   std::shared_ptr<ComputePipeline> clear_grid_pipeline_;
   std::shared_ptr<ComputePipeline> grid_pipeline_;
-  std::shared_ptr<ComputePipeline> clear_rods_pipeline_;
-  std::shared_ptr<ComputePipeline> build_rods_pipeline_;
-  std::shared_ptr<ComputePipeline> collide_rods_pipeline_;
-  std::shared_ptr<ComputePipeline> density_pipeline_;
-  std::shared_ptr<ComputePipeline> flow_pipeline_;
-  std::shared_ptr<ComputePipeline> apply_flow_pipeline_;
   std::shared_ptr<GraphicsPipeline> render_pipeline_;
+  std::shared_ptr<GraphicsPipeline> grid_render_pipeline_;
   std::unordered_map<uint64_t, float> emission_remainders_;
   uint64_t emitted_ = 0;
-  float max_particle_radius_ = 0.0f;
 };
 }  // namespace eco_sys_lab_package

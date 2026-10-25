@@ -7,6 +7,7 @@
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "FoliageRenderer.hpp"
@@ -32,6 +33,7 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
   application.RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
   application.RegisterAsset<ForestPatch>("ForestPatch", {".forestpatch"});
   application.RegisterPrivateComponent<Tree>("Tree");
+  application.RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton");
   application.RegisterPrivateComponent<BranchRenderer>("BranchRenderer");
   application.RegisterPrivateComponent<FoliageRenderer>("FoliageRenderer");
   const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
@@ -52,6 +54,7 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
     ASSERT_NE(trees, nullptr);
     ASSERT_EQ(trees->size(), expected_count);
     const auto entity = trees->back();
+    ASSERT_TRUE(scene->HasPrivateComponent<DynamicTreeSkeleton>(entity));
     ASSERT_TRUE(scene->HasPrivateComponent<BranchRenderer>(entity));
     ASSERT_TRUE(scene->HasPrivateComponent<FoliageRenderer>(entity));
     EXPECT_EQ(scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock()->material_ref.Get<Material>(),
@@ -96,6 +99,7 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
   patch.InstantiatePatch(patch.grid_size, false);
   ASSERT_EQ(trees->size(), 9);
   for (size_t i = 5; i < 9; ++i) {
+    EXPECT_TRUE(scene->HasPrivateComponent<DynamicTreeSkeleton>((*trees)[i]));
     EXPECT_TRUE(scene->HasPrivateComponent<BranchRenderer>((*trees)[i]));
     EXPECT_TRUE(scene->HasPrivateComponent<FoliageRenderer>((*trees)[i]));
   }
