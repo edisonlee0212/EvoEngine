@@ -50,26 +50,18 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     bool fracture_enabled = false;
     float fracture_angle_degrees = 45.0f;
     float fracture_duration = 0.05f;
-
-    [[nodiscard]] float FractureBendLimit(const float joint_radius, const float joint_length) const {
-      return glm::radians(glm::clamp(fracture_angle_degrees, 0.0f, 180.0f)) * 0.05f * joint_length /
-             glm::max(joint_radius, 1e-4f);
-    }
   } physics_settings;
 
   bool physics_running = false;
-  bool gpu_physics_enabled = false;
   bool InitializePhysics(Tree& tree);
   bool InitializePhysics(Tree& tree, const GlobalTransform& model);
   void RequestGpuPoseInitialization() {
-    restore_gpu_pose_on_load_ = gpu_physics_enabled;
+    restore_gpu_pose_on_load_ = true;
   }
   void RestoreGpuPoseAfterLoad(Tree& tree);
   bool SyncGpuPhysics(Tree& tree, const GlobalTransform& model, bool growing);
   [[nodiscard]] GpuRestState ExportGpuRestState() const;
-  void ResetPhysics(Tree& tree);
-  void StepPhysics(Tree& tree);
-  void StepPhysics(Tree& tree, const GlobalTransform& model);
+  void ResetPhysics();
   void SetGpuPhysics(std::shared_ptr<GpuTreePhysics> physics, uint32_t tree_index) {
     gpu_physics_ = std::move(physics);
     gpu_tree_index_ = tree_index;
@@ -94,11 +86,9 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   bool restore_gpu_pose_on_load_ = false;
   struct PhysicsVertex {
     glm::vec3 position{};
-    glm::vec3 velocity{};
     float inverse_mass = 0;
     float radius = 0;
     bool pinned = false;
-    bool fallen = false;
   };
   struct PhysicsRod {
     int start = -1;
@@ -110,34 +100,25 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     float structural_length_scale = 1;
     glm::quat rotation{1, 0, 0, 0};
     glm::quat rest_rotation{1, 0, 0, 0};
-    glm::vec3 visual_offset{};
     bool pinned = false;
-    bool detached = false;
-    bool fallen = false;
   };
   struct PhysicsAngle {
     int first = -1;
     int second = -1;
     glm::quat rest_relative{1, 0, 0, 0};
     float bend_scale = 1;
-    float over_limit_time = 0;
-    bool broken = false;
   };
   std::vector<PhysicsVertex> physics_vertices_;
   std::vector<PhysicsRod> physics_rods_;
   std::vector<PhysicsAngle> physics_angles_;
   std::vector<int> physics_node_rods_;
-  std::vector<glm::vec3> physics_predicted_;
-  std::vector<glm::vec3> physics_previous_;
   std::vector<std::vector<int>> physics_vertex_rods_;
   std::vector<std::vector<int>> physics_rod_angles_;
   std::vector<glm::vec3> physics_rest_positions_;
   glm::mat4 previous_model_{1.0f};
   glm::vec3 initial_scale_{1.0f};
   glm::quat initial_rotation_{1, 0, 0, 0};
-  glm::quat previous_rotation_{1, 0, 0, 0};
   uint64_t model_revision_ = 0;
-  bool has_detached_branches_ = false;
   std::shared_ptr<GpuTreePhysics> gpu_physics_;
   uint32_t gpu_tree_index_ = 0;
 };

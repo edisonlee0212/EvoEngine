@@ -51,8 +51,8 @@ material share an opaque brown branch material within each instantiated patch.
 The procedural modes need mesh shader support. BranchRenderer requires an opaque branch material. On unsupported
 devices these components produce no procedural draw. CPU geometry is generated only when explicitly requested, and
 its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer caches packed rest nodes per
-tree and refreshes them when the skeleton revision, mesh settings, or bark parameters change. CPU physics poses are
-packed each frame while active. Packed node buffers are uploaded only when their content or GPU deformation ranges
+tree and refreshes them when the skeleton revision, mesh settings, or bark parameters change. Packed node buffers are
+uploaded only when their content or GPU deformation ranges
 change; foliage parameters and render-instance indices remain frame specific.
 
 The `ecosyslab` demo prepares the GPU pipelines and instantiates the 2×2 `AppleForest.forestpatch`. It waits for background asset, upload, and shader preparation work to finish before growing the four trees for four years. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build CPU
@@ -65,33 +65,25 @@ branch, foliage, and shadow draws.
 ## Shoot physics
 
 Select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
-In CPU mode, **Initialize from growth pose** captures the shoot skeleton as a paused rod simulation. **Run physics**
-advances it in `EcoSysLabLayer::FixedUpdate`; **Pause physics** holds the current bend, and **Clear physics** restores
-the growth pose. The inspector exposes simulated
-time per fixed update, substeps, iterations, stretch and bend stiffness, wood density, damping, gravity, and an anchor
-offset. Reinitialize after changing density.
-
-The experimental **GPU physics** option uses fixed roots and GPU rod constraints. Enabled trees in a scene share
+Tree physics uses fixed roots and GPU rod constraints. Enabled trees in a scene share
 vertex and rod buffers and solver dispatches while retaining their own time step, stiffness, damping, and gravity.
 The shared state is rebuilt when its tree set or a shoot skeleton revision changes, or physics is reinitialized;
 rebuilding starts every tree in that scene from its growth pose. Growth always uses this original shoot skeleton,
 never the bent GPU pose. On each growth iteration, the new skeleton replaces the GPU dynamic state before rendering;
-GPU solving pauses during continuous growth and resumes automatically when growth is idle. Enabled GPU physics also
+GPU solving pauses during continuous growth and resumes automatically when growth is idle. Physics also
 starts automatically from the original pose after loading. Use **Reset GPU pose to growth** to discard a bend.
 Its pose feeds procedural rendering without copying bent poses back to the CPU. Moving or rotating a tree or its forest
-parent moves its pinned roots; paused trees follow rigidly, while running trees bend in response. Changing scale
+parent moves its pinned roots, and branches bend in response. Changing scale
 reinitializes GPU physics from the growth pose.
 Nearby live wind particles drive GPU branches through the component's **Wind drag** setting. The solver tests particles
-against branch capsules using rendered branch radius and each particle's collision radius; paused or growing trees receive no wind force.
+against branch capsules at their rendered radius; growing trees receive no wind force.
 The initial wind drag value is 20 and can be adjusted per tree.
-Use the CPU mode for branch fracture and collider contact.
 The renderer caches packed growth nodes and uploads them only when they change. GPU physics deforms a separate draw
 buffer using the cached rest nodes; there is no CPU readback of the bent pose.
 
 To test an earthquake-like response, move or rotate the tree entity (or its parent) in the editor.
 The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
-physics is paused carries the current bend with it. Changing entity scale reinitializes GPU physics; CPU physics
-must be initialized again manually.
+physics is paused for growth carries the current bend with it. Changing entity scale reinitializes GPU physics.
 The default physics settings advance 0.016 seconds per fixed update with 4 substeps and 8 solver iterations. Stretch
 stiffness is 8192, bend stiffness is 512, and damping is 0. Rod mass and stiffness scale with connected branch length
 and the internode's thickness; bend stiffness also accounts for thickness at each junction.
@@ -100,40 +92,29 @@ but EcoSysLab uses one rod per internode and its own solver. Existing saved comp
 **Reset physics settings to defaults** in the `DynamicTreeSkeleton` inspector to restore all default physics settings
 and reinitialize physics from the growth pose.
 
-Optional branch fracture disconnects a child internode from its parent after enough time above the bend limit. Exposure
-accumulates faster for stronger over-limit bending and decays slowly during recovery, so repeated shocks can break a
-branch. The reference angle is specified for a 1 m junction with a 0.05 m radius; each junction scales the limit by its
-length and radius.
-The detached subtree stays in the simulation and accelerates under gravity.
-Its transient pose makes procedural branch and foliage rendering follow the falling subtree, while the saved growth
-skeleton remains unchanged. Resetting physics restores the original connections. Detached branches collide with enabled
-`DsBoxCollider`, `DsSphereCollider`, and `DsCylinderCollider` scene volumes used by DynamicStrands. Fracture is disabled
-by default; enable it in `DynamicTreeSkeleton` and tune the reference angle and exposure for the tree. Fallen rods sample
-their centerlines against these volumes using their radii, including interior points. Contact corrections are shared by the
-rod's endpoints and solved with its length and rotation constraints; contact friction also slows supported endpoints after
-penetration is resolved, limiting persistent sliding. The solver does not
-model full rigid-body angular inertia or continuous collision detection. When one end rests on a collider, a uniform-rod
-pivot approximation carries angular velocity forward and applies gravity torque, so the free end accelerates as it falls.
-Generated CPU meshes do not follow detached subtrees.
-
-BranchRenderer and FoliageRenderer use the transient bent pose, including child branch offsets at forks. Physics settings
-are saved on `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no
-physics velocity. A new growth step resets the transient physics pose before changing the original skeleton. Roots and generated CPU meshes do not deform in this
-first version.
+Branch fracture and contact with `DsBoxCollider`, `DsSphereCollider`, and `DsCylinderCollider` are not yet implemented in
+the GPU solver. Existing saved values for those settings are retained for a future GPU implementation.
+BranchRenderer and FoliageRenderer use the transient bent GPU pose. Physics settings are saved on
+`DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no physics
+velocity. A new growth step resets the GPU dynamic pose. Roots and generated CPU meshes do not deform.
 
 ## Wind authoring
 
 Add a `Blower` private component to an entity to define a wind emission surface. Its editor quad follows the entity
 transform; the local +Z axis is the intended flow direction, and the entity's X/Y scale sets the surface dimensions.
-Speed, particle rate, collision radius, air density, spread angle, and random seed are saved with the scene. Air density
-defaults to 1.225 kg/m³; doubling it doubles the particle drag force until the solver's acceleration cap is reached.
+Speed, particle rate, particle influence radius, air density, spread angle, and random seed are saved with the scene. Air density
+defaults to 1.225 kg/m³ and scales branch drag at a given local flow speed, subject to the solver's acceleration cap.
 New particles start at random positions behind the surface over one simulation step, spreading each frame's emission into
-a continuous flow. Enabled Blowers emit into one scene-wide GPU particle pool. The particles move at their emitted
-velocity for three seconds and are recycled when the bounded pool fills. Density changes reach all live particles within
-that lifetime.
+a continuous flow. Enabled Blowers emit into one scene-wide GPU particle pool. Particles carry their Blower settings for
+three seconds, interact with neighboring air and branches, and are recycled when the bounded pool fills. Updated Blower
+settings affect newly emitted particles.
 The EcoSysLab layer's **Show wind particles** option draws colored debug discs directly from that GPU pool; color changes
-with speed. The particles now drive branches with one-way drag. SPH pressure, viscosity, obstacles, and branch feedback
-into the flow remain future work.
+with speed. Neighboring particles exchange pressure and viscosity through a GPU spatial grid. Moving branch rods form a
+boundary at their rendered radius: nearby air slows its inward motion, while only particles that numerically enter wood
+are projected back to the surface. The influence radius controls branch sampling and boundary smoothing; the airflow
+kernel has a 0.35 m minimum support so sparse emitters remain stable. Blower area, speed, rate, and air density determine
+the mass represented by each emitted particle. Branches still receive the sampled-flow drag force; reciprocal rod forces
+and other obstacles remain future work.
 
 ## Main Entry Points
 

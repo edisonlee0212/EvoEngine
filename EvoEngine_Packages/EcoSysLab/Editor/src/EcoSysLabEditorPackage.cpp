@@ -105,7 +105,7 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
         bool changed = false;
         changed |= ImGui::DragFloat("Speed", &target.speed, 0.1f, 0.0f, 100.0f);
         changed |= ImGui::DragFloat("Particle rate", &target.particle_rate, 1.0f, 0.0f, 100000.0f);
-        changed |= ImGui::DragFloat("Particle collision radius", &target.particle_radius, 0.01f, 0.0f, 1.0f);
+        changed |= ImGui::DragFloat("Particle influence radius", &target.particle_radius, 0.01f, 0.0f, 1.0f);
         changed |= ImGui::DragFloat("Air density (kg/m^3)", &target.air_density, 0.05f, 0.0f, 20.0f);
         changed |= ImGui::DragFloat("Spread (degrees)", &target.spread_degrees, 0.1f, 0.0f, 90.0f);
         changed |= ImGui::InputScalar("Seed", ImGuiDataType_U32, &target.seed);

@@ -266,9 +266,6 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
       return;
     }
     demo_tree_entities_.assign(trees->begin() + previous_tree_count, trees->end());
-    if (Platform::MeshShaderEnabled())
-      for (const auto entity : demo_tree_entities_)
-        scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()->gpu_physics_enabled = true;
     demo_tree_initialized_ = true;
     EVOENGINE_LOG("Instantiated four EcoSysLab demo AppleForest trees.")
   }
@@ -330,23 +327,12 @@ void EcoSysLabLayer::FixedUpdate() {
   const auto scene = GetScene();
   if (!scene)
     return;
+  SyncGpuTreePhysics();
   if (scene->UnsafeGetPrivateComponentOwnersList<Blower>() || wind_particle_field_) {
     if (!wind_particle_field_)
       wind_particle_field_ = std::make_shared<WindParticleField>();
-    wind_particle_field_->Step(scene, static_cast<float>(ApplicationContext::Get().GetTimes().FixedDeltaTime()));
-  }
-  SyncGpuTreePhysics();
-  if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>()) {
-    for (const auto entity : *entities) {
-      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
-        continue;
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
-      if (tree && tree->IsEnabled() && physics && physics->IsEnabled() && !physics->gpu_physics_enabled) {
-        physics->SetGpuPhysics(nullptr, 0);
-        physics->StepPhysics(*tree);
-      }
-    }
+    wind_particle_field_->Step(scene, static_cast<float>(ApplicationContext::Get().GetTimes().FixedDeltaTime()),
+                               gpu_tree_physics_);
   }
   if (gpu_tree_physics_) {
     std::vector<GpuTreePhysics::TreeStep> steps;
@@ -382,7 +368,7 @@ void EcoSysLabLayer::SyncGpuTreePhysics() {
         continue;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
       const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
-      if (tree && tree->IsEnabled() && physics && physics->IsEnabled() && physics->gpu_physics_enabled) {
+      if (tree && tree->IsEnabled() && physics && physics->IsEnabled()) {
         physics->RestoreGpuPoseAfterLoad(*tree);
         if (physics->SyncGpuPhysics(*tree, scene->GetDataComponent<GlobalTransform>(entity), growing))
           active.push_back({entity, tree, physics});

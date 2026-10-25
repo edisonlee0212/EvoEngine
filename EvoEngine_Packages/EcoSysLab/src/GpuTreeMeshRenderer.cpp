@@ -294,11 +294,7 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
                              ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
                              : nullptr;
-    const auto gpu_physics =
-        physics && physics->IsEnabled() && physics->gpu_physics_enabled ? physics->GetGpuPhysics() : nullptr;
-    const auto* physics_pose = physics && physics->IsEnabled() && !gpu_physics && physics->HasPhysics(*tree)
-                                   ? &tree->shoot_model.PeekPhysicsPose()
-                                   : nullptr;
+    const auto gpu_physics = physics && physics->IsEnabled() ? physics->GetGpuPhysics() : nullptr;
     auto& cache = tree_node_cache_[entity];
     const auto parameters = PackParameters(settings, bark.get());
     if (cache.tree.lock() != tree || cache.parameters != parameters) {
@@ -306,17 +302,13 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       cache.tree = tree;
       cache.parameters = parameters;
     }
-    if (physics_pose) {
-      AppendGpuTreeNodes(shoots, settings, bark.get(), tree_index, true, nodes, physics_pose);
-    } else {
-      if (cache.shoot_revision != tree->GetShootModelRevision().content) {
-        std::vector<GpuTreeNode> packed;
-        AppendGpuTreeNodes(shoots, settings, bark.get(), 0, true, packed);
-        cache.shoots = std::move(packed);
-        cache.shoot_revision = tree->GetShootModelRevision().content;
-      }
-      AppendPackedGpuTreeNodes(cache.shoots, tree_index, nodes);
+    if (cache.shoot_revision != tree->GetShootModelRevision().content) {
+      std::vector<GpuTreeNode> packed;
+      AppendGpuTreeNodes(shoots, settings, bark.get(), 0, true, packed);
+      cache.shoots = std::move(packed);
+      cache.shoot_revision = tree->GetShootModelRevision().content;
     }
+    AppendPackedGpuTreeNodes(cache.shoots, tree_index, nodes);
     if (gpu_physics && nodes.size() > base) {
       for (size_t i = base; i < nodes.size(); ++i) {
         auto& node = nodes[i];

@@ -1470,7 +1470,7 @@ TEST(ShaderCache, ProductionEcoSysLabNativeSlangInventoryCompiles) {
   EXPECT_EQ(sdk_glsl_count, 0u);
   const auto shader_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders");
   const auto stage_count = CollectSlangStageFiles(shader_root).size();
-  EXPECT_EQ(stage_count, 135u);
+  EXPECT_EQ(stage_count, 155u);
   ExpectSlangStageFilesCompile(shader_root);
   auto stats = Shader::GetCompileCacheStats();
   EXPECT_EQ(stats.native_slang_frontend_invocations, stage_count);

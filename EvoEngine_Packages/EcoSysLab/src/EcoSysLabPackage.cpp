@@ -93,7 +93,6 @@ void DeserializeSpatialPlantDistributionSimulator(const YAML::Node&, SpatialPlan
 
 void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton& target) {
   const auto& p = target.physics_settings;
-  out << YAML::Key << "gpu_physics_enabled" << YAML::Value << target.gpu_physics_enabled;
   out << YAML::Key << "time_step" << YAML::Value << p.time_step;
   out << YAML::Key << "substeps" << YAML::Value << p.substeps;
   out << YAML::Key << "iterations" << YAML::Value << p.iterations;
@@ -112,8 +111,6 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
 
 void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
   auto& p = target.physics_settings;
-  if (in["gpu_physics_enabled"])
-    target.gpu_physics_enabled = in["gpu_physics_enabled"].as<bool>();
   if (in["time_step"])
     p.time_step = in["time_step"].as<float>();
   if (in["substeps"])

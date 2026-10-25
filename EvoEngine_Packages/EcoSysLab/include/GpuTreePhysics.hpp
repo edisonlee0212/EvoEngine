@@ -43,6 +43,9 @@ class GpuTreePhysics {
   [[nodiscard]] const TreeRange& GetTreeRange(uint32_t index) const {
     return ranges_[index];
   }
+  [[nodiscard]] uint32_t GetRodCount() const {
+    return rod_count_;
+  }
   [[nodiscard]] const std::shared_ptr<Buffer>& GetVertexBuffer() const {
     return vertices_[vertex_index_];
   }

@@ -5,6 +5,7 @@
 
 #include "Application.hpp"
 #include "Blower.hpp"
+#include "GpuTreePhysics.hpp"
 #include "RenderLayer.hpp"
 #include "RenderTexture.hpp"
 #include "Shader.hpp"
@@ -14,7 +15,10 @@ using namespace eco_sys_lab_package;
 bool WindParticleField::Prepare() {
   if (render_pipeline_)
     return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
-           grid_pipeline_->Initialized() && render_pipeline_->Initialized();
+           grid_pipeline_->Initialized() && clear_rods_pipeline_->Initialized() &&
+           build_rods_pipeline_->Initialized() && collide_rods_pipeline_->Initialized() &&
+           density_pipeline_->Initialized() && flow_pipeline_->Initialized() && apply_flow_pipeline_->Initialized() &&
+           render_pipeline_->Initialized();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return false;
@@ -37,10 +41,24 @@ bool WindParticleField::Prepare() {
   grid_heads_ = std::make_shared<Buffer>(buffer_info, allocation_info);
   buffer_info.size = capacity * sizeof(uint32_t);
   grid_next_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.size = grid_bucket_count * sizeof(uint32_t);
+  rod_heads_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.size = sizeof(uint32_t);
+  rod_next_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  rod_max_extent_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.size = capacity * sizeof(float);
+  particle_density_ = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.size = capacity * sizeof(glm::vec4);
+  particle_velocity_ = std::make_shared<Buffer>(buffer_info, allocation_info);
   descriptor_set_ = std::make_shared<DescriptorSet>(layout_);
   descriptor_set_->UpdateBufferDescriptorBinding(0, particles_);
   descriptor_set_->UpdateBufferDescriptorBinding(1, grid_heads_);
   descriptor_set_->UpdateBufferDescriptorBinding(2, grid_next_);
+  rod_collision_layout_ = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i = 0; i < 10; ++i)
+    rod_collision_layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  rod_collision_layout_->Initialize();
+  rod_collision_frames_.resize(Platform::GetMaxFramesInFlight());
 
   const auto compute_shader = [](const char* path) {
     return Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
@@ -66,6 +84,28 @@ bool WindParticleField::Prepare() {
   grid_pipeline_->descriptor_set_layouts = {layout_};
   grid_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(GridParameters)});
   grid_pipeline_->Initialize();
+  const auto rod_pipeline = [&](const char* path) {
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = compute_shader(path);
+    pipeline->descriptor_set_layouts = {rod_collision_layout_};
+    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RodCollisionParameters)});
+    pipeline->Initialize();
+    return pipeline;
+  };
+  clear_rods_pipeline_ = rod_pipeline("ClearRods.slang");
+  build_rods_pipeline_ = rod_pipeline("BuildRods.slang");
+  collide_rods_pipeline_ = rod_pipeline("CollideRods.slang");
+  const auto flow_pipeline = [&](const char* path) {
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = compute_shader(path);
+    pipeline->descriptor_set_layouts = {rod_collision_layout_};
+    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FlowParameters)});
+    pipeline->Initialize();
+    return pipeline;
+  };
+  density_pipeline_ = flow_pipeline("Density.slang");
+  flow_pipeline_ = flow_pipeline("Flow.slang");
+  apply_flow_pipeline_ = flow_pipeline("ApplyFlow.slang");
 
   const auto graphics_shader = [](ShaderType type, const char* path) {
     return Shader::CreateTemporary(type, Platform::GetShaderGlobalDefines(),
@@ -84,20 +124,36 @@ bool WindParticleField::Prepare() {
   render_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RenderParameters)});
   render_pipeline_->Initialize();
   return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
-         grid_pipeline_->Initialized() && render_pipeline_->Initialized();
+         grid_pipeline_->Initialized() && clear_rods_pipeline_->Initialized() && build_rods_pipeline_->Initialized() &&
+         collide_rods_pipeline_->Initialized() && density_pipeline_->Initialized() && flow_pipeline_->Initialized() &&
+         apply_flow_pipeline_->Initialized() && render_pipeline_->Initialized();
 }
 
-void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float time_step) {
+void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float time_step,
+                             const std::shared_ptr<GpuTreePhysics>& physics) {
   if (scene_.lock() != scene) {
     particles_.reset();
     grid_heads_.reset();
     grid_next_.reset();
+    rod_heads_.reset();
+    rod_next_.reset();
+    rod_max_extent_.reset();
+    particle_density_.reset();
+    particle_velocity_.reset();
     descriptor_set_.reset();
     layout_.reset();
+    rod_collision_layout_.reset();
+    rod_collision_frames_.clear();
     advect_pipeline_.reset();
     emit_pipeline_.reset();
     clear_grid_pipeline_.reset();
     grid_pipeline_.reset();
+    clear_rods_pipeline_.reset();
+    build_rods_pipeline_.reset();
+    collide_rods_pipeline_.reset();
+    density_pipeline_.reset();
+    flow_pipeline_.reset();
+    apply_flow_pipeline_.reset();
     render_pipeline_.reset();
     emission_remainders_.clear();
     emitted_ = 0;
@@ -142,6 +198,9 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
                                           glm::radians(glm::clamp(blower->spread_degrees, 0.0f, 90.0f)), 3.0f, dt};
       parameters.collision.x = glm::clamp(blower->particle_radius, 0.0f, 1.0f);
       parameters.collision.y = glm::clamp(blower->air_density, 0.0f, 20.0f);
+      const float area = glm::length(glm::cross(glm::vec3(parameters.model[0]), glm::vec3(parameters.model[1])));
+      parameters.collision.z =
+          parameters.collision.y * area * parameters.speed_spread_lifetime.x / glm::max(blower->particle_rate, 1.0f);
       max_particle_radius_ = glm::max(max_particle_radius_, parameters.collision.x);
       parameters.base_count_seed_capacity = {static_cast<uint32_t>(emitted_), count, blower->seed, capacity};
       Platform::RecordCommandsMainQueue([&](VkCommandBuffer command_buffer) {
@@ -153,7 +212,9 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       });
       emitted_ += count;
     }
-  if (emitted_)
+  if (!emitted_)
+    return;
+  const auto build_particle_grid = [&] {
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer command_buffer) {
       const GridParameters parameters{GetParticleCount(), grid_bucket_count, grid_cell_size};
       clear_grid_pipeline_->Bind(command_buffer);
@@ -167,6 +228,69 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       grid_pipeline_->Dispatch(command_buffer, (GetParticleCount() + 63) / 64, 1, 1);
       Platform::EverythingBarrier(command_buffer);
     });
+  };
+  build_particle_grid();
+  const uint32_t rod_count = physics ? physics->GetRodCount() : 0;
+  if (rod_count && rod_next_->GetSize() < static_cast<VkDeviceSize>(rod_count) * sizeof(uint32_t)) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = static_cast<VkDeviceSize>(rod_count) * sizeof(uint32_t);
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    rod_next_ = std::make_shared<Buffer>(info, allocation);
+  }
+  auto& frame = rod_collision_frames_[Platform::GetCurrentFrameIndex()];
+  if (frame.frame_count != Platform::GetFrameCount()) {
+    frame.descriptor_sets.clear();
+    frame.physics.clear();
+    frame.rod_next_buffers.clear();
+    frame.frame_count = Platform::GetFrameCount();
+  }
+  auto flow_set = std::make_shared<DescriptorSet>(rod_collision_layout_);
+  flow_set->UpdateBufferDescriptorBinding(0, particles_);
+  flow_set->UpdateBufferDescriptorBinding(6, grid_heads_);
+  flow_set->UpdateBufferDescriptorBinding(7, grid_next_);
+  flow_set->UpdateBufferDescriptorBinding(8, particle_density_);
+  flow_set->UpdateBufferDescriptorBinding(9, particle_velocity_);
+  if (rod_count) {
+    flow_set->UpdateBufferDescriptorBinding(1, rod_heads_);
+    flow_set->UpdateBufferDescriptorBinding(2, rod_next_);
+    flow_set->UpdateBufferDescriptorBinding(3, rod_max_extent_);
+    flow_set->UpdateBufferDescriptorBinding(4, physics->GetVertexBuffer());
+    flow_set->UpdateBufferDescriptorBinding(5, physics->GetRodBuffer());
+    frame.physics.push_back(physics);
+    frame.rod_next_buffers.push_back(rod_next_);
+  }
+  frame.descriptor_sets.push_back(flow_set);
+  Platform::RecordCommandsMainQueue([&, flow_set](VkCommandBuffer command_buffer) {
+    const FlowParameters flow_parameters{GetParticleCount(), rod_count, grid_bucket_count,
+                                         grid_cell_size,     dt,        max_particle_radius_};
+    const auto dispatch_flow = [&](const std::shared_ptr<ComputePipeline>& pipeline) {
+      pipeline->Bind(command_buffer);
+      pipeline->BindDescriptorSet(command_buffer, 0, flow_set->GetVkDescriptorSet());
+      pipeline->PushConstant(command_buffer, 0, flow_parameters);
+      pipeline->Dispatch(command_buffer, (GetParticleCount() + 63) / 64, 1, 1);
+      Platform::EverythingBarrier(command_buffer);
+    };
+    dispatch_flow(density_pipeline_);
+    dispatch_flow(flow_pipeline_);
+    dispatch_flow(apply_flow_pipeline_);
+    if (rod_count) {
+      const RodCollisionParameters rod_parameters{GetParticleCount(), rod_count, grid_bucket_count, grid_cell_size};
+      const auto dispatch_rods = [&](const std::shared_ptr<ComputePipeline>& pipeline, uint32_t count) {
+        pipeline->Bind(command_buffer);
+        pipeline->BindDescriptorSet(command_buffer, 0, flow_set->GetVkDescriptorSet());
+        pipeline->PushConstant(command_buffer, 0, rod_parameters);
+        pipeline->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      };
+      dispatch_rods(clear_rods_pipeline_, grid_bucket_count);
+      dispatch_rods(build_rods_pipeline_, rod_count);
+      dispatch_rods(collide_rods_pipeline_, GetParticleCount());
+    }
+  });
+  build_particle_grid();
 }
 
 void WindParticleField::RegisterRender(const bool visible) {
