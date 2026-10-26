@@ -388,12 +388,16 @@ void EcoSysLabLayer::ResetAirGrid(const float cell_size) {
   if (!wind_particle_field_)
     return;
   std::vector<DynamicTreeSkeleton::GpuRestState> states;
+  std::vector<glm::mat4> models;
   states.reserve(gpu_physics_entries_.size());
+  models.reserve(gpu_physics_entries_.size());
   for (const auto& item : gpu_physics_entries_)
-    if (const auto physics = item.physics.lock())
+    if (const auto physics = item.physics.lock()) {
       states.push_back(physics->ExportGpuRestState());
+      models.push_back(GetScene()->GetDataComponent<GlobalTransform>(item.entity).value);
+    }
   Platform::WaitForFrameSubmissions("EcoSysLab air grid reset");
-  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_, cell_size);
+  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_, models, cell_size);
 }
 
 void EcoSysLabLayer::FixedUpdate() {

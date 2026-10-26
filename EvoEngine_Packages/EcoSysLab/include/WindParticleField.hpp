@@ -28,7 +28,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees);
   void RegisterTreeModels(const std::vector<glm::mat4>& models);
   void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
-                    const std::shared_ptr<GpuTreePhysics>& physics, float cell_size = -1.0f);
+                    const std::shared_ptr<GpuTreePhysics>& physics, const std::vector<glm::mat4>& models,
+                    float cell_size = -1.0f);
   [[nodiscard]] uint32_t GetParticleCount() const {
     return static_cast<uint32_t>(std::min<uint64_t>(emitted_, capacity));
   }

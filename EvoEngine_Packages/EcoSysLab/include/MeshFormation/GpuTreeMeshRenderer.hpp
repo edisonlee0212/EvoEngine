@@ -64,7 +64,6 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
   std::shared_ptr<Material> default_foliage_material_;
   std::shared_ptr<SubsurfaceProfile> default_foliage_profile_;
   uint32_t node_count_ = 0;
-  bool node_cache_reported_ = false;
 };
 
 }  // namespace eco_sys_lab_package

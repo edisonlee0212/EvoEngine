@@ -1,5 +1,7 @@
 #include "GpuTreePhysics.hpp"
 
+#include <algorithm>
+
 #include "Shader.hpp"
 
 using namespace eco_sys_lab_package;
@@ -7,15 +9,17 @@ using namespace eco_sys_lab_package;
 namespace {
 template <typename T>
 std::shared_ptr<Buffer> MakeBuffer(const std::vector<T>& source) {
-  const std::vector<T> data = source.empty() ? std::vector<T>(1) : source;
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  info.size = data.size() * sizeof(T);
+  info.size = std::max<size_t>(1, source.size()) * sizeof(T);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   VmaAllocationCreateInfo allocation{};
   allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   auto buffer = std::make_shared<Buffer>(info, allocation);
-  buffer->UploadVector(data);
+  if (source.empty())
+    buffer->UploadVector(std::vector<T>(1));
+  else
+    buffer->UploadVector(source);
   return buffer;
 }
 }  // namespace

@@ -393,13 +393,11 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     upload.AddVector(node_buffers_[frame], nodes,
                      {deform_trees.empty() ? BufferUploadUsage::StorageRead : BufferUploadUsage::StorageReadWrite,
                       BufferUploadCapacityPolicy::GrowIfNeeded});
-    upload.AddVector(rest_node_buffers_[frame], nodes,
-                     {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+    if (!deform_trees.empty())
+      upload.AddVector(rest_node_buffers_[frame], nodes,
+                       {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
     cached = nodes;
     cached_deform_ranges_[frame] = std::move(deform_ranges);
-  } else if (!node_cache_reported_ && !deform_trees.empty()) {
-    node_cache_reported_ = true;
-    EVOENGINE_LOG("GPU tree rest-node upload cache reused a frame buffer.")
   }
   upload.AddVector(foliage_params_buffers_[frame], foliage_params,
                    {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});

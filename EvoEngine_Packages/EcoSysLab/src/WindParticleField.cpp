@@ -229,7 +229,8 @@ void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models)
 }
 
 void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
-                                     const std::shared_ptr<GpuTreePhysics>& physics, const float cell_size) {
+                                     const std::shared_ptr<GpuTreePhysics>& physics,
+                                     const std::vector<glm::mat4>& models, const float cell_size) {
   auto poses = trees;
   if (physics) {
     size_t count = 0;
@@ -238,9 +239,12 @@ void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuR
     std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
     physics->GetVertexBuffer()->DownloadVector(vertices, count);
     size_t offset = 0;
-    for (auto& tree : poses)
+    for (size_t i = 0; i < poses.size(); ++i) {
+      auto& tree = poses[i];
       for (auto& vertex : tree.vertices)
         vertex.position_inverse_mass = vertices[offset++].position_inverse_mass;
+      tree.initial_model = models[i];
+    }
   }
   InvalidateAirSets();
   if (cell_size > 0.0f && glm::max(cell_size, Climate::minimum_air_cell_size) != air_grid_.GetCellSize())
