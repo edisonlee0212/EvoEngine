@@ -1,6 +1,7 @@
 struct WindParticle {
   float4 position_age;
   float4 velocity_lifetime;
+  float4 collision;
 };
 
 struct Parameters {

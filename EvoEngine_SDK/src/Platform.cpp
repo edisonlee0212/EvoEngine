@@ -1,5 +1,6 @@
 #include "Platform.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <tuple>
@@ -132,7 +133,8 @@ GpuTimestampFrameSnapshot evo_engine::BuildGpuTimestampFrameSnapshot(
     const uint64_t application_frame_index, const uint64_t capture_session_index, const uint32_t query_capacity,
     const uint32_t query_used, const uint32_t skipped_scope_count,
     const std::vector<GpuTimestampQuerySample>& query_samples, const std::vector<uint64_t>& timestamps,
-    const double timestamp_period_nanoseconds, const uint32_t timestamp_valid_bits) {
+    const double timestamp_period_nanoseconds, const uint32_t timestamp_valid_bits,
+    const std::vector<uint8_t>& query_available) {
   GpuTimestampFrameSnapshot frame;
   frame.application_frame_index = application_frame_index;
   frame.capture_session_index = capture_session_index;
@@ -146,7 +148,10 @@ GpuTimestampFrameSnapshot evo_engine::BuildGpuTimestampFrameSnapshot(
     return frame;
   }
   for (const auto& query_sample : query_samples) {
-    if (query_sample.begin_query >= timestamps.size() || query_sample.end_query >= timestamps.size()) {
+    if (query_sample.begin_query >= timestamps.size() || query_sample.end_query >= timestamps.size() ||
+        (!query_available.empty() &&
+         (query_sample.begin_query >= query_available.size() || query_sample.end_query >= query_available.size() ||
+          !query_available[query_sample.begin_query] || !query_available[query_sample.end_query]))) {
       ++frame.unresolved_scope_count;
       continue;
     }
@@ -160,6 +165,7 @@ GpuTimestampFrameSnapshot evo_engine::BuildGpuTimestampFrameSnapshot(
             TimestampDelta(timestamps[sample.begin_query], timestamps[sample.end_query], timestamp_valid_bits)) *
         timestamp_period_nanoseconds / 1.0e6;
   }
+  frame.results_available = query_used == 0 || !frame.samples.empty();
   std::stable_sort(frame.samples.begin(), frame.samples.end(), [](const auto& left, const auto& right) {
     return left.order_index < right.order_index;
   });
@@ -2651,22 +2657,28 @@ void Platform::ResolveGpuTimestampFrame(const uint32_t frame_index) {
     return;
   }
   std::vector<uint64_t> timestamps;
+  std::vector<uint8_t> query_available;
   if (frame.next_query > 0) {
-    timestamps.resize(frame.next_query);
-    if (vkGetQueryPoolResults(vk_device_, frame.query_pool, 0, frame.next_query, timestamps.size() * sizeof(uint64_t),
-                              timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
-      timestamps.clear();
-    }
+    std::vector<std::array<uint64_t, 2>> results(frame.next_query);
+    const auto status = vkGetQueryPoolResults(vk_device_, frame.query_pool, 0, frame.next_query,
+                                              results.size() * sizeof(results[0]), results.data(), sizeof(results[0]),
+                                              VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+    if (status == VK_SUCCESS || status == VK_NOT_READY)
+      for (const auto& result : results) {
+        timestamps.push_back(result[0]);
+        query_available.push_back(result[1] != 0);
+      }
   }
   std::vector<GpuTimestampQuerySample> query_samples;
   query_samples.reserve(frame.scopes.size());
   for (const auto& scope : frame.scopes) {
     query_samples.emplace_back(scope.query_sample);
   }
-  auto snapshot = BuildGpuTimestampFrameSnapshot(frame.application_frame_index, frame.capture_session_index,
-                                                 kGpuTimestampQueriesPerFrame, frame.next_query,
-                                                 frame.skipped_scope_count, query_samples, timestamps,
-                                                 gpu_timestamp_period_nanoseconds_, gpu_timestamp_valid_bits_);
+  auto snapshot = BuildGpuTimestampFrameSnapshot(
+      frame.application_frame_index, frame.capture_session_index, kGpuTimestampQueriesPerFrame, frame.next_query,
+      frame.skipped_scope_count, query_samples, timestamps, gpu_timestamp_period_nanoseconds_,
+      gpu_timestamp_valid_bits_, query_available);
+  snapshot.unresolved_scope_count += frame.next_query / 2 - static_cast<uint32_t>(query_samples.size());
   for (const auto& aggregate : BuildGpuTimestampPassAggregates(snapshot)) {
     AccumulateGpuTimestamp(aggregate.metadata.display_name, aggregate.total_milliseconds);
   }

@@ -9,6 +9,7 @@
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
 #include "Climate.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "FoliageRenderer.hpp"
@@ -88,6 +89,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
       index++;
 
       scene->SetDataComponent(treeEntity, transform);
+      scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(treeEntity);
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
       tree->shoot_model.tree_growth_settings = tree_growth_settings;
       tree->tree_descriptor_ref = tree_descriptor.Get<TreeDescriptor>();
@@ -160,6 +162,7 @@ Entity ForestPatch::InstantiatePatch(
       index++;
 
       scene->SetDataComponent(treeEntity, transform);
+      scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(treeEntity);
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(treeEntity).lock();
 
       const auto candidateIndex = glm::linearRand(0, static_cast<int>(candidates.size() - 1));
@@ -379,6 +382,7 @@ Entity ForestDescriptor::InstantiatePatch(const bool set_parent, const int seed)
     auto tree_entity = scene->CreateEntity("Tree No." + std::to_string(i));
     i++;
     scene->SetDataComponent(tree_entity, gt.global_transform);
+    scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity);
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     tree->shoot_model.tree_growth_settings = tree_growth_settings;
     tree->tree_descriptor_ref = gt.tree_descriptor;

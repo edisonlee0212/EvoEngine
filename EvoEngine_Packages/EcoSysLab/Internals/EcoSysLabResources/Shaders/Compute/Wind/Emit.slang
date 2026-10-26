@@ -1,11 +1,13 @@
 struct WindParticle {
   float4 position_age;
   float4 velocity_lifetime;
+  float4 collision;
 };
 
 struct Parameters {
   float4x4 model;
   float4 speed_spread_lifetime;
+  float4 collision;
   uint4 base_count_seed_capacity;
 };
 
@@ -35,8 +37,12 @@ void main(uint3 id : SV_DispatchThreadID) {
   float3 world_direction = mul(float4(direction, 0.0), parameters.model).xyz;
   world_direction = dot(world_direction, world_direction) > 1e-8 ? normalize(world_direction) : float3(0.0, 0.0, 1.0);
   WindParticle particle;
-  particle.position_age = float4(mul(float4(surface, 0.0, 1.0), parameters.model).xyz, 0.0);
   particle.velocity_lifetime = float4(world_direction * parameters.speed_spread_lifetime.x,
                                       parameters.speed_spread_lifetime.z);
+  particle.position_age = float4(mul(float4(surface, 0.0, 1.0), parameters.model).xyz -
+                                     particle.velocity_lifetime.xyz * parameters.speed_spread_lifetime.w *
+                                         Random(seed + 4u),
+                                 0.0);
+  particle.collision = parameters.collision;
   particles[sequence % parameters.base_count_seed_capacity.w] = particle;
 }

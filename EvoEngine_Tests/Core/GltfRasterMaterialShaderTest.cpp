@@ -1365,7 +1365,7 @@ TEST(GltfRasterMaterial, EcoSysLabTaskMeshPayloadsAndGraphicsInterfacesMatch) {
     point_shadow_count += filename == "PointLightShadowMap.slang";
     spot_shadow_count += filename == "SpotLightShadowMap.slang";
   }
-  EXPECT_EQ(mesh_count, 23u);
+  EXPECT_EQ(mesh_count, 25u);
   EXPECT_EQ(directional_shadow_count, 4u);
   EXPECT_EQ(point_shadow_count, 4u);
   EXPECT_EQ(spot_shadow_count, 4u);

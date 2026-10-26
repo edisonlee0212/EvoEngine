@@ -25,7 +25,7 @@ void ClearPhysics(Tree& tree) {
   const auto scene = tree.GetScene();
   if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner())) {
     if (const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner()).lock())
-      physics->ResetPhysics(tree);
+      physics->ResetPhysics();
   }
 }
 }  // namespace
@@ -161,7 +161,7 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
     return false;
   }
   if (physics && physics->HasPhysics(*this))
-    physics->ResetPhysics(*this);
+    physics->ResetPhysics();
   bool shoot_grown = false;
   bool root_grown = false;
   try {

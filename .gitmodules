@@ -42,7 +42,7 @@
 	url = https://github.com/madler/zlib
 [submodule "Extern/3rdParty/eigen/eigen"]
 	path = Extern/3rdParty/eigen/eigen
-	url = https://gitlab.com/libeigen/eigen.git
+	url = https://eigen.googlesource.com/mirror
 [submodule "Extern/3rdParty/SPIRV-Tools/SPIRV-Tools"]
 	path = Extern/3rdParty/SPIRV-Tools/SPIRV-Tools
 	url = https://github.com/KhronosGroup/SPIRV-Tools.git
