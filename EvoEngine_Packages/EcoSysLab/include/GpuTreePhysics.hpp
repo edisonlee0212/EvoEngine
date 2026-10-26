@@ -35,7 +35,8 @@ class GpuTreePhysics {
   bool Initialize(const DynamicTreeSkeleton::GpuRestState& rest_state);
   bool Initialize(const std::vector<DynamicTreeSkeleton::GpuRestState>& rest_states);
   void Step(const DynamicTreeSkeleton::PhysicsSettings& settings);
-  void Step(const std::vector<TreeStep>& trees, const WindInput& wind = {});
+  void Step(const std::vector<TreeStep>& trees);
+  void Step(const std::vector<TreeStep>& trees, const WindInput& wind);
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetWindDescriptorSetLayout() const {
     return wind_layout_;
   }

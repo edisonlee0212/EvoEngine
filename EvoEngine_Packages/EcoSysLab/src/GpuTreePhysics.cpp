@@ -149,6 +149,10 @@ void GpuTreePhysics::Step(const DynamicTreeSkeleton::PhysicsSettings& settings) 
   Step(std::vector<TreeStep>{{settings, true, model}});
 }
 
+void GpuTreePhysics::Step(const std::vector<TreeStep>& trees) {
+  Step(trees, WindInput{});
+}
+
 void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& wind) {
   if (!vertex_count_ || !predict_ || !predict_->Initialized() || !solve_position_->Initialized() ||
       !solve_rotation_->Initialized() || !update_velocity_->Initialized() || trees.size() != ranges_.size())
