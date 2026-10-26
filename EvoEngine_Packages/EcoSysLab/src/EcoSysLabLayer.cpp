@@ -364,8 +364,9 @@ void EcoSysLabLayer::Update() {
     wind_particle_field_->ambient_pressure_pa = environment->air_pressure_pa;
     wind_particle_field_->air_coupling_rate = environment->air_coupling_rate;
     wind_particle_field_->air_friction = environment->air_friction;
-    if (wind_particle_field_->GetAirCellSize() != environment->air_cell_size)
-      ResetAirGrid(environment->air_cell_size);
+    const float cell_size = glm::max(environment->air_cell_size, Climate::minimum_air_cell_size);
+    if (wind_particle_field_->GetAirCellSize() != cell_size)
+      ResetAirGrid(cell_size);
     std::vector<glm::mat4> models;
     models.reserve(gpu_physics_entries_.size());
     for (const auto& item : gpu_physics_entries_)

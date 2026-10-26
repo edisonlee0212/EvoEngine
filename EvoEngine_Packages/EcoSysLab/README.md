@@ -129,11 +129,12 @@ air. Cells remain registered as trees grow or move until **Reset air grid** is p
 or all trees are reset. The manual reset re-registers from current GPU tree poses without changing those poses.
 
 The `Climate` private component supplies scene-level ambient temperature, relative humidity, pressure, air coupling,
-friction, and air-grid cell size through its **Air** inspector. Cell size defaults to 0.1 m and accepts 0.01–0.2 m.
+friction, and air-grid cell size through its **Air** inspector. Cell size defaults to 0.1 m and accepts 0.05–0.2 m.
 Press Enter after editing to rebuild registered cells from the trees' current GPU poses without changing those poses.
-Below 0.1 m, cells are registered along branches instead of filling each tree's coverage box. The solver samples those
-cells at the branches' rest positions as they bend. Rebuilding clears the current airflow. Existing scenes with an
-`AirEnvironment` component transfer those settings to `Climate` when loaded. Air density is estimated from cell
+At every cell size, registration fills an expanded box around each tree. Cells stay fixed in world space while their
+air values update during swaying; tree growth and entity movement extend the registered region. Rebuilding clears
+the current airflow. Existing scenes with an `AirEnvironment` component transfer those settings to `Climate` when
+loaded. Air density is estimated from cell
 temperature, specific humidity, and ambient pressure.
 This initial model mixes heat and moisture without phase changes or a pressure solver. The EcoSysLab layer's
 **Show air volume** raymarches tree-registered cells directly from the GPU grid buffers, clipped by scene depth.

@@ -183,6 +183,20 @@ TEST(GpuTimestampFrames, ReportsDelayedUnavailableAndMalformedQueryResults) {
   EXPECT_EQ(malformed.samples.size(), 1u);
 }
 
+TEST(GpuTimestampFrames, RetainsCompletedScopesWhenAnotherQueryIsUnavailable) {
+  const GpuTimestampScopeMetadata metadata{"physics", "Tree Physics", "EcoSysLab"};
+  const std::vector<GpuTimestampQuerySample> queries = {{metadata, 0, 0, 1}, {metadata, 1, 2, 3}, {metadata, 2, 4, 5}};
+  const auto frame =
+      BuildGpuTimestampFrameSnapshot(12, 2, 8, 6, 0, queries, {10, 30, 40, 0, 50, 90}, 1000.0, 64, {1, 1, 1, 0, 1, 1});
+  ASSERT_TRUE(frame.results_available);
+  ASSERT_EQ(frame.samples.size(), 2u);
+  EXPECT_EQ(frame.unresolved_scope_count, 1u);
+  EXPECT_EQ(frame.samples[0].order_index, 0u);
+  EXPECT_EQ(frame.samples[1].order_index, 2u);
+  EXPECT_DOUBLE_EQ(frame.samples[0].duration_milliseconds, 0.02);
+  EXPECT_DOUBLE_EQ(frame.samples[1].duration_milliseconds, 0.04);
+}
+
 TEST(GpuTimestampFrames, HandlesTimestampWrapUsingQueueValidBits) {
   const GpuTimestampScopeMetadata metadata{"post", "Post Processing", "Post"};
   const auto frame = BuildGpuTimestampFrameSnapshot(5, 1, 2, 2, 0, {{metadata, 0, 0, 1}}, {250, 5}, 1.0, 8);

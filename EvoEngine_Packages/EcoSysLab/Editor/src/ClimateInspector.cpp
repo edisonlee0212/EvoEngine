@@ -39,10 +39,10 @@ bool ClimateInspector::Inspect(InspectorContext& context, Climate& target) {
     changed |= ImGui::DragFloat("Air friction (1/s)", &target.air_friction, 0.1f, 0.0f, 100.0f);
     float cell_size = target.air_cell_size;
     if (ImGui::InputFloat("Grid cell size (m)", &cell_size, 0.0f, 0.0f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-      target.air_cell_size = glm::clamp(cell_size, 0.01f, 0.2f);
+      target.air_cell_size = glm::clamp(cell_size, Climate::minimum_air_cell_size, 0.2f);
       changed = true;
     }
-    ImGui::TextDisabled("0.01-0.2 m; press Enter to rebuild");
+    ImGui::TextDisabled("0.05-0.2 m; press Enter to rebuild");
     ImGui::TreePop();
   }
   return changed;

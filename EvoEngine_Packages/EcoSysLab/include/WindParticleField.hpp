@@ -133,7 +133,6 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     glm::vec3 lower_local{};
     glm::vec3 upper_local{};
     glm::mat4 model{1.0f};
-    std::vector<std::pair<glm::vec3, glm::vec3>> local_segments;
   };
 
   bool Prepare();

@@ -36,7 +36,6 @@ class GpuSpatialGrid {
       : cell_size_(cell_size), value_stride_(value_stride) {
   }
   bool RegisterBox(const glm::vec3& lower, const glm::vec3& upper);
-  bool RegisterSegments(const std::vector<std::pair<glm::vec3, glm::vec3>>& segments);
   void Reset();
   [[nodiscard]] uint32_t GetCellCount() const {
     return static_cast<uint32_t>(lookup_.size());

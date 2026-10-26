@@ -34,14 +34,21 @@ void main(uint3 id : SV_DispatchThreadID) {
   if (id.x >= parameters.cell_count || parameters.rod_count == 0) return;
   int3 coordinate = AirGridReadCell(air_addresses, id.x).coordinate_next.xyz;
   float3 center = (float3(coordinate) + 0.5) * parameters.air_cell_size;
-  int reach = int(ceil(asfloat(max_rod_extent[0]) / parameters.rod_cell_size)) + 1;
+  float max_distance = asfloat(max_rod_extent[0]) + 0.866 * parameters.air_cell_size;
+  int reach = int(ceil(max_distance / parameters.rod_cell_size)) + 1;
   int3 rod_cell = int3(floor(center / parameters.rod_cell_size));
   float3 motion = 0;
   float occupancy = 0;
-  for (int z = -reach; z <= reach; ++z)
-    for (int y = -reach; y <= reach; ++y)
+  for (int z = -reach; z <= reach; ++z) {
+    float dz = max(abs(center.z - (rod_cell.z + z + 0.5) * parameters.rod_cell_size) - 0.5 * parameters.rod_cell_size, 0.0);
+    if (dz > max_distance) continue;
+    for (int y = -reach; y <= reach; ++y) {
+      float dy = max(abs(center.y - (rod_cell.y + y + 0.5) * parameters.rod_cell_size) - 0.5 * parameters.rod_cell_size, 0.0);
+      if (dy * dy + dz * dz > max_distance * max_distance) continue;
       for (int x = -reach; x <= reach; ++x) {
         int3 neighbor = rod_cell + int3(x, y, z);
+        float dx = max(abs(center.x - (neighbor.x + 0.5) * parameters.rod_cell_size) - 0.5 * parameters.rod_cell_size, 0.0);
+        if (dx * dx + dy * dy + dz * dz > max_distance * max_distance) continue;
         uint rod_index = rod_heads[AirGridHash(neighbor, parameters.bucket_count)];
         while (rod_index != 0xffffffffu) {
           TreePhysicsRod rod = rods[rod_index];
@@ -61,6 +68,8 @@ void main(uint3 id : SV_DispatchThreadID) {
           rod_index = rod_next[rod_index];
         }
       }
+    }
+  }
   if (occupancy > 0.0) {
     AirGridValue air = AirGridReadValue(air_addresses, id.x);
     float mix = 1.0 - exp(-4.0 * min(occupancy, 1.0) * parameters.time_step);

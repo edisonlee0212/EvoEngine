@@ -85,7 +85,7 @@ TEST(Climate, AirSettingsLoadAndHumidity) {
   EXPECT_FLOAT_EQ(legacy.air_cell_size, Climate::default_air_cell_size);
   EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.1f);
   DeserializeClimate(YAML::Load("air_cell_size: 0.005"), legacy);
-  EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.01f);
+  EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.05f);
   DeserializeClimate(YAML::Load("air_cell_size: 0.5"), legacy);
   EXPECT_FLOAT_EQ(legacy.air_cell_size, 0.2f);
 }

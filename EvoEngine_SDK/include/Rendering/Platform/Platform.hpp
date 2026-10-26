@@ -174,7 +174,8 @@ struct GpuTimestampHistoryStats {
 [[nodiscard]] EVOENGINE_API GpuTimestampFrameSnapshot BuildGpuTimestampFrameSnapshot(
     uint64_t application_frame_index, uint64_t capture_session_index, uint32_t query_capacity, uint32_t query_used,
     uint32_t skipped_scope_count, const std::vector<GpuTimestampQuerySample>& query_samples,
-    const std::vector<uint64_t>& timestamps, double timestamp_period_nanoseconds, uint32_t timestamp_valid_bits);
+    const std::vector<uint64_t>& timestamps, double timestamp_period_nanoseconds, uint32_t timestamp_valid_bits,
+    const std::vector<uint8_t>& query_available = {});
 [[nodiscard]] EVOENGINE_API std::vector<GpuTimestampPassAggregate> BuildGpuTimestampPassAggregates(
     const GpuTimestampFrameSnapshot& frame);
 [[nodiscard]] EVOENGINE_API GpuTimestampHistoryStats

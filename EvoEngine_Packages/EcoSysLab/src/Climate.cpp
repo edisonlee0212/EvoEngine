@@ -86,5 +86,5 @@ void eco_sys_lab_package::DeserializeClimate(const YAML::Node& in, Climate& targ
   if (in["air_friction"])
     target.air_friction = in["air_friction"].as<float>();
   if (in["air_cell_size"])
-    target.air_cell_size = glm::clamp(in["air_cell_size"].as<float>(), 0.01f, 0.2f);
+    target.air_cell_size = glm::clamp(in["air_cell_size"].as<float>(), Climate::minimum_air_cell_size, 0.2f);
 }

@@ -365,9 +365,9 @@ TEST(GpuTreePhysics, RegisteredAirCellsDriveBranchesAfterParticleDeposition) {
   EXPECT_EQ(independent.GetLowerCell().x, -1);
   EXPECT_EQ(independent.GetUpperCell().x, -1);
   GpuSpatialGrid fine(0.01f);
-  ASSERT_TRUE(fine.RegisterSegments({{{0, 0, 0}, {1, 0, 0}}}));
-  EXPECT_LT(fine.GetCellCount(), 5000u);
-  EXPECT_NE(fine.Find({50, 0, 0}), UINT32_MAX);
+  ASSERT_TRUE(fine.RegisterBox({0, 0, 0}, {0.02f, 0.02f, 0.02f}));
+  EXPECT_EQ(fine.GetCellCount(), 27u);
+  EXPECT_NE(fine.Find({1, 1, 1}), UINT32_MAX);
 
   struct Particle {
     glm::vec4 position_age, velocity_lifetime, collision;
@@ -494,10 +494,11 @@ TEST(GpuTreePhysics, AirGridResetRegistersEveryTreeAtFineResolution) {
   WindParticleField single;
   single.ResetAirGrid({states.front()}, nullptr, 0.1f);
   WindParticleField fine;
-  fine.ResetAirGrid({states.front()}, nullptr, 0.01f);
-  EXPECT_FLOAT_EQ(fine.GetAirCellSize(), 0.01f);
-  EXPECT_GT(fine.GetAirCellCount(), 0u);
-  EXPECT_LT(fine.GetAirCellCount(), 100000u);
+  fine.ResetAirGrid({}, nullptr, 0.01f);
+  EXPECT_FLOAT_EQ(fine.GetAirCellSize(), 0.05f);
+  fine.ResetAirGrid({states.front()}, nullptr, 0.05f);
+  EXPECT_FLOAT_EQ(fine.GetAirCellSize(), 0.05f);
+  EXPECT_GT(fine.GetAirCellCount(), single.GetAirCellCount() * 3);
   const uint32_t initial_fine_cells = fine.GetAirCellCount();
   glm::mat4 moved = states.front().initial_model;
   moved[3].x += 5.0f;

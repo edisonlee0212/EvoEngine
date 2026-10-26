@@ -190,27 +190,6 @@ void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkelet
       local_upper = glm::max(local_upper, local);
     }
     TreeBounds bounds{local_lower, local_upper, tree.initial_model};
-    if (air_grid_.GetCellSize() < 0.1f) {
-      std::vector<std::pair<glm::vec3, glm::vec3>> segments;
-      segments.reserve(tree.rods.size() * 2);
-      bounds.local_segments.reserve(tree.rods.size() * 2);
-      for (const auto& rod : tree.rods) {
-        const glm::vec3 start(tree.vertices[rod.links.x].position_inverse_mass);
-        const glm::vec3 end(tree.vertices[rod.links.y].position_inverse_mass);
-        segments.emplace_back(start, end);
-        bounds.local_segments.emplace_back(glm::vec3(inverse_model * glm::vec4(start, 1.0f)),
-                                           glm::vec3(inverse_model * glm::vec4(end, 1.0f)));
-        const glm::vec3 rest_start(tree.vertices[rod.links.x].rest_local);
-        const glm::vec3 rest_end(tree.vertices[rod.links.y].rest_local);
-        bounds.local_segments.emplace_back(rest_start, rest_end);
-        segments.emplace_back(glm::vec3(tree.initial_model * glm::vec4(rest_start, 1.0f)),
-                              glm::vec3(tree.initial_model * glm::vec4(rest_end, 1.0f)));
-      }
-      tree_bounds_.push_back(std::move(bounds));
-      if (air_grid_.RegisterSegments(segments))
-        InvalidateAirSets();
-      continue;
-    }
     tree_bounds_.push_back(std::move(bounds));
     const glm::vec3 center = (lower + upper) * 0.5f;
     const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
@@ -228,17 +207,6 @@ void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models)
     auto& bounds = tree_bounds_[i];
     if (bounds.model == models[i])
       continue;
-    if (air_grid_.GetCellSize() < 0.1f) {
-      std::vector<std::pair<glm::vec3, glm::vec3>> segments;
-      segments.reserve(bounds.local_segments.size());
-      for (const auto& [start, end] : bounds.local_segments)
-        segments.emplace_back(glm::vec3(models[i] * glm::vec4(start, 1.0f)),
-                              glm::vec3(models[i] * glm::vec4(end, 1.0f)));
-      if (air_grid_.RegisterSegments(segments))
-        InvalidateAirSets();
-      bounds.model = models[i];
-      continue;
-    }
     glm::vec3 lower(std::numeric_limits<float>::max());
     glm::vec3 upper(std::numeric_limits<float>::lowest());
     for (uint32_t corner = 0; corner < 8; ++corner) {
@@ -275,8 +243,8 @@ void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuR
         vertex.position_inverse_mass = vertices[offset++].position_inverse_mass;
   }
   InvalidateAirSets();
-  if (cell_size > 0.0f && cell_size != air_grid_.GetCellSize())
-    air_grid_ = GpuSpatialGrid(cell_size);
+  if (cell_size > 0.0f && glm::max(cell_size, Climate::minimum_air_cell_size) != air_grid_.GetCellSize())
+    air_grid_ = GpuSpatialGrid(glm::max(cell_size, Climate::minimum_air_cell_size));
   else
     air_grid_.Reset();
   RegisterTreeCoverage(poses);
@@ -439,6 +407,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
         trace_pipeline_->Dispatch(command_buffer, (trace.particle_count + 63) / 64, 1, 1);
         Platform::EverythingBarrier(command_buffer);
       }
+      Platform::EndGpuTimestampScope(command_buffer, timing);
     });
   }
   const uint32_t rod_count = physics ? physics->GetRodCount() : 0;
@@ -493,13 +462,24 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
         pipeline->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
         Platform::EverythingBarrier(command_buffer);
       };
+      const auto clear_timing = Platform::BeginGpuTimestampScope(
+          command_buffer, {"EcoSysLabClearRods", "EcoSysLab Clear Rods", "EcoSysLab", GpuTimestampQueue::Compute});
       dispatch_rods(clear_rods_pipeline_, grid_bucket_count);
+      Platform::EndGpuTimestampScope(command_buffer, clear_timing);
+      const auto build_timing = Platform::BeginGpuTimestampScope(
+          command_buffer, {"EcoSysLabBuildRods", "EcoSysLab Build Rods", "EcoSysLab", GpuTimestampQueue::Compute});
       dispatch_rods(build_rods_pipeline_, rod_count);
+      Platform::EndGpuTimestampScope(command_buffer, build_timing);
+      const auto coupling_timing = Platform::BeginGpuTimestampScope(
+          command_buffer,
+          {"EcoSysLabRodAirCoupling", "EcoSysLab Rod Air Coupling", "EcoSysLab", GpuTimestampQueue::Compute});
       rod_air_pipeline_->Bind(command_buffer);
       rod_air_pipeline_->BindDescriptorSet(command_buffer, 0, air->GetVkDescriptorSet());
       rod_air_pipeline_->PushConstant(command_buffer, 0, air_parameters);
       rod_air_pipeline_->Dispatch(command_buffer, (air_parameters.cell_count + 63) / 64, 1, 1);
       Platform::EverythingBarrier(command_buffer);
+      Platform::EndGpuTimestampScope(command_buffer, coupling_timing);
+      Platform::EndGpuTimestampScope(command_buffer, timing);
     });
   }
 }

@@ -24,6 +24,7 @@ class ClimateDescriptor : public IAsset {
 class Climate : public IPrivateComponent {
  public:
   static constexpr float default_air_cell_size = 0.1f;
+  static constexpr float minimum_air_cell_size = 0.05f;
   float air_temperature_c = 20.0f;
   float air_relative_humidity = 0.5f;
   float air_pressure_pa = 101325.0f;
