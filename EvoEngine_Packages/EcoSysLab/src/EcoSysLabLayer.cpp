@@ -266,6 +266,15 @@ void EcoSysLabLayer::UpdateDemoTreeGrowth() {
       demo_tree_growth_finished_ = true;
       return;
     }
+    if (const auto* blowers = scene->UnsafeGetPrivateComponentOwnersList<Blower>(); !blowers || blowers->empty()) {
+      const auto blower = scene->CreateEntity("Blower");
+      GlobalTransform transform;
+      transform.SetValue({-3.0f, 2.0f, 0.0f}, glm::rotation(glm::vec3(0, 0, 1), glm::vec3(1, 0, 0)),
+                         {4.0f, 4.0f, 1.0f});
+      scene->SetDataComponent(blower, transform);
+      scene->GetOrSetPrivateComponent<Blower>(blower);
+      EVOENGINE_LOG("Created EcoSysLab demo Blower.")
+    }
     demo_tree_entities_.assign(trees->begin() + previous_tree_count, trees->end());
     demo_tree_initialized_ = true;
     EVOENGINE_LOG("Instantiated four EcoSysLab demo AppleForest trees.")

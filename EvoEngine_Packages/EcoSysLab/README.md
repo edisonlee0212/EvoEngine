@@ -55,12 +55,24 @@ tree and refreshes them when the skeleton revision, mesh settings, or bark param
 uploaded only when their content or GPU deformation ranges
 change; foliage parameters and render-instance indices remain frame specific.
 
-The `ecosyslab` demo prepares the GPU pipelines and instantiates the 2×2 `AppleForest.forestpatch`. It waits for background asset, upload, and shader preparation work to finish before growing the four trees for four years. Forest patches and descriptors attach DynamicTreeSkeleton to each tree so GPU physics and wind can move their branches. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build CPU
-geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry at
-the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
+The `ecosyslab` demo starts in the project's `Default.evescene`, retaining its wall and ground colliders. It prepares
+the GPU pipelines, instantiates the 2×2 `AppleForest.forestpatch`, and places a Blower beside the trees unless the
+scene already has one. It waits for background asset, upload, and shader preparation work to finish before growing
+the four trees for four years. Forest patches and descriptors attach DynamicTreeSkeleton to each tree so GPU physics
+and wind can move their branches. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves
+use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build
+CPU geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry
+at the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
 On mesh-shader devices, each growth iteration replaces the current GPU shoot pose from the saved growth skeleton.
 The rod solver stays paused during continuous growth and runs after growth stops. The live GPU pose feeds procedural
 branch, foliage, and shadow draws.
+
+## Editor panel
+
+The **EcoSysLab** panel groups scene-wide controls into Growth, Wind & air, Visualization, Geometry, and
+Strands (advanced) tabs. Growth shows the tree count and simulated time, while Wind & air contains the air-volume
+display and grid reset. **Show tree overlay** controls the editor's tree visualization; it does not hide procedural
+BranchRenderer or FoliageRenderer draws. Select a tree entity to edit its own components in the inspector.
 
 ## Shoot physics
 
