@@ -22,3 +22,6 @@
 *.ttf binary
 *.wav binary
 *.zip binary
+
+# Keep the supplied oak descriptor byte-identical for reproducibility.
+Resources/ZachQSM/Oak.shoot -text whitespace=cr-at-eol

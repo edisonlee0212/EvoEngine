@@ -443,6 +443,12 @@ def main() -> int:
     )
 
     editor_build = load_json_object(install_dir / "bin" / "evoengine-build.json")
+    if editor_build.get("with_editor") is False:
+        print(f"\nHeadless application install: {install_dir}")
+        print(f"App binaries: {install_dir / 'bin'}")
+        if not args.no_open:
+            open_folder(install_dir)
+        return 0
     runtime_build_command = [
         "cmake",
         "--build",

@@ -33,6 +33,36 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       }
+    },
+    {
+      "architecture": {
+        "value": "x64"
+      },
+      "displayName": "Zach QSM headless (Windows x64)",
+      "binaryDir": "${sourceDir}/out/build-zach-headless",
+      "generator": "Visual Studio 18 2026",
+      "toolset": {
+        "value": "host=x64"
+      },
+      "installDir": "${sourceDir}/out/install/zach-headless",
+      "cacheVariables": {
+        "EVOENGINE_WITH_EDITOR": "OFF",
+        "EVOENGINE_ENABLE_BillboardClouds_PACKAGE": "ON",
+        "BUILD_TESTING": "OFF",
+        "EVOENGINE_ENABLE_LSystem_PACKAGE": "OFF",
+        "EVOENGINE_ENABLE_Universe_PACKAGE": "OFF",
+        "EVOENGINE_ENABLE_PhysXPhysics_SERVICE": "OFF",
+        "EVOENGINE_ENABLE_DatasetGeneration_PACKAGE": "OFF",
+        "EVOENGINE_ENABLE_MeshRepair_PACKAGE": "OFF",
+        "EVOENGINE_ENABLE_DigitalAgriculture_PACKAGE": "OFF",
+        "EVOENGINE_INSTALL_PDBS": "OFF",
+        "EvoEngine_App-ZachQSMTreeDatasetGenerator": "ON",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install/zach-headless",
+        "EVOENGINE_ENABLE_NRD": "OFF",
+        "EVOENGINE_ENABLE_EcoSysLab_PACKAGE": "ON",
+        "EVOENGINE_ENABLE_TextureBaking_PACKAGE": "OFF"
+      },
+      "name": "zach-headless"
     }
   ],
   "buildPresets": [
@@ -59,6 +89,14 @@
       "displayName": "x64-Release",
       "configurePreset": "vs2026-x64",
       "configuration": "Release",
+      "targets": [
+        "INSTALL"
+      ]
+    },
+    {
+      "configuration": "Release",
+      "configurePreset": "zach-headless",
+      "name": "install-zach-headless-Release",
       "targets": [
         "INSTALL"
       ]

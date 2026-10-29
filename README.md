@@ -98,6 +98,10 @@ Thumbnails link to full-resolution images. Rendered views are engine captures; e
 
 ## Developing and Exporting Applications
 
+For batch tree datasets without the editor, use
+[ZachQSMTreeDatasetGenerator](Scripts/ZachQSM/README.md). It exports native EcoSysLab skeletons,
+closed OBJ/PLY wood meshes, optional leaves, measurements and figures through the `zach-headless` preset.
+
 A typical workflow is **open/create a project → edit and simulate → save scenes/assets → export → run independently**.
 Use **View > Build Manager** to choose a saved startup scene and export a Windows x64 application. The runtime loads
 its packaged scene and required packages without the editor. Its startup screen reports scene and shader/pipeline work;

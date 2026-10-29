@@ -1,0 +1,17 @@
+leaf_size: [0.05, 0.1]
+leaf_count: 2
+stem_length:
+  mean: 0.01
+  deviation: 0
+branching_angle:
+  mean: 30
+  deviation: 0
+rotation_variance: 10
+max_node_thickness: 1
+min_root_distance: 0
+max_end_distance: 0.2
+horizontal_tropism: 0
+gravitropism: 0
+leaf_material_ref:
+  asset_handle_: 0
+  type_name_: ""
