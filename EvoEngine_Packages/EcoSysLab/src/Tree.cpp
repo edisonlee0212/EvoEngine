@@ -14,6 +14,7 @@
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "Octree.hpp"
 #include "Soil.hpp"
 #include "StrandModelProfileSerializer.hpp"
@@ -35,6 +36,12 @@ TreeStatistics Tree::GetTreeStatistics() const {
   const auto& skeleton = shoot_model.PeekShootSkeleton();
   ret_val.Calculate(skeleton);
   return ret_val;
+}
+
+void Tree::NotifyShootModelChanged(const bool topology_changed) {
+  ++shoot_model_revision_.content;
+  if (topology_changed)
+    ++shoot_model_revision_.topology;
 }
 
 void Tree::Reset() {
@@ -89,8 +96,6 @@ void Tree::OnDestroy() {
   shoot_strand_model = {};
 
   tree_descriptor_ref.Clear();
-  soil.Clear();
-  climate.Clear();
   enable_history = false;
 
   left_side_biomass = right_side_biomass = 0.0f;
@@ -137,28 +142,21 @@ void Tree::BuildStrandModel() {
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                    const bool pruning) {
   const auto scene = GetScene();
+  if (!scene)
+    return false;
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  system->environment.InitializeModels();
+  return TryGrow(simulation_settings, base_internode_handle, pruning, system->environment.climate,
+                 system->environment.soil);
+}
+
+bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
+                   const bool pruning, ClimateModel& climate_model, VoxelSoilModel& soil_model) {
+  const auto scene = GetScene();
   std::shared_ptr<DynamicTreeSkeleton> physics;
   if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(GetOwner())) {
     physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(GetOwner()).lock();
-  }
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-
-  const auto climate_candidate = EcoSysLabLayer::FindClimate();
-  if (!climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-
-  const auto s = soil.Get<Soil>();
-  const auto c = climate.Get<Climate>();
-
-  if (!s) {
-    EVOENGINE_ERROR("No soil model!")
-    return false;
-  }
-  if (!c) {
-    EVOENGINE_ERROR("No climate model!")
-    return false;
   }
   if (physics && physics->HasPhysics(*this))
     physics->ResetPhysics();
@@ -183,12 +181,12 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   Vigor shoot_vigor;
   Vigor root_vigor;
   if (shoot_growth_controller_.Initialized()) {
-    shoot_vigor = shoot_model.SampleShootFlux(global_transform, c->climate_model, shoot_growth_controller_);
+    shoot_vigor = shoot_model.SampleShootFlux(global_transform, climate_model, shoot_growth_controller_);
   } else {
     shoot_vigor.value = FLT_MAX;
   }
   if (root_growth_controller_.Initialized()) {
-    root_vigor = root_model.SampleRootFlux(global_transform, s->soil_model, root_growth_controller_);
+    root_vigor = root_model.SampleRootFlux(global_transform, soil_model, root_growth_controller_);
   } else {
     root_vigor.value = FLT_MAX;
   }
@@ -199,11 +197,11 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
     shoot_model.DistributeVigor(shoot_growth_controller_, total_vigor);
     if (base_internode_handle != -1) {
       shoot_grown = shoot_model.Grow(simulation_settings.delta_time, base_internode_handle, global_transform,
-                                     c->climate_model, s->soil_model, shoot_growth_controller_, foliage_controller_,
+                                     climate_model, soil_model, shoot_growth_controller_, foliage_controller_,
                                      shoot_reproduction_controller_, shoot_pruning_controller_, pruning) ||
                     shoot_grown;
     } else {
-      shoot_grown = shoot_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, s->soil_model,
+      shoot_grown = shoot_model.Grow(simulation_settings.delta_time, global_transform, climate_model, soil_model,
                                      shoot_growth_controller_, foliage_controller_, shoot_reproduction_controller_,
                                      shoot_pruning_controller_, pruning) ||
                     shoot_grown;
@@ -220,7 +218,7 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
   if (root_growth_controller_.Initialized()) {
     root_model.DistributeVigor(root_growth_controller_, total_vigor);
     if (base_internode_handle == -1) {
-      root_grown = root_model.Grow(simulation_settings.delta_time, global_transform, c->climate_model, s->soil_model,
+      root_grown = root_model.Grow(simulation_settings.delta_time, global_transform, climate_model, soil_model,
                                    root_growth_controller_, fine_root_controller_, root_reproduction_controller_,
                                    root_pruning_controller_, pruning) ||
                    root_grown;
@@ -277,8 +275,9 @@ void Tree::RegisterVoxel() {
   const auto owner = GetOwner();
   const auto global_transform = scene->GetDataComponent<GlobalTransform>(owner).value;
   shoot_model.shoot_skeleton_.data.entity_index = owner.GetIndex();
-  const auto c = climate.Get<Climate>();
-  shoot_model.RegisterVoxel(global_transform, c->climate_model);
+  const auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (system)
+    shoot_model.RegisterVoxel(global_transform, system->environment.climate);
 }
 
 void Tree::ExportRadialBoundingVolume(const std::shared_ptr<RadialBoundingVolume>& rbv) const {

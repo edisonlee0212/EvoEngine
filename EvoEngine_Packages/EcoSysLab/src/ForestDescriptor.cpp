@@ -12,6 +12,7 @@
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 #include "Material.hpp"
 #include "Platform.hpp"
@@ -44,14 +45,9 @@ void AddTreeRenderers(const std::shared_ptr<Scene>& scene, const Entity entity,
 
 Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setSimulationSettings) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  std::shared_ptr<Soil> soil;
-  const auto soilCandidate = EcoSysLabLayer::FindSoil();
-  if (!soilCandidate.expired())
-    soil = soilCandidate.lock();
-  std::shared_ptr<SoilDescriptor> soilDescriptor;
-  if (soil) {
-    soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-  }
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  const auto soilDescriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
   std::shared_ptr<HeightField> heightField{};
   if (soilDescriptor) {
     heightField = soilDescriptor->height_field.Get<HeightField>();
@@ -106,8 +102,7 @@ Entity ForestPatch::InstantiatePatch(const glm::ivec2& gridSize, const bool setS
   }
 
   if (setSimulationSettings) {
-    const auto lab = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-    lab->simulation_settings = simulation_settings;
+    system->growth.settings = simulation_settings;
   }
 
   return retVal;
@@ -117,14 +112,9 @@ Entity ForestPatch::InstantiatePatch(
     const std::vector<std::pair<TreeGrowthSettings, std::shared_ptr<TreeDescriptor>>>& candidates,
     const glm::ivec2& gridSize, bool setSimulationSettings) const {
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  std::shared_ptr<Soil> soil;
-  const auto soilCandidate = EcoSysLabLayer::FindSoil();
-  if (!soilCandidate.expired())
-    soil = soilCandidate.lock();
-  std::shared_ptr<SoilDescriptor> soil_descriptor;
-  if (soil) {
-    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-  }
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
   std::shared_ptr<HeightField> heightField{};
   if (soil_descriptor) {
     heightField = soil_descriptor->height_field.Get<HeightField>();
@@ -181,8 +171,7 @@ Entity ForestPatch::InstantiatePatch(
   }
 
   if (setSimulationSettings) {
-    const auto lab = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-    lab->simulation_settings = simulation_settings;
+    system->growth.settings = simulation_settings;
   }
 
   return retVal;
@@ -343,14 +332,10 @@ void eco_sys_lab_package::DeserializeForestDescriptor(const YAML::Node& in, Fore
 
 auto ForestDescriptor::SetupGrid(const glm::ivec2& grid_size, const float grid_distance, float random_shift) -> void {
   tree_infos.clear();
-  const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Soil> soil;
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  std::shared_ptr<SoilDescriptor> soil_descriptor;
-  if (soil) {
-    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-  }
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
   std::shared_ptr<HeightField> height_field{};
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();

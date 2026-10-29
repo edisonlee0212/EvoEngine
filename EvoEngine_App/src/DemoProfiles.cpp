@@ -428,6 +428,15 @@ const std::vector<DemoProfileDescriptor>& GetDemoProfiles() {
        ApplicationMode::Editor,
        {ApplicationMode::Editor},
        {}},
+      {DemoProfileId::WindyTree,
+       "windy-tree",
+       "Windy Tree",
+       "EcoSysLabApp",
+       "A script-built forest on a ground surface with continuous wind.",
+       "Launcher/DemoPreviews/ecosyslab.png",
+       ApplicationMode::Editor,
+       {ApplicationMode::Editor},
+       {"EcoSysLab"}},
 
   };
   return profiles;
@@ -482,6 +491,9 @@ std::filesystem::path ResolveDemoProfileProjectPath(const DemoProfileId id,
                                                "CornellBox.eveproj");
     case DemoProfileId::EcoSysLab:
       return path_utils::NormalizeAbsolutePath(resource_root / "EcoSysLabProject" / "test.eveproj");
+    case DemoProfileId::WindyTree:
+      return path_utils::NormalizeAbsolutePath(resource_root / ".generated" / "EvoEngine-DemoProjects" / "WindyTree" /
+                                               "WindyTree.eveproj");
     case DemoProfileId::DigitalAgriculture:
       return path_utils::NormalizeAbsolutePath(resource_root / "DigitalAgricultureProject" / "test.eveproj");
     case DemoProfileId::LSystem: {
@@ -546,7 +558,7 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     }
     return missing;
   }
-  if (id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
+  if (id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy || id == DemoProfileId::WindyTree) {
     return missing;
   }
   if (id == DemoProfileId::SubsurfaceScattering) {

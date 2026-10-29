@@ -2,6 +2,7 @@
 
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "PointCloud.hpp"
 #include "Soil.hpp"
 #include "Tinyply.hpp"
@@ -227,17 +228,11 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
                                     const std::shared_ptr<PointCloudCaptureSettings>& capture_settings) const {
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Soil> soil;
-  const auto soil_candidate = EcoSysLabLayer::FindSoil();
-  if (!soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (!soil) {
-    EVOENGINE_ERROR("No soil!");
-    return;
-  }
+  const auto scene = GetScene();
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
   std::unordered_map<Handle, Handle> branch_mesh_renderer_handles, foliage_mesh_renderer_handles;
   Bound plant_bound{};
-  auto scene = GetScene();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   if (tree_entities == nullptr) {
     EVOENGINE_ERROR("No trees!");
@@ -286,7 +281,8 @@ void TreePointCloudScanner::Capture(const TreeMeshGeneratorSettings& mesh_genera
     }
   }
   Handle ground_mesh_renderer_handle = 0;
-  if (auto soil_entity = soil->GetOwner(); scene->IsEntityValid(soil_entity)) {
+  if (auto soil_entity = scene->GetEntity(system->environment.soil_visualization_owner);
+      scene->IsEntityValid(soil_entity)) {
     scene->ForEachChild(soil_entity, [&](Entity child) {
       if (scene->GetEntityName(child) == "Ground Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
         ground_mesh_renderer_handle = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->GetHandle();

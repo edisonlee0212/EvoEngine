@@ -119,6 +119,7 @@ bool TreeEditorState::Inspect(InspectorContext& context, Tree& target) {
               return strength;
             };
             target.shoot_model.CalculateTransform(target.shoot_growth_controller_, true);
+            target.NotifyShootModelChanged(false);
             shoot_visualizer.need_update = true;
           }
           ImGui::TreePop();

@@ -404,6 +404,7 @@ class EVOENGINE_API GeometryStorage final {
   static void FreeParticleInfo(const std::shared_ptr<RangeDescriptor>& range_descriptor);
   [[nodiscard]] static const std::vector<ParticleInfo>& PeekParticleInfoList(
       const std::shared_ptr<RangeDescriptor>& range_descriptor);
+  [[nodiscard]] static size_t GetRenderParticleCount(const std::shared_ptr<RangeDescriptor>& range_descriptor);
   [[nodiscard]] static const std::shared_ptr<DescriptorSet>& PeekDescriptorSet(
       const std::shared_ptr<RangeDescriptor>& range_descriptor);
 

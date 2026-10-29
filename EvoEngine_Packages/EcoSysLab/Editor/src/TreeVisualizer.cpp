@@ -102,6 +102,7 @@ bool ShootVisualizer::DrawGui(ShootModel& model) {
     if (checkpoint_iteration != model.CurrentIteration() && ImGui::Button("Reverse")) {
       model.Reverse(checkpoint_iteration);
       need_update = true;
+      updated = true;
     }
     if (ImGui::Button("Clear checkpoints")) {
       checkpoint_iteration = 0;
@@ -581,13 +582,13 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
         matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
         break;
       case ShootVisualizerMode::Order:
-        matrices[i].instance_color = random_colors_[node.info.order];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
         break;
       case ShootVisualizerMode::Locked:
         matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
         break;
       case ShootVisualizerMode::Level:
-        matrices[i].instance_color = random_colors_[node.info.level];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.level) % random_colors_.size()];
         break;
       case ShootVisualizerMode::MaxDescendantLightIntensity:
         matrices[i].instance_color = glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
@@ -629,7 +630,7 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
             glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
         break;
       default:
-        matrices[i].instance_color = random_colors_[node.info.order];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
         break;
     }
     matrices[i].instance_color.a = 1.0f;
@@ -971,13 +972,13 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
         matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
         break;
       case RootVisualizerMode::Order:
-        matrices[i].instance_color = random_colors_[node.info.order];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
         break;
       case RootVisualizerMode::Locked:
         matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
         break;
       case RootVisualizerMode::Level:
-        matrices[i].instance_color = random_colors_[node.info.level];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.level) % random_colors_.size()];
         break;
       case RootVisualizerMode::IsMaxChild:
         matrices[i].instance_color = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
@@ -1000,7 +1001,7 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
             glm::clamp(glm::pow(node.data.growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
         break;
       default:
-        matrices[i].instance_color = random_colors_[node.info.order];
+        matrices[i].instance_color = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
         break;
     }
     matrices[i].instance_color.a = 1.0f;

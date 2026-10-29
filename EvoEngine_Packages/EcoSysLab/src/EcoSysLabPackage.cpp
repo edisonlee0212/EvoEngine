@@ -22,6 +22,7 @@
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "FungusTest.hpp"
@@ -293,6 +294,7 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
   }
 
   const bool registered =
+      registrar->RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem") &&
       registrar->RegisterPrivateComponent<TreeStructor>("TreeStructor") &&
       registrar->RegisterPrivateComponent<Climate>("Climate") &&
       registrar->RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator") &&
@@ -335,6 +337,8 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
       registrar->RegisterLayer<EcoSysLabLayer>("EcoSysLab Layer");
   if (registered) {
     RegisterEcoSysLabSerializationHandlers(descriptor.name);
+    Serialization::RegisterSerializationHandler<EcoSysLabSystem>(SerializeEcoSysLabSystem, DeserializeEcoSysLabSystem,
+                                                                 descriptor.name, "EcoSysLabSystem");
   }
   return registered;
 }

@@ -122,6 +122,9 @@ class EVOENGINE_API ParticleInfoList final : public IAsset {
    */
   const std::vector<ParticleInfo>& PeekParticleInfoList() const;
 
+  // Pending edits may render the previously uploaded prefix until the next device sync.
+  [[nodiscard]] size_t GetRenderParticleCount() const;
+
   /**
    * @brief Retrieves the descriptor set for the particle information.
    *

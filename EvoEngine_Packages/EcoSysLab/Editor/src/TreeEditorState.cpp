@@ -1,5 +1,6 @@
 #include "BranchRenderer.hpp"
 #include "EcoSysLabEditorLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 
 #include <algorithm>
@@ -87,14 +88,21 @@ void EcoSysLabEditorLayer::Update() {
     else
       ++it;
   }
-  if (reset_revision_ != runtime->reset_revision_) {
-    reset_revision_ = runtime->reset_revision_;
+  const auto scene = GetScene();
+  if (!scene)
+    return;
+  const auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (!system)
+    return;
+  if (reset_revision_ != system->interactions.reset_revision) {
+    reset_revision_ = system->interactions.reset_revision;
     ClearSceneVisualization();
   }
-  if (simulation_revision_ != runtime->simulation_revision_) {
-    simulation_revision_ = runtime->simulation_revision_;
+  if (simulation_revision_ != system->interactions.revision) {
+    simulation_revision_ = system->interactions.revision;
     need_full_flow_update = true;
-    UpdateGroundFruitAndLeaves();
+    if (!tree_visualization_settings_.enable)
+      return;
     if (const auto scene = GetScene(); scene && scene->IsEntityValid(selected_tree)) {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
       GetTreeState(*tree);
@@ -127,7 +135,7 @@ void EcoSysLabEditorLayer::OnDestroy() {
 void EcoSysLabEditorLayer::ClearSceneVisualization() {
   trees_.clear();
   last_selected_tree_index_ = -1;
-  shoot_versions_.clear();
+  tree_visualization_inputs_.clear();
   soil_version_ = -1;
   need_full_flow_update = true;
   need_flow_update_for_selection_ = false;

@@ -62,17 +62,28 @@ the four trees for four years. Forest patches and descriptors attach DynamicTree
 and wind can move their branches. The patch supplies BranchRenderer and FoliageRenderer materials. Procedural leaves
 use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build
 CPU geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry
-at the end of growth. If the startup scene has no Soil or Climate, the demo creates them from the bundled descriptors.
+at the end of growth. If the startup scene has no environment configuration, EcoSysLab creates default climate and soil descriptors in the scene system. Growth runs only while the scene is playing.
 On mesh-shader devices, each growth iteration replaces the current GPU shoot pose from the saved growth skeleton.
 The rod solver stays paused during continuous growth and runs after growth stops. The live GPU pose feeds procedural
 branch, foliage, and shadow draws.
 
+The launcher also offers **Windy Tree** (`EvoEngineEditor --demo windy-tree --editor`). It creates an empty generated
+project and enters Play automatically. `WindyTreeDemoSettings` in `src/EcoSysLabLayerDemo.cpp` controls the script-built
+16 Spruce trees in a 4×4 grid, ground, materials, lighting, air grid, and Blower without relying on `Default.evescene` or tree assets.
+`WindyTreeDemoSettings::TreePreset` can switch between the script-defined Spruce and Acacia presets. The Spruce growth
+parameters match the project's Spruce descriptor, while the demo supplies its own materials and smaller foliage cards
+to keep branches visible.
+The demo uses rasterization for procedural branches and hides foliage. Plant Visual overlays are enabled; gizmos defer first use until their instance data is uploaded. Selection refreshes branch overlays without rebuilding foliage or hidden climate grids. Spruce grows for five simulated years by default (Acacia for eight) after background preparation completes, and the Blower begins emitting wind after growth finishes. Wind particles are hidden by default so the branches remain visible; use Show wind particles in the EcoSysLab panel to display them. Stop returns to
+the generated project's empty starting scene.
+
 ## Editor panel
 
-The **EcoSysLab** panel groups scene-wide controls into Growth, Wind & air, Visualization, Geometry, and
-Strands (advanced) tabs. Growth shows the tree count and simulated time, while Wind & air contains the air-volume
+The **EcoSysLab** panel groups scene-wide controls into Growth, Environment, Wind & air, Visualization, Geometry, and
+Strands (advanced) tabs. Growth shows the tree count and simulated time. **Grow** adds the requested years to a runtime queue; each Play frame advances one configured growth step, including a shorter final step. **Stop growth** clears the queue, and Pause retains it. Environment selects the scene climate and soil descriptors, ambient air settings, and soil geometry controls. Wind & air contains the air-volume
 display and grid reset. **Show tree overlay** controls the editor's tree visualization; it does not hide procedural
 BranchRenderer or FoliageRenderer draws. Select a tree entity to edit its own components in the inspector.
+The scene saves environment, growth, and advanced dynamic-strands settings. Growth time, dropped material, air motion,
+and GPU physics poses remain runtime state and reset when Play starts from the saved scene.
 
 ## Shoot physics
 
@@ -128,12 +139,12 @@ current motion. Tracer particles keep their velocity through branches while mixi
 air. Cells remain registered as trees grow or move until **Reset air grid** is pressed in the EcoSysLab layer inspector
 or all trees are reset. The manual reset re-registers from current GPU tree poses without changing those poses.
 
-The `Climate` private component supplies scene-level ambient temperature, relative humidity, pressure, air coupling,
-friction, and air-grid cell size through its **Air** inspector. Cell size defaults to 0.1 m and accepts 0.05–0.2 m.
+The scene-owned `EcoSysLabSystem` supplies ambient temperature, relative humidity, pressure, air coupling,
+friction, and air-grid cell size through the **Environment** tab. Cell size defaults to 0.1 m and accepts 0.05–0.2 m.
 Press Enter after editing to rebuild registered cells from the trees' current GPU poses without changing those poses.
 At every cell size, registration fills an expanded box around each tree. Cells stay fixed in world space while their
 air values update during swaying; tree growth and entity movement extend the registered region. Rebuilding clears
-the current airflow. Existing scenes with an `AirEnvironment` component transfer those settings to `Climate` when
+the current airflow. Existing scenes with `Climate`, `Soil`, or `AirEnvironment` components transfer their configuration to the scene system when
 loaded. Air density is estimated from cell
 temperature, specific humidity, and ambient pressure.
 This initial model mixes heat and moisture without phase changes or a pressure solver. The EcoSysLab layer's
@@ -146,16 +157,18 @@ panel. Registered still-air cells appear green; normal wind visualization keeps 
 
 | Source | Role |
 | --- | --- |
-| `EcoSysLabLayer` | Runtime simulation and render callback registration. |
+| `EcoSysLabSystem` | Scene-owned environment, queued growth, interactions, and dynamics. |
+| `EcoSysLabLayer` | Package bootstrap and render callback registration. |
 | `Editor/` and `EcoSysLabEditorLayer` | Authoring panels, inspectors, asset previews and visualization cameras. |
 | `Tree` | Private component for a simulated tree instance. |
 | `TreeDescriptor` | Asset describing tree generation/growth behavior. |
 | `TreeStructor` | Private component for tree reconstruction workflows. |
-| `Climate` / `ClimateDescriptor` | Scene climate and ambient air settings for growth and GPU wind simulation. |
-| `Soil` / `SoilDescriptor` | Scene component and assets for soil context. |
+| `ClimateDescriptor` / `SoilDescriptor` | Reusable assets for the scene system climate and soil models. |
 | `DynamicTreeSkeleton` | Private component for shoot rod physics settings and transient simulation state. |
 | `DynamicTreeStrands` | Strand-based tree representation and rendering support. |
 | `SpatialPlantDistributionSimulator` | Private component for spatial competition and plant distribution. |
+
+Legacy `Climate` and `Soil` component types remain registered so older scenes can load. EcoSysLab transfers their settings to the scene system and removes those components during migration; existing visualization entities stay in the scene.
 
 ## Registered Types
 

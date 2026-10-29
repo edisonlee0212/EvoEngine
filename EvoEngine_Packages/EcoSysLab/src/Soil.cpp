@@ -55,8 +55,8 @@ void Soil::RandomOffset(float min, float max) {
   }
 }
 
-Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
-                                  float water_factor, float nutrient_factor) {
+Entity SoilVisualization::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2& min_xy,
+                                               const glm::vec2 max_xy, float water_factor, float nutrient_factor) {
   auto scene = ApplicationContext::Get().GetActiveScene();
   auto quad_entity = scene->CreateEntity("Slice");
   auto material = AssetManager::CreateTemporaryAsset<Material>();
@@ -86,13 +86,13 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   glm::vec3 scale;
   glm::vec3 position;
   glm::vec3 rotation;
-  auto soil_model_size = glm::vec3(soil_model.m_resolution) * soil_model.m_dx;
+  auto soil_model_size = soil_model.GetBoundingBoxMax() - soil_model.GetBoundingBoxMin();
 
   scale = glm::vec3(soil_model_size.z * (max_xy.x - min_xy.x), 1.0f, soil_model_size.y * (max_xy.y - min_xy.y));
   rotation = glm::vec3(glm::radians(90.0f), glm::radians(back_facing ? 90.0f : -90.0f), 0.0f);
-  position = soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * depth,
-                                                     soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
-                                                     soil_model_size.z * (min_xy.x + max_xy.x) * 0.5f);
+  position = soil_model.GetBoundingBoxMin() + glm::vec3(soil_model_size.x * depth,
+                                                        soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
+                                                        soil_model_size.z * (min_xy.x + max_xy.x) * 0.5f);
   global_transform.SetPosition(position);
   global_transform.SetEulerRotation(rotation);
   global_transform.SetScale(scale);
@@ -100,8 +100,8 @@ Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2
   return quad_entity;
 }
 
-Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
-                                  float water_factor, float nutrient_factor) {
+Entity SoilVisualization::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2& min_xy,
+                                               const glm::vec2 max_xy, float water_factor, float nutrient_factor) {
   auto scene = ApplicationContext::Get().GetActiveScene();
   auto quad_entity = scene->CreateEntity("Slice");
 
@@ -133,13 +133,13 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   glm::vec3 scale;
   glm::vec3 position;
   glm::vec3 rotation;
-  auto soil_model_size = glm::vec3(soil_model.m_resolution) * soil_model.m_dx;
+  auto soil_model_size = soil_model.GetBoundingBoxMax() - soil_model.GetBoundingBoxMin();
 
   scale = glm::vec3(soil_model_size.x * (max_xy.x - min_xy.x), 1.0f, soil_model_size.y * (max_xy.y - min_xy.y));
   rotation = glm::vec3(glm::radians(90.0f), glm::radians(back_facing ? 180.0f : 0.0f), 0.0f);
-  position = soil_model.m_boundingBoxMin + glm::vec3(soil_model_size.x * (min_xy.x + max_xy.x) * 0.5f,
-                                                     soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
-                                                     soil_model_size.z * depth);
+  position = soil_model.GetBoundingBoxMin() + glm::vec3(soil_model_size.x * (min_xy.x + max_xy.x) * 0.5f,
+                                                        soil_model_size.y * (min_xy.y + max_xy.y) * 0.5f,
+                                                        soil_model_size.z * depth);
 
   global_transform.SetPosition(position);
   global_transform.SetEulerRotation(rotation);
@@ -148,8 +148,8 @@ Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2
   return quad_entity;
 }
 
-Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor,
-                            bool enable_ground_surface) {
+Entity SoilVisualization::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor,
+                                         bool enable_ground_surface) {
   auto scene = ApplicationContext::Get().GetActiveScene();
   const auto combined_entity = scene->CreateEntity("CutOut");
 
@@ -188,7 +188,7 @@ Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, fl
   return combined_entity;
 }
 
-Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface) {
+Entity SoilVisualization::GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto combined_entity = scene->CreateEntity("Cube");
 
@@ -222,20 +222,41 @@ Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool gro
   return combined_entity;
 }
 
+Entity Soil::GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
+                                  float water_factor, float nutrient_factor) {
+  return SoilVisualization{soil_model, soil_descriptor_ref, GetOwner()}.GenerateSurfaceQuadX(
+      back_facing, depth, min_xy, max_xy, water_factor, nutrient_factor);
+}
+Entity Soil::GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
+                                  float water_factor, float nutrient_factor) {
+  return SoilVisualization{soil_model, soil_descriptor_ref, GetOwner()}.GenerateSurfaceQuadZ(
+      back_facing, depth, min_xy, max_xy, water_factor, nutrient_factor);
+}
+Entity Soil::GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor,
+                            bool ground_surface) {
+  return SoilVisualization{soil_model, soil_descriptor_ref, GetOwner()}.GenerateCutOut(x_depth, z_depth, water_factor,
+                                                                                       nutrient_factor, ground_surface);
+}
+Entity Soil::GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface) {
+  return SoilVisualization{soil_model, soil_descriptor_ref, GetOwner()}.GenerateFullBox(water_factor, nutrient_factor,
+                                                                                        ground_surface);
+}
+Entity Soil::GenerateMesh(float x_depth, float z_depth) {
+  return SoilVisualization{soil_model, soil_descriptor_ref, GetOwner()}.GenerateMesh(x_depth, z_depth);
+}
 void eco_sys_lab_package::SerializeSoil(YAML::Emitter& out, const Soil& target) {
   target.soil_descriptor_ref.Save("soil_descriptor_ref", out);
 }
 
 void eco_sys_lab_package::DeserializeSoil(const YAML::Node& in, Soil& target) {
   target.soil_descriptor_ref.Load("soil_descriptor_ref", in);
-  target.InitializeSoilModel();
 }
 
 void Soil::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(soil_descriptor_ref);
 }
 
-Entity Soil::GenerateMesh(float x_depth, float z_depth) {
+Entity SoilVisualization::GenerateMesh(float x_depth, float z_depth) {
   const auto sd = soil_descriptor_ref.Get<SoilDescriptor>();
   if (!sd) {
     EVOENGINE_ERROR("No soil descriptor!");
@@ -254,7 +275,7 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
       sd->soil_parameters.m_deltaX, vertices, triangles, x_depth, z_depth);
 
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  const auto self = GetOwner();
+  const auto self = owner;
   Entity ground_surface_entity;
   const auto children = scene->GetChildren(self);
 
@@ -282,8 +303,8 @@ Entity Soil::GenerateMesh(float x_depth, float z_depth) {
   return ground_surface_entity;
 }
 
-void Soil::InitializeSoilModel() {
-  if (const auto sd = soil_descriptor_ref.Get<SoilDescriptor>()) {
+void eco_sys_lab_package::BuildSoilModel(VoxelSoilModel& soil_model, const std::shared_ptr<SoilDescriptor>& sd) {
+  if (sd) {
     auto height_field = sd->height_field.Get<HeightField>();
 
     auto params = sd->soil_parameters;
@@ -299,7 +320,7 @@ void Soil::InitializeSoilModel() {
         return height_field->GetValue(glm::vec2(position.x, position.y));
       };
     } else {
-      soil_surface.m_height = [&](const glm::vec2& position) {
+      soil_surface.m_height = [](const glm::vec2& position) {
         return 0.0f;
       };
     }
@@ -442,6 +463,37 @@ void Soil::InitializeSoilModel() {
       }
     }
 
+    if (soil_layers.size() == 1) {
+      SoilLayer layer;
+      layer.m_thickness = [](const glm::vec2&) {
+        return 4.0f;
+      };
+      layer.m_mat = SoilPhysicalMaterial{material_index++,
+                                         [](const glm::vec3&) {
+                                           return 1.0f;
+                                         },
+                                         [](const glm::vec3&) {
+                                           return 0.5f;
+                                         },
+                                         [](const glm::vec3&) {
+                                           return 1.0f;
+                                         },
+                                         [](const glm::vec3&) {
+                                           return 1.0f;
+                                         },
+                                         [](const glm::vec3&) {
+                                           return 1.0f;
+                                         }};
+      const auto pixels = sd->texture_resolution.x * sd->texture_resolution.y;
+      auto texture = std::make_shared<SoilMaterialTexture>();
+      texture->m_color_map.assign(pixels, glm::vec4(0.4f, 0.3f, 0.2f, 1.0f));
+      texture->m_height_map.assign(pixels, 1.0f);
+      texture->m_metallic_map.assign(pixels, 0.0f);
+      texture->m_roughness_map.assign(pixels, 0.8f);
+      texture->m_normal_map.assign(pixels, glm::vec3(0, 0, 1));
+      layer.m_mat.m_soilMaterialTexture = std::move(texture);
+      soil_layers.emplace_back(std::move(layer));
+    }
     // Add bottom layer
     soil_layers.emplace_back();
     soil_layers.back().m_thickness = [](const glm::vec2& position) {
@@ -465,6 +517,10 @@ void Soil::InitializeSoilModel() {
     };
     soil_model.Initialize(params, soil_surface, soil_layers);
   }
+}
+
+void Soil::InitializeSoilModel() {
+  BuildSoilModel(soil_model, soil_descriptor_ref.Get<SoilDescriptor>());
 }
 
 void Soil::SplitRootTestSetup() {

@@ -4,6 +4,7 @@
 #include "EcoSysLabObjectInspectors.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EcoSysLabSettingsEditor.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "EditorFileDialogs.hpp"
 #include "EditorLayer.hpp"
 #include "ForestDescriptor.hpp"
@@ -47,14 +48,10 @@ bool ForestPatchInspector::Inspect(InspectorContext& context, ForestPatch& targe
   EditorFileDialogs::OpenFolder("Create forest from folder...", [&](const std::filesystem::path& folderPath) {
     int index = 0;
     const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-    std::shared_ptr<Soil> soil;
-    const auto soilCandidate = EcoSysLabLayer::FindSoil();
-    if (!soilCandidate.expired())
-      soil = soilCandidate.lock();
-    std::shared_ptr<SoilDescriptor> soilDescriptor;
-    if (soil) {
-      soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-    }
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    system->environment.EnsureConfiguration(scene);
+    const auto soilDescriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
     std::shared_ptr<HeightField> heightField{};
     if (soilDescriptor) {
       heightField = soilDescriptor->height_field.Get<HeightField>();
@@ -99,14 +96,10 @@ bool ForestDescriptorInspector::Inspect(InspectorContext& context, ForestDescrip
       [&](const std::filesystem::path& path) {
         int index = 0;
         const auto ecoSysLabLayer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-        std::shared_ptr<Soil> soil;
-        const auto soilCandidate = EcoSysLabLayer::FindSoil();
-        if (!soilCandidate.expired())
-          soil = soilCandidate.lock();
-        std::shared_ptr<SoilDescriptor> soilDescriptor;
-        if (soil) {
-          soilDescriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-        }
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+        system->environment.EnsureConfiguration(scene);
+        const auto soilDescriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
         std::shared_ptr<HeightField> heightField{};
         if (soilDescriptor) {
           heightField = soilDescriptor->height_field.Get<HeightField>();

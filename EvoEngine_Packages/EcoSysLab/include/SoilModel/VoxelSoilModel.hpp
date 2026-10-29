@@ -3,6 +3,7 @@
 #include <functional>
 #include <glm/glm.hpp>
 #include <map>
+#include <memory>
 #include <random>
 #include <valarray>
 #include <vector>
@@ -16,6 +17,7 @@ using namespace evo_engine;
 using Field = std::valarray<float>;
 
 class SoilParameters;
+class SoilDescriptor;
 
 /**
  * @brief Represents the surface of the soil by defining a height function.
@@ -71,6 +73,7 @@ struct SoilLayer {
  */
 class VoxelSoilModel {
   friend class Soil;
+  friend void BuildSoilModel(VoxelSoilModel& model, const std::shared_ptr<SoilDescriptor>& descriptor);
   friend struct SoilInspector;
   friend class EcoSysLabLayer;
   friend class EcoSysLabEditorLayer;

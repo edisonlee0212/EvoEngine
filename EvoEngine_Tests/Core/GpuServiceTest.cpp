@@ -2747,6 +2747,31 @@ TEST(GpuService, PresentationReadinessAllowsDynamicParticleUpdatesAfterFirstUplo
   EXPECT_TRUE(GeometryStorage::HasPendingPresentationUploads());
 }
 
+TEST(GpuService, ParticleDrawCountNeverExceedsUploadedData) {
+  ScopedGpuPlatform platform;
+  ParticleInfoList particles;
+  particles.OnCreate();
+  EXPECT_EQ(particles.GetRenderParticleCount(), 0);
+  particles.SetParticleInfos(std::vector<ParticleInfo>(2));
+  EXPECT_EQ(particles.GetRenderParticleCount(), 0);
+  PlatformLifecycleTestAccess::PreUpdate();
+  EXPECT_EQ(particles.GetRenderParticleCount(), 2);
+
+  particles.SetParticleInfos(std::vector<ParticleInfo>(5));
+  EXPECT_EQ(particles.GetRenderParticleCount(), 2);
+  PlatformLifecycleTestAccess::PreUpdate();
+  EXPECT_EQ(particles.GetRenderParticleCount(), 5);
+  particles.SetParticleInfos(std::vector<ParticleInfo>(1));
+  EXPECT_EQ(particles.GetRenderParticleCount(), 1);
+  particles.SetParticleInfos({});
+  EXPECT_EQ(particles.GetRenderParticleCount(), 0);
+  PlatformLifecycleTestAccess::PreUpdate();
+  particles.SetParticleInfos(std::vector<ParticleInfo>(3));
+  EXPECT_EQ(particles.GetRenderParticleCount(), 0);
+  PlatformLifecycleTestAccess::PreUpdate();
+  EXPECT_EQ(particles.GetRenderParticleCount(), 3);
+}
+
 TEST(StaticBlasBuilder, KeepsBuildHistoryAfterLiveStorageIsReleased) {
   ScopedGpuPlatform platform(true);
   if (!Platform::RayAccelerationStructureEnabled()) {

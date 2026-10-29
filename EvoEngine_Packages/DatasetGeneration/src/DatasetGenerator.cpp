@@ -371,7 +371,7 @@ void DatasetGenerator::GenerateDataForTree(const TreeDataGenerationParameters& d
 
   int post_fix = 0;
   for (int i = 0; i < max_iterations; i++) {
-    eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+    eco_sys_lab_layer->SimulateForDataset(data_generation_parameters.simulation_settings, stats);
     if (!growth_capture_node_sizes.empty()) {
       if (data_generation_parameters.use_node_growth_capture) {
         if (const auto min_node_size = *growth_capture_node_sizes.begin(); stats.internode_size >= min_node_size) {
@@ -454,7 +454,7 @@ void DatasetGenerator::GenerateTreeGrowthData(const TreeDataGenerationParameters
   const auto camera_entity = scene->CreateEntity("Capture Camera");
   int post_fix = 0;
   for (int i = 0; i < max_iterations; i++) {
-    eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+    eco_sys_lab_layer->SimulateForDataset(data_generation_parameters.simulation_settings, stats);
     CaptureTreeData(scene, post_fix, tree, data_generation_parameters, scanner_entity, camera_entity);
     post_fix++;
   }
@@ -501,7 +501,7 @@ void DatasetGenerator::GenerateDataForForest(int grid_size, const float grid_dis
 
   SimulationStats stats;
   for (int i = 0; i < max_iterations; i++) {
-    eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+    eco_sys_lab_layer->SimulateForDataset(data_generation_parameters.simulation_settings, stats);
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
   ApplicationContext::Get().Loop();
@@ -613,7 +613,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatch(
   while (eco_sys_lab_layer->GetSimulatedTime() < forest_patch->simulation_time) {
     SimulationStats stats;
     for (int i = 0; i < max_iterations; i++) {
-      eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+      eco_sys_lab_layer->SimulateForDataset(data_generation_parameters.simulation_settings, stats);
     }
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);
@@ -691,7 +691,7 @@ void DatasetGenerator::GeneratePointCloudForForestPatchJoinedSpecies(
   while (eco_sys_lab_layer->GetSimulatedTime() < forest_patch->simulation_time) {
     SimulationStats stats;
     for (int i = 0; i < max_iterations; i++) {
-      eco_sys_lab_layer->Simulate(data_generation_parameters.simulation_settings, stats);
+      eco_sys_lab_layer->SimulateForDataset(data_generation_parameters.simulation_settings, stats);
     }
   }
   eco_sys_lab_layer->GenerateMeshes(data_generation_parameters.tree_mesh_generator_settings);

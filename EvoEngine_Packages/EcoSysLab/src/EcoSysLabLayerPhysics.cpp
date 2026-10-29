@@ -19,22 +19,29 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
+EcoSysLabSystem::Dynamics::StrandsSettings& EcoSysLabLayer::GetDynamicStrandsSettings() const {
+  return GetScene()->GetSystem<EcoSysLabSystem>()->dynamics.strands;
+}
+
 bool EcoSysLabLayer::IsDynamicStrandsPhysicsRunning() const {
+  const auto& dynamic_strands_settings_ = GetDynamicStrandsSettings();
   return ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_physics,
                                       dynamic_strands_settings_.remaining_step);
 }
 
 bool EcoSysLabLayer::IsDynamicStrandsFungusRunning() const {
+  const auto& dynamic_strands_settings_ = GetDynamicStrandsSettings();
   return ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_fungus,
                                       dynamic_strands_settings_.remaining_fungus_step);
 }
 
 int EcoSysLabLayer::GetDynamicStrandsFungusStepsPerFrame() const {
+  const auto& dynamic_strands_settings_ = GetDynamicStrandsSettings();
   return std::max(0, dynamic_strands_settings_.fungus_sub_step);
 }
 
-void EcoSysLabLayer::DynamicStrandSimulation() {
-  const auto scene = GetScene();
+void EcoSysLabSystem::Dynamics::StepStrands(const std::shared_ptr<Scene>& scene) {
+  auto& dynamic_strands_settings_ = strands;
   const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
   if (!dts_entities || dts_entities->empty())
     return;
@@ -60,10 +67,13 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
       dts->InteractionStep();
     });
   }
-  const bool run_physics = IsDynamicStrandsPhysicsRunning();
-  const bool run_fungus = dynamic_strands_settings_.physics_parameters.enable_fungus && IsDynamicStrandsFungusRunning();
+  const bool run_physics =
+      ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_physics, dynamic_strands_settings_.remaining_step);
+  const bool run_fungus = dynamic_strands_settings_.physics_parameters.enable_fungus &&
+                          ShouldRunDynamicStrandsStage(dynamic_strands_settings_.enable_fungus,
+                                                       dynamic_strands_settings_.remaining_fungus_step);
   if (run_physics || run_fungus) {
-    const int fungus_steps = GetDynamicStrandsFungusStepsPerFrame();
+    const int fungus_steps = std::max(0, dynamic_strands_settings_.fungus_sub_step);
     const auto* demo_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicStrandsDemo>();
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       if (!scene->IsEntityEnabled(dts->GetOwner()) || !dts->IsEnabled())
@@ -100,6 +110,7 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
 }
 
 void EcoSysLabLayer::RegisterStrandRenderingProcedure() const {
+  const auto& dynamic_strands_settings_ = GetDynamicStrandsSettings();
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
 

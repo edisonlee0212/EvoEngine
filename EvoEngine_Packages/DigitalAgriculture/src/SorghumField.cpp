@@ -5,6 +5,7 @@
 #include "DigitalAgricultureSerializationAdapters.hpp"
 
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "Scene.hpp"
 #include "Soil.hpp"
 #include "Sorghum.hpp"
@@ -15,13 +16,10 @@
 using namespace digital_agriculture_package;
 using namespace eco_sys_lab_package;
 void SorghumGrid::GenerateField(std::vector<glm::mat4>& matrices_list) const {
-  std::shared_ptr<Soil> soil;
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  std::shared_ptr<SoilDescriptor> soil_descriptor;
-  if (soil) {
-    soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-  }
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
   std::shared_ptr<HeightField> height_field{};
   if (soil_descriptor) {
     height_field = soil_descriptor->height_field.Get<HeightField>();
@@ -90,13 +88,9 @@ Entity SorghumField::InstantiateField(uint32_t base_seed) const {
   const auto sorghum_layer = ApplicationContext::Get().GetLayer<SorghumLayer>();
   const auto scene = sorghum_layer->GetScene();
   if (sorghum_layer) {
-    std::shared_ptr<Soil> soil;
-    if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-      soil = soil_candidate.lock();
-    std::shared_ptr<SoilDescriptor> soil_descriptor;
-    if (soil) {
-      soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>();
-    }
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    system->environment.EnsureConfiguration(scene);
+    const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>();
     std::shared_ptr<HeightField> height_field{};
     if (soil_descriptor) {
       height_field = soil_descriptor->height_field.Get<HeightField>();

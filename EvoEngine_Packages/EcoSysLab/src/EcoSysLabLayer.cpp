@@ -6,7 +6,6 @@
 
 #include "AdvancedShootDescriptor.hpp"
 #include "Application.hpp"
-#include "AssetManager.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -19,7 +18,6 @@
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloudsConverter.hpp"
 #endif
-#include "AirEnvironment.hpp"
 #include "Blower.hpp"
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
@@ -28,28 +26,21 @@
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "DynamicTreeSkeleton.hpp"
-#include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
-#include "GeometryStorage.hpp"
 #include "GpuTreeMeshRenderer.hpp"
 #include "GpuTreePhysics.hpp"
-#include "GraphicsResources.hpp"
 #include "HeightField.hpp"
-#include "Material.hpp"
 #include "Platform/Platform.hpp"
-#include "Prefab.hpp"
-#include "ProjectManager.hpp"
 #include "RadialBoundingVolume.hpp"
-#include "RenderLayer.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "Soil.hpp"
 #include "SoilDescriptor.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
-#include "TextureStorage.hpp"
 #include "Tree.hpp"
 #include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
@@ -60,14 +51,11 @@
 using namespace eco_sys_lab_package;
 
 void EcoSysLabLayer::OnDestroy() {
-  for (const auto& entry : gpu_physics_entries_)
-    if (const auto physics = entry.physics.lock())
-      physics->SetGpuPhysics(nullptr, 0);
-  gpu_physics_entries_.clear();
-  gpu_tree_physics_.reset();
-  gpu_physics_scene_.reset();
+  if (const auto scene = GetScene())
+    if (const auto system = scene->GetSystem<EcoSysLabSystem>())
+      system->dynamics.Reset();
   gpu_tree_mesh_renderer_.reset();
-  wind_particle_field_.reset();
+  demo_bootstrap_.reset();
   DsFungusInjection::ReleaseStaticGpuResources();
   DynamicStrands::ReleaseStaticGpuResources();
 }
@@ -144,6 +132,7 @@ void RegisterEcoSysLabSerializationHandlers() {
 }  // namespace
 
 void EcoSysLabLayer::RegisterTypes(Application& application) {
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
   application.RegisterPrivateComponent<TreeStructor>("TreeStructor");
   application.RegisterPrivateComponent<Climate>("Climate");
   application.RegisterPrivateComponent<SpatialPlantDistributionSimulator>("SpatialPlantDistributionSimulator");
@@ -182,234 +171,54 @@ void EcoSysLabLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SoilLayerDescriptor>("SoilLayerDescriptor", {".soillayer"});
   application.RegisterAsset<SoilDescriptor>("SoilDescriptor", {".soil"});
   RegisterEcoSysLabSerializationHandlers();
-}
-
-std::weak_ptr<Climate> EcoSysLabLayer::FindClimate() {
-  const auto scene = ApplicationContext::Get().GetActiveScene();
-  const std::vector<Entity>* climate_entities = scene->UnsafeGetPrivateComponentOwnersList<Climate>();
-  if (climate_entities && !climate_entities->empty()) {
-    return scene->GetOrSetPrivateComponent<Climate>(climate_entities->at(0));
-  }
-  return {};
+  Serialization::RegisterSerializationHandler<EcoSysLabSystem>(SerializeEcoSysLabSystem, DeserializeEcoSysLabSystem, {},
+                                                               "EcoSysLabSystem");
 }
 
 void EcoSysLabLayer::ClearGroundFruitAndLeaf() {
-  fruits_.clear();
-  leaves_.clear();
-  flowers_.clear();
-  ++simulation_revision_;
+  if (const auto scene = GetScene())
+    if (const auto system = scene->GetSystem<EcoSysLabSystem>())
+      system->interactions.Clear();
 }
 
 float EcoSysLabLayer::GetSimulatedTime() const {
-  return simulated_time_;
-}
-
-void EcoSysLabLayer::UpdateDemoTreeGrowth() {
-  if (demo_tree_growth_finished_)
-    return;
-  if (!ProjectManager::IsProjectIdle()) {
-    demo_background_idle_frames_ = 0;
-    return;
-  }
-  const auto project_path = ProjectManager::GetProjectPath();
-  if (project_path.filename() != "test.eveproj" || project_path.parent_path().filename() != "EcoSysLabProject") {
-    demo_tree_growth_finished_ = true;
-    return;
-  }
   const auto scene = GetScene();
-  if (!scene) {
-    return;
-  }
-  if (!demo_tree_initialized_) {
-    if (!demo_growth_enabled_)
-      return;
-    if (Platform::MeshShaderEnabled()) {
-      if (!gpu_tree_mesh_renderer_)
-        gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
-      if (!gpu_tree_mesh_renderer_->Prepare())
-        return;
-    }
-    if (FindClimate().expired()) {
-      const auto descriptor =
-          std::dynamic_pointer_cast<ClimateDescriptor>(ProjectManager::GetOrCreateAsset("Climate.climate"));
-      if (descriptor) {
-        const auto entity = scene->CreateEntity("Climate");
-        const auto climate = scene->GetOrSetPrivateComponent<Climate>(entity).lock();
-        climate->climate_descriptor_ref = descriptor;
-        climate->InitializeClimateModel();
-      }
-    }
-    if (FindSoil().expired()) {
-      const auto descriptor =
-          std::dynamic_pointer_cast<SoilDescriptor>(ProjectManager::GetOrCreateAsset("Soils/PlayGround.soil"));
-      if (descriptor) {
-        const auto entity = scene->CreateEntity("Soil");
-        const auto soil = scene->GetOrSetPrivateComponent<Soil>(entity).lock();
-        soil->soil_descriptor_ref = descriptor;
-        soil->InitializeSoilModel();
-      }
-    }
-    const auto patch =
-        std::dynamic_pointer_cast<ForestPatch>(ProjectManager::GetOrCreateAsset("AppleForest.forestpatch"));
-    if (!patch || !patch->tree_descriptor.Get<TreeDescriptor>()) {
-      EVOENGINE_ERROR("Failed to load the EcoSysLab demo AppleForest patch.")
-      demo_tree_growth_finished_ = true;
-      return;
-    }
-    const size_t previous_tree_count = scene->UnsafeGetPrivateComponentOwnersList<Tree>()
-                                           ? scene->UnsafeGetPrivateComponentOwnersList<Tree>()->size()
-                                           : 0;
-    const auto forest = patch->InstantiatePatch(patch->grid_size, false);
-    const auto* trees = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-    if (!scene->IsEntityValid(forest) || !trees || trees->size() != previous_tree_count + 4) {
-      EVOENGINE_ERROR("Failed to instantiate four EcoSysLab demo AppleForest trees.")
-      demo_tree_growth_finished_ = true;
-      return;
-    }
-    if (const auto* blowers = scene->UnsafeGetPrivateComponentOwnersList<Blower>(); !blowers || blowers->empty()) {
-      const auto blower = scene->CreateEntity("Blower");
-      GlobalTransform transform;
-      transform.SetValue({-3.0f, 2.0f, 0.0f}, glm::rotation(glm::vec3(0, 0, 1), glm::vec3(1, 0, 0)),
-                         {4.0f, 4.0f, 1.0f});
-      scene->SetDataComponent(blower, transform);
-      scene->GetOrSetPrivateComponent<Blower>(blower);
-      EVOENGINE_LOG("Created EcoSysLab demo Blower.")
-    }
-    demo_tree_entities_.assign(trees->begin() + previous_tree_count, trees->end());
-    demo_tree_initialized_ = true;
-    EVOENGINE_LOG("Instantiated four EcoSysLab demo AppleForest trees.")
-  }
-  if (!demo_growth_started_) {
-    if (!demo_growth_enabled_)
-      return;
-    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-    const auto shader_progress =
-        render_layer ? render_layer->GetShaderPreparationProgress() : ShaderPreparationProgress{};
-    if (AssetManager::GetAssetLoadSnapshot().Active() || TextureStorage::HasPendingUploads() ||
-        GeometryStorage::HasPendingUploads() || BottomLevelAccelerationStructure::HasPendingStaticBuilds() ||
-        (render_layer && (!render_layer->IsSceneShaderPrewarmComplete(scene) ||
-                          shader_progress.completed != shader_progress.total || !shader_progress.error.empty()))) {
-      demo_background_idle_frames_ = 0;
-      return;
-    }
-    if (++demo_background_idle_frames_ < 4)
-      return;
-    demo_growth_started_ = true;
-    EVOENGINE_LOG("Started the EcoSysLab demo AppleForest four-year growth animation.")
-  }
-
-  constexpr float target_growth_time = 4.0f * 365.0f;
-  if (simulated_time_ < target_growth_time) {
-    auto growth_settings = simulation_settings;
-    growth_settings.delta_time = std::min(simulation_settings.delta_time, target_growth_time - simulated_time_);
-    Simulate(growth_settings, simulation_stats);
-  }
-  if (simulated_time_ < target_growth_time) {
-    return;
-  }
-  if (!Platform::MeshShaderEnabled()) {
-    auto demo_mesh_generator_settings = mesh_generator_settings;
-    demo_mesh_generator_settings.foliage_instancing = false;
-    for (const auto entity : demo_tree_entities_)
-      scene->GetOrSetPrivateComponent<Tree>(entity).lock()->GenerateGeometryEntities(demo_mesh_generator_settings);
-  }
-  demo_tree_growth_finished_ = true;
-  EVOENGINE_LOG("Finished the EcoSysLab demo AppleForest four-year growth animation.")
+  const auto system = scene ? scene->GetSystem<EcoSysLabSystem>() : nullptr;
+  return system ? system->growth.simulated_time : 0.0f;
 }
 
 void EcoSysLabLayer::Update() {
   const auto scene = GetScene();
   if (!scene)
     return;
+  auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (!system) {
+    system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    system->Enable();
+  }
+  system->environment.EnsureConfiguration(scene);
   UpdateDemoTreeGrowth();
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<AirEnvironment>()) {
-    const std::vector<Entity> legacy_entities = *owners;
-    bool migrated = false;
-    for (const auto entity : legacy_entities) {
-      if (!scene->IsEntityValid(entity))
-        continue;
-      const auto legacy = scene->GetOrSetPrivateComponent<AirEnvironment>(entity).lock();
-      if (!migrated && legacy && legacy->IsEnabled() && scene->IsEntityEnabled(entity)) {
-        auto climate = FindClimate().lock();
-        if (!climate)
-          climate = scene->GetOrSetPrivateComponent<Climate>(scene->CreateEntity("Climate")).lock();
-        climate->air_temperature_c = legacy->temperature_c;
-        climate->air_relative_humidity = legacy->relative_humidity;
-        climate->air_pressure_pa = legacy->pressure_pa;
-        climate->air_coupling_rate = legacy->coupling_rate;
-        climate->air_friction = legacy->friction;
-        migrated = true;
-      }
-      scene->RemovePrivateComponent<AirEnvironment>(entity);
-    }
-  }
-  SyncGpuTreePhysics();
-  if (wind_particle_field_) {
-    Climate defaults;
-    std::shared_ptr<Climate> selected;
-    const Climate* environment = &defaults;
-    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Climate>())
-      for (const auto entity : *owners) {
-        if (!scene->IsEntityEnabled(entity))
-          continue;
-        const auto current = scene->GetOrSetPrivateComponent<Climate>(entity).lock();
-        if (current && current->IsEnabled()) {
-          selected = current;
-          environment = selected.get();
-          break;
-        }
-      }
-    wind_particle_field_->ambient_temperature_kelvin = environment->air_temperature_c + 273.15f;
-    wind_particle_field_->ambient_specific_humidity = environment->AirSpecificHumidity();
-    wind_particle_field_->ambient_pressure_pa = environment->air_pressure_pa;
-    wind_particle_field_->air_coupling_rate = environment->air_coupling_rate;
-    wind_particle_field_->air_friction = environment->air_friction;
-    const float cell_size = glm::max(environment->air_cell_size, Climate::minimum_air_cell_size);
-    if (wind_particle_field_->GetAirCellSize() != cell_size)
-      ResetAirGrid(cell_size);
-    std::vector<glm::mat4> models;
-    models.reserve(gpu_physics_entries_.size());
-    for (const auto& item : gpu_physics_entries_)
-      models.push_back(scene->GetDataComponent<GlobalTransform>(item.entity).value);
-    wind_particle_field_->RegisterTreeModels(models);
-  }
+  system->dynamics.UpdateAir(scene, system->environment,
+                             system->growth.remaining_time > 0.0f || system->growth.grew_this_frame);
   RegisterStrandRenderingProcedure();
-  if (wind_particle_field_)
-    wind_particle_field_->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage);
+  if (system->dynamics.wind)
+    system->dynamics.wind->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage);
   if (Platform::MeshShaderEnabled()) {
     if (!gpu_tree_mesh_renderer_)
       gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();
     gpu_tree_mesh_renderer_->Register(GetScene());
   }
-  DynamicStrandSimulation();
 }
 
-void EcoSysLabLayer::ResetAirGrid(const float cell_size) {
-  if (!wind_particle_field_)
-    return;
-  std::vector<DynamicTreeSkeleton::GpuRestState> states;
-  std::vector<glm::mat4> models;
-  states.reserve(gpu_physics_entries_.size());
-  models.reserve(gpu_physics_entries_.size());
-  for (const auto& item : gpu_physics_entries_)
-    if (const auto physics = item.physics.lock()) {
-      states.push_back(physics->ExportGpuRestState());
-      models.push_back(GetScene()->GetDataComponent<GlobalTransform>(item.entity).value);
-    }
-  Platform::WaitForFrameSubmissions("EcoSysLab air grid reset");
-  wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_, models, cell_size);
-}
-
-void EcoSysLabLayer::FixedUpdate() {
-  const auto scene = GetScene();
-  if (!scene)
-    return;
-  SyncGpuTreePhysics();
+void EcoSysLabSystem::Dynamics::Step(const std::shared_ptr<Scene>& scene, const float delta_time, const bool growing) {
+  auto& wind_particle_field_ = wind;
+  auto& gpu_tree_physics_ = tree_physics;
+  auto& gpu_physics_entries_ = entries;
+  SyncTrees(scene, growing);
   if (scene->UnsafeGetPrivateComponentOwnersList<Blower>() || wind_particle_field_) {
     if (!wind_particle_field_)
       wind_particle_field_ = std::make_shared<WindParticleField>();
-    wind_particle_field_->Step(scene, static_cast<float>(ApplicationContext::Get().GetTimes().FixedDeltaTime()),
-                               gpu_tree_physics_);
+    wind_particle_field_->Step(scene, delta_time, gpu_tree_physics_);
   }
   if (gpu_tree_physics_) {
     std::vector<GpuTreePhysics::TreeStep> steps;
@@ -424,76 +233,6 @@ void EcoSysLabLayer::FixedUpdate() {
       wind = {wind_particle_field_->GetAirDescriptorSet(), wind_particle_field_->GetAirCellCount(),
               GpuSpatialGrid::bucket_count, wind_particle_field_->GetAirCellSize()};
     gpu_tree_physics_->Step(steps, wind);
-  }
-}
-
-void EcoSysLabLayer::SyncGpuTreePhysics() {
-  const auto scene = GetScene();
-  if (!scene)
-    return;
-  const bool growing = demo_growth_started_ && !demo_tree_growth_finished_;
-  struct ActiveGpuTree {
-    Entity entity;
-    std::shared_ptr<Tree> tree;
-    std::shared_ptr<DynamicTreeSkeleton> physics;
-  };
-  std::vector<ActiveGpuTree> active;
-  if (const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>()) {
-    for (const auto entity : *entities) {
-      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
-        continue;
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
-      if (tree && tree->IsEnabled() && physics && physics->IsEnabled()) {
-        physics->RestoreGpuPoseAfterLoad(*tree);
-        if (physics->SyncGpuPhysics(*tree, scene->GetDataComponent<GlobalTransform>(entity), growing))
-          active.push_back({entity, tree, physics});
-      }
-    }
-  }
-  bool rebuild = (!gpu_tree_physics_ && !active.empty()) || gpu_physics_scene_.lock() != scene ||
-                 active.size() != gpu_physics_entries_.size();
-  if (!rebuild) {
-    for (size_t i = 0; i < active.size(); ++i) {
-      const auto& previous = gpu_physics_entries_[i];
-      if (previous.entity != active[i].entity || previous.tree.lock() != active[i].tree ||
-          previous.physics.lock() != active[i].physics ||
-          previous.revision != active[i].tree->GetShootModelRevision().content ||
-          active[i].physics->GetGpuPhysics() != gpu_tree_physics_ || active[i].physics->GetGpuTreeIndex() != i) {
-        rebuild = true;
-        break;
-      }
-    }
-  }
-  if (rebuild) {
-    if (gpu_physics_scene_.lock() != scene)
-      wind_particle_field_.reset();
-    for (const auto& entry : gpu_physics_entries_)
-      if (const auto physics = entry.physics.lock())
-        physics->SetGpuPhysics(nullptr, 0);
-    gpu_physics_entries_.clear();
-    gpu_tree_physics_.reset();
-    gpu_physics_scene_ = scene;
-    if (!active.empty()) {
-      std::vector<DynamicTreeSkeleton::GpuRestState> states;
-      states.reserve(active.size());
-      for (const auto& item : active)
-        states.push_back(item.physics->ExportGpuRestState());
-      if (!wind_particle_field_)
-        wind_particle_field_ = std::make_shared<WindParticleField>();
-      wind_particle_field_->RegisterTreeCoverage(states);
-      auto shared = std::make_shared<GpuTreePhysics>();
-      if (shared->Initialize(states)) {
-        gpu_tree_physics_ = shared;
-        EVOENGINE_LOG("Initialized shared GPU tree physics for " + std::to_string(active.size()) + " trees.")
-        for (uint32_t i = 0; i < active.size(); ++i) {
-          const auto& item = active[i];
-          item.physics->SetGpuPhysics(shared, i);
-          gpu_physics_entries_.push_back(
-              {item.entity, item.tree, item.physics, item.tree->GetShootModelRevision().content});
-        }
-      }
-    }
   }
 }
 

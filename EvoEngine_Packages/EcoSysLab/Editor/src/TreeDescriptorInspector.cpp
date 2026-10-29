@@ -27,19 +27,8 @@ bool eco_sys_lab_package::InspectTreeDescriptor(InspectorContext& context, TreeD
   const auto& editor_layer = context.editor_layer;
   bool changed = false;
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Climate> climate;
-  std::shared_ptr<Soil> soil;
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (soil && climate) {
-    if (ImGui::Button("Instantiate")) {
-      editor_layer->SetSelectedEntity(target.Instantiate());
-    }
-  } else {
-    ImGui::Text("Create soil and climate entity to instantiate!");
-  }
+  if (ImGui::Button("Instantiate"))
+    editor_layer->SetSelectedEntity(target.Instantiate());
   if (editor_layer->DragAndDropButton<IShootDescriptor>(target.shoot_descriptor, "Shoot Descriptor"))
     changed = true;
   if (editor_layer->DragAndDropButton<IRootDescriptor>(target.root_descriptor, "Root Descriptor"))

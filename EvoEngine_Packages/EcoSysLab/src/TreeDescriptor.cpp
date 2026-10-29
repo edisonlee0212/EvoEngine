@@ -8,6 +8,7 @@
 #include "Application.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "HeightField.hpp"
 #include "Material.hpp"
 #include "Octree.hpp"
@@ -47,19 +48,14 @@ void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 Entity TreeDescriptor::Instantiate() const {
-  std::shared_ptr<Climate> climate;
-  std::shared_ptr<Soil> soil;
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (soil && climate) {
-    const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    system->environment.EnsureConfiguration(scene);
     const auto tree_entity = scene->CreateEntity(GetTitle());
     const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     float height = 0;
-    if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
+    if (const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>()) {
       if (const auto height_field = soil_descriptor->height_field.Get<HeightField>())
         height = height_field->GetValue({0.0f, 0.0f}) - 0.05f;
     }

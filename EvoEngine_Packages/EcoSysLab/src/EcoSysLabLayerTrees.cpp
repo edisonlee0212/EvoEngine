@@ -4,6 +4,9 @@
 
 #include "EcoSysLabLayer.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <type_traits>
 #include "AdvancedShootDescriptor.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFineRootDescriptor.hpp"
@@ -15,6 +18,7 @@
 #include "Climate.hpp"
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "ForestDescriptor.hpp"
 #include "Soil.hpp"
 #include "SpatialPlantDistributionSimulator.hpp"
@@ -23,63 +27,350 @@
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_package;
 
+namespace {
+template <typename T, typename F>
+void VisitFungus(T& p, F&& f) {
+#define FIELD(name) f(#name, p.name)
+  FIELD(dt);
+  FIELD(aw);
+  FIELD(ab);
+  FIELD(bw);
+  FIELD(bb);
+  FIELD(ycw);
+  FIELD(ycb);
+  FIELD(ylw);
+  FIELD(pc);
+  FIELD(pl);
+  FIELD(k);
+  FIELD(delta);
+  FIELD(ll);
+  FIELD(lc);
+  FIELD(bo);
+  FIELD(kc);
+  FIELD(be);
+  FIELD(brw);
+  FIELD(brb);
+  FIELD(msr);
+  FIELD(cpb);
+  FIELD(cpw);
+  FIELD(lignin_threshold);
+  FIELD(HL_threshold);
+  FIELD(HC_threshold);
+  FIELD(bd_offset);
+  FIELD(matrixAw);
+  FIELD(matrixAb);
+  FIELD(matrixAc);
+  FIELD(matrixAm);
+  FIELD(global_parameter);
+  FIELD(treespace);
+#undef FIELD
+}
+
+template <typename T, typename F>
+void VisitPhysics(T& p, F&& f) {
+  VisitFungus(p, f);
+#define FIELD(name) f(#name, p.name)
+  FIELD(time_step);
+  FIELD(sub_step);
+  FIELD(position_constraint_iteration);
+  FIELD(velocity_constraint_iteration);
+  FIELD(enable_structural_damage);
+  FIELD(enable_segment_breaking);
+  FIELD(enable_segment_disconnection);
+  FIELD(enable_foliage_detachment);
+  FIELD(enable_segment_tensile_disconnection);
+  FIELD(enable_segment_compression_disconnection);
+  FIELD(compression_strength_factor);
+  FIELD(enable_positional_breaking);
+  FIELD(enable_rotational_breaking);
+  FIELD(segment_velocity_damping);
+  FIELD(segment_angular_velocity_damping);
+  FIELD(leaf_velocity_damping);
+  FIELD(leaf_angular_velocity_damping);
+  FIELD(enable_segment_collision);
+  FIELD(dynamic_grouping);
+  FIELD(grouping_iteration);
+  FIELD(gravity);
+  FIELD(fungus_growth_rate);
+  FIELD(enable_fungus);
+  FIELD(a_geom);
+  FIELD(b_vel);
+  FIELD(c_bias);
+  FIELD(s_min);
+  FIELD(s_max_ratio);
+  FIELD(eta);
+  FIELD(bmax_far);
+  FIELD(rod_strength_factor);
+  FIELD(bundle_strength_factor);
+  FIELD(boundary_strength_decay_factor);
+  FIELD(pivot_ring_radius);
+  FIELD(crack_bd_shrinkage_offset);
+  FIELD(crack_R_scale);
+  FIELD(crack_T_scale);
+  FIELD(moisture_breaking_rod);
+  FIELD(internal_pattern);
+  FIELD(pull_cubical);
+  FIELD(leaf_break_from_moisture);
+  FIELD(leaf_break_threshold);
+#undef FIELD
+}
+
+template <typename T, typename F>
+void VisitStrands(T& p, F&& f) {
+#define FIELD(name) f(#name, p.name)
+  FIELD(enable_physics);
+  FIELD(enable_fungus);
+  FIELD(enable_geometry_updates);
+  FIELD(enable_rendering);
+  FIELD(fungus_sub_step);
+#undef FIELD
+  f("foliage_enabled", p.foliage_render_parameters.enabled);
+  f("foliage_wireframe", p.foliage_render_parameters.wireframe);
+  f("segment_pairs_enabled", p.segment_pairs_render_parameters.enabled);
+  f("segment_pairs_thickness_multiplier", p.segment_pairs_render_parameters.thickness_multiplier);
+  f("segment_pair_render_mode", p.segment_pairs_render_parameters.segment_pair_render_mode);
+  f("segment_pairs_position_scale", p.segment_pairs_render_parameters.position_scale);
+  f("segment_pair_color_min", p.segment_pairs_render_parameters.segment_pair_color_min);
+  f("segment_pair_color_max", p.segment_pairs_render_parameters.segment_pair_color_max);
+  f("segment_pair_color_main", p.segment_pairs_render_parameters.segment_pair_color_main);
+  f("segment_pair_radius_multiplier", p.segment_pairs_render_parameters.segment_pair_radius_multiplier);
+}
+
+template <typename T, typename F>
+void SaveFields(YAML::Emitter& out, const T& value, F&& visit) {
+  out << YAML::BeginMap;
+  visit(value, [&](const char* name, const auto& field) {
+    out << YAML::Key << name << YAML::Value;
+    if constexpr (std::is_same_v<std::decay_t<decltype(field)>, glm::mat3>)
+      out << YAML::Flow << YAML::BeginSeq << field[0] << field[1] << field[2] << YAML::EndSeq;
+    else
+      out << field;
+  });
+  out << YAML::EndMap;
+}
+
+template <typename T, typename F>
+void LoadFields(const YAML::Node& in, T& value, F&& visit) {
+  if (!in)
+    return;
+  visit(value, [&](const char* name, auto& field) {
+    if (const auto node = in[name]) {
+      using Field = std::decay_t<decltype(field)>;
+      if constexpr (std::is_same_v<Field, glm::mat3>) {
+        if (node.IsSequence() && node.size() == 3)
+          for (int column = 0; column < 3; ++column)
+            field[column] = node[column].as<glm::vec3>();
+      } else {
+        field = node.as<Field>();
+      }
+    }
+  });
+}
+}  // namespace
+
+void EcoSysLabSystem::Growth::Queue(const float days) {
+  if (std::isfinite(days) && days > 0.0f)
+    remaining_time += days;
+}
+
+float EcoSysLabSystem::Growth::TakeStep() {
+  if (remaining_time <= 0.0f || !(settings.delta_time > 0.0f))
+    return 0.0f;
+  const float step = std::min(settings.delta_time, remaining_time);
+  remaining_time = std::max(0.0f, remaining_time - step);
+  return step;
+}
+
+void EcoSysLabSystem::Growth::Stop() {
+  remaining_time = 0.0f;
+  invigoration.reset();
+}
+
+void EcoSysLabSystem::Growth::RequestInvigoration(const Entity tree, const int node) {
+  invigoration = std::make_pair(tree, node);
+}
+
+void EcoSysLabSystem::FixedUpdate() {
+  dynamics.Step(GetScene(), static_cast<float>(ApplicationContext::Get().GetTimes().FixedDeltaTime()),
+                growth.remaining_time > 0.0f || growth.grew_this_frame);
+}
+
+void EcoSysLabSystem::OnDestroy() {
+  dynamics.Reset();
+}
+
+void EcoSysLabSystem::Interactions::Clear() {
+  flowers.clear();
+  fruits.clear();
+  leaves.clear();
+  ++revision;
+}
+
+void EcoSysLabSystem::Update() {
+  const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
+  if (!layer || layer->GetScene() != GetScene())
+    return;
+  growth.grew_this_frame = false;
+  if (growth.remaining_time <= 0.0f) {
+    if (growth.invigoration) {
+      const auto [entity, node] = *growth.invigoration;
+      growth.invigoration.reset();
+      const auto scene = GetScene();
+      if (scene->IsEntityValid(entity) && scene->IsEntityEnabled(entity) && scene->HasPrivateComponent<Tree>(entity)) {
+        environment.EnsureConfiguration(scene);
+        environment.InitializeModels();
+        environment.PrepareForGrowth(scene, growth.settings);
+        const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+        if (tree && tree->IsEnabled())
+          growth.grew_this_frame = tree->TryGrow(growth.settings, node, false, environment.climate, environment.soil);
+      }
+    }
+    dynamics.StepStrands(GetScene());
+    return;
+  }
+  environment.EnsureConfiguration(GetScene());
+  environment.InitializeModels();
+  const float step = growth.TakeStep();
+  if (!(step > 0.0f)) {
+    dynamics.StepStrands(GetScene());
+    return;
+  }
+  auto settings = growth.settings;
+  settings.delta_time = step;
+  growth.grew_this_frame = true;
+  growth.Step(*this, settings, growth.stats);
+  dynamics.StepStrands(GetScene());
+}
+
+void EcoSysLabSystem::PostCloneAction(const std::shared_ptr<ISystem>&) {
+  growth.Stop();
+  growth.simulated_time = 0.0f;
+  growth.stats = {};
+  growth.grew_this_frame = false;
+  environment.initialized = false;
+  environment.climate.environment_grid = {};
+  environment.soil = {};
+  dynamics.tree_physics.reset();
+  dynamics.physics_scene.reset();
+  dynamics.entries.clear();
+  dynamics.wind.reset();
+  dynamics.strands.remaining_step = 0;
+  dynamics.strands.remaining_fungus_step = 0;
+  dynamics.strands.remaining_geometry_step = 0;
+  interactions = {};
+}
+
+void eco_sys_lab_package::SerializeEcoSysLabSystem(YAML::Emitter& out, const EcoSysLabSystem& target) {
+  const auto& env = target.environment;
+  env.climate_descriptor.Save("climate_descriptor", out);
+  env.soil_descriptor.Save("soil_descriptor", out);
+  out << YAML::Key << "soil_visualization_owner" << YAML::Value << env.soil_visualization_owner;
+  out << YAML::Key << "air_temperature_c" << YAML::Value << env.air_temperature_c;
+  out << YAML::Key << "air_relative_humidity" << YAML::Value << env.air_relative_humidity;
+  out << YAML::Key << "air_pressure_pa" << YAML::Value << env.air_pressure_pa;
+  out << YAML::Key << "air_coupling_rate" << YAML::Value << env.air_coupling_rate;
+  out << YAML::Key << "air_friction" << YAML::Value << env.air_friction;
+  out << YAML::Key << "air_cell_size" << YAML::Value << env.air_cell_size;
+  target.growth.settings.Save("simulation_settings", out);
+  const auto& strands = target.dynamics.strands;
+  out << YAML::Key << "strands_settings" << YAML::Value;
+  SaveFields(out, strands, [](const auto& value, auto&& f) {
+    VisitStrands(value, f);
+  });
+  out << YAML::Key << "strands_physics" << YAML::Value;
+  SaveFields(out, strands.physics_parameters, [](const auto& value, auto&& f) {
+    VisitPhysics(value, f);
+  });
+  out << YAML::Key << "strands_fungus" << YAML::Value;
+  SaveFields(out, strands.fungus_parameters, [](const auto& value, auto&& f) {
+    VisitFungus(value, f);
+  });
+}
+
+void eco_sys_lab_package::DeserializeEcoSysLabSystem(const YAML::Node& in, EcoSysLabSystem& target) {
+  auto& env = target.environment;
+  env.climate_descriptor.Load("climate_descriptor", in);
+  env.soil_descriptor.Load("soil_descriptor", in);
+  if (in["soil_visualization_owner"])
+    env.soil_visualization_owner = Handle(in["soil_visualization_owner"].as<uint64_t>());
+  if (in["air_temperature_c"])
+    env.air_temperature_c = in["air_temperature_c"].as<float>();
+  if (in["air_relative_humidity"])
+    env.air_relative_humidity = in["air_relative_humidity"].as<float>();
+  if (in["air_pressure_pa"])
+    env.air_pressure_pa = in["air_pressure_pa"].as<float>();
+  if (in["air_coupling_rate"])
+    env.air_coupling_rate = in["air_coupling_rate"].as<float>();
+  if (in["air_friction"])
+    env.air_friction = in["air_friction"].as<float>();
+  if (in["air_cell_size"])
+    env.air_cell_size = glm::clamp(in["air_cell_size"].as<float>(), 0.05f, 0.2f);
+  target.growth.settings.Load("simulation_settings", in);
+  auto& strands = target.dynamics.strands;
+  LoadFields(in["strands_settings"], strands, [](auto& value, auto&& f) {
+    VisitStrands(value, f);
+  });
+  LoadFields(in["strands_physics"], strands.physics_parameters, [](auto& value, auto&& f) {
+    VisitPhysics(value, f);
+  });
+  LoadFields(in["strands_fungus"], strands.fungus_parameters, [](auto& value, auto&& f) {
+    VisitFungus(value, f);
+  });
+  target.growth.Stop();
+  target.growth.simulated_time = 0.0f;
+  target.growth.grew_this_frame = false;
+  env.initialized = false;
+}
+
 void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  simulated_time_ = 0;
-  ++reset_revision_;
+  const auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (system) {
+    system->growth.Stop();
+    system->growth.simulated_time = 0.0f;
+    system->growth.stats = {};
+    system->environment.climate.environment_grid = {};
+    system->environment.initialized = false;
+    ++system->interactions.reset_revision;
+  }
   if (tree_entities) {
     for (const auto& i : *tree_entities) {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(i).lock();
       tree->Reset();
     }
   }
-  wind_particle_field_.reset();
-
-  ++simulation_revision_;
-  simulation_stats = {};
-
-  const auto climate_candidate = FindClimate();
-  if (!climate_candidate.expired()) {
-    const auto climate = climate_candidate.lock();
-    climate->climate_model.environment_grid = {};
+  if (system) {
+    system->dynamics.wind.reset();
+    ++system->interactions.revision;
   }
 }
 
-bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settings,
-                              SimulationStats& target_simulation_stats) {
-  const auto scene = GetScene();
+bool EcoSysLabSystem::Growth::Step(EcoSysLabSystem& system, const SimulationSettings& target_simulation_settings,
+                                   SimulationStats& target_simulation_stats) {
+  const auto scene = system.GetScene();
+  auto& simulated_time = system.growth.simulated_time;
+  auto& climate = system.environment.climate;
+  auto& soil = system.environment.soil;
+  auto& flowers_ = system.interactions.flowers;
+  auto& fruits_ = system.interactions.fruits;
+  auto& leaves_ = system.interactions.leaves;
+  auto& simulation_revision_ = system.interactions.revision;
+  using Flower = EcoSysLabSystem::Interactions::Flower;
+  using Fruit = EcoSysLabSystem::Interactions::Fruit;
+  using Leaf = EcoSysLabSystem::Interactions::Leaf;
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-  simulated_time_ += target_simulation_settings.delta_time;
+  simulated_time += target_simulation_settings.delta_time;
   bool tree_grown = false;
   if (tree_entities && !tree_entities->empty()) {
     float time = ApplicationContext::Get().GetTimes().Now();
 
-    std::shared_ptr<Climate> climate;
-    std::shared_ptr<Soil> soil;
-    if (const auto climate_candidate = FindClimate(); !climate_candidate.expired())
-      climate = climate_candidate.lock();
-    if (const auto soil_candidate = FindSoil(); !soil_candidate.expired())
-      soil = soil_candidate.lock();
-    if (!soil) {
-      EVOENGINE_ERROR("Simulation Failed! No soil in scene!");
-      return tree_grown;
-    }
-    if (!climate) {
-      EVOENGINE_ERROR("Simulation Failed! No climate in scene!");
-      return tree_grown;
-    }
-    climate->climate_model.time = simulated_time_;
+    climate.time = simulated_time;
 
     if (target_simulation_settings.soil_simulation) {
-      soil->soil_model.Irrigation();
-      soil->soil_model.Step();
+      soil.Irrigation();
+      soil.Step();
     }
-    for (const auto& tree_entity : *tree_entities) {
-      auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      tree->climate = climate;
-      tree->soil = soil;
-    }
-    climate->PrepareForGrowth();
+    system.environment.PrepareForGrowth(scene, target_simulation_settings);
     std::vector<bool> grown_stat{};
     grown_stat.resize(Jobs::GetWorkerSize());
     Jobs::RunParallelFor(tree_entities->size(), [&](size_t i, size_t thread_index) {
@@ -89,7 +380,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
       if (!tree->IsEnabled())
         return;
-      if (tree->start_time > simulated_time_)
+      if (tree->start_time > simulated_time)
         return;
       if (target_simulation_settings.max_node_count > 0 &&
           tree->shoot_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
@@ -97,10 +388,11 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       if (target_simulation_settings.max_flow_count > 0 &&
           tree->shoot_model.RefShootSkeleton().PeekSortedFlowList().size() >= target_simulation_settings.max_flow_count)
         return;
-      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true);
+      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true, climate, soil);
     });
 
-    auto height_field = soil->soil_descriptor_ref.Get<SoilDescriptor>()->height_field.Get<HeightField>();
+    const auto soil_descriptor = system.environment.soil_descriptor.Get<SoilDescriptor>();
+    const auto height_field = soil_descriptor ? soil_descriptor->height_field.Get<HeightField>() : nullptr;
     for (const auto& tree_entity : *tree_entities) {
       if (!scene->IsEntityEnabled(tree_entity))
         continue;
@@ -118,7 +410,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           new_flower.global_transform.value = tree_global_transform.value * flower_transform.value;
 
           auto position = new_flower.global_transform.GetPosition();
-          const auto ground_height = height_field->GetValue({position.x, position.z});
+          const auto ground_height = height_field ? height_field->GetValue({position.x, position.z}) : 0.0f;
           const auto height = position.y - ground_height;
           position.x += glm::gaussRand(0.0f, height * 0.1f);
           position.z += glm::gaussRand(0.0f, height * 0.1f);
@@ -138,7 +430,7 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
           new_fruit.global_transform.value = tree_global_transform.value * fruit_transform.value;
 
           auto position = new_fruit.global_transform.GetPosition();
-          const auto ground_height = height_field->GetValue({position.x, position.z});
+          const auto ground_height = height_field ? height_field->GetValue({position.x, position.z}) : 0.0f;
           const auto height = position.y - ground_height;
           position.x += glm::gaussRand(0.0f, height * 0.1f);
           position.z += glm::gaussRand(0.0f, height * 0.1f);
@@ -204,15 +496,34 @@ bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settin
       target_simulation_stats.fruit_size = total_fruit_size;
     }
   }
-  if (simulation_settings.auto_clear_fruit_and_leaves) {
-    ClearGroundFruitAndLeaf();
+  if (target_simulation_settings.auto_clear_fruit_and_leaves) {
+    system.interactions.Clear();
   }
   ++simulation_revision_;
   return tree_grown;
 }
 
 bool EcoSysLabLayer::Simulate() {
-  return Simulate(simulation_settings, simulation_stats);
+  const auto system = GetScene()->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  return Simulate(system->growth.settings, system->growth.stats);
+}
+
+bool EcoSysLabLayer::Simulate(const SimulationSettings& target_simulation_settings, SimulationStats&) {
+  const auto scene = GetScene();
+  if (!scene)
+    return false;
+  auto& growth = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->growth;
+  growth.settings = target_simulation_settings;
+  growth.Queue(target_simulation_settings.delta_time);
+  return false;
+}
+
+bool EcoSysLabLayer::SimulateForDataset(const SimulationSettings& settings, SimulationStats& stats) {
+  const auto scene = GetScene();
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
+  system->environment.InitializeModels();
+  return system->growth.Step(*system, settings, stats);
 }
 
 void EcoSysLabLayer::GenerateMeshes(const TreeMeshGeneratorSettings& target_mesh_generator_settings) const {

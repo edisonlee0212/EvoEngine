@@ -67,31 +67,33 @@ TEST(LauncherUtils, PackageAvailabilityTracksManifestAndLibraryState) {
 
 TEST(LauncherUtils, EcoSysLabDemoAnimatesFourYearAppleForestGrowth) {
   const auto source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                   "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
-  const auto growth_start = source.find("void EcoSysLabLayer::UpdateDemoTreeGrowth()");
-  const auto growth_end = source.find("void EcoSysLabLayer::Update()", growth_start);
+                                   "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayerDemo.cpp");
+  const auto growth_start = source.find("void EcoSysLabDemoBootstrap::Update(EcoSysLabLayer& layer)");
   ASSERT_NE(growth_start, std::string::npos);
-  ASSERT_NE(growth_end, std::string::npos);
-  const auto growth_source = source.substr(growth_start, growth_end - growth_start);
+  const auto growth_source = source.substr(growth_start);
 
   EXPECT_NE(source.find("project_path.parent_path().filename() != \"EcoSysLabProject\""), std::string::npos);
   EXPECT_NE(growth_source.find("AppleForest.forestpatch"), std::string::npos);
   EXPECT_NE(growth_source.find("patch->InstantiatePatch(patch->grid_size, false)"), std::string::npos);
   EXPECT_NE(growth_source.find("shader_progress.completed != shader_progress.total"), std::string::npos);
   EXPECT_NE(growth_source.find("AssetManager::GetAssetLoadSnapshot().Active()"), std::string::npos);
-  EXPECT_NE(growth_source.find("if (!demo_growth_enabled_)"), std::string::npos);
+  EXPECT_NE(growth_source.find("!layer.demo_growth_enabled_"), std::string::npos);
   const auto editor_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                                           "EvoEngine_Packages/EcoSysLab/Editor/src/TreeEditorState.cpp");
   EXPECT_NE(editor_source.find("runtime->demo_growth_enabled_ = editor->IsPlantVisualSplitLayoutReady()"),
             std::string::npos);
-  EXPECT_NE(growth_source.find("4.0f * 365.0f"), std::string::npos);
-  const auto simulate_call = growth_source.find("Simulate(growth_settings, simulation_stats)");
+  EXPECT_NE(growth_source.find(": 4.0f;"), std::string::npos);
+  EXPECT_NE(growth_source.find("target_growth_time = growth_years * 365.0f"), std::string::npos);
+  const auto simulate_call = growth_source.find("layer.Simulate(growth_settings, system->growth.stats)");
   ASSERT_NE(simulate_call, std::string::npos);
-  EXPECT_EQ(growth_source.find("Simulate(growth_settings, simulation_stats)", simulate_call + 1), std::string::npos);
+  EXPECT_EQ(growth_source.find("layer.Simulate(growth_settings, system->growth.stats)", simulate_call + 1),
+            std::string::npos);
   EXPECT_EQ(growth_source.find("for (float elapsed_time"), std::string::npos);
   EXPECT_LT(growth_source.find("gpu_tree_mesh_renderer_->Prepare()"), growth_source.find("Simulate(growth_settings"));
   EXPECT_NE(growth_source.find("demo_tree_entities_.assign("), std::string::npos);
-  EXPECT_NE(source.find("UpdateDemoTreeGrowth();"), std::string::npos);
+  const auto runtime_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                           "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
+  EXPECT_NE(runtime_source.find("UpdateDemoTreeGrowth();"), std::string::npos);
 }
 
 TEST(LauncherUtils, EcoSysLabDemoSplitsSceneAndPlantVisual) {
@@ -136,7 +138,12 @@ TEST(LauncherUtils, BuildsProjectMetadataFromSelectedPackages) {
 
 TEST(LauncherUtils, DemoProfilesExposeStableIdsAndPackageRequirements) {
   const auto& profiles = GetDemoProfiles();
-  ASSERT_EQ(profiles.size(), 11);
+  ASSERT_EQ(profiles.size(), 12);
+  const auto* windy_tree = FindDemoProfile("windy-tree");
+  ASSERT_NE(windy_tree, nullptr);
+  EXPECT_EQ(windy_tree->id, DemoProfileId::WindyTree);
+  EXPECT_STREQ(windy_tree->title, "Windy Tree");
+  EXPECT_EQ(windy_tree->startup_runtime_packages, std::vector<std::string>{"EcoSysLab"});
   EXPECT_EQ(profiles[1].id, DemoProfileId::SubsurfaceScattering);
   EXPECT_STREQ(profiles[1].id_name, "sss");
 
@@ -253,6 +260,9 @@ TEST(LauncherUtils, DemoProfileProjectPathsResolveFromResourcesRoot) {
       launcher::NormalizeProjectPath(resource_root / "EvoEngine-DemoProjects" / "CornellBox" / "CornellBox.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::EcoSysLab, resource_root),
             launcher::NormalizeProjectPath(resource_root / "EcoSysLabProject" / "test.eveproj"));
+  EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::WindyTree, resource_root),
+            launcher::NormalizeProjectPath(resource_root / ".generated" / "EvoEngine-DemoProjects" / "WindyTree" /
+                                           "WindyTree.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::DigitalAgriculture, resource_root),
             launcher::NormalizeProjectPath(resource_root / "DigitalAgricultureProject" / "test.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::LSystem, resource_root),
@@ -291,6 +301,7 @@ TEST(LauncherUtils, DemoResourceChecksIncludeRenderingLightingAssets) {
   EXPECT_EQ(missing_bistro_resources, (std::vector<std::string>{"Bistro.eveproj", "bistro.gltf", "bistro.bin",
                                                                 "textures", "objects", "bistro.gltf.evefilemeta"}));
   EXPECT_FALSE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::WindyTree, resource_root).empty());
 
   const auto sponza_lighting =
       resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza";
@@ -349,6 +360,7 @@ TEST(LauncherUtils, DemoResourceChecksIncludeRenderingLightingAssets) {
   project_file << "application_name: EcoSysLab\n";
   project_file.close();
   EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::WindyTree, resource_root).empty());
 }
 
 TEST(LauncherUtils, SkinDemoRequiresSourceAssetsBeforeGeneratedProjectExists) {
