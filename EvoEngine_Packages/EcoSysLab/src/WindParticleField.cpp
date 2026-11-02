@@ -248,7 +248,7 @@ void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuR
     for (size_t i = 0; i < poses.size(); ++i) {
       auto& tree = poses[i];
       std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-      physics->GetVertexBuffer(ids[i])->DownloadVector(vertices, tree.vertices.size());
+      physics->DownloadVertices(vertices, ids[i]);
       for (size_t j = 0; j < vertices.size(); ++j)
         tree.vertices[j].position_inverse_mass = vertices[j].position_inverse_mass;
       tree.initial_model = models[i];

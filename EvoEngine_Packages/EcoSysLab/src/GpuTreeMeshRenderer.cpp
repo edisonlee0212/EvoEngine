@@ -15,22 +15,14 @@
 #include "Shader.hpp"
 #include "Tree.hpp"
 
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 
 using namespace eco_sys_lab_package;
 
 namespace {
-struct TreeMeshPushConstant {
-  uint32_t node_base = 0;
-  uint32_t node_count = 0;
-  uint32_t camera_index = 0;
-  uint32_t pass_index = 0;
-  uint32_t light_index = 0;
-  uint32_t light_face = 0;
-  uint32_t padding0 = 0;
-  uint32_t geometry_pass = 0;
-};
+using TreeMeshPushConstant = GpuTreeDrawParameters;
 
 using DeformPushConstant = GpuTreeDeformParameters;
 
@@ -72,7 +64,8 @@ void GpuTreeMeshRenderer::Initialize() {
   layout_ = std::make_shared<DescriptorSetLayout>();
   layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                  VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
   layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                  VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
   layout_->Initialize();
@@ -321,6 +314,10 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     }
     auto& frame = cache.frames[index];
     frame.handles = handles;
+    frame.tessellation = branch && branch->screen_space_tessellation && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")
+                             ? glm::vec2(glm::clamp(branch->pixel_error, 0.1f, 2.0f),
+                                         glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f))
+                             : glm::vec2(0);
     frame.indices_ready = false;
     frame.physics = state;
     frame.node_count = static_cast<uint32_t>(cache.nodes.size());
@@ -370,7 +367,7 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       const DeformPushConstant push{0,
                                     cache.shoot_count,
                                     0,
-                                    0,
+                                    state->attribute_arrays ? 1u : 0u,
                                     glm::vec4(transform.GetPosition(), 0),
                                     glm::vec4(transform.GetScale(), 0),
                                     {rotation.x, rotation.y, rotation.z, rotation.w}};
@@ -487,6 +484,9 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
     push.light_index = light;
     push.light_face = face;
     push.geometry_pass = geometry;
+    if (geometry == 0 && pass == 0)
+      push.tessellation = {static_cast<float>(viewport.z), static_cast<float>(viewport.w), frame.tessellation.x,
+                           frame.tessellation.y};
     pipeline->PushConstant(command, 0, push);
     pipeline->DrawMeshTasks(command, std::min(limit, count - base), 1, 1);
   }

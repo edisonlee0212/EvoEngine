@@ -43,6 +43,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
     uint32_t node_count = 0;
     bool indices_ready = false, params_ready = false;
     GpuTreeFoliageParams params{};
+    glm::vec2 tessellation{};
   };
   struct TreeNodeCache {
     std::weak_ptr<Tree> tree;

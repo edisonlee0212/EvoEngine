@@ -2755,6 +2755,17 @@ auto Platform::DivUp(const uint32_t a, uint32_t b) -> uint32_t {
   return (a + b - 1) / b;
 }
 
+void Platform::ComputeBarrier(const VkCommandBuffer command) {
+  VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+  barrier.srcStageMask = barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+  VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency.memoryBarrierCount = 1;
+  dependency.pMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command, &dependency);
+}
+
 void Platform::EverythingBarrier(const VkCommandBuffer vk_command_buffer) {
   VkMemoryBarrier2 memory_barrier{};
   memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;

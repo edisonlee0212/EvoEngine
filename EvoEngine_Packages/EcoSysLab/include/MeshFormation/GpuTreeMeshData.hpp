@@ -9,11 +9,18 @@
 
 namespace eco_sys_lab_package {
 
+struct GpuTreeDrawParameters {
+  uint32_t node_base = 0, node_count = 0, camera_index = 0, pass_index = 0;
+  uint32_t light_index = 0, light_face = 0, padding0 = 0, geometry_pass = 0;
+  glm::vec4 tessellation{};
+};
+static_assert(sizeof(GpuTreeDrawParameters) == 48);
+
 struct GpuTreeDeformParameters {
   uint32_t node_base = 0;
   uint32_t node_count = 0;
   uint32_t node_rods_base = 0;
-  uint32_t padding = 0;
+  uint32_t attribute_arrays = 0;
   glm::vec4 model_position{};
   glm::vec4 model_scale{};
   glm::vec4 inverse_rotation{};

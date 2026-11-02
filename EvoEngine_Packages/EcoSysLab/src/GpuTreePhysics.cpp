@@ -1,6 +1,7 @@
 #include "GpuTreePhysics.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 
 #include "Profiler.hpp"
@@ -25,14 +26,40 @@ std::shared_ptr<Buffer> MakeBuffer(const std::vector<T>& source) {
     buffer->UploadVector(source);
   return buffer;
 }
+template <typename T>
+std::shared_ptr<Buffer> MakeAttributeBuffer(const std::vector<T>& source, bool arrays) {
+  if (!arrays)
+    return MakeBuffer(source);
+  static_assert(sizeof(T) % 16 == 0);
+  constexpr size_t fields = sizeof(T) / 16;
+  std::vector<glm::uvec4> packed(source.size() * fields);
+  for (size_t i = 0; i < source.size(); ++i)
+    for (size_t field = 0; field < fields; ++field)
+      std::memcpy(&packed[field * source.size() + i], reinterpret_cast<const char*>(&source[i]) + field * 16, 16);
+  return MakeBuffer(packed);
+}
+template <typename T>
+void DownloadAttributes(const std::shared_ptr<Buffer>& buffer, uint32_t count, bool arrays, std::vector<T>& output) {
+  if (!arrays) {
+    buffer->DownloadVector(output, count);
+    return;
+  }
+  constexpr size_t fields = sizeof(T) / 16;
+  std::vector<glm::uvec4> packed;
+  buffer->DownloadVector(packed, count * fields);
+  output.resize(count);
+  for (size_t i = 0; i < count; ++i)
+    for (size_t field = 0; field < fields; ++field)
+      std::memcpy(reinterpret_cast<char*>(&output[i]) + field * 16, &packed[field * count + i], 16);
+}
 }  // namespace
 
 bool GpuTreePhysics::Prepare() {
   if (layout_)
     return predict_->Initialized() && solve_position_->Initialized() && solve_rotation_->Initialized() &&
-           update_velocity_->Initialized();
+           update_velocity_->Initialized() && prepare_coefficients_->Initialized();
   layout_ = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t i = 0; i < 4; ++i)
+  for (uint32_t i = 0; i < 5; ++i)
     layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout_->Initialize();
   wind_layout_ = std::make_shared<DescriptorSetLayout>();
@@ -43,12 +70,17 @@ bool GpuTreePhysics::Prepare() {
   empty_wind_buffers_ = {MakeBuffer(std::vector<uint32_t>(1, UINT32_MAX)), MakeBuffer(std::vector<glm::u64vec2>(1))};
   for (uint32_t i = 0; i < 2; ++i)
     empty_wind_set_->UpdateBufferDescriptorBinding(i, empty_wind_buffers_[i]);
+  reference_ = std::getenv("EVOENGINE_TREE_PHYSICS_REFERENCE") || std::getenv("EVOENGINE_TREE_PHYSICS_FULL_WRITES");
+  const std::string reference_define = reference_ ? "\n#define EE_TREE_PHYSICS_REFERENCE 1\n" : "";
+  const std::string write_define =
+      std::getenv("EVOENGINE_TREE_PHYSICS_FULL_WRITES") ? "\n#define EE_TREE_PHYSICS_FULL_WRITES 1\n" : "";
   const auto pipeline = [&](uint32_t pass) {
     auto result = std::make_shared<ComputePipeline>();
-    result->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute,
-        Platform::GetShaderGlobalDefines() + "\n#define TREE_PHYSICS_PASS " + std::to_string(pass) + "\n",
-        "./EcoSysLabResources/Shaders/Compute/TreePhysics.slang");
+    result->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute,
+                                Platform::GetShaderGlobalDefines() + write_define + reference_define +
+                                    "\n#define TREE_PHYSICS_PASS " + std::to_string(pass) + "\n",
+                                "./EcoSysLabResources/Shaders/Compute/TreePhysics.slang");
     result->descriptor_set_layouts = {layout_, wind_layout_};
     result->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(Parameters)});
     result->Initialize();
@@ -58,8 +90,9 @@ bool GpuTreePhysics::Prepare() {
   solve_position_ = pipeline(1);
   solve_rotation_ = pipeline(2);
   update_velocity_ = pipeline(3);
+  prepare_coefficients_ = pipeline(4);
   return predict_->Initialized() && solve_position_->Initialized() && solve_rotation_->Initialized() &&
-         update_velocity_->Initialized();
+         update_velocity_->Initialized() && prepare_coefficients_->Initialized();
 }
 
 bool GpuTreePhysics::Initialize(const DynamicTreeSkeleton::GpuRestState& state) {
@@ -91,8 +124,13 @@ uint32_t GpuTreePhysics::RegisterTree(const DynamicTreeSkeleton::GpuRestState& r
   if (trees_[id])
     retired_states_.emplace_back(Platform::GetFrameCount(), trees_[id]);
   auto state = std::make_shared<GpuTreePhysicsState>();
-  state->vertices = {MakeBuffer(rest.vertices), MakeBuffer(rest.vertices)};
-  state->rods = {MakeBuffer(rest.rods), MakeBuffer(rest.rods)};
+  state->attribute_arrays = !reference_;
+  state->vertices = {MakeAttributeBuffer(rest.vertices, !reference_), MakeAttributeBuffer(rest.vertices, !reference_)};
+  state->rods = {MakeAttributeBuffer(rest.rods, !reference_), MakeAttributeBuffer(rest.rods, !reference_)};
+  state->vertex_coefficients = MakeBuffer(std::vector<glm::vec2>(rest.vertices.size()));
+  state->rod_coefficients = MakeBuffer(std::vector<glm::vec2>(rest.rods.size()));
+  state->angle_coefficients = MakeBuffer(std::vector<float>(rest.angles.size()));
+  state->angle_count = static_cast<uint32_t>(rest.angles.size());
   state->angles = MakeBuffer(rest.angles);
   state->vertex_rods = MakeBuffer(rest.vertex_rods);
   state->rod_angles = MakeBuffer(rest.rod_angles);
@@ -148,7 +186,10 @@ void GpuTreePhysics::PrepareRegistry() {
     a.node_rods = t.node_rods->GetDeviceAddress();
     a.predicted = t.predicted->GetDeviceAddress();
     a.previous = t.previous->GetDeviceAddress();
-    a.counts = {t.vertex_count, t.rod_count, t.node_count, 0};
+    a.vertex_coefficients = t.vertex_coefficients->GetDeviceAddress();
+    a.rod_coefficients = t.rod_coefficients->GetDeviceAddress();
+    a.angle_coefficients = t.angle_coefficients->GetDeviceAddress();
+    a.counts = {t.vertex_count, t.rod_count, t.angle_count, t.attribute_arrays ? 1u : 0u};
   }
   bool bindings_changed = false;
   const auto ensure = [&](auto& buffer, size_t bytes) {
@@ -167,12 +208,14 @@ void GpuTreePhysics::PrepareRegistry() {
     bindings_changed = true;
   };
   BufferUploadBatch upload;
-  std::vector<glm::uvec2> vertices, rods;
+  std::vector<glm::uvec2> vertices, rods, coefficients;
   if (groups_dirty_) {
     for (const auto id : active_ids_) {
       if (!trees_[id])
         continue;
       const auto& t = *trees_[id];
+      for (uint32_t base = 0; base < std::max({t.vertex_count, t.rod_count, t.angle_count}); base += 64)
+        coefficients.emplace_back(id, base);
       for (uint32_t base = 0; base < t.vertex_count; base += 64)
         vertices.emplace_back(id, base);
       for (uint32_t base = 0; base < t.rod_count; base += 64)
@@ -187,6 +230,11 @@ void GpuTreePhysics::PrepareRegistry() {
                        {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
     if (!rods.empty())
       upload.AddVector(rod_groups_, rods, {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+    coefficient_group_count_ = static_cast<uint32_t>(coefficients.size());
+    ensure(coefficient_groups_, coefficients.size() * sizeof(glm::uvec2));
+    if (!coefficients.empty())
+      upload.AddVector(coefficient_groups_, coefficients,
+                       {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
     groups_dirty_ = false;
   }
   ensure(registry_, addresses.size() * sizeof(TreeAddresses));
@@ -208,6 +256,7 @@ void GpuTreePhysics::PrepareRegistry() {
     descriptor_set_->UpdateBufferDescriptorBinding(1, vertex_groups_);
     descriptor_set_->UpdateBufferDescriptorBinding(2, rod_groups_);
     descriptor_set_->UpdateBufferDescriptorBinding(3, tree_parameters_);
+    descriptor_set_->UpdateBufferDescriptorBinding(4, coefficient_groups_);
   }
 }
 
@@ -227,6 +276,7 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& w
     return;
   PrepareRegistry();
   int substeps = 0, iterations = 0;
+  bool coefficients_dirty = false;
   std::vector<TreeParameters> tree_parameters(trees_.size());
   for (size_t i = 0; i < trees.size(); ++i) {
     const auto id = active_ids_[i];
@@ -262,6 +312,11 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& w
                            {relative_current.x, relative_current.y, relative_current.z, relative_current.w},
                            {delta_rotation.x, delta_rotation.y, delta_rotation.z, delta_rotation.w},
                            glm::vec4(settings.anchor_offset, 0.0f)};
+    if (!reference_ &&
+        (!state.coefficients_ready || state.coefficient_mechanics != glm::vec3(tree_parameters[id].mechanics))) {
+      tree_parameters[id].control.w |= 2u;
+      coefficients_dirty = true;
+    }
   }
 
   if (!substeps)
@@ -271,12 +326,20 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& w
                    {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
   upload.Record(upload_arena_);
   const auto wind_set = wind.descriptor_set ? wind.descriptor_set : empty_wind_set_;
+  const bool phase_timings = std::getenv("EVOENGINE_TREE_PHYSICS_PHASE_TIMINGS") != nullptr;
   uint32_t vertex_index = 0, rod_index = 0;
   Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
     const auto timing = Platform::BeginGpuTimestampScope(
         command, {"EcoSysLabTreePhysics", "EcoSysLab Tree Physics", "EcoSysLab", GpuTimestampQueue::Compute});
     Parameters parameters{0, 0, 0, 0, wind.descriptor_set ? wind.cell_count : 0, wind.bucket_count, wind.cell_size, 0};
-    const auto dispatch = [&](const auto& pipeline, uint32_t count) {
+    static const GpuTimestampScopeMetadata phases[] = {
+        {"EcoSysLabTreePredict", "EcoSysLab Tree Predict", "EcoSysLab", GpuTimestampQueue::Compute},
+        {"EcoSysLabTreePosition", "EcoSysLab Tree Position", "EcoSysLab", GpuTimestampQueue::Compute},
+        {"EcoSysLabTreeRotation", "EcoSysLab Tree Rotation", "EcoSysLab", GpuTimestampQueue::Compute},
+        {"EcoSysLabTreeVelocity", "EcoSysLab Tree Velocity", "EcoSysLab", GpuTimestampQueue::Compute}};
+    const auto dispatch = [&](const auto& pipeline, uint32_t count, uint32_t phase) {
+      const auto phase_timing =
+          phase_timings ? Platform::BeginGpuTimestampScope(command, phases[phase]) : GpuTimestampScopeToken{};
       parameters.vertex_index = vertex_index;
       parameters.rod_index = rod_index;
       pipeline->Bind(command);
@@ -284,28 +347,56 @@ void GpuTreePhysics::Step(const std::vector<TreeStep>& trees, const WindInput& w
       pipeline->BindDescriptorSet(command, 1, wind_set->GetVkDescriptorSet());
       pipeline->PushConstant(command, 0, parameters);
       pipeline->Dispatch(command, count, 1, 1);
-      Platform::EverythingBarrier(command);
+      if (reference_)
+        Platform::EverythingBarrier(command);
+      else
+        Platform::ComputeBarrier(command);
+      if (phase_timings)
+        Platform::EndGpuTimestampScope(command, phase_timing);
     };
+    if (coefficients_dirty) {
+      prepare_coefficients_->Bind(command);
+      prepare_coefficients_->BindDescriptorSet(command, 0, descriptor_set_->GetVkDescriptorSet());
+      prepare_coefficients_->BindDescriptorSet(command, 1, wind_set->GetVkDescriptorSet());
+      prepare_coefficients_->PushConstant(command, 0, parameters);
+      prepare_coefficients_->Dispatch(command, coefficient_group_count_, 1, 1);
+      Platform::ComputeBarrier(command);
+    }
     for (int substep = 0; substep < substeps; ++substep) {
       parameters.substep = substep;
-      dispatch(predict_, vertex_group_count_);
+      dispatch(predict_, vertex_group_count_, 0);
       vertex_index ^= 1;
       for (int iteration = 0; iteration < iterations; ++iteration) {
         parameters.iteration = iteration;
-        dispatch(solve_position_, vertex_group_count_);
+        dispatch(solve_position_, vertex_group_count_, 1);
         vertex_index ^= 1;
-        dispatch(solve_rotation_, rod_group_count_);
+        dispatch(solve_rotation_, rod_group_count_, 2);
         rod_index ^= 1;
       }
-      dispatch(update_velocity_, vertex_group_count_);
+      dispatch(update_velocity_, vertex_group_count_, 3);
       vertex_index ^= 1;
     }
+    Platform::EverythingBarrier(command);
     Platform::EndGpuTimestampScope(command, timing);
   });
   for (size_t i = 0; i < trees.size(); ++i) {
     auto& state = *trees_[active_ids_[i]];
     state.previous_model = trees[i].model.value;
+    state.coefficients_ready = !reference_;
+    state.coefficient_mechanics = glm::vec3(tree_parameters[active_ids_[i]].mechanics);
     state.vertex_index ^= vertex_index;
     state.rod_index ^= rod_index;
   }
+}
+
+void GpuTreePhysics::DownloadVertices(std::vector<DynamicTreeSkeleton::GpuRestState::Vertex>& output, uint32_t id,
+                                      uint32_t copy) const {
+  const auto& t = *trees_[id];
+  DownloadAttributes(t.vertices[copy == UINT32_MAX ? t.vertex_index : copy], t.vertex_count, t.attribute_arrays,
+                     output);
+}
+void GpuTreePhysics::DownloadRods(std::vector<DynamicTreeSkeleton::GpuRestState::Rod>& output, uint32_t id,
+                                  uint32_t copy) const {
+  const auto& t = *trees_[id];
+  DownloadAttributes(t.rods[copy == UINT32_MAX ? t.rod_index : copy], t.rod_count, t.attribute_arrays, output);
 }

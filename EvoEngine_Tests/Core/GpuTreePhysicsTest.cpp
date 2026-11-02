@@ -1,9 +1,11 @@
 #include <gtest/gtest.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <glm/gtx/quaternion.hpp>
 #include <iostream>
+#include <optional>
 
 #include "Application.hpp"
 #include "ApplicationInitializationSettings.hpp"
@@ -39,6 +41,32 @@ class PlatformLifecycleTestAccess final {
 using namespace eco_sys_lab_package;
 
 namespace {
+class ScopedTreePhysicsWrites {
+ public:
+  explicit ScopedTreePhysicsWrites(bool full) {
+    if (const auto value = std::getenv(name_))
+      previous_ = value;
+    Set(full ? "1" : nullptr);
+  }
+  ~ScopedTreePhysicsWrites() {
+    Set(previous_ ? previous_->c_str() : nullptr);
+  }
+
+ private:
+  static constexpr const char* name_ = "EVOENGINE_TREE_PHYSICS_FULL_WRITES";
+  std::optional<std::string> previous_;
+  static void Set(const char* value) {
+#ifdef _WIN32
+    _putenv_s(name_, value ? value : "");
+#else
+    if (value)
+      setenv(name_, value, 1);
+    else
+      unsetenv(name_);
+#endif
+  }
+};
+
 class ScopedTreeGpuPlatform {
  public:
   explicit ScopedTreeGpuPlatform(const bool capture_timestamps = false)
@@ -121,14 +149,14 @@ BaseSkeleton MakeGpuPhysicsChain() {
   return skeleton;
 }
 
-BaseSkeleton MakeGpuPhysicsCanopy() {
+BaseSkeleton MakeGpuPhysicsCanopy(int levels = 6) {
   BaseSkeleton skeleton;
   auto& root = skeleton.RefNode(0).info;
   root.length = 0.7f;
   root.thickness = 0.1f;
   root.global_rotation = glm::rotation(glm::vec3(0, 0, -1), glm::vec3(0, 1, 0));
   std::vector<int> level{0};
-  for (int depth = 0; depth < 6; ++depth) {
+  for (int depth = 0; depth < levels; ++depth) {
     std::vector<int> next;
     for (const int parent : level) {
       const auto start = skeleton.PeekNode(parent).info.GetGlobalEndPosition();
@@ -231,7 +259,7 @@ TEST(GpuTreePhysics, PinnedRodRespondsToGravity) {
   }
   Platform::WaitForFrameSubmissions("GPU tree physics pinned rod test");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer()->DownloadVector(vertices, 2);
+  physics.DownloadVertices(vertices);
   EXPECT_EQ(glm::vec3(vertices[0].position_inverse_mass), glm::vec3(0));
   EXPECT_LT(vertices[1].position_inverse_mass.y, -0.001f);
   EXPECT_GT(vertices[1].position_inverse_mass.x, 0.8f);
@@ -266,7 +294,7 @@ TEST(GpuTreePhysics, FineAirCellsFollowCurrentBentPose) {
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("fine air follows bent tree");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer()->DownloadVector(vertices, 2);
+  physics.DownloadVertices(vertices);
   EXPECT_GT(vertices[1].position_inverse_mass.z, 1e-5f);
 }
 
@@ -283,7 +311,7 @@ TEST(GpuTreePhysics, ForestTreesOwnLocalTopologyBuffers) {
   EXPECT_NE(physics.GetRodBuffer(0)->GetDeviceAddress(), physics.GetRodBuffer(1)->GetDeviceAddress());
   for (uint32_t id = 0; id < 2; ++id) {
     std::vector<DynamicTreeSkeleton::GpuRestState::Rod> rods;
-    physics.GetRodBuffer(id)->DownloadVector(rods, rest.rods.size());
+    physics.DownloadRods(rods, id);
     for (size_t i = 0; i < rods.size(); ++i)
       EXPECT_EQ(rods[i].links, rest.rods[i].links);
     std::vector<uint32_t> mapping;
@@ -319,9 +347,9 @@ TEST(GpuTreePhysics, SharedSolverKeepsTreeSettingsIndependent) {
   }
   Platform::WaitForFrameSubmissions("GPU forest physics first tree");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer(0)->DownloadVector(vertices, 2);
+  physics.DownloadVertices(vertices, 0);
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> second_vertices;
-  physics.GetVertexBuffer(1)->DownloadVector(second_vertices, 2);
+  physics.DownloadVertices(second_vertices, 1);
   EXPECT_LT(vertices[1].position_inverse_mass.y, -0.001f);
   EXPECT_FLOAT_EQ(second_vertices[1].position_inverse_mass.y, 0.0f);
   const float first_y = vertices[1].position_inverse_mass.y;
@@ -331,8 +359,8 @@ TEST(GpuTreePhysics, SharedSolverKeepsTreeSettingsIndependent) {
     evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   }
   Platform::WaitForFrameSubmissions("GPU forest physics second tree");
-  physics.GetVertexBuffer(0)->DownloadVector(vertices, 2);
-  physics.GetVertexBuffer(1)->DownloadVector(second_vertices, 2);
+  physics.DownloadVertices(vertices, 0);
+  physics.DownloadVertices(second_vertices, 1);
   EXPECT_FLOAT_EQ(vertices[1].position_inverse_mass.y, first_y);
   EXPECT_LT(second_vertices[1].position_inverse_mass.y, -0.001f);
 }
@@ -355,9 +383,9 @@ TEST(GpuTreePhysics, PausedForestMotionMovesOnlyItsTreeRigidly) {
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("paused GPU forest parent motion");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer(0)->DownloadVector(vertices, rest.vertices.size());
+  physics.DownloadVertices(vertices, 0);
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> stationary;
-  physics.GetVertexBuffer(1)->DownloadVector(stationary, rest.vertices.size());
+  physics.DownloadVertices(stationary, 1);
   for (size_t i = 0; i < rest.vertices.size(); ++i) {
     const glm::vec3 expected =
         glm::vec3(moved.value * glm::vec4(glm::vec3(rest.vertices[i].position_inverse_mass), 1.0f));
@@ -384,7 +412,7 @@ TEST(GpuTreePhysics, RunningTreeRootFollowsMovedForest) {
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("running GPU forest parent motion");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  physics.GetVertexBuffer()->DownloadVector(vertices, rest.vertices.size());
+  physics.DownloadVertices(vertices);
   EXPECT_NEAR(vertices[0].position_inverse_mass.x, 1.0f, 1e-4f);
   EXPECT_LT(vertices[1].position_inverse_mass.x, 0.99f);
 }
@@ -407,7 +435,7 @@ TEST(GpuTreePhysics, SimulationDoesNotChangeGrowthSkeleton) {
   }
   Platform::WaitForFrameSubmissions("GPU growth pose isolation");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-  gpu.GetVertexBuffer()->DownloadVector(vertices, rest.vertices.size());
+  gpu.DownloadVertices(vertices);
   EXPECT_GT(glm::length(glm::vec3(vertices[tip].position_inverse_mass) - original_tip), 1e-4f);
   const auto& original_node = tree.shoot_model.PeekShootSkeleton().PeekNode(1).info;
   EXPECT_LT(glm::length(original_node.GetGlobalEndPosition() - original_tip), 1e-5f);
@@ -552,7 +580,7 @@ TEST(GpuTreePhysics, RegisteredAirCellsDriveBranchesAfterParticleDeposition) {
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
   for (uint32_t id = 0; id < 3; ++id) {
     std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> local;
-    physics->GetVertexBuffer(id)->DownloadVector(local, rest.vertices.size());
+    physics->DownloadVertices(local, id);
     vertices.insert(vertices.end(), local.begin(), local.end());
   }
   const uint32_t tip = rest.rods[rest.node_rods.back()].links.y;
@@ -572,7 +600,7 @@ TEST(GpuTreePhysics, RegisteredAirCellsDriveBranchesAfterParticleDeposition) {
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> after_reset;
   for (uint32_t id = 0; id < 3; ++id) {
     std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> local;
-    physics->GetVertexBuffer(id)->DownloadVector(local, rest.vertices.size());
+    physics->DownloadVertices(local, id);
     after_reset.insert(after_reset.end(), local.begin(), local.end());
   }
   for (size_t i = 0; i < vertices.size(); ++i)
@@ -762,10 +790,109 @@ TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
   EXPECT_TRUE(far_behind);
 }
 
+TEST(GpuTreePhysics, AttributeArraysAndCachedCoefficientsMatchReferenceAndPreserveImmutableData) {
+  ScopedTreeGpuPlatform platform;
+  using Rest = DynamicTreeSkeleton::GpuRestState;
+  std::vector<Rest> states;
+  for (const auto& skeleton : {MakeGpuPhysicsFork(), MakeGpuPhysicsChain(), MakeGpuPhysicsCanopy(7)}) {
+    Tree tree;
+    tree.shoot_model.Initialize(skeleton);
+    DynamicTreeSkeleton component;
+    ASSERT_TRUE(component.InitializePhysics(tree));
+    auto rest = component.ExportGpuRestState();
+    for (auto& vertex : rest.vertices)
+      vertex.velocity_radius = glm::vec4(0.1f, -0.2f, 0.3f, vertex.velocity_radius.w);
+    states.push_back(std::move(rest));
+  }
+  GpuTreePhysics motion, full;
+  {
+    const ScopedTreePhysicsWrites mode(false);
+    ASSERT_TRUE(motion.Initialize(states));
+  }
+  {
+    const ScopedTreePhysicsWrites mode(true);
+    ASSERT_TRUE(full.Initialize(states));
+  }
+  GpuSpatialGrid air;
+  ASSERT_TRUE(air.RegisterBox({-3, -3, -3}, {4, 9, 4}));
+  ASSERT_LE(air.GetCellCount(), GpuSpatialGrid::chunk_capacity);
+  std::vector<glm::vec4> values(2 * GpuSpatialGrid::chunk_capacity);
+  for (size_t i = 0; i < values.size(); i += 2) {
+    values[i] = {4, 1, 3, 293.15f};
+    values[i + 1] = {0.007f, 1, 1.225f, 0};
+  }
+  air.GetValueChunk(0)->UploadVector(values);
+  auto wind_set = std::make_shared<DescriptorSet>(motion.GetWindDescriptorSetLayout());
+  wind_set->UpdateBufferDescriptorBinding(0, air.GetHeads());
+  wind_set->UpdateBufferDescriptorBinding(1, air.GetAddresses());
+  std::vector<GpuTreePhysics::TreeStep> steps(3);
+  steps[0].settings.substeps = 1;
+  steps[0].settings.iterations = 3;
+  steps[1].settings.substeps = 4;
+  steps[1].settings.iterations = 8;
+  steps[2].settings.substeps = 2;
+  steps[2].settings.iterations = 5;
+  for (int frame = 0; frame < 12; ++frame) {
+    SCOPED_TRACE(frame);
+    steps[0].model.SetPosition({0.02f * frame, 0, 0});
+    if (frame == 5) {
+      steps[0].settings.time_step = 0.008f;
+      steps[1].settings.stretch_stiffness = 4000;
+      steps[1].settings.bend_stiffness = 250;
+      steps[2].settings.substeps = 3;
+    }
+    if (frame == 9) {
+      steps[0].settings.stretch_stiffness = 0;
+      steps[0].settings.bend_stiffness = 0;
+    }
+    steps[1].running = frame % 3 != 0;
+    steps[2].running = false;
+    steps[2].model.SetRotation(glm::angleAxis(0.02f * frame, glm::vec3(0, 0, 1)));
+    const GpuTreePhysics::WindInput wind =
+        frame < 3 ? GpuTreePhysics::WindInput{}
+                  : GpuTreePhysics::WindInput{wind_set, air.GetCellCount(), GpuSpatialGrid::bucket_count, 1};
+    evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+    motion.Step(steps, wind);
+    full.Step(steps, wind);
+    evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("motion-only/full-record equivalence");
+    for (uint32_t id = 0; id < states.size(); ++id) {
+      SCOPED_TRACE(id);
+      const auto& a = motion.GetTreeState(id);
+      const auto& b = full.GetTreeState(id);
+      ASSERT_EQ(a->vertex_index, b->vertex_index);
+      ASSERT_EQ(a->rod_index, b->rod_index);
+      for (uint32_t copy = 0; copy < 2; ++copy) {
+        std::vector<Rest::Vertex> av, bv;
+        motion.DownloadVertices(av, id, copy);
+        full.DownloadVertices(bv, id, copy);
+        for (size_t i = 0; i < av.size(); ++i) {
+          EXPECT_EQ(av[i].rest_local, states[id].vertices[i].rest_local);
+          EXPECT_EQ(av[i].incident_rods, states[id].vertices[i].incident_rods);
+          EXPECT_EQ(av[i].position_inverse_mass.w, states[id].vertices[i].position_inverse_mass.w);
+          EXPECT_EQ(av[i].velocity_radius.w, states[id].vertices[i].velocity_radius.w);
+          EXPECT_LT(glm::length(av[i].position_inverse_mass - bv[i].position_inverse_mass), 1e-5f);
+          EXPECT_LT(glm::length(av[i].velocity_radius - bv[i].velocity_radius), 1e-4f);
+        }
+        std::vector<Rest::Rod> ar, br;
+        motion.DownloadRods(ar, id, copy);
+        full.DownloadRods(br, id, copy);
+        for (size_t i = 0; i < ar.size(); ++i) {
+          EXPECT_EQ(ar[i].links, states[id].rods[i].links);
+          EXPECT_EQ(ar[i].length_scale_mass_radius, states[id].rods[i].length_scale_mass_radius);
+          EXPECT_EQ(ar[i].rest_rotation, states[id].rods[i].rest_rotation);
+          EXPECT_EQ(ar[i].incident_angles, states[id].rods[i].incident_angles);
+          EXPECT_LT(glm::length(ar[i].rotation - br[i].rotation), 1e-5f);
+        }
+      }
+    }
+  }
+}
+
 TEST(GpuTreePhysics, DISABLED_ForestScaleTiming) {
   ScopedTreeGpuPlatform platform(true);
   Tree tree;
-  tree.shoot_model.Initialize(MakeGpuPhysicsCanopy());
+  tree.shoot_model.Initialize(MakeGpuPhysicsCanopy(13));
   DynamicTreeSkeleton component;
   ASSERT_TRUE(component.InitializePhysics(tree));
   const auto rest = component.ExportGpuRestState();
@@ -773,6 +900,12 @@ TEST(GpuTreePhysics, DISABLED_ForestScaleTiming) {
     GpuTreePhysics physics;
     ASSERT_TRUE(physics.Initialize(std::vector<DynamicTreeSkeleton::GpuRestState>(count, rest)));
     std::vector<GpuTreePhysics::TreeStep> steps(count, {component.physics_settings, true});
+    for (int frame = 0; frame < 16; ++frame) {
+      evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+      physics.Step(steps);
+      evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+    }
+    Platform::WaitForFrameSubmissions("GPU forest physics warmup");
     Platform::ResetGpuTimestampStats();
     const auto start = std::chrono::steady_clock::now();
     for (int frame = 0; frame < 120; ++frame) {
@@ -789,6 +922,10 @@ TEST(GpuTreePhysics, DISABLED_ForestScaleTiming) {
     ASSERT_NE(timing, stats.end());
     std::cout << count << " trees, " << count * rest.rods.size() << " rods: solver GPU median "
               << timing->MedianMilliseconds() << " ms, 120-step wall " << wall_ms << " ms\n";
+    for (const auto& stat : stats)
+      if (stat.name.rfind("EcoSysLab Tree ", 0) == 0)
+        std::cout << "  " << stat.name << ": " << stat.total_milliseconds / 120 << " ms/step, " << stat.sample_count
+                  << " samples\n";
   }
 }
 TEST(GpuTreePhysics, RodDrivenAirMatchesGatherAndClearsContributions) {
@@ -1080,10 +1217,10 @@ TEST(GpuTreePhysics, RebuildingAndRemovingOneTreePreservesNeighborBuffersAndPose
   Platform::WaitForFrameSubmissions("neighbor pose before rebuild");
   const auto neighbor = physics.GetTreeState(1);
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> before, after;
-  physics.GetVertexBuffer(1)->DownloadVector(before, rest.vertices.size());
+  physics.DownloadVertices(before, 1);
   EXPECT_EQ(physics.RegisterTree(rest, 0), 0u);
   EXPECT_EQ(physics.GetTreeState(1), neighbor);
-  physics.GetVertexBuffer(1)->DownloadVector(after, rest.vertices.size());
+  physics.DownloadVertices(after, 1);
   for (size_t i = 0; i < before.size(); ++i) {
     EXPECT_EQ(before[i].position_inverse_mass, after[i].position_inverse_mass);
     EXPECT_EQ(before[i].velocity_radius, after[i].velocity_radius);
@@ -1099,7 +1236,7 @@ TEST(GpuTreePhysics, RebuildingAndRemovingOneTreePreservesNeighborBuffersAndPose
       std::vector<GpuTreePhysics::TreeStep>{{component.physics_settings, false}, {component.physics_settings, true}});
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("neighbor pose after membership changes");
-  physics.GetVertexBuffer(1)->DownloadVector(after, rest.vertices.size());
+  physics.DownloadVertices(after, 1);
   for (size_t i = 0; i < before.size(); ++i)
     EXPECT_EQ(before[i].position_inverse_mass, after[i].position_inverse_mass);
 }
@@ -1129,7 +1266,7 @@ TEST(GpuTreePhysics, InactiveTreeKeepsItsOwnPingPongStateAcrossOddIterations) {
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("rejoined tree parity");
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> actual;
-  physics.GetVertexBuffer(1)->DownloadVector(actual, rest.vertices.size());
+  physics.DownloadVertices(actual, 1);
   for (size_t i = 0; i < actual.size(); ++i)
     EXPECT_EQ(actual[i].position_inverse_mass, rest.vertices[i].position_inverse_mass);
 }
@@ -1183,8 +1320,13 @@ TEST(GpuTreePhysics, DeformationUsesEachTreesLocalNodeMapAndDynamicPose) {
     sets[id]->UpdateBufferDescriptorBinding(2, physics.GetRodBuffer(id));
     sets[id]->UpdateBufferDescriptorBinding(3, physics.GetNodeRodBuffer(id));
     sets[id]->UpdateBufferDescriptorBinding(4, rest_nodes);
-    const GpuTreeDeformParameters push{
-        0, static_cast<uint32_t>(nodes.size()), 0, 0, glm::vec4(model.GetPosition(), 0), glm::vec4(1), {0, 0, 0, 1}};
+    const GpuTreeDeformParameters push{0,
+                                       static_cast<uint32_t>(nodes.size()),
+                                       0,
+                                       physics.GetTreeState(id)->attribute_arrays ? 1u : 0u,
+                                       glm::vec4(model.GetPosition(), 0),
+                                       glm::vec4(1),
+                                       {0, 0, 0, 1}};
     Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
       pipeline->Bind(command);
       pipeline->BindDescriptorSet(command, 0, sets[id]->GetVkDescriptorSet());
@@ -1199,7 +1341,7 @@ TEST(GpuTreePhysics, DeformationUsesEachTreesLocalNodeMapAndDynamicPose) {
     std::vector<GpuTreeNode> actual;
     output[id]->DownloadVector(actual, nodes.size());
     std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-    physics.GetVertexBuffer(id)->DownloadVector(vertices, rest.vertices.size());
+    physics.DownloadVertices(vertices, id);
     bool changed = false;
     for (size_t i = 0; i < vertices.size(); ++i)
       changed |=
@@ -1217,4 +1359,92 @@ TEST(GpuTreePhysics, DeformationUsesEachTreesLocalNodeMapAndDynamicPose) {
       EXPECT_EQ(actual[i].position_thickness.w, nodes[i].position_thickness.w);
     }
   }
+}
+
+TEST(TreeTessellation, ProjectedDetailPreservesJunctionsAndBoundsCurveError) {
+  ScopedTreeGpuPlatform platform;
+  std::vector<GpuTreeNode> nodes(4);
+  for (auto& node : nodes) {
+    node.position_thickness = {0, -0.5f, 0.5f, 0.2f};
+    node.direction_length = {0, 1, 0, 1};
+    node.radial_axis_distance = {1, 0, 0, 0};
+    node.subdivisions = {0.005f, 0.01f, 0.33f, 0.33f};
+    node.bark = node.bark_base = glm::vec4(0);
+    node.links = {UINT32_MAX, 0, 0, UINT32_MAX};
+  }
+  for (uint32_t i = 1; i < 3; ++i) {
+    nodes[i].position_thickness = {0, 0.5f, 0.5f, i == 1 ? 0.04f : 0.02f};
+    nodes[i].direction_length = glm::vec4(glm::normalize(glm::vec3(i == 1 ? 1 : -1, 1, 0)), i == 1 ? 0.4f : 0.6f);
+    nodes[i].links.x = 0;
+  }
+  nodes[3].bark.z = 0.1f;
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = nodes.size() * sizeof(GpuTreeNode);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  VmaAllocationCreateInfo allocation{};
+  allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto input = std::make_shared<Buffer>(info, allocation);
+  input->UploadVector(nodes);
+  info.size = 10 * sizeof(glm::vec4);
+  auto output = std::make_shared<Buffer>(info, allocation);
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto input_set = std::make_shared<DescriptorSet>(layout), output_set = std::make_shared<DescriptorSet>(layout);
+  input_set->UpdateBufferDescriptorBinding(0, input);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                     std::filesystem::path(__FILE__).parent_path().parent_path() /
+                                                         "Resources/Shaders/Compute/TreeTessellationProbe.slang");
+  pipeline->descriptor_set_layouts = {layout, empty, empty, layout};
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, output_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 3, input_set->GetVkDescriptorSet());
+    pipeline->Dispatch(command, 1, 1, 1);
+    Platform::EverythingBarrier(command);
+  });
+  evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("projected branch tessellation");
+  std::vector<glm::vec4> result;
+  output->DownloadVector(result, 10);
+  for (const auto& v : result)
+    for (int i = 0; i < 4; ++i)
+      EXPECT_TRUE(std::isfinite(v[i]));
+  EXPECT_GE(result[0].x, result[0].y);
+  EXPECT_GT(result[0].y, result[0].z);
+  EXPECT_EQ(result[0].z, 4);
+  EXPECT_EQ(result[0].w, result[0].x);
+  EXPECT_GT(result[1].x, result[1].y);
+  EXPECT_GT(result[1].y, result[1].z);
+  EXPECT_EQ(result[1].z, 1);
+  EXPECT_EQ(result[1].w, result[1].x);
+  EXPECT_EQ(result[2], glm::vec4(result[0].x, result[1].x, result[0].x, result[1].x));
+  EXPECT_EQ(result[3].x, result[3].y);
+  EXPECT_EQ(result[3].x, result[3].w);
+  EXPECT_GT(result[3].x, result[3].z);
+  EXPECT_EQ(result[4], glm::vec4(0));
+  EXPECT_FLOAT_EQ(result[5].x, result[5].y);
+  EXPECT_EQ(result[5].z, 1);
+  EXPECT_GE(result[5].w, 2);
+  EXPECT_LT(result[5].w, result[8].z);
+  EXPECT_LE(result[6].x, 0.5f);
+  EXPECT_GE(result[6].y, 1);
+  EXPECT_LE(result[6].y, 1024);
+  EXPECT_EQ(result[6].z, 126);
+  EXPECT_EQ(result[6].w, 3);
+  EXPECT_GT(result[7].x, result[7].y);
+  EXPECT_GE(result[7].z, result[0].y);
+  EXPECT_EQ(result[7].z, result[7].w);
+  EXPECT_GE(result[8].x, result[0].y);
+  EXPECT_GE(result[8].y, result[1].y);
+  EXPECT_GT(result[9].x, result[9].y);
+  EXPECT_EQ(result[9].z, 0);
+  EXPECT_EQ(result[9].w, 0);
 }

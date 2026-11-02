@@ -885,6 +885,7 @@ class EVOENGINE_API Platform final {
    * @param vk_command_buffer Vulkan command buffer to record the barrier.
    */
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
+  static void ComputeBarrier(VkCommandBuffer vk_command_buffer);
 
   /**
    * @brief Inserts a full pipeline memory barrier scoped to one buffer.

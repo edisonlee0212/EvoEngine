@@ -28,6 +28,10 @@ public struct TreePhysicsBuffers {
   public uint64_t node_rods;
   public uint64_t predicted;
   public uint64_t previous;
+  public uint64_t vertex_coefficients;
+  public uint64_t rod_coefficients;
+  public uint64_t angle_coefficients;
+  public uint64_t reserved;
   public uint4 counts;
 };
 
@@ -45,4 +49,29 @@ public void PhysicsStore<T>(uint64_t address, uint index, T value) {
     bit_cast<vk::BufferPointer<PhysicsValue<T>, 16>>(address + uint64_t(index) * sizeof(T)).Get().value = value;
   else
     bit_cast<vk::BufferPointer<PhysicsValue<T>, 4>>(address + uint64_t(index) * sizeof(T)).Get().value = value;
+}
+
+public uint PhysicsAttributeIndex(uint index, uint attribute, uint count, uint stride, bool arrays) {
+  return arrays ? attribute * count + index : index * stride + attribute;
+}
+public TreePhysicsVertex PhysicsVertex(TreePhysicsBuffers buffers, uint copy, uint i) {
+  TreePhysicsVertex v;
+  uint n = buffers.counts.x;
+  bool arrays = buffers.counts.w != 0;
+  v.position_inverse_mass = PhysicsLoad<float4>(buffers.vertices[copy], PhysicsAttributeIndex(i,0,n,4,arrays));
+  v.velocity_radius = PhysicsLoad<float4>(buffers.vertices[copy], PhysicsAttributeIndex(i,1,n,4,arrays));
+  v.rest_local = PhysicsLoad<float4>(buffers.vertices[copy], PhysicsAttributeIndex(i,2,n,4,arrays));
+  v.incident_rods = PhysicsLoad<uint4>(buffers.vertices[copy], PhysicsAttributeIndex(i,3,n,4,arrays));
+  return v;
+}
+public TreePhysicsRod PhysicsRod(TreePhysicsBuffers buffers, uint copy, uint i) {
+  TreePhysicsRod r;
+  uint n = buffers.counts.y;
+  bool arrays = buffers.counts.w != 0;
+  r.links = PhysicsLoad<uint4>(buffers.rods[copy], PhysicsAttributeIndex(i,0,n,5,arrays));
+  r.length_scale_mass_radius = PhysicsLoad<float4>(buffers.rods[copy], PhysicsAttributeIndex(i,1,n,5,arrays));
+  r.rotation = PhysicsLoad<float4>(buffers.rods[copy], PhysicsAttributeIndex(i,2,n,5,arrays));
+  r.rest_rotation = PhysicsLoad<float4>(buffers.rods[copy], PhysicsAttributeIndex(i,3,n,5,arrays));
+  r.incident_angles = PhysicsLoad<uint4>(buffers.rods[copy], PhysicsAttributeIndex(i,4,n,5,arrays));
+  return r;
 }

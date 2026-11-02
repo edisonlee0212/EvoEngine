@@ -18,6 +18,7 @@ import EcoSysLab.AirGrid;
 [[vk::binding(1, 0)]] StructuredBuffer<uint2> vertex_groups;
 [[vk::binding(2, 0)]] StructuredBuffer<uint2> rod_groups;
 [[vk::binding(3, 0)]] StructuredBuffer<TreePhysicsTreeParameters, Std430DataLayout> tree_parameters;
+[[vk::binding(4, 0)]] StructuredBuffer<uint2> coefficient_groups;
 [[vk::binding(0, 1)]] StructuredBuffer<uint> wind_heads;
 [[vk::binding(1, 1)]] StructuredBuffer<AirGridAddresses> wind_addresses;
 
@@ -88,19 +89,62 @@ float4 QuatFromTo(float3 from, float3 to) {
   return normalize(float4(cross(from, to), 1.0 + cosine));
 }
 
+// Static attribute columns are initialized in both copies and never written by the solver.
+void WriteVertexMotion(TreePhysicsBuffers buffers, uint i, TreePhysicsVertex vertex) {
+#if defined(EE_TREE_PHYSICS_FULL_WRITES)
+  PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+#else
+  bool arrays = buffers.counts.w != 0;
+  PhysicsStore<float4>(buffers.vertices[1-vertex_index], PhysicsAttributeIndex(i,0,buffers.counts.x,4,arrays), vertex.position_inverse_mass);
+  PhysicsStore<float4>(buffers.vertices[1-vertex_index], PhysicsAttributeIndex(i,1,buffers.counts.x,4,arrays), vertex.velocity_radius);
+#endif
+}
+void WriteRodRotation(TreePhysicsBuffers buffers, uint i, TreePhysicsRod rod) {
+#if defined(EE_TREE_PHYSICS_FULL_WRITES)
+  PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+#else
+  PhysicsStore<float4>(buffers.rods[1-rod_index], PhysicsAttributeIndex(i,2,buffers.counts.y,5,buffers.counts.w != 0), rod.rotation);
+#endif
+}
+
+void PrepareCoefficients(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree) {
+  if ((tree.control.w & 2u) == 0) return;
+  if (i < buffers.counts.x) {
+    TreePhysicsVertex v = PhysicsVertex(buffers,0,i);
+    float inertia = v.position_inverse_mass.w > 0 ? 1.0/(v.position_inverse_mass.w*tree.mechanics.x*tree.mechanics.x) : 0;
+    float denominator = inertia;
+    for (uint j=0; j<v.incident_rods.y; ++j) {
+      TreePhysicsRod r = PhysicsRod(buffers,0,PhysicsLoad<uint>(buffers.vertex_rods,v.incident_rods.x+j));
+      denominator += tree.mechanics.y*r.length_scale_mass_radius.y/max(r.length_scale_mass_radius.x,1e-6);
+    }
+    PhysicsStore<float2>(buffers.vertex_coefficients,i,float2(inertia,denominator));
+  }
+  if (i < buffers.counts.y) {
+    TreePhysicsRod r = PhysicsRod(buffers,0,i);
+    float stretch = tree.mechanics.y*r.length_scale_mass_radius.y;
+    PhysicsStore<float2>(buffers.rod_coefficients,i,float2(stretch/max(r.length_scale_mass_radius.x,1e-6),stretch));
+  }
+  if (i < buffers.counts.z) {
+    TreePhysicsAngle a = PhysicsLoad<TreePhysicsAngle>(buffers.angles,i);
+    float length_a = PhysicsRod(buffers,0,a.rods.x).length_scale_mass_radius.x;
+    float length_b = PhysicsRod(buffers,0,a.rods.y).length_scale_mass_radius.x;
+    PhysicsStore<float>(buffers.angle_coefficients,i,tree.mechanics.z*a.bend_scale.x/max(0.5*(length_a+length_b),1e-6));
+  }
+}
+
 void Predict(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree) {
   if (i >= buffers.counts.x) return;
-  TreePhysicsVertex vertex = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], i);
+  TreePhysicsVertex vertex = PhysicsVertex(buffers, vertex_index, i);
   if (tree.control.z == 0) {
-    if (tree.control.w != 0 && substep == 0) {
+    if ((tree.control.w & 1u) != 0 && substep == 0) {
       vertex.position_inverse_mass.xyz = mul(float4(vertex.position_inverse_mass.xyz, 1.0), tree.model_delta).xyz;
       vertex.velocity_radius.xyz = QuatRotate(tree.rotation_delta, vertex.velocity_radius.xyz);
     }
-    PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+    WriteVertexMotion(buffers, i, vertex);
     return;
   }
   if (substep >= tree.control.x) {
-    PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+    WriteVertexMotion(buffers, i, vertex);
     return;
   }
   float time_step = tree.mechanics.x;
@@ -117,9 +161,10 @@ void Predict(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree)
     if (cell_count != 0 && tree.gravity.w > 0.0) {
       float3 drag = 0;
       for (uint j = 0; j < vertex.incident_rods.y; ++j) {
-        TreePhysicsRod rod = PhysicsLoad<TreePhysicsRod>(buffers.rods[rod_index], PhysicsLoad<uint>(buffers.vertex_rods, vertex.incident_rods.x + j));
+        uint rod_id = PhysicsLoad<uint>(buffers.vertex_rods, vertex.incident_rods.x + j);
+        TreePhysicsRod rod = PhysicsRod(buffers, rod_index, rod_id);
         uint other = rod.links.x == i ? rod.links.y : rod.links.x;
-        TreePhysicsVertex other_vertex = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], other);
+        TreePhysicsVertex other_vertex = PhysicsVertex(buffers, vertex_index, other);
         float3 other_position = other_vertex.position_inverse_mass.xyz;
         float4 wind = SampleWind(position, other_position);
         if (wind.w <= 0.0) continue;
@@ -141,93 +186,115 @@ void Predict(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree)
   }
   vertex.position_inverse_mass.xyz = position;
   PhysicsStore<float4>(buffers.predicted, i, float4(position, 0));
-  PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+  WriteVertexMotion(buffers, i, vertex);
 }
 
 void SolvePosition(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree) {
   if (i >= buffers.counts.x) return;
-  TreePhysicsVertex vertex = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], i);
+  TreePhysicsVertex vertex = PhysicsVertex(buffers, vertex_index, i);
   if (tree.control.z == 0 || substep >= tree.control.x || iteration >= tree.control.y) {
-    PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+    WriteVertexMotion(buffers, i, vertex);
     return;
   }
   float time_step = tree.mechanics.x;
   float stretch_stiffness = tree.mechanics.y;
   float inverse_mass = vertex.position_inverse_mass.w;
   if (inverse_mass <= 0.0) {
-    PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+    WriteVertexMotion(buffers, i, vertex);
     return;
   }
+#ifdef EE_TREE_PHYSICS_REFERENCE
   float inertia = 1.0 / (inverse_mass * time_step * time_step);
-  float3 numerator = inertia * PhysicsLoad<float4>(buffers.predicted, i).xyz;
   float denominator = inertia;
+#else
+  float2 coefficients = PhysicsLoad<float2>(buffers.vertex_coefficients,i);
+  float inertia = coefficients.x;
+  float denominator = coefficients.y;
+#endif
+  float3 numerator = inertia * PhysicsLoad<float4>(buffers.predicted, i).xyz;
   for (uint j = 0; j < vertex.incident_rods.y; ++j) {
-    TreePhysicsRod rod = PhysicsLoad<TreePhysicsRod>(buffers.rods[rod_index], PhysicsLoad<uint>(buffers.vertex_rods, vertex.incident_rods.x + j));
+    uint rod_id = PhysicsLoad<uint>(buffers.vertex_rods, vertex.incident_rods.x + j);
+    TreePhysicsRod rod = PhysicsRod(buffers, rod_index, rod_id);
     bool start = rod.links.x == i;
     uint other = start ? rod.links.y : rod.links.x;
     float length = max(rod.length_scale_mass_radius.x, 1e-6);
+#ifdef EE_TREE_PHYSICS_REFERENCE
     float stiffness = stretch_stiffness * rod.length_scale_mass_radius.y / length;
+#else
+    float stiffness = PhysicsLoad<float2>(buffers.rod_coefficients,rod_id).x;
+#endif
     float3 direction = QuatRotate(rod.rotation, float3(1, 0, 0));
-    numerator += stiffness * (PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], other).position_inverse_mass.xyz +
+    numerator += stiffness * (PhysicsVertex(buffers, vertex_index, other).position_inverse_mass.xyz +
                               (start ? -1.0 : 1.0) * length * direction);
+#ifdef EE_TREE_PHYSICS_REFERENCE
     denominator += stiffness;
+#endif
   }
   vertex.position_inverse_mass.xyz = numerator / denominator;
-  PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+  WriteVertexMotion(buffers, i, vertex);
 }
 
 void SolveRotation(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree) {
   if (i >= buffers.counts.y) return;
-  TreePhysicsRod rod = PhysicsLoad<TreePhysicsRod>(buffers.rods[rod_index], i);
+  TreePhysicsRod rod = PhysicsRod(buffers, rod_index, i);
   if (tree.control.z == 0) {
-    if (tree.control.w != 0 && substep == 0 && iteration == 0)
+    if ((tree.control.w & 1u) != 0 && substep == 0 && iteration == 0)
       rod.rotation = normalize(QuatMultiply(tree.rotation_delta, rod.rotation));
-    PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+    WriteRodRotation(buffers, i, rod);
     return;
   }
   if (substep >= tree.control.x || iteration >= tree.control.y) {
-    PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+    WriteRodRotation(buffers, i, rod);
     return;
   }
   if (rod.links.w != 0) {
     float fraction = float(substep + 1) / float(tree.control.x);
     rod.rotation = normalize(QuatMultiply(QuatSlerp(tree.anchor_previous, tree.anchor_current, fraction),
                                           rod.rest_rotation));
-    PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+    WriteRodRotation(buffers, i, rod);
     return;
   }
-  float3 displacement = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], rod.links.y).position_inverse_mass.xyz -
-                        PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], rod.links.x).position_inverse_mass.xyz;
+  float3 displacement = PhysicsVertex(buffers, vertex_index, rod.links.y).position_inverse_mass.xyz -
+                        PhysicsVertex(buffers, vertex_index, rod.links.x).position_inverse_mass.xyz;
   if (dot(displacement, displacement) < 1e-12) {
-    PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+    WriteRodRotation(buffers, i, rod);
     return;
   }
   float4 stretch_target = normalize(QuatMultiply(
       QuatFromTo(QuatRotate(rod.rotation, float3(1, 0, 0)), normalize(displacement)), rod.rotation));
+#ifdef EE_TREE_PHYSICS_REFERENCE
   float stretch_weight = tree.mechanics.y * rod.length_scale_mass_radius.y;
+#else
+  float stretch_weight = PhysicsLoad<float2>(buffers.rod_coefficients,i).y;
+#endif
   float4 sum = stretch_weight * stretch_target;
   float total = stretch_weight;
   for (uint j = 0; j < rod.incident_angles.y; ++j) {
-    TreePhysicsAngle angle = PhysicsLoad<TreePhysicsAngle>(buffers.angles, PhysicsLoad<uint>(buffers.rod_angles, rod.incident_angles.x + j));
+    uint angle_id = PhysicsLoad<uint>(buffers.rod_angles, rod.incident_angles.x + j);
+    TreePhysicsAngle angle = PhysicsLoad<TreePhysicsAngle>(buffers.angles, angle_id);
     bool first = angle.rods.x == i;
-    TreePhysicsRod other = PhysicsLoad<TreePhysicsRod>(buffers.rods[rod_index], first ? angle.rods.y : angle.rods.x);
+    TreePhysicsRod other = PhysicsRod(buffers, rod_index, first ? angle.rods.y : angle.rods.x);
     float4 target = normalize(QuatMultiply(other.rotation,
                                            first ? QuatInverse(angle.rest_relative) : angle.rest_relative));
+#ifdef EE_TREE_PHYSICS_REFERENCE
     float weight = tree.mechanics.z * angle.bend_scale.x /
                    max(0.5 * (rod.length_scale_mass_radius.x + other.length_scale_mass_radius.x), 1e-6);
+#else
+    float weight = PhysicsLoad<float>(buffers.angle_coefficients,angle_id);
+#endif
     sum += (dot(target, stretch_target) < 0.0 ? -1.0 : 1.0) * weight * target;
     total += weight;
   }
   if (total > 0.0 && dot(sum, sum) > 1e-12)
     rod.rotation = normalize(sum);
-  PhysicsStore<TreePhysicsRod>(buffers.rods[1 - rod_index], i, rod);
+  WriteRodRotation(buffers, i, rod);
 }
 
 void UpdateVelocity(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree) {
   if (i >= buffers.counts.x) return;
-  TreePhysicsVertex vertex = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[vertex_index], i);
+  TreePhysicsVertex vertex = PhysicsVertex(buffers, vertex_index, i);
   if (tree.control.z == 0 || substep >= tree.control.x) {
-    PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+    WriteVertexMotion(buffers, i, vertex);
     return;
   }
   float time_step = tree.mechanics.x;
@@ -236,12 +303,14 @@ void UpdateVelocity(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameter
   else
     vertex.velocity_radius.xyz = 0.0;
   vertex.velocity_radius.xyz *= max(0.0, 1.0 - tree.mechanics.w * time_step);
-  PhysicsStore<TreePhysicsVertex>(buffers.vertices[1 - vertex_index], i, vertex);
+  WriteVertexMotion(buffers, i, vertex);
 }
 
 [numthreads(64, 1, 1)]
 void main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID) {
-#if TREE_PHYSICS_PASS == 2
+#if TREE_PHYSICS_PASS == 4
+  uint2 work = coefficient_groups[group.x];
+#elif TREE_PHYSICS_PASS == 2
   uint2 work = rod_groups[group.x];
 #else
   uint2 work = vertex_groups[group.x];
@@ -257,5 +326,7 @@ void main(uint3 group : SV_GroupID, uint3 lane : SV_GroupThreadID) {
   SolveRotation(i, buffers, tree);
 #elif TREE_PHYSICS_PASS == 3
   UpdateVelocity(i, buffers, tree);
+#elif TREE_PHYSICS_PASS == 4
+  PrepareCoefficients(i, buffers, tree);
 #endif
 }

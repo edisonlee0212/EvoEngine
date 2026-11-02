@@ -6,13 +6,6 @@ import EvoEngine.RasterVertex;
 #endif
 import EcoSysLab.GpuTreeMesh;
 
-struct TreeTaskPayload {
-  uint node_index;
-  uint rings;
-  uint start_radial;
-  uint radial;
-};
-
 struct TreeRasterVertex {
   float4 position : SV_Position;
 #ifdef EE_TREE_DEBUG
@@ -54,8 +47,8 @@ void main(in payload TreeTaskPayload task, uint3 group_id : SV_GroupID, uint lan
     parent_valid = parent.links.z != 0xffffffffu && parent.direction_length.w > 1e-6;
     if (parent_valid) start_node = parent;
   }
-  float t0 = span == 0u && parent_valid ? 1.0 : float(span) / float(task.rings);
-  float t1 = float(span + 1u) / float(task.rings);
+  float t0,t1;
+  TreeSpanParameters(task,span,t0,t1);
 #ifdef EE_TREE_DEBUG
   TreeDebugState debug = tree_debug_state[0];
   float4x4 model = debug.model;
@@ -73,11 +66,11 @@ void main(in payload TreeTaskPayload task, uint3 group_id : SV_GroupID, uint lan
     bool start = ring_ids[i] == 0u;
     GpuTreeNode ring_node = start ? start_node : node;
     uint count = start ? start_count : task.radial;
-    TreeRingVertex ring = EvaluateTreeRing(ring_node, start ? t0 : t1, samples[i], count);
+    TreeRingVertex ring = EvaluateTreeRing(ring_node, start ? (parent_valid ? 1.0 : t0) : t1, samples[i], count);
     uint vertex_index = lane_id * 3u + i;
     vertices[vertex_index].position = mul(mul(float4(ring.position, 1.0), model), projection);
 #ifdef EE_TREE_DEBUG
-    float length_factor = float(span + ring_ids[i]) / float(task.rings);
+    float length_factor = start ? t0 : t1;
     float4 color = tree_debug_colors[task.node_index];
     bool shoot = node.foliage_meta.y != 0u;
     bool selected = node.foliage_meta.x == (shoot ? debug.selected.x : debug.selected.y);

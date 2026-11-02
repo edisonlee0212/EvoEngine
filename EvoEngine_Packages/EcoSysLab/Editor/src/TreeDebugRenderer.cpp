@@ -1,5 +1,7 @@
 #include "TreeDebugRenderer.hpp"
 
+#include <cstdlib>
+#include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Profiler.hpp"
@@ -45,7 +47,7 @@ bool TreeDebugRenderer::Prepare() {
     pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
     pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color, VK_FORMAT_R32G32B32A32_UINT};
-    pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_ALL, 0, 32});
+    pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_ALL, 0, sizeof(GpuTreeDrawParameters)});
     pipeline_->Initialize();
   }
   if (frames_.empty()) {
@@ -231,7 +233,7 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
     const GpuTreeDeformParameters deform{0,
                                          shoot_count_,
                                          0,
-                                         0,
+                                         gpu->GetTreeState(physics->GetGpuTreeIndex())->attribute_arrays ? 1u : 0u,
                                          glm::vec4(transform.GetPosition(), 0),
                                          glm::vec4(transform.GetScale(), 0),
                                          {rotation.x, rotation.y, rotation.z, rotation.w}};
@@ -312,7 +314,18 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
     pipeline_->states.ApplyAllStates(command);
     const uint32_t limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
     for (uint32_t base = 0; base < nodes_.size(); base += limit) {
-      const std::array<uint32_t, 8> push{base, static_cast<uint32_t>(nodes_.size()), 0, 0, 0, 0, 0, 0};
+      GpuTreeDrawParameters push;
+      push.node_base = base;
+      push.node_count = static_cast<uint32_t>(nodes_.size());
+      if (context && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")) {
+        float error = 0.5f, edge = 12.0f;
+        if (tree->GetScene()->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
+          const auto branch = tree->GetScene()->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
+          error = branch->screen_space_tessellation ? glm::clamp(branch->pixel_error, 0.1f, 2.0f) : 0;
+          edge = glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f);
+        }
+        push.tessellation = {static_cast<float>(width), static_cast<float>(height), error, edge};
+      }
       pipeline_->PushConstant(command, 0, push);
       pipeline_->DrawMeshTasks(command, std::min(limit, static_cast<uint32_t>(nodes_.size()) - base), 1, 1);
     }

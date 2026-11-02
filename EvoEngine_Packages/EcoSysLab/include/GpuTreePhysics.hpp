@@ -67,6 +67,11 @@ class GpuTreePhysics {
     return trees_[id]->node_rods;
   }
 
+  void DownloadVertices(std::vector<DynamicTreeSkeleton::GpuRestState::Vertex>& output, uint32_t id = 0,
+                        uint32_t copy = UINT32_MAX) const;
+  void DownloadRods(std::vector<DynamicTreeSkeleton::GpuRestState::Rod>& output, uint32_t id = 0,
+                    uint32_t copy = UINT32_MAX) const;
+
  private:
   struct Parameters {
     uint32_t vertex_index = 0;
@@ -96,21 +101,23 @@ class GpuTreePhysics {
   struct TreeAddresses {
     std::array<uint64_t, 2> vertices{}, rods{};
     uint64_t angles = 0, vertex_rods = 0, rod_angles = 0, node_rods = 0, predicted = 0, previous = 0;
+    uint64_t vertex_coefficients = 0, rod_coefficients = 0, angle_coefficients = 0, reserved = 0;
     glm::uvec4 counts{};
   };
-  static_assert(sizeof(TreeAddresses) == 96);
+  static_assert(sizeof(TreeAddresses) == 128);
   bool Prepare();
   std::shared_ptr<DescriptorSetLayout> layout_, wind_layout_;
   std::shared_ptr<DescriptorSet> descriptor_set_, empty_wind_set_;
   std::array<std::shared_ptr<Buffer>, 2> empty_wind_buffers_;
-  std::shared_ptr<Buffer> registry_, vertex_groups_, rod_groups_, tree_parameters_;
+  std::shared_ptr<Buffer> registry_, vertex_groups_, rod_groups_, tree_parameters_, coefficient_groups_;
   BufferUploadArena upload_arena_;
-  std::shared_ptr<ComputePipeline> predict_, solve_position_, solve_rotation_, update_velocity_;
+  std::shared_ptr<ComputePipeline> predict_, solve_position_, solve_rotation_, update_velocity_, prepare_coefficients_;
+  bool reference_ = false;
   std::vector<std::shared_ptr<GpuTreePhysicsState>> trees_;
   std::vector<uint32_t> active_ids_;
   std::vector<TreeAddresses> cached_addresses_;
   bool groups_dirty_ = true;
-  uint32_t vertex_group_count_ = 0, rod_group_count_ = 0;
+  uint32_t vertex_group_count_ = 0, rod_group_count_ = 0, coefficient_group_count_ = 0;
   std::vector<std::pair<uint32_t, std::shared_ptr<GpuTreePhysicsState>>> retired_states_;
   std::vector<std::pair<uint32_t, std::shared_ptr<Buffer>>> retired_buffers_;
   std::vector<std::pair<uint32_t, std::shared_ptr<DescriptorSet>>> retired_sets_;

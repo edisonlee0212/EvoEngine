@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "BranchRenderer.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
 #include "EcoSysLabSystem.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
@@ -125,4 +126,35 @@ TEST(TreeModelRevision, DeserializationInvalidatesDerivedStateWithoutChangingSav
   DeserializeTree(YAML::Load("{}"), tree);
   EXPECT_GT(tree.GetShootModelRevision().content, revision.content);
   EXPECT_EQ(SaveTree(tree), saved);
+}
+
+TEST(BranchRenderer, TessellationSettingsRoundTripAndLegacyDefaults) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  ASSERT_TRUE(evo_engine::Serialization::RegisterSerializationHandler<evo_engine::AssetRef>(
+      [](YAML::Emitter& out, const evo_engine::AssetRef& reference) {
+        reference.Serialize(out);
+      },
+      [](const YAML::Node& in, evo_engine::AssetRef& reference) {
+        reference.Deserialize(in);
+      },
+      {}, "AssetRef"));
+  BranchRenderer source;
+  source.screen_space_tessellation = false;
+  source.pixel_error = 1.25f;
+  source.segment_length_pixels = 24;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeBranchRenderer(out, source);
+  out << YAML::EndMap;
+  BranchRenderer restored;
+  DeserializeBranchRenderer(YAML::Load(out.c_str()), restored);
+  EXPECT_FALSE(restored.screen_space_tessellation);
+  EXPECT_FLOAT_EQ(restored.pixel_error, 1.25f);
+  EXPECT_FLOAT_EQ(restored.segment_length_pixels, 24);
+  BranchRenderer legacy;
+  DeserializeBranchRenderer(YAML::Load("{}"), legacy);
+  EXPECT_TRUE(legacy.screen_space_tessellation);
+  EXPECT_FLOAT_EQ(legacy.pixel_error, 0.5f);
+  EXPECT_FLOAT_EQ(legacy.segment_length_pixels, 12);
 }

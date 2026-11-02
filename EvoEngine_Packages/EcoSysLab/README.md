@@ -105,6 +105,23 @@ and writes a Markdown summary beside the CSVs. CPU scopes separate runtime updat
 render registration, and debug rendering. Tree-cache build scopes and node-upload counters identify structural refreshes.
 CPU scope times are inclusive; GPU pass call counts show the fixed-update
 duty cycle, and pass times must be distinguished from whole-frame time.
+Solver phase timings are opt-in: add `--physics-phase-timings` to record prediction, position constraints,
+rotation constraints, and velocity updates. These extra GPU queries affect timing, so compare both paths with the
+same option and use a separate capture without it for ordinary frame performance. The script rejects captures
+whose timestamp query capacity was exceeded. `--full-physics-writes` selects the original full-record write path
+for same-executable numerical and performance comparisons; ordinary launches use motion-only writes.
+The corresponding environment flags are `EVOENGINE_TREE_PHYSICS_PHASE_TIMINGS` and
+`EVOENGINE_TREE_PHYSICS_FULL_WRITES` (set to `1`, or unset to disable).
+BranchRenderer enables **Adaptive tessellation** by default. Its **Pixel error** target (0.5 pixels) and
+**Segment length (pixels)** target (12 pixels) reduce radial samples and longitudinal rings with projected size;
+the existing tree mesh subdivision settings remain the maximum detail. Counts use the current GPU pose and the
+camera's unjittered projection. Near-plane intersections and visible bark displacement retain full detail.
+Every child evaluates the parent's canonical radial count for its start ring. The first junction transition keeps
+its full-detail endpoint; remaining spans are simplified. No internodes are removed and no ring data is stored.
+Unselected Plant Visual trees use adaptive detail; selected inspection retains full detail and picking IDs.
+This first stage adapts camera geometry and Plant Visual; existing shadow and foliage paths retain their behavior.
+Use `--full-tessellation` with the profiling script (or set `EVOENGINE_TREE_FULL_TESSELLATION=1`) for the
+full-subdivision reference. Changing views or these controls updates draw parameters without rebuilding tree buffers.
 Directional branch shadows use one light-facing quad per internode. A fragment shader intersects a short
 rounded, tapered segment chain following the current GPU-deformed centerline, including the parent-end junction,
 and writes the hit depth. This approximates bark and curved surfaces rather than reproducing every mesh triangle;
@@ -136,6 +153,9 @@ Removed buffers and scene controllers are retained until queued GPU work can fin
 never the bent GPU pose. On each growth iteration, the new skeleton replaces the GPU dynamic state before rendering;
 GPU solving pauses during continuous growth and resumes automatically when growth is idle. Physics also
 starts automatically from the original pose after loading. Use **Reset GPU pose to growth** to discard a bend.
+Both solver buffer copies retain their initialized topology and rest attributes. Iterative passes write only
+vertex position/velocity (32 bytes) and rod rotation (16 bytes) in contiguous attribute columns.
+Wind and rendering consume those columns directly. Structural changes initialize both copies again.
 Its pose feeds procedural rendering without copying bent poses back to the CPU. Moving or rotating a tree or its forest
 parent moves its pinned roots, and branches bend in response. Changing scale
 reinitializes GPU physics from the growth pose.
@@ -247,3 +267,22 @@ Runtime types and simulation remain usable without the editor companion. Put new
 `Editor/`, following the [extension workflow](../../docs/editor-extension-workflow.md). The `ecosyslab` profile creates
 its four demo trees during editor startup; exporting that result requires saving the generated scene/assets. The launcher
 profile is not a standalone dataset-generation command.
+
+### GPU solver attribute arrays and coefficient cache
+
+Per-tree vertex and rod allocations store contiguous 16-byte attribute columns: positions/inverse mass,
+velocities/radius, rest data and topology; rod rotations have their own column. Both ping-pong allocations
+retain initialized static columns. This improves access locality without changing allocation ownership;
+it is not a reduction in static storage. Rendering, Plant Visual and wind read the current arrays directly,
+without an output conversion pass. CPU diagnostic/grid-reset readback uses `DownloadVertices`/`DownloadRods`
+to reconstruct records; `GetVertexBuffer`/`GetRodBuffer` now expose the packed GPU layout.
+
+A GPU preparation pass caches vertex inertia/denominators, rod stretch weights and angle bend weights.
+It runs after structural initialization or changes to effective substep duration/stretch/bend stiffness.
+Damping, gravity, wind and entity motion remain live parameters and do not invalidate those coefficients.
+Internal solver barriers synchronize compute storage reads/writes; the final broad barrier preserves visibility
+to downstream rendering, wind, transfers and readback. The solver equations and iteration ordering are unchanged.
+
+`Scripts/profile_windy_tree.py --physics-reference` selects the previous AoS layout, uncached coefficients and
+broad per-dispatch barriers for comparison. `--full-physics-writes` additionally enables the older full-record
+writes and implies that reference path. The default uses attribute arrays, cached coefficients and scoped barriers.

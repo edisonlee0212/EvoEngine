@@ -8,6 +8,9 @@ using namespace evo_engine;
 class BranchRenderer : public IPrivateComponent {
  public:
   AssetRef material_ref;
+  bool screen_space_tessellation = true;
+  float pixel_error = 0.5f;
+  float segment_length_pixels = 12.0f;
 
   void CollectAssetRef(std::vector<AssetRef>& list) {
     list.push_back(material_ref);

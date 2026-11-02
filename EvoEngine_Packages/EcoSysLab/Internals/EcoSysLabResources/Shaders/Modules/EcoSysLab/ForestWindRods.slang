@@ -13,8 +13,8 @@ public bool LoadWindRod(uint index, out TreePhysicsRod rod, out TreePhysicsVerte
     b = (TreePhysicsVertex)0;
     return false;
   }
-  rod = PhysicsLoad<TreePhysicsRod>(buffers.rods[0], local);
-  a = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[0], rod.links.x);
-  b = PhysicsLoad<TreePhysicsVertex>(buffers.vertices[0], rod.links.y);
+  rod = PhysicsRod(buffers, 0, local);
+  a = PhysicsVertex(buffers, 0, rod.links.x);
+  b = PhysicsVertex(buffers, 0, rod.links.y);
   return true;
 }

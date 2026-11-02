@@ -97,7 +97,13 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
       "Tree");
   registered &= registrar.RegisterInspector<BranchRenderer>(
       [](InspectorContext& context, BranchRenderer& target) {
-        return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
+        bool changed = context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
+        changed |= ImGui::Checkbox("Adaptive tessellation", &target.screen_space_tessellation);
+        if (target.screen_space_tessellation) {
+          changed |= ImGui::SliderFloat("Pixel error", &target.pixel_error, 0.1f, 2.0f);
+          changed |= ImGui::SliderFloat("Segment length (pixels)", &target.segment_length_pixels, 2.0f, 64.0f);
+        }
+        return changed;
       },
       "BranchRenderer");
   registered &= registrar.RegisterInspector<Blower>(

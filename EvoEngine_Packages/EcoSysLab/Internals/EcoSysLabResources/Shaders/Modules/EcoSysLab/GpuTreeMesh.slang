@@ -1,3 +1,5 @@
+import EcoSysLab.TreeTessellation;
+
 public struct GpuTreeNode {
   public float4 position_thickness;
   public float4 direction_length;
@@ -37,11 +39,112 @@ public struct GpuTreeInstanceIndices {
   public uint light_face;
   public uint padding0;
   public uint geometry_pass;
+  public float4 tessellation;
 };
 
 public uint TreeRadialCount(GpuTreeNode node) {
   uint count = max(4u, uint(ceil(node.position_thickness.w * 3.14159265359 / node.subdivisions.x)));
   return min(256u, (count + 1u) & ~1u);
+}
+
+public struct TreeTaskPayload {
+  public uint node_index;
+  public uint rings;
+  public uint start_radial;
+  public uint radial;
+  public float first_ring_t;
+  public uint full_rings;
+};
+
+public void TreeControlPoints(GpuTreeNode node, out float3 p0, out float3 p1, out float3 p2, out float3 p3) {
+  float3 axis = normalize(node.direction_length.xyz);
+  p0 = node.position_thickness.xyz;
+  p3 = p0 + axis * node.direction_length.w;
+  if (node.subdivisions.z > 0 || node.subdivisions.w > 0) {
+    float3 incoming = node.links.x == 0xffffffffu ? axis : tree_nodes[node.links.x].direction_length.xyz;
+    p1 = p0 + incoming * (node.direction_length.w * node.subdivisions.z);
+    p2 = p3 - axis * (node.direction_length.w * node.subdivisions.w);
+  } else {
+    p1 = lerp(p0,p3,1.0/3.0);
+    p2 = lerp(p0,p3,2.0/3.0);
+  }
+}
+
+float TreeBarkBound(GpuTreeNode node) {
+  float bound = 4 * abs(node.bark.z);
+  if (node.radial_axis_distance.w < node.bark_base.x && node.bark_base.z != 0)
+    bound += 5 * abs(node.bark_base.z) * pow(saturate(1-node.radial_axis_distance.w/max(node.bark_base.x,1e-4)),
+                                           node.bark_base.y);
+  return bound;
+}
+
+float4 TreeRadiusExtent(float radius, float4x4 transform) {
+  return radius * (abs(transform[0]) + abs(transform[1]) + abs(transform[2]));
+}
+
+public uint TreeViewRadialCount(GpuTreeNode node, float4x4 transform, float4 detail) {
+  uint maximum = TreeRadialCount(node);
+  if (detail.z <= 0 || maximum == 4) return maximum;
+  float bark = TreeBarkBound(node);
+  float3 p0,p1,p2,p3;
+  TreeControlPoints(node,p0,p1,p2,p3);
+  float4 extent = TreeRadiusExtent(0.5 * node.position_thickness.w * (1+bark), transform);
+  float radius = max(max(TreeClipRadius(mul(float4(p0,1),transform),extent,detail.xy),
+                        TreeClipRadius(mul(float4(p1,1),transform),extent,detail.xy)),
+                    max(TreeClipRadius(mul(float4(p2,1),transform),extent,detail.xy),
+                        TreeClipRadius(mul(float4(p3,1),transform),extent,detail.xy)));
+  if (radius*bark > detail.z*0.25) return maximum;
+  return TreeScreenRadialCount(radius,detail.z*0.5,maximum);
+}
+
+public TreeTaskPayload TreeBuildTask(uint index, float4x4 transform, float4 detail) {
+  TreeTaskPayload result = (TreeTaskPayload)0;
+  result.node_index = index;
+  GpuTreeNode node = tree_nodes[index];
+  if (node.links.z == 0xffffffffu || node.direction_length.w <= 1e-6 ||
+      dot(node.direction_length.xyz,node.direction_length.xyz) <= 1e-8) return result;
+  uint full_radial = TreeRadialCount(node), full_start = full_radial;
+  result.radial = TreeViewRadialCount(node,transform,detail);
+  result.start_radial = result.radial;
+  bool parent_valid = false;
+  if (node.links.x != 0xffffffffu) {
+    GpuTreeNode parent = tree_nodes[node.links.x];
+    parent_valid = parent.links.z != 0xffffffffu && parent.direction_length.w > 1e-6;
+    if (parent_valid) {
+      full_start = TreeRadialCount(parent);
+      result.start_radial = TreeViewRadialCount(parent,transform,detail);
+    }
+  }
+  uint full_rings = min(max(1u,uint(ceil(node.direction_length.w/node.subdivisions.y))),
+                       max(1u,(65535u*20u-full_start+full_radial)/(2u*full_radial)));
+  result.rings = full_rings;
+  result.full_rings = full_rings;
+  // Keep the original fork transition, whose end otherwise changes with the ring count.
+  result.first_ring_t = parent_valid ? 1.0/float(full_rings) : 0;
+  if (detail.z <= 0 || full_rings == 1) return result;
+  float3 p0,p1,p2,p3;
+  TreeControlPoints(node,p0,p1,p2,p3);
+  float4 c0=mul(float4(p0,1),transform), c1=mul(float4(p1,1),transform);
+  float4 c2=mul(float4(p2,1),transform), c3=mul(float4(p3,1),transform);
+  float bark=TreeBarkBound(node);
+  float4 extent=TreeRadiusExtent(0.5*node.position_thickness.w*(1+bark),transform);
+  float radius=max(max(TreeClipRadius(c0,extent,detail.xy),TreeClipRadius(c1,extent,detail.xy)),
+                   max(TreeClipRadius(c2,extent,detail.xy),TreeClipRadius(c3,extent,detail.xy)));
+  if (radius >= 1e29 || radius*bark > detail.z*0.25) return result;
+  uint rings=TreeScreenRingCount(c0,c1,c2,c3,detail.xy,detail.z*0.5,detail.w,full_rings);
+  result.rings = parent_valid ? min(full_rings,rings+1u) : rings;
+  return result;
+}
+
+public void TreeSpanParameters(TreeTaskPayload task, uint span, out float t0, out float t1) {
+  if (task.first_ring_t > 0 && task.rings != task.full_rings) {
+    t0 = span == 0 ? 0 : lerp(task.first_ring_t,1.0,float(span-1u)/float(max(1u,task.rings-1u)));
+    t1 = span == 0 ? task.first_ring_t : lerp(task.first_ring_t,1.0,float(span)/float(max(1u,task.rings-1u)));
+  } else {
+    t0=float(span)/float(task.rings);
+    t1=float(span+1u)/float(task.rings);
+  }
+  if (span+1u == task.rings) t1=1.0;
 }
 
 // The same ring evaluator is used for a parent's end and each child's start.
@@ -104,11 +207,8 @@ public void EvaluateTreeFrame(GpuTreeNode node, float t, out float3 center, out 
   axis = normalize(node.direction_length.xyz);
   center = node.position_thickness.xyz + axis * (node.direction_length.w * t);
   if (node.direction_length.w > 1e-6 && (node.subdivisions.z > 0.0 || node.subdivisions.w > 0.0)) {
-    float3 p0 = node.position_thickness.xyz;
-    float3 p3 = p0 + axis * node.direction_length.w;
-    float3 incoming = node.links.x == 0xffffffffu ? axis : tree_nodes[node.links.x].direction_length.xyz;
-    float3 p1 = p0 + incoming * (node.direction_length.w * node.subdivisions.z);
-    float3 p2 = p3 - axis * (node.direction_length.w * node.subdivisions.w);
+    float3 p0,p1,p2,p3;
+    TreeControlPoints(node,p0,p1,p2,p3);
     float u = 1.0 - t;
     center = u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
     float3 derivative = u*u*(p1-p0) + 2.0*u*t*(p2-p1) + t*t*(p3-p2);

@@ -59,6 +59,10 @@ def main():
     parser.add_argument("--analyze-only", action="store_true")
     parser.add_argument("--full-shadows", action="store_true", help="Benchmark full branch shadow geometry")
     parser.add_argument("--gather", action="store_true", help="Benchmark the reference cell-driven coupling")
+    parser.add_argument("--full-physics-writes", action="store_true", help="Benchmark full-record solver writes")
+    parser.add_argument("--physics-phase-timings", action="store_true", help="Add per-dispatch solver GPU scopes")
+    parser.add_argument("--physics-reference", action="store_true", help="Benchmark AoS physics with uncached coefficients and broad barriers")
+    parser.add_argument("--full-tessellation", action="store_true", help="Use configured full branch subdivisions")
     args = parser.parse_args()
     directory = args.output.resolve()
     if not args.analyze_only:
@@ -76,9 +80,23 @@ def main():
         environment.pop("EVOENGINE_ROD_AIR_GATHER", None)
         if args.gather:
             environment["EVOENGINE_ROD_AIR_GATHER"] = "1"
+        for name, enabled in (("EVOENGINE_TREE_PHYSICS_FULL_WRITES", args.full_physics_writes),
+                              ("EVOENGINE_TREE_PHYSICS_PHASE_TIMINGS", args.physics_phase_timings),
+                              ("EVOENGINE_TREE_FULL_TESSELLATION", args.full_tessellation),
+                              ("EVOENGINE_TREE_PHYSICS_REFERENCE", args.physics_reference)):
+            environment.pop(name, None)
+            if enabled:
+                environment[name] = "1"
         with (directory / "editor.log").open("w", encoding="utf-8") as log:
             subprocess.run([str(editor), "--demo", "windy-tree"], cwd=editor.parent, env=environment,
                            stdout=log, stderr=subprocess.STDOUT, timeout=1800, check=True)
+        with (directory / "configuration.txt").open("a", encoding="utf-8") as configuration:
+            configuration.write(f"physics_reference={int(args.physics_reference)}\n")
+            configuration.write(f"tessellation={'full' if args.full_tessellation else 'adaptive'}\n")
+            configuration.write(f"physics_writes={'full' if args.full_physics_writes else 'motion'}\n")
+            configuration.write(f"physics_phase_timings={int(args.physics_phase_timings)}\n")
+        if "GPU timestamp capacity exhausted" in (directory / "editor.log").read_text(encoding="utf-8"):
+            raise RuntimeError("GPU timestamp scopes were skipped; capture fewer passes before comparing timings")
     summarize(directory)
 
 
