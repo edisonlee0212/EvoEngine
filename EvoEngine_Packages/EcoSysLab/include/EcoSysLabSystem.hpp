@@ -97,6 +97,7 @@ class EcoSysLabSystem : public ISystem {
       std::weak_ptr<Tree> tree;
       std::weak_ptr<DynamicTreeSkeleton> physics;
       uint64_t revision = 0;
+      uint32_t gpu_id = UINT32_MAX;
     };
     std::shared_ptr<GpuTreePhysics> tree_physics;
     std::weak_ptr<Scene> physics_scene;

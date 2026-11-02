@@ -3,6 +3,7 @@
 //
 
 #include "EcoSysLabLayer.hpp"
+#include "Profiler.hpp"
 
 #include "AdvancedShootDescriptor.hpp"
 #include "Application.hpp"
@@ -54,6 +55,9 @@ void EcoSysLabLayer::OnDestroy() {
   if (const auto scene = GetScene())
     if (const auto system = scene->GetSystem<EcoSysLabSystem>())
       system->dynamics.Reset();
+  if (Platform::Initialized())
+    Platform::WaitForFrameSubmissions("EcoSysLab GPU shutdown");
+  retired_dynamics_.clear();
   gpu_tree_mesh_renderer_.reset();
   demo_bootstrap_.reset();
   DsFungusInjection::ReleaseStaticGpuResources();
@@ -188,6 +192,12 @@ float EcoSysLabLayer::GetSimulatedTime() const {
 }
 
 void EcoSysLabLayer::Update() {
+  const ProfilerScope update_scope("EcoSysLab / Runtime Update", "EcoSysLab");
+  retired_dynamics_.erase(std::remove_if(retired_dynamics_.begin(), retired_dynamics_.end(),
+                                         [](const auto& retired) {
+                                           return retired.submission->status != FrameSubmissionState::Status::Pending;
+                                         }),
+                          retired_dynamics_.end());
   const auto scene = GetScene();
   if (!scene)
     return;
@@ -196,13 +206,24 @@ void EcoSysLabLayer::Update() {
     system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
     system->Enable();
   }
-  system->environment.EnsureConfiguration(scene);
-  UpdateDemoTreeGrowth();
+  {
+    const ProfilerScope scope("EcoSysLab / Environment configuration", "EcoSysLab");
+    system->environment.EnsureConfiguration(scene);
+  }
+  {
+    const ProfilerScope scope("EcoSysLab / Demo growth", "EcoSysLab");
+    UpdateDemoTreeGrowth();
+  }
   system->dynamics.UpdateAir(scene, system->environment,
                              system->growth.remaining_time > 0.0f || system->growth.grew_this_frame);
-  RegisterStrandRenderingProcedure();
-  if (system->dynamics.wind)
+  {
+    const ProfilerScope scope("EcoSysLab / Register strands", "EcoSysLab");
+    RegisterStrandRenderingProcedure();
+  }
+  if (system->dynamics.wind) {
+    const ProfilerScope scope("EcoSysLab / Register wind rendering", "EcoSysLab");
     system->dynamics.wind->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage);
+  }
   if (Platform::MeshShaderEnabled()) {
     if (!gpu_tree_mesh_renderer_)
       gpu_tree_mesh_renderer_ = std::make_shared<GpuTreeMeshRenderer>();

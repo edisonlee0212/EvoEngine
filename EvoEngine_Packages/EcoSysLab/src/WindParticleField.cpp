@@ -8,6 +8,7 @@
 #include "Blower.hpp"
 #include "Climate.hpp"
 #include "GpuTreePhysics.hpp"
+#include "Profiler.hpp"
 #include "RenderLayer.hpp"
 #include "RenderTexture.hpp"
 #include "Shader.hpp"
@@ -19,7 +20,8 @@ bool WindParticleField::Prepare() {
     return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
            grid_pipeline_->Initialized() && air_update_pipeline_->Initialized() && trace_pipeline_->Initialized() &&
            clear_rods_pipeline_->Initialized() && build_rods_pipeline_->Initialized() &&
-           rod_air_pipeline_->Initialized() && render_pipeline_->Initialized() && grid_render_pipeline_->Initialized();
+           rod_air_pipeline_->Initialized() && rod_air_scatter_pipeline_->Initialized() &&
+           render_pipeline_->Initialized() && grid_render_pipeline_->Initialized();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return false;
@@ -71,13 +73,13 @@ bool WindParticleField::Prepare() {
     trace_layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   trace_layout_->Initialize();
   rod_layout_ = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t i = 0; i < 6; ++i)
+  for (uint32_t i = 0; i < 8; ++i)
     rod_layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   rod_layout_->Initialize();
   rod_frames_.resize(Platform::GetMaxFramesInFlight());
 
-  const auto compute_shader = [](const char* path) {
-    return Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+  const auto compute_shader = [](const char* path, const char* defines = "") {
+    return Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines() + defines,
                                    std::filesystem::path("./EcoSysLabResources/Shaders/Compute/Wind") / path);
   };
   advect_pipeline_ = std::make_shared<ComputePipeline>();
@@ -112,7 +114,7 @@ bool WindParticleField::Prepare() {
   trace_pipeline_->Initialize();
   const auto rod_pipeline = [&](const char* path, uint32_t parameter_size) {
     auto pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = compute_shader(path);
+    pipeline->compute_shader = compute_shader(path, "\n#define EE_FOREST_PHYSICS 1\n");
     pipeline->descriptor_set_layouts = {rod_layout_};
     pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, parameter_size});
     pipeline->Initialize();
@@ -121,6 +123,7 @@ bool WindParticleField::Prepare() {
   clear_rods_pipeline_ = rod_pipeline("ClearRods.slang", sizeof(RodParameters));
   build_rods_pipeline_ = rod_pipeline("BuildRods.slang", sizeof(RodParameters));
   rod_air_pipeline_ = rod_pipeline("RodAir.slang", sizeof(RodAirParameters));
+  rod_air_scatter_pipeline_ = rod_pipeline("RodAirScatter.slang", sizeof(RodAirParameters));
 
   const auto graphics_shader = [](ShaderType type, const char* path) {
     return Shader::CreateTemporary(type, Platform::GetShaderGlobalDefines(),
@@ -155,7 +158,8 @@ bool WindParticleField::Prepare() {
   return advect_pipeline_->Initialized() && emit_pipeline_->Initialized() && clear_grid_pipeline_->Initialized() &&
          grid_pipeline_->Initialized() && air_update_pipeline_->Initialized() && trace_pipeline_->Initialized() &&
          clear_rods_pipeline_->Initialized() && build_rods_pipeline_->Initialized() &&
-         rod_air_pipeline_->Initialized() && render_pipeline_->Initialized() && grid_render_pipeline_->Initialized();
+         rod_air_pipeline_->Initialized() && rod_air_scatter_pipeline_->Initialized() &&
+         render_pipeline_->Initialized() && grid_render_pipeline_->Initialized();
 }
 
 void WindParticleField::InvalidateAirSets() {
@@ -169,11 +173,15 @@ void WindParticleField::InvalidateAirSets() {
   grid_render_set_.reset();
 }
 
-void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees) {
-  tree_bounds_.clear();
-  for (const auto& tree : trees) {
+void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
+                                             const std::vector<uint32_t>& ids) {
+  for (size_t i = 0; i < trees.size(); ++i) {
+    const auto& tree = trees[i];
+    const auto id = ids.empty() ? static_cast<uint32_t>(i) : ids[i];
+    if (tree_bounds_.size() <= id)
+      tree_bounds_.resize(id + 1);
     if (tree.vertices.empty()) {
-      tree_bounds_.push_back({});
+      tree_bounds_[id] = {};
       continue;
     }
     glm::vec3 lower(tree.vertices.front().position_inverse_mass);
@@ -190,7 +198,7 @@ void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkelet
       local_upper = glm::max(local_upper, local);
     }
     TreeBounds bounds{local_lower, local_upper, tree.initial_model};
-    tree_bounds_.push_back(std::move(bounds));
+    tree_bounds_[id] = std::move(bounds);
     const glm::vec3 center = (lower + upper) * 0.5f;
     const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
     const glm::vec3 half_width = glm::max((upper - lower) * 0.5f, glm::vec3(air_grid_.GetCellSize() * 0.5f));
@@ -202,9 +210,12 @@ void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkelet
   }
 }
 
-void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models) {
-  for (size_t i = 0; i < std::min(models.size(), tree_bounds_.size()); ++i) {
-    auto& bounds = tree_bounds_[i];
+void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models, const std::vector<uint32_t>& ids) {
+  for (size_t i = 0; i < models.size(); ++i) {
+    const auto id = ids.empty() ? static_cast<uint32_t>(i) : ids[i];
+    if (id >= tree_bounds_.size())
+      continue;
+    auto& bounds = tree_bounds_[id];
     if (bounds.model == models[i])
       continue;
     glm::vec3 lower(std::numeric_limits<float>::max());
@@ -233,29 +244,29 @@ void WindParticleField::ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuR
                                      const std::vector<glm::mat4>& models, const float cell_size) {
   auto poses = trees;
   if (physics) {
-    size_t count = 0;
-    for (const auto& tree : poses)
-      count += tree.vertices.size();
-    std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
-    physics->GetVertexBuffer()->DownloadVector(vertices, count);
-    size_t offset = 0;
+    const auto& ids = physics->GetActiveTreeIds();
     for (size_t i = 0; i < poses.size(); ++i) {
       auto& tree = poses[i];
-      for (auto& vertex : tree.vertices)
-        vertex.position_inverse_mass = vertices[offset++].position_inverse_mass;
+      std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
+      physics->GetVertexBuffer(ids[i])->DownloadVector(vertices, tree.vertices.size());
+      for (size_t j = 0; j < vertices.size(); ++j)
+        tree.vertices[j].position_inverse_mass = vertices[j].position_inverse_mass;
       tree.initial_model = models[i];
     }
   }
+
   InvalidateAirSets();
   if (cell_size > 0.0f && glm::max(cell_size, Climate::minimum_air_cell_size) != air_grid_.GetCellSize())
     air_grid_ = GpuSpatialGrid(glm::max(cell_size, Climate::minimum_air_cell_size));
   else
     air_grid_.Reset();
-  RegisterTreeCoverage(poses);
+  tree_bounds_.clear();
+  RegisterTreeCoverage(poses, physics ? physics->GetActiveTreeIds() : std::vector<uint32_t>{});
 }
 
 void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float time_step,
                              const std::shared_ptr<GpuTreePhysics>& physics) {
+  const ProfilerScope cpu_scope("EcoSysLab / Wind Step", "EcoSysLab");
   if (scene_.lock() != scene) {
     const bool replacing_scene = !scene_.expired();
     particles_.reset();
@@ -264,6 +275,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     rod_heads_.reset();
     rod_next_.reset();
     rod_max_extent_.reset();
+    rod_air_sums_.reset();
     descriptor_set_.reset();
     layout_.reset();
     advect_pipeline_.reset();
@@ -291,6 +303,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     clear_rods_pipeline_.reset();
     build_rods_pipeline_.reset();
     rod_air_pipeline_.reset();
+    rod_air_scatter_pipeline_.reset();
     retired_air_sets_.clear();
     emission_remainders_.clear();
     emitted_ = 0;
@@ -416,14 +429,27 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
   }
   const uint32_t rod_count = physics ? physics->GetRodCount() : 0;
   if (rod_count && air_update_set_) {
-    if (rod_next_->GetSize() < static_cast<VkDeviceSize>(rod_count) * sizeof(uint32_t)) {
+    physics->PrepareRegistry();
+    const uint32_t dispatch_count = physics->GetRodGroupCount() * 64;
+    if (!rod_driven_coupling && rod_next_->GetSize() < static_cast<VkDeviceSize>(dispatch_count) * sizeof(uint32_t)) {
       VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-      info.size = static_cast<VkDeviceSize>(rod_count) * sizeof(uint32_t);
+      info.size = static_cast<VkDeviceSize>(dispatch_count) * sizeof(uint32_t);
       info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
       info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
       VmaAllocationCreateInfo allocation{};
       allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
       rod_next_ = std::make_shared<Buffer>(info, allocation);
+    }
+    if (rod_driven_coupling &&
+        (!rod_air_sums_ ||
+         rod_air_sums_->GetSize() < static_cast<VkDeviceSize>(air_grid_.GetCellCount()) * sizeof(glm::vec4))) {
+      VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      info.size = ((air_grid_.GetCellCount() + GpuSpatialGrid::chunk_capacity - 1) / GpuSpatialGrid::chunk_capacity) *
+                  static_cast<VkDeviceSize>(GpuSpatialGrid::chunk_capacity) * sizeof(glm::vec4);
+      info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      VmaAllocationCreateInfo allocation{};
+      allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+      rod_air_sums_ = std::make_shared<Buffer>(info, allocation);
     }
     auto& frame = rod_frames_[Platform::GetCurrentFrameIndex()];
     if (frame.frame_count != Platform::GetFrameCount()) {
@@ -442,23 +468,50 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     rods->UpdateBufferDescriptorBinding(1, rod_heads_);
     rods->UpdateBufferDescriptorBinding(2, rod_next_);
     rods->UpdateBufferDescriptorBinding(3, rod_max_extent_);
-    rods->UpdateBufferDescriptorBinding(4, physics->GetVertexBuffer());
-    rods->UpdateBufferDescriptorBinding(5, physics->GetRodBuffer());
+    rods->UpdateBufferDescriptorBinding(4, particles_);
+    rods->UpdateBufferDescriptorBinding(5, particles_);
+    rods->UpdateBufferDescriptorBinding(6, physics->GetRegistryBuffer());
+    rods->UpdateBufferDescriptorBinding(7, physics->GetRodGroupBuffer());
     const auto air = acquire();
     air->UpdateBufferDescriptorBinding(0, air_grid_.GetAddresses());
-    air->UpdateBufferDescriptorBinding(1, rod_heads_);
-    air->UpdateBufferDescriptorBinding(2, rod_next_);
+    air->UpdateBufferDescriptorBinding(1, rod_driven_coupling ? air_grid_.GetHeads() : rod_heads_);
+    air->UpdateBufferDescriptorBinding(2, rod_driven_coupling ? rod_air_sums_ : rod_next_);
     air->UpdateBufferDescriptorBinding(3, rod_max_extent_);
-    air->UpdateBufferDescriptorBinding(4, physics->GetVertexBuffer());
-    air->UpdateBufferDescriptorBinding(5, physics->GetRodBuffer());
+    air->UpdateBufferDescriptorBinding(4, particles_);
+    air->UpdateBufferDescriptorBinding(5, particles_);
+    air->UpdateBufferDescriptorBinding(6, physics->GetRegistryBuffer());
+    air->UpdateBufferDescriptorBinding(7, physics->GetRodGroupBuffer());
     frame.physics.push_back(physics);
-    frame.buffers.push_back(rod_next_);
-    const RodParameters rod_parameters{GetParticleCount(), rod_count, grid_bucket_count, grid_cell_size};
-    const RodAirParameters air_parameters{air_grid_.GetCellCount(), rod_count, grid_bucket_count, grid_cell_size,
-                                          air_grid_.GetCellSize(),  dt};
+    frame.buffers.push_back(rod_driven_coupling ? rod_air_sums_ : rod_next_);
+    const RodParameters rod_parameters{GetParticleCount(), dispatch_count, grid_bucket_count, grid_cell_size};
+    const RodAirParameters air_parameters{air_grid_.GetCellCount(), dispatch_count,          grid_bucket_count,
+                                          grid_cell_size,           air_grid_.GetCellSize(), dt};
     Platform::RecordCommandsMainQueue([&, rods, air](VkCommandBuffer command_buffer) {
       const auto timing = Platform::BeginGpuTimestampScope(
           command_buffer, {"EcoSysLabRodAir", "EcoSysLab Rod Air", "EcoSysLab", GpuTimestampQueue::Compute});
+      if (rod_driven_coupling) {
+        struct ScatterParameters {
+          uint32_t cell_count, rod_count, bucket_count, phase;
+          float cell_size, time_step;
+        };
+        const char* names[] = {"EcoSysLab Rod Air Clear", "EcoSysLab Rod Air Scatter", "EcoSysLab Rod Air Resolve"};
+        rod_air_scatter_pipeline_->Bind(command_buffer);
+        rod_air_scatter_pipeline_->BindDescriptorSet(command_buffer, 0, air->GetVkDescriptorSet());
+        for (uint32_t phase = 0; phase < 3; ++phase) {
+          const auto pass = Platform::BeginGpuTimestampScope(
+              command_buffer, {names[phase], names[phase], "EcoSysLab", GpuTimestampQueue::Compute});
+          rod_air_scatter_pipeline_->PushConstant(
+              command_buffer, 0,
+              ScatterParameters{air_grid_.GetCellCount(), dispatch_count, GpuSpatialGrid::bucket_count, phase,
+                                air_grid_.GetCellSize(), dt});
+          const auto count = phase == 1 ? dispatch_count : air_grid_.GetCellCount();
+          rod_air_scatter_pipeline_->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          Platform::EndGpuTimestampScope(command_buffer, pass);
+        }
+        Platform::EndGpuTimestampScope(command_buffer, timing);
+        return;
+      }
       const auto dispatch_rods = [&](const std::shared_ptr<ComputePipeline>& pipeline, uint32_t count) {
         pipeline->Bind(command_buffer);
         pipeline->BindDescriptorSet(command_buffer, 0, rods->GetVkDescriptorSet());
@@ -472,7 +525,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       Platform::EndGpuTimestampScope(command_buffer, clear_timing);
       const auto build_timing = Platform::BeginGpuTimestampScope(
           command_buffer, {"EcoSysLabBuildRods", "EcoSysLab Build Rods", "EcoSysLab", GpuTimestampQueue::Compute});
-      dispatch_rods(build_rods_pipeline_, rod_count);
+      dispatch_rods(build_rods_pipeline_, dispatch_count);
       Platform::EndGpuTimestampScope(command_buffer, build_timing);
       const auto coupling_timing = Platform::BeginGpuTimestampScope(
           command_buffer,

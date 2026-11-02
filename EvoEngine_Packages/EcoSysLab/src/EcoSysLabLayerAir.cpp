@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "EcoSysLabLayer.hpp"
 
 #include "AirEnvironment.hpp"
@@ -5,11 +6,15 @@
 #include "EcoSysLabSystem.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Platform/Platform.hpp"
+#include "Profiler.hpp"
 #include "WindParticleField.hpp"
 
 using namespace eco_sys_lab_package;
 
 void EcoSysLabSystem::Dynamics::Reset() {
+  if (tree_physics || wind)
+    if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
+      layer->RetireDynamics(tree_physics, wind);
   for (const auto& entry : entries)
     if (const auto physics = entry.physics.lock())
       physics->SetGpuPhysics(nullptr, 0);
@@ -21,6 +26,7 @@ void EcoSysLabSystem::Dynamics::Reset() {
 
 void EcoSysLabSystem::Dynamics::UpdateAir(const std::shared_ptr<Scene>& scene, Environment& environment,
                                           const bool growing) {
+  const ProfilerScope cpu_scope("EcoSysLab / Update Air", "EcoSysLab");
   auto& wind_particle_field_ = wind;
   auto& gpu_physics_entries_ = entries;
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<AirEnvironment>()) {
@@ -53,10 +59,13 @@ void EcoSysLabSystem::Dynamics::UpdateAir(const std::shared_ptr<Scene>& scene, E
     if (wind_particle_field_->GetAirCellSize() != cell_size)
       ResetAirGrid(scene, cell_size);
     std::vector<glm::mat4> models;
+    std::vector<uint32_t> ids;
     models.reserve(gpu_physics_entries_.size());
-    for (const auto& item : gpu_physics_entries_)
+    for (const auto& item : gpu_physics_entries_) {
       models.push_back(scene->GetDataComponent<GlobalTransform>(item.entity).value);
-    wind_particle_field_->RegisterTreeModels(models);
+      ids.push_back(item.gpu_id);
+    }
+    wind_particle_field_->RegisterTreeModels(models, ids);
   }
 }
 
@@ -110,48 +119,65 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
       }
     }
   }
-  bool rebuild = (!gpu_tree_physics_ && !active.empty()) || gpu_physics_scene_.lock() != scene ||
-                 active.size() != gpu_physics_entries_.size();
-  if (!rebuild) {
-    for (size_t i = 0; i < active.size(); ++i) {
-      const auto& previous = gpu_physics_entries_[i];
-      if (previous.entity != active[i].entity || previous.tree.lock() != active[i].tree ||
-          previous.physics.lock() != active[i].physics ||
-          previous.revision != active[i].tree->GetShootModelRevision().content ||
-          active[i].physics->GetGpuPhysics() != gpu_tree_physics_ || active[i].physics->GetGpuTreeIndex() != i) {
-        rebuild = true;
-        break;
-      }
-    }
-  }
-  if (rebuild) {
-    if (gpu_physics_scene_.lock() != scene)
-      wind_particle_field_.reset();
+  if (gpu_physics_scene_.lock() != scene) {
+    if (gpu_tree_physics_ || wind_particle_field_)
+      if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
+        layer->RetireDynamics(gpu_tree_physics_, wind_particle_field_);
     for (const auto& entry : gpu_physics_entries_)
-      if (const auto physics = entry.physics.lock())
-        physics->SetGpuPhysics(nullptr, 0);
+      if (const auto component = entry.physics.lock())
+        component->SetGpuPhysics(nullptr, 0);
     gpu_physics_entries_.clear();
     gpu_tree_physics_.reset();
+    wind_particle_field_.reset();
     gpu_physics_scene_ = scene;
-    if (!active.empty()) {
-      std::vector<DynamicTreeSkeleton::GpuRestState> states;
-      states.reserve(active.size());
-      for (const auto& item : active)
-        states.push_back(item.physics->ExportGpuRestState());
-      if (!wind_particle_field_)
-        wind_particle_field_ = std::make_shared<WindParticleField>();
-      wind_particle_field_->RegisterTreeCoverage(states);
-      auto shared = std::make_shared<GpuTreePhysics>();
-      if (shared->Initialize(states)) {
-        gpu_tree_physics_ = shared;
-        EVOENGINE_LOG("Initialized shared GPU tree physics for " + std::to_string(active.size()) + " trees.")
-        for (uint32_t i = 0; i < active.size(); ++i) {
-          const auto& item = active[i];
-          item.physics->SetGpuPhysics(shared, i);
-          gpu_physics_entries_.push_back(
-              {item.entity, item.tree, item.physics, item.tree->GetShootModelRevision().content});
-        }
-      }
-    }
   }
+  if (!gpu_tree_physics_ && !active.empty())
+    gpu_tree_physics_ = std::make_shared<GpuTreePhysics>();
+  if (!wind_particle_field_ && !active.empty())
+    wind_particle_field_ = std::make_shared<WindParticleField>();
+  std::vector<Entry> next;
+  std::vector<uint32_t> ids, changed_ids;
+  std::vector<DynamicTreeSkeleton::GpuRestState> changed;
+  for (const auto& item : active) {
+    const auto old = std::find_if(gpu_physics_entries_.begin(), gpu_physics_entries_.end(), [&](const auto& entry) {
+      return entry.entity == item.entity && entry.tree.lock() == item.tree && entry.physics.lock() == item.physics;
+    });
+    auto id = old == gpu_physics_entries_.end() ? UINT32_MAX : old->gpu_id;
+    const auto revision = item.tree->GetShootModelRevision().content;
+    if (old == gpu_physics_entries_.end() || old->revision != revision ||
+        item.physics->GetGpuPhysics() != gpu_tree_physics_) {
+      auto state = item.physics->ExportGpuRestState();
+      id = gpu_tree_physics_->RegisterTree(state, id);
+      if (id == UINT32_MAX)
+        continue;
+      changed.push_back(std::move(state));
+      changed_ids.push_back(id);
+      item.physics->SetGpuPhysics(gpu_tree_physics_, id);
+    }
+    next.push_back({item.entity, item.tree, item.physics, revision, id});
+    ids.push_back(id);
+  }
+  for (const auto& old : gpu_physics_entries_) {
+    if (std::find(ids.begin(), ids.end(), old.gpu_id) != ids.end())
+      continue;
+    gpu_tree_physics_->RemoveTree(old.gpu_id);
+    if (const auto component = old.physics.lock())
+      if (component->GetGpuTreeIndex() == old.gpu_id)
+        component->SetGpuPhysics(nullptr, 0);
+  }
+  gpu_physics_entries_ = std::move(next);
+  if (gpu_tree_physics_) {
+    gpu_tree_physics_->SetActiveTrees(ids);
+    // Retire old allocations even when no solver step runs.
+    if (growing || ids.empty())
+      gpu_tree_physics_->PrepareRegistry();
+  }
+  if (wind_particle_field_ && !changed.empty())
+    wind_particle_field_->RegisterTreeCoverage(changed, changed_ids);
+}
+
+void EcoSysLabLayer::RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind) {
+  if (!Platform::Initialized())
+    return;
+  retired_dynamics_.push_back({Platform::TrackCurrentFrameSubmission(), std::move(physics), std::move(wind)});
 }

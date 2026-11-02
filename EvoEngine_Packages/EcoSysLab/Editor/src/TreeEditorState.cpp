@@ -91,6 +91,7 @@ void EcoSysLabEditorLayer::Update() {
   const auto scene = GetScene();
   if (!scene)
     return;
+  ProfileWindyTreeDemo();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
   if (!system)
     return;
@@ -120,6 +121,7 @@ void EcoSysLabEditorLayer::LateUpdate() {
 }
 
 void EcoSysLabEditorLayer::OnDestroy() {
+  tree_debug_renderer_.reset();
   if (const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
     runtime->demo_growth_enabled_ = true;
   if (visualization_camera_) {
@@ -133,6 +135,7 @@ void EcoSysLabEditorLayer::OnDestroy() {
 }
 
 void EcoSysLabEditorLayer::ClearSceneVisualization() {
+  tree_debug_requested_ = false;
   trees_.clear();
   last_selected_tree_index_ = -1;
   tree_visualization_inputs_.clear();

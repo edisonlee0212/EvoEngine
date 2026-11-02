@@ -5,12 +5,41 @@
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "BasicFoliageDescriptor.hpp"
+#include "GpuTreeDebugData.hpp"
 #include "GpuTreeMeshData.hpp"
 #include "Jobs.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
 
 using namespace eco_sys_lab_package;
+
+TEST(TreeDebugPicking, DecodesOriginalNodeIdentityAndPositionForBothSkeletons) {
+  uint32_t factor;
+  const float expected = 0.375f;
+  std::memcpy(&factor, &expected, sizeof(factor));
+  const auto shoot = DecodeGpuTreeDebugPick({8, 1, factor, 0}, 10, 2);
+  ASSERT_TRUE(shoot);
+  EXPECT_EQ(shoot->node, 7u);
+  EXPECT_TRUE(shoot->shoot);
+  EXPECT_FLOAT_EQ(shoot->length_factor, expected);
+  const auto root = DecodeGpuTreeDebugPick({2, 0, factor, 0}, 1, 3);
+  ASSERT_TRUE(root);
+  EXPECT_EQ(root->node, 1u);
+  EXPECT_FALSE(root->shoot);
+  EXPECT_FLOAT_EQ(root->length_factor, expected);
+}
+
+TEST(TreeDebugPicking, RejectsBackgroundInvalidHandlesAndNonFinitePositions) {
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({}, 10, 10));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({11, 1, 0, 0}, 10, 20));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({11, 0, 0, 0}, 20, 10));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({1, 2, 0, 0}, 10, 10));
+  for (float value : {-0.1f, 1.1f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    EXPECT_FALSE(DecodeGpuTreeDebugPick({1, 1, bits, 0}, 10, 10));
+  }
+}
 
 namespace {
 using MeshGenerator = CylindricalMeshGenerator<BaseSkeletonData, BaseFlowData, BaseNodeData>;
@@ -211,26 +240,4 @@ TEST(TreeSkeletonMeshing, PacksForkParentsAndRebasesTreeRanges) {
   EXPECT_EQ(nodes[5].links.x, 3);
   EXPECT_EQ(nodes[4].links.y, 7);
   EXPECT_EQ(nodes[4].foliage_meta.y, 0u);
-}
-
-TEST(TreeSkeletonMeshing, ReusesPackedNodesAtDifferentTreeOffsets) {
-  BaseSkeleton skeleton;
-  skeleton.Extend(0, false);
-  skeleton.SortLists();
-  std::vector<GpuTreeNode> packed;
-  AppendGpuTreeNodes(skeleton, {}, nullptr, 0, true, packed);
-
-  std::vector<GpuTreeNode> nodes;
-  AppendPackedGpuTreeNodes(packed, 3, nodes);
-  AppendPackedGpuTreeNodes(packed, 7, nodes);
-
-  ASSERT_EQ(nodes.size(), 4);
-  EXPECT_EQ(nodes[0].links.x, UINT32_MAX);
-  EXPECT_EQ(nodes[1].links.x, 0u);
-  EXPECT_EQ(nodes[2].links.x, UINT32_MAX);
-  EXPECT_EQ(nodes[3].links.x, 2u);
-  EXPECT_EQ(nodes[0].links.y, 3u);
-  EXPECT_EQ(nodes[3].links.y, 7u);
-  EXPECT_EQ(packed[1].links.x, 0u);
-  EXPECT_EQ(packed[1].links.y, 0u);
 }

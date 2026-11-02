@@ -4,6 +4,7 @@
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 class GpuTreePhysics;
+struct GpuTreePhysicsState;
 
 class DynamicTreeSkeleton : public IPrivateComponent {
  public:
@@ -62,9 +63,9 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   bool SyncGpuPhysics(Tree& tree, const GlobalTransform& model, bool growing);
   [[nodiscard]] GpuRestState ExportGpuRestState() const;
   void ResetPhysics();
-  void SetGpuPhysics(std::shared_ptr<GpuTreePhysics> physics, uint32_t tree_index) {
-    gpu_physics_ = std::move(physics);
-    gpu_tree_index_ = tree_index;
+  void SetGpuPhysics(std::shared_ptr<GpuTreePhysics> physics, uint32_t tree_index);
+  const std::shared_ptr<GpuTreePhysicsState>& GetGpuPhysicsState() const {
+    return gpu_state_;
   }
   [[nodiscard]] std::shared_ptr<GpuTreePhysics> GetGpuPhysics() const {
     return gpu_physics_;
@@ -120,6 +121,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
   glm::quat initial_rotation_{1, 0, 0, 0};
   uint64_t model_revision_ = 0;
   std::shared_ptr<GpuTreePhysics> gpu_physics_;
+  std::shared_ptr<GpuTreePhysicsState> gpu_state_;
   uint32_t gpu_tree_index_ = 0;
 };
 static_assert(sizeof(DynamicTreeSkeleton::GpuRestState::Vertex) == 64);

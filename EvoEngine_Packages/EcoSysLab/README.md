@@ -35,7 +35,7 @@ material controls, damage behavior, diagnostics, and current validation limits.
 Add a **BranchRenderer** private component to the same entity as a **Tree**, then assign its branch material.
 The editor switches the Plant Visual camera to rasterization when either procedural renderer is present. The branch mode draws cylindrical shoot
 and root branches directly from packed skeleton nodes through task and mesh shaders. It updates for growth and skeleton
-changes without building CPU branch meshes, and the same forest buffer supplies camera and shadow draws. The task shader
+changes without building CPU branch meshes. Each tree owns persistent node buffers used by camera and shadow draws. The task shader
 chooses each node's subdivision counts; mesh workgroups evaluate rings from the nodes and their parents. Every child
 starts from its parent's end ring, including at forks.
 
@@ -51,9 +51,10 @@ material share an opaque brown branch material within each instantiated patch.
 The procedural modes need mesh shader support. BranchRenderer requires an opaque branch material. On unsupported
 devices these components produce no procedural draw. CPU geometry is generated only when explicitly requested, and
 its SDK MeshRenderer draws independently, including in ray tracing. The GPU renderer caches packed rest nodes per
-tree and refreshes them when the skeleton revision, mesh settings, or bark parameters change. Packed node buffers are
-uploaded only when their content or GPU deformation ranges
-change; foliage parameters and render-instance indices remain frame specific.
+tree and refreshes them when the skeleton revision, mesh settings, bark parameters, or physics allocation changes.
+Each tree keeps its own render buffers and descriptor sets; unchanged trees avoid node assembly, copying, and bounds
+scans each frame. Cached local bounds are transformed into scene bounds. Material routing changes refresh that tree's
+node metadata; foliage parameters and render-instance indices remain frame specific.
 
 The `ecosyslab` demo starts in the project's `Default.evescene`, retaining its wall and ground colliders. It prepares
 the GPU pipelines, instantiates the 2×2 `AppleForest.forestpatch`, and places a Blower beside the trees unless the
@@ -82,16 +83,56 @@ The **EcoSysLab** panel groups scene-wide controls into Growth, Environment, Win
 Strands (advanced) tabs. Growth shows the tree count and simulated time. **Grow** adds the requested years to a runtime queue; each Play frame advances one configured growth step, including a shorter final step. **Stop growth** clears the queue, and Pause retains it. Environment selects the scene climate and soil descriptors, ambient air settings, and soil geometry controls. Wind & air contains the air-volume
 display and grid reset. **Show tree overlay** controls the editor's tree visualization; it does not hide procedural
 BranchRenderer or FoliageRenderer draws. Select a tree entity to edit its own components in the inspector.
+On mesh-shader devices, the selected tree's shoot and root overlays use the procedural branch surface with debug
+colors. Live shoots follow the current GPU physics pose; historical checkpoints show their saved poses, and roots
+follow the selected root-model checkpoint. Debug rendering works without a BranchRenderer or branch material. Click a surface
+in Plant Visual to inspect its internode; picking reads back a small GPU ID result after its frame completes.
+Other enabled trees render their current procedural shoot/root surfaces in translucent white (18% opacity), sharing
+the same GPU physics poses. **Display other trees** toggles this forest context. These surfaces do not write depth or
+picking IDs, so the selected tree remains inspectable through foreground context trees. Cached tree data and shared
+pipelines avoid rebuilding geometry or allocating buffers each frame.
+The selected internode is tinted yellow with a white marker at the picked position. Pause physics before rotating,
+pruning, or reversing the tree. Devices without mesh shaders retain cylinder overlays and CPU picking.
+
+To profile the five-year, 16-Spruce Windy Tree demo, set `EVOENGINE_WINDY_TREE_PROFILE` to an output directory and run
+`EvoEngineEditor.exe --demo windy-tree`. After growth, the editor records three configurations: full rendering,
+Plant Visual disabled, and both Plant Visual and branch rendering disabled.
+Each configuration warms up for 32 frames and measures 60 frames, saving CPU/GPU timing CSVs and
+Chrome traces. The editor exits after recording; normal launches do not run this benchmark. The wind/air field remains
+active along with the solver in each configuration; GPU pass timestamps separate their costs.
+`python Scripts/profile_windy_tree.py --editor <installed-editor-path> --output <fresh-directory>` runs the capture
+and writes a Markdown summary beside the CSVs. CPU scopes separate runtime update, air synchronization, per-tree
+render registration, and debug rendering. Tree-cache build scopes and node-upload counters identify structural refreshes.
+CPU scope times are inclusive; GPU pass call counts show the fixed-update
+duty cycle, and pass times must be distinguished from whole-frame time.
+Directional branch shadows use one light-facing quad per internode. A fragment shader intersects a short
+rounded, tapered segment chain following the current GPU-deformed centerline, including the parent-end junction,
+and writes the hit depth. This approximates bark and curved surfaces rather than reproducing every mesh triangle;
+point/spot shadows retain the full branch mesh. The quad covers axial branches and supports affine entity transforms.
+Run the profiler with `--full-shadows` for the full-geometry reference, or without it for the default impostor path.
+Each profiling phase also saves the Scene camera image after timing collection for visual comparisons.
+
+Rod-to-air feedback uses a rod-driven GPU pass: each rod visits nearby existing air cells and atomically
+accumulates weighted motion, then a cell pass resolves the average. Scratch storage grows by grid chunks and
+is reused between steps; coupling never registers new cells. The original cell-driven gather path remains
+available for numerical and performance comparisons. Run the profiling script with `--gather` for that reference
+path and without it for the default rod-driven path, using separate output directories. Both runs use the same
+executable, forest preset, fixed-step settings, and rendering configurations. Compare the complete
+`EcoSysLab Rod Air` GPU scope, which includes clearing, scattering, and resolving, rather than scatter alone.
+
 The scene saves environment, growth, and advanced dynamic-strands settings. Growth time, dropped material, air motion,
 and GPU physics poses remain runtime state and reset when Play starts from the saved scene.
 
 ## Shoot physics
 
 Select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
-Tree physics uses fixed roots and GPU rod constraints. Enabled trees in a scene share
-vertex and rod buffers and solver dispatches while retaining their own time step, stiffness, damping, and gravity.
-The shared state is rebuilt when its tree set or a shoot skeleton revision changes, or physics is reinitialized;
-rebuilding starts every tree in that scene from its growth pose. Growth always uses this original shoot skeleton,
+Tree physics uses fixed roots and GPU rod constraints. Each tree owns its vertex, rod, topology, and solver
+workspace buffers, with local topology indices. A shared forest scheduler uses stable tree IDs, GPU device-address
+records, and batched workgroup lists to dispatch all active trees while retaining their individual time step,
+stiffness, damping, and gravity. Growth or reinitialization replaces only the changed tree's state; adding or removing
+a tree preserves neighboring dynamic poses. IDs remain stable across rebuilds and are not reused until forest reset.
+Wind and air cells remain shared; wind workgroup references resolve a tree ID and local rod index through the registry.
+Removed buffers and scene controllers are retained until queued GPU work can finish. Growth always uses this original shoot skeleton,
 never the bent GPU pose. On each growth iteration, the new skeleton replaces the GPU dynamic state before rendering;
 GPU solving pauses during continuous growth and resumes automatically when growth is idle. Physics also
 starts automatically from the original pose after loading. Use **Reset GPU pose to growth** to discard a bend.

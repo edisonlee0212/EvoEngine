@@ -68,8 +68,12 @@ class TreeVisualizer {
   std::vector<glm::vec4> random_colors_;  ///< Stores generated random colors.
 
   std::shared_ptr<ParticleInfoList> node_matrices_;  ///< Stores internode transformation matrices.
+  std::vector<glm::vec4> node_colors_;
 
  public:
+  const std::vector<glm::vec4>& GetDebugColors() const {
+    return node_colors_;
+  }
   std::vector<SkeletonNodeHandle> selected_node_hierarchy_list;  ///< List of selected internode hierarchy nodes.
   SkeletonNodeHandle selected_node_handle = -1;                  ///< Handle of the selected internode.
   bool visualization = true;                                     ///< Flag to enable or disable visualization.
@@ -363,7 +367,7 @@ class ShootVisualizer : public TreeVisualizer {
    * @param model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool DrawGui(ShootModel& model);
+  bool DrawGui(ShootModel& model, bool allow_editing = true);
 
   /**
    * @brief Visualizes the given tree model.
@@ -371,6 +375,7 @@ class ShootVisualizer : public TreeVisualizer {
    * @param global_transform The global transformation matrix.
    */
   void Visualize(const ShootModel& model, const GlobalTransform& global_transform);
+  void SyncColors(const ShootSkeleton& skeleton);
 
   /**
    * @brief Visualizes the given strand model.
@@ -436,7 +441,7 @@ class RootVisualizer : public TreeVisualizer {
    * @param model Reference to the tree model.
    * @return True if contents remain unmodified, otherwise false.
    */
-  bool DrawGui(RootModel& model);
+  bool DrawGui(RootModel& model, bool allow_editing = true);
 
   /**
    * @brief Visualizes the given tree model.
@@ -444,6 +449,7 @@ class RootVisualizer : public TreeVisualizer {
    * @param global_transform The global transformation matrix.
    */
   void Visualize(const RootModel& model, const GlobalTransform& global_transform);
+  void SyncColors(const RootSkeleton& skeleton);
   /**
    * @brief Synchronizes transformation matrices between skeleton and internode list.
    * @param skeleton Reference to the shoot skeleton.

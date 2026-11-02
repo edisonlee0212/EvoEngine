@@ -11,6 +11,7 @@ void EcoSysLabEditorLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
                                        const std::shared_ptr<Strands>& branch_strands, const bool selection_only) {
   {
     const auto scene = ApplicationContext::Get().GetActiveScene();
+    const bool build_stems = !Platform::MeshShaderEnabled() && tree_visualization_settings_.display_shoot_stem;
     const bool build_leaves = !selection_only && tree_visualization_settings_.display_foliage;
     const bool build_flowers = !selection_only && tree_visualization_settings_.display_flowers;
     const bool build_fruits = !selection_only && tree_visualization_settings_.display_fruits;
@@ -68,7 +69,7 @@ void EcoSysLabEditorLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
       leaf_start_indices.emplace_back(leaf_last_start_index);
       flower_start_indices.emplace_back(flower_last_start_index);
 
-      if (tree_visualization_settings_.display_shoot_stem && enabled && tree_entity != selected_tree) {
+      if (build_stems && enabled && tree_entity != selected_tree) {
         branch_last_start_index += branch_list.size();
         branch_start_indices.emplace_back(branch_last_start_index);
       } else {
@@ -153,7 +154,7 @@ void EcoSysLabEditorLayer::UpdateFlows(const std::vector<Entity>* tree_entities,
               }
             }
           }
-        if (!tree_visualization_settings_.display_shoot_stem || tree_entity == selected_tree)
+        if (!build_stems || tree_entity == selected_tree)
           return;
         for (int i = 0; i < branch_flow_list.size(); i++) {
           auto& flow = branch_skeleton.PeekFlow(branch_flow_list[i]);

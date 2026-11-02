@@ -25,8 +25,9 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
 
   void Step(const std::shared_ptr<Scene>& scene, float time_step, const std::shared_ptr<GpuTreePhysics>& physics);
   void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible);
-  void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees);
-  void RegisterTreeModels(const std::vector<glm::mat4>& models);
+  void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
+                            const std::vector<uint32_t>& ids = {});
+  void RegisterTreeModels(const std::vector<glm::mat4>& models, const std::vector<uint32_t>& ids = {});
   void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
                     const std::shared_ptr<GpuTreePhysics>& physics, const std::vector<glm::mat4>& models,
                     float cell_size = -1.0f);
@@ -48,6 +49,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   float ambient_pressure_pa = 101325.0f;
   float air_coupling_rate = 4.0f;
   float air_friction = 4.0f;
+  bool rod_driven_coupling = true;
 
  private:
   struct Particle {
@@ -150,6 +152,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<Buffer> rod_heads_;
   std::shared_ptr<Buffer> rod_next_;
   std::shared_ptr<Buffer> rod_max_extent_;
+  std::shared_ptr<Buffer> rod_air_sums_;
   std::shared_ptr<DescriptorSetLayout> layout_;
   std::shared_ptr<DescriptorSet> descriptor_set_;
   GpuSpatialGrid air_grid_;
@@ -172,6 +175,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<ComputePipeline> clear_rods_pipeline_;
   std::shared_ptr<ComputePipeline> build_rods_pipeline_;
   std::shared_ptr<ComputePipeline> rod_air_pipeline_;
+  std::shared_ptr<ComputePipeline> rod_air_scatter_pipeline_;
   std::vector<std::pair<uint32_t, std::shared_ptr<DescriptorSet>>> retired_air_sets_;
   std::shared_ptr<ComputePipeline> advect_pipeline_;
   std::shared_ptr<ComputePipeline> emit_pipeline_;

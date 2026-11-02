@@ -4,16 +4,21 @@
 #include "EditorLayer.hpp"
 #include "TreeEditorState.hpp"
 namespace eco_sys_lab_package {
+class TreeDebugRenderer;
 class EcoSysLabEditorLayer : public evo_engine::ILayer {
   friend class ShootVisualizer;
   friend class RootVisualizer;
   struct Entry {
     std::weak_ptr<evo_engine::IPrivateComponent> owner;
     std::unique_ptr<TreeEditorState> state;
+    std::shared_ptr<TreeDebugRenderer> debug_renderer;
   };
   std::weak_ptr<evo_engine::Scene> scene_;
   std::unordered_map<const Tree*, Entry> trees_;
+  std::shared_ptr<TreeDebugRenderer> tree_debug_renderer_;
+  bool tree_debug_requested_ = false;
 
+  void ProfileWindyTreeDemo();
   void DrawDynamicStrandsSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void DynamicStrandVisualization() const;
   void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -165,6 +170,8 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   void OnDestroy() override;
   void Update() override;
   void LateUpdate() override;
+  void OnPostRender() override;
+  [[nodiscard]] bool CanEditTree(const Tree& tree) const;
   TreeEditorState& GetTreeState(Tree& tree);
   const std::vector<glm::vec3>& RandomColors();
   void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);

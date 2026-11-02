@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <vector>
@@ -7,6 +8,42 @@
 #include "TreeMeshGenerator.hpp"
 
 namespace eco_sys_lab_package {
+
+struct GpuTreeDeformParameters {
+  uint32_t node_base = 0;
+  uint32_t node_count = 0;
+  uint32_t node_rods_base = 0;
+  uint32_t padding = 0;
+  glm::vec4 model_position{};
+  glm::vec4 model_scale{};
+  glm::vec4 inverse_rotation{};
+};
+static_assert(sizeof(GpuTreeDeformParameters) == 64);
+
+inline std::array<float, 18> GpuTreeMeshParameters(const TreeMeshGeneratorSettings& settings,
+                                                   const BasicBarkDescriptor* bark) {
+  std::array<float, 18> values = {settings.trunk_thickness,
+                                  settings.x_subdivision,
+                                  settings.trunk_y_subdivision,
+                                  settings.branch_y_subdivision,
+                                  settings.radius_multiplier,
+                                  settings.radius,
+                                  settings.base_control_point_ratio,
+                                  settings.branch_control_point_ratio,
+                                  settings.override_radius ? 1.0f : 0.0f,
+                                  settings.smoothness ? 1.0f : 0.0f};
+  if (bark) {
+    values[10] = 1.0f;
+    values[11] = bark->bark_x_frequency;
+    values[12] = bark->bark_y_frequency;
+    values[13] = bark->bark_depth;
+    values[14] = bark->base_frequency;
+    values[15] = bark->base_max_distance;
+    values[16] = bark->base_distance_decrease_factor;
+    values[17] = bark->base_depth;
+  }
+  return values;
+}
 
 // Std430 layout shared with EcoSysLab.GpuTreeMesh. Parent indices address this packed buffer.
 struct GpuTreeNode {
@@ -71,18 +108,6 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
     packed.foliage_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
     packed.foliage_meta = {static_cast<uint32_t>(handle), shoot ? 1u : 0u, 0u, 0u};
     output.emplace_back(packed);
-  }
-}
-
-inline void AppendPackedGpuTreeNodes(const std::vector<GpuTreeNode>& packed, uint32_t tree_index,
-                                     std::vector<GpuTreeNode>& output) {
-  const auto base = static_cast<uint32_t>(output.size());
-  output.reserve(output.size() + packed.size());
-  for (auto node : packed) {
-    if (node.links.x != UINT32_MAX)
-      node.links.x += base;
-    node.links.y = tree_index;
-    output.emplace_back(node);
   }
 }
 

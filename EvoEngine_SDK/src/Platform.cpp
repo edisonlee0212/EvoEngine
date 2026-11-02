@@ -841,6 +841,12 @@ void Platform::CopyBuffer(const VkCommandBuffer vk_command_buffer, const Buffer&
   vkCmdCopyBuffer(vk_command_buffer, source.GetVkBuffer(), destination.GetVkBuffer(), 1, &region);
 }
 
+void Platform::CopyImageToBuffer(const VkCommandBuffer vk_command_buffer, const Image& source,
+                                 const Buffer& destination, const VkBufferImageCopy& region) {
+  vkCmdCopyImageToBuffer(vk_command_buffer, source.GetVkImage(), source.GetLayout(), destination.GetVkBuffer(), 1,
+                         &region);
+}
+
 void Platform::DrawIndexedIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
                                    const VkDeviceSize offset, const uint32_t draw_count, const uint32_t stride) {
   vkCmdDrawIndexedIndirect(vk_command_buffer, buffer.GetVkBuffer(), offset, draw_count, stride);

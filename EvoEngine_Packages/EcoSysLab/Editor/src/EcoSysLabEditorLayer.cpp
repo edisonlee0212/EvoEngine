@@ -1,7 +1,9 @@
 #include "EcoSysLabEditorLayer.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "DynamicTreeSkeleton.hpp"
 #include "Serialization.hpp"
+#include "TreeDebugRenderer.hpp"
 #include "TreeDescriptor.hpp"
 
 using namespace eco_sys_lab_package;
@@ -24,6 +26,8 @@ glm::vec2 EcoSysLabEditorLayer::GetMouseSceneCameraPosition() const {
 }
 
 void EcoSysLabEditorLayer::OnCreate() {
+  tree_debug_renderer_ = std::make_shared<TreeDebugRenderer>();
+  tree_debug_renderer_->Prepare();
   if (const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
     runtime->demo_growth_enabled_ = false;
   if (random_colors_.empty()) {
@@ -57,4 +61,52 @@ void EcoSysLabEditorLayer::OnCreate() {
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     editor_layer->RegisterEditorCamera(visualization_camera_);
   }
+}
+
+bool EcoSysLabEditorLayer::CanEditTree(const Tree& tree) const {
+  const auto status = GetApplication().GetApplicationStatus();
+  const auto scene = tree.GetScene();
+  if ((status != Application::ExecutionStatus::Playing && status != Application::ExecutionStatus::Step) ||
+      !scene->HasPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner()))
+    return true;
+  const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree.GetOwner()).lock();
+  return !physics->IsEnabled() || !physics->physics_running || !physics->GetGpuPhysics();
+}
+
+void EcoSysLabEditorLayer::OnPostRender() {
+  if (!tree_debug_requested_)
+    return;
+  tree_debug_requested_ = false;
+  const auto scene = GetScene();
+  if (!scene)
+    return;
+  const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+  const auto view =
+      glm::inverse(glm::translate(editor->GetSceneCameraPosition()) * glm::mat4_cast(editor->GetSceneCameraRotation()));
+  const auto projection_view = visualization_camera_->GetProjection() * view;
+  const auto enabled_tree = [&](Entity entity) -> std::shared_ptr<Tree> {
+    if (!scene->IsEntityValid(entity) || !scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
+      return {};
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+    return tree->IsEnabled() ? tree : nullptr;
+  };
+  if (const auto tree = enabled_tree(selected_tree)) {
+    auto& state = GetTreeState(*tree);
+    tree_debug_renderer_->Render(tree, state.shoot_visualizer, state.root_visualizer, visualization_camera_,
+                                 projection_view);
+  }
+  if (const auto entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+      entities && tree_visualization_settings_.display_shoot_stem)
+    for (const auto entity : *entities) {
+      if (entity == selected_tree)
+        continue;
+      if (const auto tree = enabled_tree(entity)) {
+        auto& state = GetTreeState(*tree);
+        auto& renderer = trees_.at(tree.get()).debug_renderer;
+        if (!renderer)
+          renderer = std::make_shared<TreeDebugRenderer>(tree_debug_renderer_);
+        renderer->Render(tree, state.shoot_visualizer, state.root_visualizer, visualization_camera_, projection_view,
+                         true);
+      }
+    }
 }

@@ -86,6 +86,20 @@ TEST(TreeModelRevision, EditorPoseAndTopologyChangesInvalidateOnlyShootState) {
   EXPECT_EQ(tree.GetRootModelRevision().content, root.content);
   EXPECT_EQ(tree.GetRootModelRevision().topology, root.topology);
 }
+TEST(TreeModelRevision, RootEditsInvalidateOnlyRootState) {
+  Tree tree;
+  const auto root = tree.GetRootModelRevision();
+  const auto shoot = tree.GetShootModelRevision();
+  tree.NotifyRootModelChanged(false);
+  EXPECT_EQ(tree.GetRootModelRevision().content, root.content + 1);
+  EXPECT_EQ(tree.GetRootModelRevision().topology, root.topology);
+  tree.NotifyRootModelChanged();
+  EXPECT_EQ(tree.GetRootModelRevision().content, root.content + 2);
+  EXPECT_EQ(tree.GetRootModelRevision().topology, root.topology + 1);
+  EXPECT_EQ(tree.GetShootModelRevision().content, shoot.content);
+  EXPECT_EQ(tree.GetShootModelRevision().topology, shoot.topology);
+}
+
 TEST(TreeModelRevision, DeserializationInvalidatesDerivedStateWithoutChangingSavedFormat) {
   evo_engine::Application application;
   evo_engine::ApplicationContextScope scope(application);

@@ -1,18 +1,12 @@
+import EcoSysLab.TreePhysicsData;
 import EcoSysLab.AirGrid;
 
-struct TreePhysicsVertex {
-  float4 position_inverse_mass;
-  float4 velocity_radius;
-  float4 rest_local;
-  uint4 incident_rods;
-};
-struct TreePhysicsRod {
-  uint4 links;
-  float4 length_scale_mass_radius;
-  float4 rotation;
-  float4 rest_rotation;
-  uint4 incident_angles;
-};
+#if defined(EE_FOREST_PHYSICS)
+import EcoSysLab.ForestWindRods;
+#else
+import EcoSysLab.WindRodAccess;
+#endif
+
 struct Parameters {
   uint cell_count;
   uint rod_count;
@@ -25,8 +19,6 @@ struct Parameters {
 [[vk::binding(1, 0)]] StructuredBuffer<uint> rod_heads;
 [[vk::binding(2, 0)]] StructuredBuffer<uint> rod_next;
 [[vk::binding(3, 0)]] StructuredBuffer<uint> max_rod_extent;
-[[vk::binding(4, 0)]] StructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices;
-[[vk::binding(5, 0)]] StructuredBuffer<TreePhysicsRod, Std430DataLayout> rods;
 [[vk::push_constant]] ConstantBuffer<Parameters> parameters;
 
 [numthreads(64, 1, 1)]
@@ -51,9 +43,10 @@ void main(uint3 id : SV_DispatchThreadID) {
         if (dx * dx + dy * dy + dz * dz > max_distance * max_distance) continue;
         uint rod_index = rod_heads[AirGridHash(neighbor, parameters.bucket_count)];
         while (rod_index != 0xffffffffu) {
-          TreePhysicsRod rod = rods[rod_index];
-          float3 start = vertices[rod.links.x].position_inverse_mass.xyz;
-          float3 end = vertices[rod.links.y].position_inverse_mass.xyz;
+          TreePhysicsRod rod;TreePhysicsVertex a,b;
+          if(!LoadWindRod(rod_index,rod,a,b)) {rod_index=rod_next[rod_index];continue;}
+          float3 start=a.position_inverse_mass.xyz;
+          float3 end=b.position_inverse_mass.xyz;
           float3 segment = end - start;
           if (all(int3(floor((start + end) * 0.5 / parameters.rod_cell_size)) == neighbor)) {
             float fraction = saturate(dot(center - start, segment) / max(dot(segment, segment), 1e-8));
@@ -61,8 +54,8 @@ void main(uint3 id : SV_DispatchThreadID) {
             float radius = rod.length_scale_mass_radius.w;
             float weight = saturate((radius + 0.866 * parameters.air_cell_size - distance) / parameters.air_cell_size) *
                            saturate(radius / parameters.air_cell_size);
-            motion += weight * lerp(vertices[rod.links.x].velocity_radius.xyz,
-                                    vertices[rod.links.y].velocity_radius.xyz, fraction);
+            motion += weight * lerp(a.velocity_radius.xyz,
+                                    b.velocity_radius.xyz, fraction);
             occupancy += weight;
           }
           rod_index = rod_next[rod_index];

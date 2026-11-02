@@ -75,3 +75,9 @@ void DynamicTreeSkeleton::ResetPhysics() {
   decltype(physics_rod_angles_){}.swap(physics_rod_angles_);
   decltype(physics_rest_positions_){}.swap(physics_rest_positions_);
 }
+
+void DynamicTreeSkeleton::SetGpuPhysics(std::shared_ptr<GpuTreePhysics> physics, uint32_t id) {
+  gpu_physics_ = std::move(physics);
+  gpu_tree_index_ = id;
+  gpu_state_ = gpu_physics_ ? gpu_physics_->GetTreeState(id) : nullptr;
+}

@@ -44,6 +44,12 @@ void Tree::NotifyShootModelChanged(const bool topology_changed) {
     ++shoot_model_revision_.topology;
 }
 
+void Tree::NotifyRootModelChanged(const bool topology_changed) {
+  ++root_model_revision_.content;
+  if (topology_changed)
+    ++root_model_revision_.topology;
+}
+
 void Tree::Reset() {
   ClearPhysics(*this);
   ClearSkeletalGraph();

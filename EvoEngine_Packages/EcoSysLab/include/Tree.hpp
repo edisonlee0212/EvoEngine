@@ -46,6 +46,7 @@ class Tree : public IPrivateComponent {
     return root_model_revision_;
   }
   void NotifyShootModelChanged(bool topology_changed = true);
+  void NotifyRootModelChanged(bool topology_changed = true);
 
  private:
   ModelRevision shoot_model_revision_;

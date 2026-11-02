@@ -158,16 +158,24 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
           if (has_trees && scene->IsEntityValid(selected_tree)) {
             const auto& tree = scene->GetOrSetPrivateComponent<Tree>(selected_tree).lock();
             auto& shoot_visualizer = GetTreeEditorState(*tree).shoot_visualizer;
+            const bool can_edit = CanEditTree(*tree);
+            if (!can_edit) {
+              tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Select);
+              ImGui::TextDisabled("Pause physics to rotate or prune this tree.");
+            }
             if (shoot_visualizer.checkpoint_iteration == tree->shoot_model.CurrentIteration()) {
               if (ImGui::CollapsingHeader("Tree operator")) {
+                ImGui::BeginDisabled(!can_edit);
                 if (ImGui::Combo("Mode", {"None", "Select", "Rotate", "Prune", "Invigorate", "Reduce"},
                                  tree_operator_mode)) {
                   shoot_visualizer.selected_node_handle = -1;
                   shoot_visualizer.selected_node_hierarchy_list.clear();
                 }
+                ImGui::EndDisabled();
                 switch (static_cast<TreeOperatorMode>(tree_operator_mode)) {
                   case TreeOperatorMode::Select:
-                    ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
+                    if (can_edit)
+                      ImGui::Text("Press T to cut off entire node, press R to cut at point of selection.");
                     break;
                   case TreeOperatorMode::Rotate:
                     ImGui::Text("Press T to cut off entire node.");
@@ -181,8 +189,11 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
             } else {
               ImGui::TextDisabled("Go to current skeleton to enable operator.");
             }
-            if (ImGui::CollapsingHeader("Tree visualizer") && shoot_visualizer.DrawGui(tree->shoot_model))
+            if (ImGui::CollapsingHeader("Tree visualizer") && shoot_visualizer.DrawGui(tree->shoot_model, can_edit))
               tree->NotifyShootModelChanged();
+            auto& root_visualizer = GetTreeEditorState(*tree).root_visualizer;
+            if (ImGui::CollapsingHeader("Root visualizer") && root_visualizer.DrawGui(tree->root_model, can_edit))
+              tree->NotifyRootModelChanged();
           } else {
             ImGui::TextDisabled("Select a tree entity to edit its overlay.");
           }
