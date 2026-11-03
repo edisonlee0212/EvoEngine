@@ -62,15 +62,20 @@ void GpuTreeMeshRenderer::Initialize() {
   if (layout_ || !Platform::MeshShaderEnabled())
     return;
   layout_ = std::make_shared<DescriptorSetLayout>();
-  layout_->PushDescriptorBinding(
-      0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  layout_->PushDescriptorBinding(
-      1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-  layout_->PushDescriptorBinding(
-      2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
+  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
+  layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
+  for (uint32_t i = 5; i <= 8; ++i)
+    layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout_->Initialize();
   deform_layout_ = std::make_shared<DescriptorSetLayout>();
   for (uint32_t i = 0; i < 5; ++i)
@@ -83,6 +88,13 @@ void GpuTreeMeshRenderer::Initialize() {
   deform_pipeline_->descriptor_set_layouts = {deform_layout_};
   deform_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPushConstant)});
   deform_pipeline_->Initialize();
+  canopy_pipeline_ = std::make_shared<ComputePipeline>();
+  canopy_pipeline_->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              "./EcoSysLabResources/Shaders/Compute/TreeCanopyBounds.slang");
+  const auto empty = ApplicationContext::Get().GetLayer<RenderLayer>()->GetEmptyDescriptorSetLayout();
+  canopy_pipeline_->descriptor_set_layouts = {empty, empty, empty, layout_};
+  canopy_pipeline_->Initialize();
   const auto task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                                             "./EcoSysLabResources/Shaders/Graphics/Task/TreeMesh.slang");
   const auto mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
@@ -144,7 +156,8 @@ void GpuTreeMeshRenderer::Initialize() {
 
 bool GpuTreeMeshRenderer::Prepare() {
   Initialize();
-  return (!impostor_pipeline_ || impostor_pipeline_->Initialized()) && deform_pipeline_ &&
+  return canopy_pipeline_ && canopy_pipeline_->Initialized() &&
+         (!impostor_pipeline_ || impostor_pipeline_->Initialized()) && deform_pipeline_ &&
          deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() && shadow_pipeline_ &&
          shadow_pipeline_->Initialized() && directional_shadow_pipeline_ &&
          directional_shadow_pipeline_->Initialized() && foliage_opaque_pipeline_ &&
@@ -266,6 +279,10 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
         else
           node.links.z = 0;
       }
+      std::vector<bool> apical;
+      for (const auto handle : owner->shoot_model.PeekShootSkeleton().PeekSortedNodeList())
+        apical.push_back(owner->shoot_model.PeekShootSkeleton().PeekNode(handle).IsApical());
+      cache.shadow_groups = BuildTreeShadowGroups(cache.nodes, apical);
       cache.tree = owner;
       cache.physics = state;
       cache.parameters = parameters;
@@ -329,6 +346,10 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
       for (auto& frame : cache.frames) {
         frame.nodes = std::make_shared<Buffer>(info, device);
         frame.rest = std::make_shared<Buffer>(info, device);
+        frame.shadow_groups = std::make_shared<Buffer>(info, device);
+        frame.shadow_ranges = std::make_shared<Buffer>(info, device);
+        frame.shadow_members = std::make_shared<Buffer>(info, device);
+        frame.canopy_bounds = std::make_shared<Buffer>(info, device);
         info.size = sizeof(GpuTreeFoliageParams);
         frame.foliage = std::make_shared<Buffer>(info, device);
         info.size = sizeof(GpuTreeInstanceIndices);
@@ -348,15 +369,30 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
         branch && branch->camera_impostors ? glm::clamp(branch->impostor_diameter_pixels, 1.0f, 8.0f) : 0.0f;
     if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
       frame.impostor_diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
+    frame.canopy_texels = branch && branch->canopy_shadows ? glm::clamp(branch->canopy_shadow_texels, 4.0f, 512.0f) : 0;
+    if (const auto value = std::getenv("EVOENGINE_TREE_CANOPY_TEXELS"))
+      frame.canopy_texels = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 512.0f);
     frame.indices_ready = false;
     frame.physics = state;
     frame.node_count = static_cast<uint32_t>(cache.nodes.size());
     BufferUploadBatch upload;
     std::vector<GpuTreeNode> packed;
+    std::vector<glm::vec4> empty_bounds;
     std::vector<GpuTreeFoliageParams> foliage_upload;
     const int branch_slot = handles.has_branch ? branch_index : -1, leaf_slot = handles.has_foliage ? leaf_index : -1;
     if (frame.generation != cache.generation || frame.branch_material != branch_slot ||
         frame.foliage_material != leaf_slot) {
+      upload.AddVector(frame.shadow_groups, cache.shadow_groups.node_groups,
+                       {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+      if (!cache.shadow_groups.groups.empty()) {
+        upload.AddVector(frame.shadow_ranges, cache.shadow_groups.groups,
+                         {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+        upload.AddVector(frame.shadow_members, cache.shadow_groups.members,
+                         {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+        empty_bounds.resize(cache.shadow_groups.groups.size() * 2);
+        upload.AddVector(frame.canopy_bounds, empty_bounds,
+                         {BufferUploadUsage::StorageReadWrite, BufferUploadCapacityPolicy::GrowIfNeeded});
+      }
       packed = cache.nodes;
       for (auto& node : packed) {
         const bool valid = node.links.z != UINT32_MAX;
@@ -387,6 +423,10 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     frame.draw_set->UpdateBufferDescriptorBinding(0, frame.nodes);
     frame.draw_set->UpdateBufferDescriptorBinding(1, frame.instances);
     frame.draw_set->UpdateBufferDescriptorBinding(2, frame.foliage);
+    frame.draw_set->UpdateBufferDescriptorBinding(5, frame.shadow_groups);
+    frame.draw_set->UpdateBufferDescriptorBinding(6, frame.shadow_ranges);
+    frame.draw_set->UpdateBufferDescriptorBinding(7, frame.shadow_members);
+    frame.draw_set->UpdateBufferDescriptorBinding(8, frame.canopy_bounds);
     if (state && cache.shoot_count) {
       frame.deform_set->UpdateBufferDescriptorBinding(0, frame.nodes);
       frame.deform_set->UpdateBufferDescriptorBinding(1, state->vertices[state->vertex_index]);
@@ -407,6 +447,18 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
         deform_pipeline_->PushConstant(command, 0, push);
         deform_pipeline_->Dispatch(command, (cache.shoot_count + 63) / 64, 1, 1);
         Platform::EverythingBarrier(command);
+      });
+    }
+    if (handles.has_branch && directional_shadow_impostors && !shadow_reference_ && frame.canopy_texels > 0 &&
+        !cache.shadow_groups.groups.empty()) {
+      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+        const auto timing = Platform::BeginGpuTimestampScope(
+            command, {"EcoSysLabCanopyBounds", "EcoSysLab Canopy Bounds", "EcoSysLab", GpuTimestampQueue::Compute});
+        canopy_pipeline_->Bind(command);
+        canopy_pipeline_->BindDescriptorSet(command, 3, frame.draw_set->GetVkDescriptorSet());
+        canopy_pipeline_->Dispatch(command, static_cast<uint32_t>(cache.shadow_groups.groups.size()), 1, 1);
+        Platform::EverythingBarrier(command);
+        Platform::EndGpuTimestampScope(command, timing);
       });
     }
     if (handles.has_branch) {
@@ -539,6 +591,8 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
     if (geometry == 0 && pass == 0)
       push.tessellation = {static_cast<float>(viewport.z), static_cast<float>(viewport.w), frame.tessellation.x,
                            frame.tessellation.y};
+    if (pipeline == directional_shadow_pipeline_ && !shadow_reference_)
+      push.impostor = {frame.canopy_texels, static_cast<float>(viewport.z), static_cast<float>(viewport.w), 0};
     pipeline->PushConstant(command, 0, push);
     pipeline->DrawMeshTasks(command, std::min(limit, (count - base + batch - 1) / batch), 1, 1);
   }

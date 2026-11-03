@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--canopy-texels", type=float, default=0, help="Maximum projected canopy diameter in shadow texels; zero disables")
     parser.add_argument("--impostor-pixels", type=float, default=3.0, help="Camera branch impostor diameter threshold; zero disables")
     parser.add_argument("--debug-impostor-pixels", type=float, help="Override Plant Visual threshold independently")
     parser.add_argument("--geometry-reference", action="store_true", help="Use original per-node tasks and triangle-local vertices")
@@ -81,6 +82,8 @@ def main():
         parser.error("--impostor-pixels must be between 0 and 8")
     if args.debug_impostor_pixels is not None and not 0 <= args.debug_impostor_pixels <= 8:
         parser.error("--debug-impostor-pixels must be between 0 and 8")
+    if not 0 <= args.canopy_texels <= 512:
+        parser.error("--canopy-texels must be between 0 and 512")
     directory = args.output.resolve()
     if not args.analyze_only:
         if args.editor is None:
@@ -93,6 +96,7 @@ def main():
         environment.pop("EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS", None)
         if args.debug_impostor_pixels is not None:
             environment["EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS"] = str(args.debug_impostor_pixels)
+        environment["EVOENGINE_TREE_CANOPY_TEXELS"] = str(args.canopy_texels)
         environment["EVOENGINE_TREE_IMPOSTOR_PIXELS"] = str(args.impostor_pixels)
         environment["EVOENGINE_WINDY_TREE_PROFILE"] = str(directory)
         environment["EVOENGINE_TREE_PHYSICS_TOLERANCE"] = str(args.physics_tolerance)
@@ -128,6 +132,7 @@ def main():
         with (directory / "configuration.txt").open("a", encoding="utf-8") as configuration:
             configuration.write(f"geometry_reference={int(args.geometry_reference)}\ngeometry_details={int(args.geometry_details)}\n")
             configuration.write(f"shadow_reference={int(args.shadow_reference)}\nshadow_details={int(args.shadow_details)}\n")
+            configuration.write(f"canopy_texels={args.canopy_texels}\n")
             configuration.write(f"debug_impostor_pixels={args.debug_impostor_pixels if args.debug_impostor_pixels is not None else args.impostor_pixels}\n")
             configuration.write(f"impostor_pixels={args.impostor_pixels}\n")
             configuration.write(f"physics_reference={int(args.physics_reference)}\n")

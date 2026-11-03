@@ -285,13 +285,13 @@ public bool TreeBoundsVisible(float3 low,float3 high,float4x4 transform) {
   return true;
 }
 
-public bool TreeNodeVisible(uint index,float4x4 transform) {
+public void TreeNodeBounds(uint index,out float3 low,out float3 high) {
   GpuTreeNode node=tree_nodes[index];
   float3 p0,p1,p2,p3;
   TreeControlPoints(node,p0,p1,p2,p3);
   float radius=0.5*node.position_thickness.w*(1+TreeBarkBound(node));
-  float3 low=min(min(p0,p1),min(p2,p3))-radius;
-  float3 high=max(max(p0,p1),max(p2,p3))+radius;
+  low=min(min(p0,p1),min(p2,p3))-radius;
+  high=max(max(p0,p1),max(p2,p3))+radius;
   if(node.links.x!=0xffffffffu) {
     GpuTreeNode parent=tree_nodes[node.links.x];
     if(parent.links.z!=0xffffffffu && parent.direction_length.w>1e-6) {
@@ -301,6 +301,11 @@ public bool TreeNodeVisible(uint index,float4x4 transform) {
       low=min(low,end-parent_radius);high=max(high,end+parent_radius);
     }
   }
+}
+
+public bool TreeNodeVisible(uint index,float4x4 transform) {
+  float3 low,high;
+  TreeNodeBounds(index,low,high);
   return TreeBoundsVisible(low,high,transform);
 }
 

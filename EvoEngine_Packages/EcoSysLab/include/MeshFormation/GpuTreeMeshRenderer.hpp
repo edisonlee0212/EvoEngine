@@ -7,6 +7,7 @@
 #include "Material.hpp"
 #include "RenderLayer.hpp"
 #include "SubsurfaceProfile.hpp"
+#include "TreeShadowGroups.hpp"
 
 namespace eco_sys_lab_package {
 class GpuTreePhysics;
@@ -37,6 +38,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
 
   struct TreeFrame {
     std::shared_ptr<Buffer> nodes, rest, instances, foliage;
+    std::shared_ptr<Buffer> shadow_groups, shadow_ranges, shadow_members, canopy_bounds;
     std::shared_ptr<DescriptorSet> draw_set, deform_set;
     std::shared_ptr<GpuTreePhysicsState> physics;
     TreeHandles handles;
@@ -46,7 +48,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
     bool indices_ready = false, params_ready = false;
     GpuTreeFoliageParams params{};
     glm::vec2 tessellation{};
-    float impostor_diameter = 0;
+    float impostor_diameter = 0, canopy_texels = 0;
   };
   struct TreeNodeCache {
     std::weak_ptr<Tree> tree;
@@ -55,6 +57,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
     uint64_t shoot_revision = UINT64_MAX, root_revision = UINT64_MAX, generation = 0;
     uint32_t shoot_count = 0;
     std::vector<GpuTreeNode> nodes;
+    TreeShadowGroups shadow_groups;
     Bound local_bound;
     float foliage_padding = -1;
     std::vector<TreeFrame> frames;
@@ -62,7 +65,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
 
   std::shared_ptr<DescriptorSetLayout> layout_;
   std::shared_ptr<DescriptorSetLayout> deform_layout_;
-  std::shared_ptr<ComputePipeline> deform_pipeline_;
+  std::shared_ptr<ComputePipeline> deform_pipeline_, canopy_pipeline_;
   std::shared_ptr<GraphicsPipeline> camera_pipeline_;
   std::shared_ptr<GraphicsPipeline> impostor_pipeline_;
   std::shared_ptr<GraphicsPipeline> shadow_pipeline_;

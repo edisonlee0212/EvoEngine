@@ -1,5 +1,5 @@
 import EvoEngine.PerFrame;
-import EcoSysLab.TreeShadow;
+import EcoSysLab.TreeCanopy;
 
 
 [outputtopology("triangle")]
@@ -7,7 +7,12 @@ import EcoSysLab.TreeShadow;
 [shader("mesh")]
 void main(uint3 group_id : SV_GroupID, in payload TreeShadowPayload task, OutputVertices<TreeShadowOutput, 4> vertices,
           OutputIndices<uint3, 2> triangles) {
-  GpuTreeNode node = tree_nodes[task.node_indices[group_id.x]];
+  uint index=task.node_indices[group_id.x];
+  bool canopy=(index&0x80000000u)!=0;
+  uint group=index&0x7fffffffu;
+  uint node_index=index;
+  if(canopy) node_index=tree_shadow_ranges[group].z;
+  GpuTreeNode node = tree_nodes[node_index];
   uint instance = tree_instance_indices[node.links.y].branch;
   float4x4 model = EE_INSTANCES[instance].model;
   float4x4 projection = EE_DIRECTIONAL_LIGHTS[light_index].light_space_matrix[light_face];
@@ -23,7 +28,14 @@ void main(uint3 group_id : SV_GroupID, in payload TreeShadowPayload task, Output
   float3 local_d = normalize(TreeShadowLocalVector(d, x, y, z));
   float4 clip_direction = mul(mul(float4(local_d, 0), model), projection);
   float4 points[4];
-  uint count = TreeShadowPoints(node, points);
+  uint count;
+  TreeCanopyBound bound=(TreeCanopyBound)0;
+  if(canopy) {
+    bound=tree_canopy_bounds[group];
+    points[0]=float4(bound.center.xyz,max(bound.radii.x,max(bound.radii.y,bound.radii.z)));
+    points[1]=points[2]=points[3]=points[0];
+    count=1;
+  } else count=TreeShadowPoints(node,points);
   float2 low = float2(1e30), high = float2(-1e30);
   float near = 1e30;
   float3 scale = float3(length(float3(dot(x,u),dot(y,u),dot(z,u))),
@@ -51,7 +63,11 @@ void main(uint3 group_id : SV_GroupID, in payload TreeShadowPayload task, Output
     vertices[i].direction = local_d;
     vertices[i].p0 = points[0]; vertices[i].p1 = points[1];
     vertices[i].p2 = points[2]; vertices[i].p3 = points[3];
-    vertices[i].instance_count = uint2(instance, count);
+    if(canopy) {
+      vertices[i].p0=bound.center;
+      vertices[i].p1=bound.radii;
+    }
+    vertices[i].instance_count = uint2(instance, canopy ? 0 : count);
   }
   triangles[0] = uint3(0, 1, 2);
   triangles[1] = uint3(2, 1, 3);

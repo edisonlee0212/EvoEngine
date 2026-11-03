@@ -21,6 +21,7 @@
 #include "Jobs.hpp"
 #include "MeshFormation/GpuTreeDebugData.hpp"
 #include "MeshFormation/GpuTreeMeshData.hpp"
+#include "MeshFormation/TreeShadowGroups.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
@@ -572,6 +573,113 @@ TEST(TreeDebugRendering, IndexedMeshRasterMatchesOriginal) {
         EXPECT_EQ(differences, 0u) << "radial=" << radial << " covered=" << covered;
       }
     }
+  }
+}
+
+TEST(TreeCanopy, GroupsPreserveTrunkRootsAndCompleteLateralSubtrees) {
+  std::vector<GpuTreeNode> nodes(8);
+  const uint32_t parents[] = {UINT32_MAX, 0, 0, 1, 2, 2, 4, UINT32_MAX};
+  for (uint32_t i = 0; i < 8; ++i)
+    nodes[i].links.x = parents[i];
+  const auto result = BuildTreeShadowGroups(nodes, {true, true, false, true, true, false, true});
+  ASSERT_EQ(result.groups.size(), 1u);
+  EXPECT_EQ(result.members, (std::vector<uint32_t>{2, 4, 5, 6}));
+  EXPECT_EQ(result.groups[0], glm::uvec4(0, 4, 2, 0));
+  EXPECT_EQ(result.node_groups, (std::vector<uint32_t>{UINT32_MAX, UINT32_MAX, 0, UINT32_MAX, 0, 0, 0, UINT32_MAX}));
+  EXPECT_TRUE(BuildTreeShadowGroups({}, {}).groups.empty());
+}
+
+TEST(TreeCanopy, GpuBoundsFollowCurrentPoseAndSelectOnlyFarCascades) {
+  ScopedTreeGpuPlatform platform;
+  const auto make = [](const auto& data) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = data.size() * sizeof(data[0]);
+    info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    auto buffer = std::make_shared<Buffer>(info, allocation);
+    buffer->UploadVector(data);
+    return buffer;
+  };
+  std::vector<GpuTreeNode> nodes(2);
+  for (uint32_t i = 0; i < 2; ++i) {
+    nodes[i].position_thickness = {static_cast<float>(i), 0, 0.5f, 0.2f};
+    nodes[i].direction_length = {1, 0, 0, 1};
+    nodes[i].radial_axis_distance = {0, 1, 0, 0};
+    nodes[i].subdivisions = {0.01f, 0.1f, 0, 0};
+    nodes[i].links = {i == 0 ? UINT32_MAX : 0, 0, 0, UINT32_MAX};
+  }
+  auto input = make(nodes), groups = make(std::vector<uint32_t>{0, 0});
+  auto ranges = make(std::vector{glm::uvec4(0, 2, 0, 0)});
+  auto members = make(std::vector<uint32_t>{0, 1});
+  auto bounds = make(std::vector<glm::vec4>(2)), output = make(std::vector<glm::vec4>(4));
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i : {0u, 5u, 6u, 7u, 8u})
+    layout->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto set = std::make_shared<DescriptorSet>(layout);
+  set->UpdateBufferDescriptorBinding(0, input);
+  set->UpdateBufferDescriptorBinding(5, groups);
+  set->UpdateBufferDescriptorBinding(6, ranges);
+  set->UpdateBufferDescriptorBinding(7, members);
+  set->UpdateBufferDescriptorBinding(8, bounds);
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto out_layout = std::make_shared<DescriptorSetLayout>();
+  out_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  out_layout->Initialize();
+  auto out_set = std::make_shared<DescriptorSet>(out_layout);
+  out_set->UpdateBufferDescriptorBinding(0, output);
+  auto update = std::make_shared<ComputePipeline>();
+  update->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                   "EcoSysLabResources/Shaders/Compute/TreeCanopyBounds.slang");
+  update->descriptor_set_layouts = {empty, empty, empty, layout};
+  update->Initialize();
+  ASSERT_TRUE(update->Initialized());
+  auto probe = std::make_shared<ComputePipeline>();
+  probe->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path(__FILE__).parent_path().parent_path() / "Resources/Shaders/Compute/TreeCanopyProbe.slang");
+  probe->descriptor_set_layouts = {out_layout, empty, empty, layout};
+  probe->Initialize();
+  ASSERT_TRUE(probe->Initialized());
+  for (uint32_t mode = 0; mode < 3; ++mode) {
+    if (mode == 1)
+      for (auto& node : nodes)
+        node.position_thickness.x += 2;
+    if (mode == 2)
+      for (auto& node : nodes)
+        node.links.z = UINT32_MAX;
+    input->UploadVector(nodes);
+    evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+    Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+      update->Bind(command);
+      update->BindDescriptorSet(command, 3, set->GetVkDescriptorSet());
+      update->Dispatch(command, 1, 1, 1);
+      Platform::EverythingBarrier(command);
+      probe->Bind(command);
+      probe->BindDescriptorSet(command, 0, out_set->GetVkDescriptorSet());
+      probe->BindDescriptorSet(command, 3, set->GetVkDescriptorSet());
+      probe->Dispatch(command, 1, 1, 1);
+      Platform::EverythingBarrier(command);
+    });
+    evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("canopy current pose bounds");
+    std::vector<glm::vec4> result;
+    output->DownloadVector(result, 4);
+    if (mode == 2) {
+      EXPECT_EQ(result[0], glm::vec4(0));
+      continue;
+    }
+    EXPECT_NEAR(result[0].x, mode == 0 ? 1.0f : 3.0f, 1e-5f);
+    EXPECT_NEAR(result[0].z, 0.5f, 1e-5f);
+    EXPECT_EQ(result[0].w, 1);
+    EXPECT_NEAR(result[1].x, 1.1f * std::sqrt(3.0f), 1e-5f);
+    EXPECT_EQ(result[2], glm::vec4(0, 1, 0, 1));
+    EXPECT_NEAR(result[3].x, 2 - 0.1f * std::sqrt(3.0f), 1e-5f);
+    EXPECT_NEAR(result[3].y, 1, 1e-5f);
+    EXPECT_EQ(result[3].z, 0);
   }
 }
 

@@ -162,6 +162,21 @@ no size threshold discards thin branches. Use `--shadow-reference` for the unbat
 reference and `--shadow-details` for per-cascade branch GPU timings. These scopes are nested within
 Directional Shadow and must not be added to its total.
 
+BranchRenderer offers opt-in **Coarse canopy shadows**. **Canopy diameter (shadow texels)** defaults to 64
+(range 4–512): a complete primary lateral subtree can use a solid ellipsoid when its conservative projected
+diameter fits this threshold in a directional-light cascade. Cascade zero always uses branch shadows;
+the apical main trunk and root skeleton stay separate. Larger thresholds trade branch gaps for cheaper shadows.
+Each lateral subtree's membership is built when the skeleton/render cache changes. Persistent per-tree buffers
+hold membership and envelopes; a GPU reduction after deformation updates conservative bounds from the current
+pose, including parent attachments, curve control hulls and bark bounds. The ellipsoid encloses that box.
+Selection is per cascade and independent of physics LOD/backend. No pose readback or ring mesh upload is needed.
+This first version uses solid envelopes: leafless crowns cast fuller shadows, and threshold transitions are hard.
+Point/spot shadows and the existing full-geometry directional-shadow override are unchanged.
+Use `--canopy-texels 64` in `Scripts/profile_windy_tree.py` to compare against
+`--canopy-texels 0`; `EVOENGINE_TREE_CANOPY_TEXELS` is the equivalent override.
+Include the **EcoSysLab Canopy Bounds** GPU pass when assessing the net gain. Avoid additional detailed
+timing scopes for this comparison: per-tree cascade scopes can exhaust the GPU timestamp capacity.
+
 Rod-to-air feedback uses a rod-driven GPU pass: each rod visits nearby existing air cells and atomically
 accumulates weighted motion, then a cell pass resolves the average. Scratch storage grows by grid chunks and
 is reused between steps; coupling never registers new cells. The original cell-driven gather path remains

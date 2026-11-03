@@ -103,6 +103,8 @@ void DeserializeBlower(const YAML::Node& in, Blower& target) {
 void SerializeBranchRenderer(YAML::Emitter& out, const BranchRenderer& target) {
   target.material_ref.Save("material_ref", out);
   out << YAML::Key << "screen_space_tessellation" << YAML::Value << target.screen_space_tessellation;
+  out << YAML::Key << "canopy_shadows" << YAML::Value << target.canopy_shadows;
+  out << YAML::Key << "canopy_shadow_texels" << YAML::Value << target.canopy_shadow_texels;
   out << YAML::Key << "camera_impostors" << YAML::Value << target.camera_impostors;
   out << YAML::Key << "impostor_diameter_pixels" << YAML::Value << target.impostor_diameter_pixels;
   out << YAML::Key << "pixel_error" << YAML::Value << target.pixel_error;
@@ -113,6 +115,10 @@ void DeserializeBranchRenderer(const YAML::Node& in, BranchRenderer& target) {
   target.material_ref.Load("material_ref", in);
   if (in["screen_space_tessellation"])
     target.screen_space_tessellation = in["screen_space_tessellation"].as<bool>();
+  if (in["canopy_shadows"])
+    target.canopy_shadows = in["canopy_shadows"].as<bool>();
+  if (in["canopy_shadow_texels"])
+    target.canopy_shadow_texels = in["canopy_shadow_texels"].as<float>();
   if (in["camera_impostors"])
     target.camera_impostors = in["camera_impostors"].as<bool>();
   if (in["impostor_diameter_pixels"])
