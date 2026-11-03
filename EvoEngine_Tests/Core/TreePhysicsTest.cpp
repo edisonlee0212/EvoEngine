@@ -328,6 +328,7 @@ TEST(TreeGrowthEnvironment, SingleVoxelLookupPreservesAccumulationAndTipOrder) {
     const auto& b = expected.environment_grid.voxel_grid.Peek(i);
     EXPECT_EQ(a.self_shadow, b.self_shadow);
     EXPECT_EQ(a.total_biomass, b.total_biomass);
+    EXPECT_EQ(a.tree_owner, b.tree_owner);
     EXPECT_EQ(a.light_intensity, b.light_intensity);
     ASSERT_EQ(a.internode_voxel_registrations.size(), b.internode_voxel_registrations.size());
     for (size_t j = 0; j < a.internode_voxel_registrations.size(); ++j) {
@@ -339,4 +340,67 @@ TEST(TreeGrowthEnvironment, SingleVoxelLookupPreservesAccumulationAndTipOrder) {
       EXPECT_EQ(ar.thickness, br.thickness);
     }
   }
+}
+
+TEST(TreeGrowthEnvironment, ForeignNodeQueryMatchesLegacyTraversal) {
+  EnvironmentGrid grid;
+  grid.voxel_grid.Initialize(0.2f, glm::vec3(-2.f), glm::vec3(2.f));
+  const auto legacy = [&](const glm::vec3& position, float distance, unsigned tree) {
+    bool found = false;
+    grid.voxel_grid.PeekEach(position, distance * 2.f, [&](const EnvironmentVoxel& cell) {
+      if (found)
+        return;
+      for (const auto& node : cell.internode_voxel_registrations) {
+        if (node.tree_skeleton_index != tree && glm::distance(position, node.position) < distance)
+          found = true;
+      }
+    });
+    return found;
+  };
+  std::mt19937 rng(42);
+  std::uniform_real_distribution<float> coordinate(-1.9f, 1.9f), query(-2.5f, 2.5f), radius(0.001f, 0.6f);
+  for (int pass = 0; pass < 2; ++pass) {
+    grid.voxel_grid.Reset();
+    for (int i = 0; i < 2000; ++i) {
+      const glm::vec3 position(coordinate(rng), coordinate(rng), coordinate(rng));
+      grid.AddNode({position, i, static_cast<unsigned>(i % 5), 0.01f});
+    }
+    for (int i = 0; i < 5000; ++i) {
+      const glm::vec3 position(query(rng), query(rng), query(rng));
+      const float distance = radius(rng);
+      const unsigned tree = i % 6;
+      ASSERT_EQ(grid.HasForeignNodeWithin(position, distance, tree), legacy(position, distance, tree)) << i;
+    }
+    for (const float coordinate : {-2.01f, -2.f, -1.8f, 0.f, 0.2f, 1.8f, 2.f, 2.21f}) {
+      const glm::vec3 position(coordinate, 0.f, 0.f);
+      for (const float distance : {0.f, 0.15f, 0.2f})
+        EXPECT_EQ(grid.HasForeignNodeWithin(position, distance, 0), legacy(position, distance, 0));
+    }
+  }
+}
+
+TEST(TreeGrowthEnvironment, OwnershipAndStrictDistanceSurviveResetAndMixedRegistration) {
+  EnvironmentGrid grid;
+  grid.voxel_grid.Initialize(0.2f, glm::vec3(-1.f), glm::vec3(1.f));
+  const glm::vec3 point(0.f);
+  EXPECT_FALSE(grid.HasForeignNodeWithin(point, 0.15f, 7));
+  grid.AddNode({point, 0, 7, 0.01f});
+  grid.AddNode({point, 1, 7, 0.01f});
+  EXPECT_EQ(grid.voxel_grid.Peek(point).tree_owner, 7);
+  EXPECT_FALSE(grid.HasForeignNodeWithin(point, 0.15f, 7));
+  EXPECT_TRUE(grid.HasForeignNodeWithin(point, 0.15f, 8));
+  grid.AddNode({point, 2, 8, 0.01f});
+  EXPECT_EQ(grid.voxel_grid.Peek(point).tree_owner, -1);
+  EXPECT_TRUE(grid.HasForeignNodeWithin(point, 0.15f, 7));
+  grid.AddNode({point, 3, 7, 0.01f});
+  EXPECT_EQ(grid.voxel_grid.Peek(point).tree_owner, -1);
+  grid.voxel_grid.Reset();
+  EXPECT_EQ(grid.voxel_grid.Peek(point).tree_owner, -1);
+  EXPECT_FALSE(grid.HasForeignNodeWithin(point, 0.15f, 7));
+  grid.AddNode({point, 4, std::numeric_limits<unsigned>::max(), 0.01f});
+  EXPECT_FALSE(grid.HasForeignNodeWithin(point, 0.15f, std::numeric_limits<unsigned>::max()));
+  const float threshold = 0.15f;
+  EXPECT_FALSE(grid.HasForeignNodeWithin({threshold, 0, 0}, threshold, 7));
+  EXPECT_TRUE(grid.HasForeignNodeWithin({std::nextafter(threshold, 0.f), 0, 0}, threshold, 7));
+  EXPECT_FALSE(grid.HasForeignNodeWithin({std::nextafter(threshold, 1.f), 0, 0}, threshold, 7));
 }

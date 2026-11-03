@@ -113,7 +113,7 @@ class ShootModel : public PlantModel {
    * @brief Performs pre-processing computations after shoot growth.
    * @param shoot_growth_controller The controller that regulates shoot growth.
    */
-  void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller);
+  void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller, bool update_counts = true);
 
   friend class Tree;
 #pragma endregion

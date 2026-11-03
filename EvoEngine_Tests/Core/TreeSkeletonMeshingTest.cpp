@@ -327,3 +327,51 @@ TEST(PlantVisualOrgans, ReusesBuffersAndCombinesTreesInInputOrder) {
   EXPECT_TRUE(first.foliage.empty());
   EXPECT_EQ(first.foliage.capacity(), capacity);
 }
+
+TEST(SkeletonRemoval, EmptyRemovalPreservesTopologyAndAdvancesVersion) {
+  BaseSkeleton skeleton(1);
+  const auto tip = skeleton.Extend(0, false);
+  const auto branch = skeleton.Extend(0, true);
+  skeleton.SortLists();
+  const auto nodes = skeleton.PeekSortedNodeList();
+  const auto flows = skeleton.PeekSortedFlowList();
+  const auto version = skeleton.GetVersion();
+  skeleton.RemoveNodes({});
+  EXPECT_EQ(skeleton.GetVersion(), version + 1);
+  EXPECT_EQ(skeleton.PeekSortedNodeList(), nodes);
+  EXPECT_EQ(skeleton.PeekSortedFlowList(), flows);
+  EXPECT_EQ(skeleton.PeekNode(tip).GetParentHandle(), 0);
+  EXPECT_EQ(skeleton.PeekNode(branch).GetParentHandle(), 0);
+}
+
+TEST(SkeletonRemoval, OverlappingSubtreesCompactHandlesAndAllowSubsequentRemoval) {
+  BaseSkeleton skeleton(1);
+  const auto trunk = skeleton.Extend(0, false);
+  const auto branch = skeleton.Extend(trunk, true);
+  const auto tip = skeleton.Extend(branch, false);
+  const auto survivor = skeleton.Extend(trunk, false);
+  skeleton.RefNode(survivor).info.length = 7.f;
+  skeleton.RemoveNodes({branch, tip, branch});
+  ASSERT_EQ(skeleton.PeekSortedNodeList().size(), 3u);
+  int remaining_tip = -1;
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    const auto& node = skeleton.PeekNode(handle);
+    EXPECT_EQ(node.GetHandle(), handle);
+    for (const auto child : node.PeekChildHandles()) {
+      EXPECT_EQ(skeleton.PeekNode(child).GetParentHandle(), handle);
+    }
+    if (node.info.length == 7.f)
+      remaining_tip = handle;
+  }
+  ASSERT_NE(remaining_tip, -1);
+  EXPECT_EQ(skeleton.PeekNode(remaining_tip).GetParentHandle(), trunk);
+  for (const auto flow : skeleton.PeekSortedFlowList()) {
+    for (const auto handle : skeleton.PeekFlow(flow).PeekNodeHandles()) {
+      EXPECT_EQ(skeleton.PeekNode(handle).GetFlowHandle(), flow);
+    }
+  }
+  skeleton.RemoveNodes({remaining_tip});
+  EXPECT_EQ(skeleton.PeekSortedNodeList().size(), 2u);
+  skeleton.RemoveNodes({0});
+  EXPECT_TRUE(skeleton.PeekRawNodes().empty());
+}

@@ -32,8 +32,18 @@ struct EnvironmentVoxel {
   float light_intensity = 1.0f;                    ///< Light intensity received by this voxel.
   float total_biomass = 0.0f;                      ///< Total biomass_factor accumulated in this voxel.
 
+  int64_t tree_owner = -1;  ///< Single registered tree, or -1 for empty/mixed cells.
+
   std::vector<InternodeVoxelRegistration>
       internode_voxel_registrations{};  ///< Registrations of internodes in this voxel.
+
+  void AddNode(const InternodeVoxelRegistration& registration) {
+    if (internode_voxel_registrations.empty())
+      tree_owner = registration.tree_skeleton_index;
+    else if (tree_owner != registration.tree_skeleton_index)
+      tree_owner = -1;
+    internode_voxel_registrations.emplace_back(registration);
+  }
 };
 
 /**
@@ -79,5 +89,7 @@ class EnvironmentGrid {
    * @param registration The internode voxel registration details.
    */
   void AddNode(const InternodeVoxelRegistration& registration);
+
+  [[nodiscard]] bool HasForeignNodeWithin(const glm::vec3& position, float distance, unsigned tree_index) const;
 };
 }  // namespace eco_sys_lab_package

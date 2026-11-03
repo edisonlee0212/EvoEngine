@@ -162,5 +162,33 @@ void EnvironmentGrid::AddBiomass(const glm::vec3& position, const float value) {
 
 void EnvironmentGrid::AddNode(const InternodeVoxelRegistration& registration) {
   auto& data = voxel_grid.Ref(registration.position);
-  data.internode_voxel_registrations.emplace_back(registration);
+  data.AddNode(registration);
+}
+
+bool EnvironmentGrid::HasForeignNodeWithin(const glm::vec3& position, const float distance,
+                                           const unsigned tree_index) const {
+  if (distance <= 0.f || voxel_grid.GetVoxelCount() == 0)
+    return false;
+  const auto center = position - voxel_grid.GetMinBound();
+  const auto radius = glm::vec3(distance * 2.f);
+  const auto cell_size = glm::vec3(voxel_grid.GetVoxelSize());
+  const auto resolution = voxel_grid.GetResolution();
+  const auto start = glm::max(glm::ivec3(0), glm::ivec3(glm::floor((center - radius) / cell_size)));
+  const auto end = glm::min(resolution - glm::ivec3(1), glm::ivec3(glm::ceil((center + radius) / cell_size)));
+  for (int z = start.z; z <= end.z; ++z) {
+    for (int y = start.y; y <= end.y; ++y) {
+      auto index = voxel_grid.GetIndex(glm::ivec3(start.x, y, z));
+      for (int x = start.x; x <= end.x; ++x, ++index) {
+        const auto& cell = voxel_grid.Peek(index);
+        if (cell.tree_owner == tree_index)
+          continue;
+        for (const auto& registration : cell.internode_voxel_registrations) {
+          if (registration.tree_skeleton_index != tree_index &&
+              glm::distance(position, registration.position) < distance)
+            return true;
+        }
+      }
+    }
+  }
+  return false;
 }

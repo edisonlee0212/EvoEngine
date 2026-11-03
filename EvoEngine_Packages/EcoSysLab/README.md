@@ -543,3 +543,13 @@ Growth rendering shares immutable, revision-cached base shoot/root poses with cu
 Plant Visual packs visible foliage, flowers, and fruits in one parallel pass per tree, retaining per-tree and combined CPU buffer capacity between growth updates. Combining results preserves scene tree order and skeleton/organ order. Selection-only updates preserve organ instances; scene changes release the scratch data. This replaces serial organ counting without relying on growth counters that may be absent in loaded skeletons.
 
 Growth air coverage computes connected world/local bounds independently per tree on CPU workers, then registers full padded boxes sequentially in scene order. GPU allocation and grid mutation stay on the main thread. Environment voxel registration resolves each internode position once for shadow, biomass, and tip insertion, retaining the original tree/node accumulation order.
+
+Growth-derived CPU scopes separate thickness, hierarchy metrics, biomass, transforms, flows, organ counts, and pruning removals. The internal pre-pruning refresh skips organ/order counts; final growth and standalone refreshes still publish counts. Transform/callback ordering, flow availability, and pruning version updates are unchanged.
+
+Skeleton removal uses dense handle-indexed lookup arrays instead of per-element hash allocations. Empty removal requests skip index construction while retaining version increments and sorted-list refresh behavior.
+
+Growth tropism constructs the same rotation coefficients directly in a 3x3 matrix, avoiding the intermediate 4x4 identity multiplication. Angle limits, normalization and callback ordering are unchanged.
+
+Growth traces also separate internode growth, organ updates, annual organ reset/formulation, environment sampling, light aggregation, and both pruning directions. Pruning-direction scopes include removal; derived scopes and phase scopes are inclusive.
+
+Crown-shyness queries skip environment cells registered exclusively by the querying tree, clip traversal to grid bounds, visit contiguous X cells, and stop on the first foreign-tree match. Ownership metadata resets with the growth grid and is maintained by both registration paths. The original 2x search extent, tip-start registrations and strict distance predicate are retained.
