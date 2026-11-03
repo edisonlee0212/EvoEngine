@@ -20,7 +20,7 @@ def summarize(directory):
              (directory / "configuration.txt").read_text().strip(), "```", "",
              "| Configuration | Frames | Mean frame ms | Median frame ms | FPS |",
              "|---|---:|---:|---:|---:|"]
-    order = (["growth"] if "growth" in results else []) + ["full", "without_plant_visual", "physics_without_branches"]
+    order = [name for name in ("growth", "growth-session") if name in results] + ["full", "without_plant_visual", "physics_without_branches"]
     for name in order:
         rows, wall = results[name]
         mean = statistics.mean(wall)

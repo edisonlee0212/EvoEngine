@@ -168,6 +168,39 @@ bool GpuTreeMeshRenderer::PrepareFoliage(bool masked) {
   return camera->Initialized() && shadow->Initialized();
 }
 
+std::shared_ptr<const GpuTreeMeshRenderer::TreePose> GpuTreeMeshRenderer::GetTreePose(const std::shared_ptr<Tree>& tree,
+                                                                                      const BasicBarkDescriptor* bark,
+                                                                                      bool connected_pose) {
+  auto& cache = tree_node_cache_[tree->GetOwner()];
+  if (!cache)
+    cache = std::make_shared<TreeNodeCache>();
+  const auto parameters = GpuTreeMeshParameters(tree->tree_mesh_generator_settings, bark);
+  const auto shoot_revision = tree->GetShootModelRevision().content;
+  const auto root_revision = tree->GetRootModelRevision().content;
+  const auto& previous = cache->pose;
+  if (previous && previous->tree.lock() == tree && previous->parameters == parameters &&
+      previous->shoot_revision == shoot_revision && previous->root_revision == root_revision &&
+      previous->connected_pose == connected_pose)
+    return previous;
+  const ProfilerScope scope("EcoSysLab / Pack shared tree pose", "EcoSysLab");
+  // Recycle capacity only when no consumer retains the previous immutable snapshot.
+  auto pose = previous && previous.use_count() == 1 ? std::const_pointer_cast<TreePose>(previous)
+                                                    : std::make_shared<TreePose>();
+  pose->nodes.clear();
+  pose->tree = tree;
+  pose->parameters = parameters;
+  pose->shoot_revision = shoot_revision;
+  pose->root_revision = root_revision;
+  pose->connected_pose = connected_pose;
+  AppendGpuTreeNodes(tree->shoot_model.PeekShootSkeleton(), tree->tree_mesh_generator_settings, bark, 0, true,
+                     pose->nodes, connected_pose);
+  pose->shoot_count = static_cast<uint32_t>(pose->nodes.size());
+  AppendGpuTreeNodes(tree->root_model.PeekRootSkeleton(), tree->tree_mesh_generator_settings, bark, 0, false,
+                     pose->nodes);
+  cache->pose = pose;
+  return pose;
+}
+
 void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
   const auto& rendering = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->rendering;
   const ProfilerScope total_scope("EcoSysLab / Tree render registration", "EcoSysLab");
@@ -250,7 +283,8 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
                              ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
                              : nullptr;
-    const auto state = physics && physics->IsEnabled() ? physics->GetGpuPhysicsState() : nullptr;
+    const bool connected_pose = physics && physics->IsEnabled();
+    const auto state = connected_pose ? physics->GetGpuPhysicsState() : nullptr;
     auto& cached = tree_node_cache_[entity];
     if (!cached)
       cached = std::make_shared<TreeNodeCache>();
@@ -258,21 +292,21 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     const auto& settings = owner->tree_mesh_generator_settings;
     const auto parameters = GpuTreeMeshParameters(settings, bark.get());
     if (cache.tree.lock() != owner || cache.parameters != parameters || cache.physics.lock() != state ||
-        cache.shoot_revision != owner->GetShootModelRevision().content ||
+        cache.connected_pose != connected_pose || cache.shoot_revision != owner->GetShootModelRevision().content ||
         cache.root_revision != owner->GetRootModelRevision().content) {
       const ProfilerScope build_scope("EcoSysLab / Build tree render cache", "EcoSysLab");
-      cache.nodes.clear();
-      AppendGpuTreeNodes(owner->shoot_model.PeekShootSkeleton(), settings, bark.get(), 0, true, cache.nodes);
-      cache.shoot_count = static_cast<uint32_t>(cache.nodes.size());
+      const auto pose = GetTreePose(owner, bark.get(), connected_pose);
+      cache.nodes = pose->nodes;
+      cache.shoot_count = pose->shoot_count;
       if (state)
-        for (auto& node : cache.nodes) {
+        for (uint32_t i = 0; i < cache.shoot_count; ++i) {
+          auto& node = cache.nodes[i];
           if (!physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(node.foliage_meta.x)))
             continue;
           while (node.links.x != UINT32_MAX && !physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(
                                                    cache.nodes[node.links.x].foliage_meta.x)))
             node.links.x = cache.nodes[node.links.x].links.x;
         }
-      AppendGpuTreeNodes(owner->root_model.PeekRootSkeleton(), settings, bark.get(), 0, false, cache.nodes);
       for (size_t i = 0; i < cache.nodes.size(); ++i) {
         auto& node = cache.nodes[i];
         node.foliage_meta.z = entity.GetIndex() ^ (entity.GetVersion() * 0x9e3779b9u);
@@ -282,12 +316,16 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
         else
           node.links.z = 0;
       }
-      std::vector<bool> apical;
-      for (const auto handle : owner->shoot_model.PeekShootSkeleton().PeekSortedNodeList())
-        apical.push_back(owner->shoot_model.PeekShootSkeleton().PeekNode(handle).IsApical());
-      cache.shadow_groups = BuildTreeShadowGroups(cache.nodes, apical);
+      {
+        const ProfilerScope scope("EcoSysLab / Build shadow groups", "EcoSysLab");
+        std::vector<bool> apical;
+        for (const auto handle : owner->shoot_model.PeekShootSkeleton().PeekSortedNodeList())
+          apical.push_back(owner->shoot_model.PeekShootSkeleton().PeekNode(handle).IsApical());
+        cache.shadow_groups = BuildTreeShadowGroups(cache.nodes, apical);
+      }
       cache.tree = owner;
       cache.physics = state;
+      cache.connected_pose = connected_pose;
       cache.parameters = parameters;
       cache.shoot_revision = owner->GetShootModelRevision().content;
       cache.root_revision = owner->GetRootModelRevision().content;
@@ -378,6 +416,7 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     frame.indices_ready = false;
     frame.physics = state;
     frame.node_count = static_cast<uint32_t>(cache.nodes.size());
+    const ProfilerScope upload_scope("EcoSysLab / Tree upload preparation", "EcoSysLab");
     BufferUploadBatch upload;
     std::vector<GpuTreeNode> packed;
     std::vector<glm::vec4> empty_bounds;

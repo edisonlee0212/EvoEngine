@@ -2,7 +2,9 @@
 
 #include <cstdlib>
 #include "DynamicTreeSkeleton.hpp"
+#include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "GpuTreeMeshRenderer.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Profiler.hpp"
 #include "Shader.hpp"
@@ -146,10 +148,9 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
   const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(tree->GetOwner())
                            ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree->GetOwner()).lock()
                            : nullptr;
-  const auto gpu = physics && physics->IsEnabled() && physics->HasPhysics(*tree) &&
-                           shoot_checkpoint == tree->shoot_model.CurrentIteration()
-                       ? physics->GetGpuPhysics()
-                       : nullptr;
+  const bool connected_pose =
+      physics && physics->IsEnabled() && shoot_checkpoint == tree->shoot_model.CurrentIteration();
+  const auto gpu = connected_pose && physics->HasPhysics(*tree) ? physics->GetGpuPhysics() : nullptr;
   std::shared_ptr<BasicBarkDescriptor> bark;
   if (const auto descriptor = tree->tree_descriptor_ref.Get<TreeDescriptor>())
     bark = descriptor->bark_descriptor.Get<BasicBarkDescriptor>();
@@ -159,8 +160,11 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
   if (cached_tree_.lock() != tree || shoot_revision_ != tree->GetShootModelRevision().content ||
       root_revision_ != tree->GetRootModelRevision().content || shoot_checkpoint_ != shoot_checkpoint ||
       root_checkpoint_ != root_checkpoint || parameters_ != parameters || visualizer_settings_ != settings ||
-      cached_physics_.lock() != gpu || cached_state_.lock() != (gpu ? physics->GetGpuPhysicsState() : nullptr) ||
-      shoot.need_update || root.need_update) {
+      connected_pose_ != connected_pose || cached_physics_.lock() != gpu ||
+      cached_state_.lock() != (gpu ? physics->GetGpuPhysicsState() : nullptr) || shoot.need_update ||
+      root.need_update) {
+    const ProfilerScope scope("EcoSysLab / Plant Visual packing", "EcoSysLab");
+    std::shared_ptr<const GpuTreeMeshRenderer::TreePose> pose;
     nodes_.clear();
     colors_.clear();
     const auto append = [&](const auto& skeleton, auto& visualizer, bool is_shoot) {
@@ -171,7 +175,23 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
       if (!context)
         visualizer.SyncColors(skeleton);
       const size_t base = nodes_.size();
-      AppendGpuTreeNodes(skeleton, tree->tree_mesh_generator_settings, bark.get(), 0, is_shoot, nodes_);
+      const bool current = is_shoot ? shoot_checkpoint == tree->shoot_model.CurrentIteration()
+                                    : root_checkpoint == tree->root_model.CurrentIteration();
+      if (current && !pose)
+        if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
+            layer && layer->GetTreeMeshRenderer())
+          pose = layer->GetTreeMeshRenderer()->GetTreePose(tree, bark.get(), physics && physics->IsEnabled());
+      if (current && pose) {
+        const size_t first = is_shoot ? 0 : pose->shoot_count;
+        const size_t last = is_shoot ? pose->shoot_count : pose->nodes.size();
+        nodes_.insert(nodes_.end(), pose->nodes.begin() + first, pose->nodes.begin() + last);
+        for (size_t i = base; i < nodes_.size(); ++i)
+          if (nodes_[i].links.x != UINT32_MAX)
+            nodes_[i].links.x = static_cast<uint32_t>(base + nodes_[i].links.x - first);
+      } else {
+        AppendGpuTreeNodes(skeleton, tree->tree_mesh_generator_settings, bark.get(), 0, is_shoot, nodes_,
+                           is_shoot && connected_pose);
+      }
       if (context)
         colors_.insert(colors_.end(), nodes_.size() - base, glm::vec4(1.0f, 1.0f, 1.0f, 0.18f));
       else
@@ -211,6 +231,7 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
     root_checkpoint_ = root_checkpoint;
     parameters_ = parameters;
     visualizer_settings_ = settings;
+    connected_pose_ = connected_pose;
     ++generation_;
   }
   if (nodes_.empty()) {
@@ -219,6 +240,7 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
   }
   auto& frame = frames_[Platform::GetCurrentFrameIndex()];
   if (frame.uploaded_generation != generation_) {
+    const ProfilerScope scope("EcoSysLab / Plant Visual upload", "EcoSysLab");
     BufferUploadBatch upload;
     upload.AddVector(frame.nodes, nodes_,
                      {BufferUploadUsage::StorageReadWrite, BufferUploadCapacityPolicy::GrowIfNeeded});

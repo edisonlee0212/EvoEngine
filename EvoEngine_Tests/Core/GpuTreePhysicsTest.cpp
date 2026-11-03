@@ -15,6 +15,7 @@
 #include "GeometryStorage.hpp"
 #include "GpuSpatialGrid.hpp"
 #include "GpuTreeClusterPhysics.hpp"
+#include "GpuTreeMeshRenderer.hpp"
 #include "GpuTreePhysics.hpp"
 #include "GpuTreePhysicsLod.hpp"
 #include "GpuTreeSubtreePhysics.hpp"
@@ -740,6 +741,93 @@ TEST(GpuTreePhysics, FineAirCellsFollowCurrentBentPose) {
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
   physics.DownloadVertices(vertices);
   EXPECT_GT(vertices[1].position_inverse_mass.z, 1e-5f);
+}
+
+TEST(GpuTreePhysics, GrowthDetachesSolverAndResumesFromLatestSkeleton) {
+  ScopedTreeGpuPlatform platform;
+  const auto scene = std::make_shared<Scene>();
+  const auto tree = std::make_shared<Tree>();
+  const auto component = std::make_shared<DynamicTreeSkeleton>();
+  tree->shoot_model.Initialize(MakeGpuPhysicsFork());
+  ASSERT_TRUE(component->InitializePhysics(*tree));
+  EcoSysLabSystem::Dynamics dynamics;
+  dynamics.physics_scene = scene;
+  dynamics.tree_physics = std::make_shared<GpuTreePhysics>();
+  ASSERT_TRUE(dynamics.tree_physics->Initialize(component->ExportGpuRestState()));
+  component->SetGpuPhysics(dynamics.tree_physics, 0);
+  component->physics_running = true;
+  dynamics.entries.push_back({{}, tree, component, tree->GetShootModelRevision().content, 0});
+  dynamics.wind = std::make_shared<WindParticleField>();
+  const auto wind = dynamics.wind;
+  dynamics.SyncTrees(scene, true);
+  EXPECT_FALSE(dynamics.tree_physics);
+  EXPECT_TRUE(dynamics.entries.empty());
+  EXPECT_FALSE(component->GetGpuPhysicsState());
+  EXPECT_FALSE(component->HasPhysics(*tree));
+  EXPECT_FALSE(component->physics_running);
+  EXPECT_EQ(dynamics.wind, wind);
+  tree->shoot_model.Initialize(MakeGpuPhysicsChain());
+  tree->NotifyShootModelChanged();
+  dynamics.SyncTrees(scene, true);
+  EXPECT_FALSE(component->HasPhysics(*tree));
+  std::vector<GpuTreeNode> nodes;
+  AppendGpuTreeNodes(tree->shoot_model.PeekShootSkeleton(), tree->tree_mesh_generator_settings, nullptr, 0, true,
+                     nodes);
+  EXPECT_FALSE(nodes.empty());
+  ASSERT_TRUE(component->SyncGpuPhysics(*tree, GlobalTransform{}, false));
+  EXPECT_TRUE(component->physics_running);
+  const auto rest = component->ExportGpuRestState();
+  GpuTreePhysics resumed;
+  ASSERT_TRUE(resumed.Initialize(rest));
+  std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
+  resumed.DownloadVertices(vertices);
+  ASSERT_EQ(vertices.size(), rest.vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    EXPECT_EQ(vertices[i].position_inverse_mass, rest.vertices[i].position_inverse_mass);
+    EXPECT_EQ(glm::vec3(vertices[i].velocity_radius), glm::vec3(0));
+  }
+}
+
+TEST(GpuTreePhysics, GrowthAirCoverageNeedsNoPhysicsState) {
+  ScopedTreeGpuPlatform platform;
+  Tree tree;
+  auto skeleton = MakeGpuPhysicsChain();
+  skeleton.RefNode(1).info.global_position += glm::vec3(2, 0, 0);
+  skeleton.RefNode(1).info.length = 0;
+  tree.shoot_model.Initialize(skeleton);
+  WindParticleField growth;
+  growth.RegisterTreeCoverage(tree.shoot_model.PeekShootSkeleton(), glm::mat4(1), 0);
+  const auto cells = growth.GetAirCellCount();
+  ASSERT_GT(cells, 0u);
+  DynamicTreeSkeleton component;
+  ASSERT_TRUE(component.InitializePhysics(tree));
+  WindParticleField simulation;
+  const auto rest = component.ExportGpuRestState();
+  simulation.RegisterTreeCoverage({rest});
+  std::vector<GpuTreeNode> nodes;
+  AppendGpuTreeNodes(tree.shoot_model.PeekShootSkeleton(), tree.tree_mesh_generator_settings, nullptr, 0, true, nodes,
+                     true);
+  for (const auto& node : nodes) {
+    const auto rod = rest.node_rods[node.foliage_meta.x];
+    if (rod == UINT32_MAX)
+      continue;
+    const auto start = glm::vec3(node.position_thickness);
+    const auto end = start + glm::vec3(node.direction_length) * node.direction_length.w;
+    EXPECT_LT(glm::distance(start, glm::vec3(rest.vertices[rest.rods[rod].links.x].position_inverse_mass)), 1e-6f);
+    EXPECT_LT(glm::distance(end, glm::vec3(rest.vertices[rest.rods[rod].links.y].position_inverse_mass)), 1e-6f);
+    if (node.links.x != UINT32_MAX)
+      EXPECT_GT(nodes[node.links.x].direction_length.w, 0);
+  }
+  EXPECT_EQ(cells, simulation.GetAirCellCount());
+  growth.RegisterTreeCoverage(tree.shoot_model.PeekShootSkeleton(), glm::mat4(1), 0);
+  EXPECT_EQ(cells, growth.GetAirCellCount());
+  const auto moved = glm::translate(glm::mat4(1), glm::vec3(10, 0, 0));
+  growth.RegisterTreeCoverage(tree.shoot_model.PeekShootSkeleton(), moved, 0);
+  EXPECT_GT(growth.GetAirCellCount(), cells);
+  growth.ResetAirGrid({}, nullptr, {}, 0.2f);
+  growth.RegisterTreeCoverage(tree.shoot_model.PeekShootSkeleton(), moved, 0);
+  EXPECT_GT(growth.GetAirCellCount(), 0u);
+  EXPECT_LT(growth.GetAirCellCount(), cells);
 }
 
 TEST(GpuTreePhysics, RestUploadsPreserveBothLayoutsAndPingPongBuffers) {
@@ -3688,4 +3776,105 @@ TEST(TreeClusterForest, RefinementUsesCurrentRigidMotionInsteadOfOldFineHistory)
   step.lod.enabled_policies = 0;
   update();
   verify(current_omega, current_velocity, 5);
+}
+
+TEST(GpuTreePhysics, IncrementalCoverageMatchesFullBoxesAndReset) {
+  ScopedTreeGpuPlatform platform;
+  GpuSpatialGrid incremental(1.0f), reference(1.0f);
+  const auto check = [&](glm::vec3 lower, glm::vec3 upper, uint32_t id) {
+    EXPECT_EQ(incremental.RegisterBox(lower, upper, id), reference.RegisterBox(lower, upper));
+    EXPECT_EQ(incremental.GetCellCount(), reference.GetCellCount());
+    for (int z = -6; z <= 8; ++z)
+      for (int y = -6; y <= 8; ++y)
+        for (int x = -6; x <= 8; ++x)
+          EXPECT_EQ(incremental.Find({x, y, z}), reference.Find({x, y, z}));
+  };
+  check({-1, -1, -1}, {1, 1, 1}, 0);
+  const auto values = incremental.GetValueChunk(0);
+  check({-1, -1, -1}, {1, 1, 1}, 0);
+  check({0, 0, 0}, {0, 0, 0}, 0);
+  check({-2, -3, -4}, {3, 2, 4}, 0);
+  check({-1, 0, 0}, {4, 5, 6}, 1);
+  check({2, 2, 2}, {5, 5, 5}, 0);
+  check({6, 6, 6}, {8, 8, 8}, 0);
+  EXPECT_EQ(incremental.GetValueChunk(0), values);
+  incremental.Reset();
+  reference.Reset();
+  check({6, 6, 6}, {8, 8, 8}, 0);
+}
+
+TEST(GpuTreePhysics, SharedRenderPoseIsImmutableAndRevisionCached) {
+  ScopedTreeGpuPlatform platform;
+  GpuTreeMeshRenderer renderer;
+  const auto tree = std::make_shared<Tree>();
+  tree->shoot_model.Initialize(MakeGpuPhysicsFork());
+  const auto original = renderer.GetTreePose(tree, nullptr, true);
+  ASSERT_FALSE(original->nodes.empty());
+  EXPECT_EQ(renderer.GetTreePose(tree, nullptr, true), original);
+  std::vector<GpuTreeNode> expected;
+  AppendGpuTreeNodes(tree->shoot_model.PeekShootSkeleton(), tree->tree_mesh_generator_settings, nullptr, 0, true,
+                     expected, true);
+  const auto shoot_count = expected.size();
+  AppendGpuTreeNodes(tree->root_model.PeekRootSkeleton(), tree->tree_mesh_generator_settings, nullptr, 0, false,
+                     expected);
+  EXPECT_EQ(original->shoot_count, shoot_count);
+  ASSERT_EQ(original->nodes.size(), expected.size());
+  EXPECT_EQ(std::memcmp(original->nodes.data(), expected.data(), expected.size() * sizeof(GpuTreeNode)), 0);
+  tree->shoot_model.Initialize(MakeGpuPhysicsChain());
+  tree->NotifyShootModelChanged();
+  const auto updated = renderer.GetTreePose(tree, nullptr, true);
+  EXPECT_NE(updated, original);
+  EXPECT_EQ(std::memcmp(original->nodes.data(), expected.data(), expected.size() * sizeof(GpuTreeNode)), 0);
+  tree->NotifyRootModelChanged();
+  const auto root_changed = renderer.GetTreePose(tree, nullptr, true);
+  EXPECT_NE(root_changed, updated);
+  tree->tree_mesh_generator_settings.radius_multiplier *= 2;
+  const auto resized = renderer.GetTreePose(tree, nullptr, true);
+  EXPECT_NE(resized, root_changed);
+  const auto disconnected = renderer.GetTreePose(tree, nullptr, false);
+  EXPECT_NE(disconnected, root_changed);
+  const auto other = std::make_shared<Tree>();
+  EXPECT_NE(renderer.GetTreePose(other, nullptr, false), disconnected);
+}
+
+TEST(GpuTreePhysics, ParallelAirBoundsPreserveConnectedCoverageAndRegistration) {
+  ScopedTreeGpuPlatform platform;
+  Tree tree;
+  auto source = MakeGpuPhysicsChain();
+  source.RefNode(1).info.length = 0;
+  tree.shoot_model.Initialize(source);
+  auto& skeleton = tree.shoot_model.RefShootSkeleton();
+  std::vector<glm::mat4> models;
+  for (int i = 0; i < 6; ++i)
+    models.push_back(glm::translate(glm::vec3(i * 0.3f, -0.2f, 0.1f)) *
+                     glm::mat4_cast(glm::quat(glm::vec3(0.1f * i, 0.2f, -0.1f))) *
+                     glm::scale(glm::vec3(1, 0.8f, 1.2f)));
+  std::vector<std::optional<WindParticleField::TreeCoverage>> expected, parallel(models.size());
+  for (const auto& model : models)
+    expected.push_back(WindParticleField::CalculateTreeCoverage(skeleton, model));
+  // Child offsets do not move connected physics endpoints.
+  skeleton.RefNode(1).info.global_position += glm::vec3(100);
+  Jobs::RunParallelFor(models.size(), [&](size_t i) {
+    parallel[i] = WindParticleField::CalculateTreeCoverage(skeleton, models[i]);
+  });
+  WindParticleField direct, prepared;
+  for (uint32_t i = 0; i < models.size(); ++i) {
+    ASSERT_TRUE(expected[i]);
+    ASSERT_TRUE(parallel[i]);
+    EXPECT_EQ(parallel[i]->model, expected[i]->model);
+    EXPECT_EQ(parallel[i]->lower, expected[i]->lower);
+    EXPECT_EQ(parallel[i]->upper, expected[i]->upper);
+    EXPECT_EQ(parallel[i]->local_lower, expected[i]->local_lower);
+    EXPECT_EQ(parallel[i]->local_upper, expected[i]->local_upper);
+    direct.RegisterTreeCoverage(skeleton, models[i], i);
+    prepared.RegisterTreeCoverage(*parallel[i], i);
+    EXPECT_EQ(prepared.GetAirCellCount(), direct.GetAirCellCount());
+  }
+  for (auto& model : models)
+    model = glm::translate(glm::vec3(0.3f, 0, 0)) * model;
+  direct.RegisterTreeModels(models);
+  prepared.RegisterTreeModels(models);
+  EXPECT_EQ(prepared.GetAirCellCount(), direct.GetAirCellCount());
+  ShootSkeleton empty(0);
+  EXPECT_FALSE(WindParticleField::CalculateTreeCoverage(empty, glm::mat4(1)));
 }

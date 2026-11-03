@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "../../EvoEngine_Packages/EcoSysLab/Editor/include/PlantVisualOrganBuffers.hpp"
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -240,4 +241,89 @@ TEST(TreeSkeletonMeshing, PacksForkParentsAndRebasesTreeRanges) {
   EXPECT_EQ(nodes[5].links.x, 3);
   EXPECT_EQ(nodes[4].links.y, 7);
   EXPECT_EQ(nodes[4].foliage_meta.y, 0u);
+}
+
+TEST(PlantVisualOrgans, PreservesOrganOrderTransformsColorsAndVisibility) {
+  ShootSkeleton skeleton;
+  skeleton.Extend(0, false);
+  skeleton.SortLists();
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    auto& data = skeleton.RefNode(handle).data;
+    data.leaves.resize(3);
+    data.flowers.resize(3);
+    data.fruits.resize(3);
+    const auto initialize = [&](auto& organs) {
+      for (size_t i = 0; i < organs.size(); ++i) {
+        auto& organ = organs[i];
+        organ.status = i == 1 ? OrganStatus::Inactive : (i == 0 ? OrganStatus::Dormant : OrganStatus::Flushed);
+        organ.position = {handle * 3.0f, static_cast<float>(i), -2};
+        organ.rotation = glm::quat(glm::vec3(0.2f, 0.4f, -0.3f));
+        organ.scale = {0.5f, 2.0f, 1.0f};
+        organ.health = 0.25f;
+        organ.maturity = 0.75f;
+      }
+    };
+    initialize(data.leaves);
+    initialize(data.flowers);
+    initialize(data.fruits);
+  }
+  const auto transform = glm::translate(glm::vec3(4, -3, 2)) * glm::mat4_cast(glm::quat(glm::vec3(0.3f, -0.2f, 0.1f))) *
+                         glm::scale(glm::vec3(2, 1, 3));
+  PlantVisualOrganBuffers buffers;
+  for (uint32_t mask = 0; mask < 8; ++mask) {
+    buffers.Build(skeleton, transform, mask & 1, mask & 2, mask & 4);
+    const std::vector<ParticleInfo>* lists[] = {&buffers.foliage, &buffers.flowers, &buffers.fruits};
+    const float scales[] = {0.5f, 1.0f, 0.25f};
+    const glm::vec4 colors[] = {
+        {glm::mix(glm::vec3(152, 203, 0) / 255.0f, glm::vec3(159, 100, 66) / 255.0f, 0.75f), 0.5f},
+        {glm::mix(glm::vec3(1), glm::vec3(255, 192, 203) / 255.0f, 0.75f), 0.75f},
+        {glm::mix(glm::vec3(152, 255, 152) / 255.0f, glm::vec3(255, 165, 0) / 255.0f, 0.75f), 0.75f}};
+    for (uint32_t type = 0; type < 3; ++type) {
+      ASSERT_EQ(lists[type]->size(), mask & (1u << type) ? 4u : 0u);
+      for (size_t i = 0; i < lists[type]->size(); ++i) {
+        const auto& organ = skeleton.PeekNode(static_cast<int>(i / 2)).data.leaves[(i % 2) * 2];
+        const auto& result = lists[type]->at(i);
+        const glm::vec4 local(0.2f, -0.4f, 0.7f, 1);
+        const glm::vec4 expected =
+            transform * glm::vec4(organ.position + organ.rotation * (organ.scale * scales[type] * glm::vec3(local)), 1);
+        EXPECT_LT(glm::length(result.instance_matrix.value * local - expected), 1e-5f);
+        EXPECT_LT(glm::length(result.instance_color - colors[type]), 1e-6f);
+      }
+    }
+  }
+}
+
+TEST(PlantVisualOrgans, ReusesBuffersAndCombinesTreesInInputOrder) {
+  ShootSkeleton skeleton;
+  skeleton.SortLists();
+  auto& organs = skeleton.RefNode(0).data.leaves;
+  organs.resize(8);
+  for (auto& organ : organs)
+    organ.status = OrganStatus::Flushed;
+  PlantVisualOrganBuffers first, second, combined;
+  first.Build(skeleton, glm::mat4(1), true, false, false);
+  second.Build(skeleton, glm::translate(glm::vec3(10, 0, 0)), true, false, false);
+  const auto* first_storage = first.foliage.data();
+  const auto capacity = first.foliage.capacity();
+  combined.Append(first);
+  combined.Append(second);
+  ASSERT_EQ(combined.foliage.size(), 16u);
+  EXPECT_FLOAT_EQ(combined.foliage.front().instance_matrix.value[3].x, 0);
+  EXPECT_FLOAT_EQ(combined.foliage[8].instance_matrix.value[3].x, 10);
+  const auto* combined_storage = combined.foliage.data();
+  combined.Clear();
+  combined.Append(second);
+  combined.Append(first);
+  EXPECT_EQ(combined.foliage.data(), combined_storage);
+  EXPECT_FLOAT_EQ(combined.foliage.front().instance_matrix.value[3].x, 10);
+  first.Build(skeleton, glm::mat4(1), false, false, false);
+  EXPECT_TRUE(first.foliage.empty());
+  EXPECT_EQ(first.foliage.capacity(), capacity);
+  organs.resize(2);
+  first.Build(skeleton, glm::mat4(1), true, false, false);
+  EXPECT_EQ(first.foliage.size(), 2u);
+  EXPECT_EQ(first.foliage.data(), first_storage);
+  first.Clear();
+  EXPECT_TRUE(first.foliage.empty());
+  EXPECT_EQ(first.foliage.capacity(), capacity);
 }

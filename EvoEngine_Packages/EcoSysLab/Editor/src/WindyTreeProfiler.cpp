@@ -26,7 +26,7 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
   const auto scene = GetScene();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
   const bool profile_growth = std::getenv("EVOENGINE_WINDY_TREE_GROWTH_PROFILE") != nullptr;
-  static std::weak_ptr<Scene> growth_capture_scene;
+  static std::weak_ptr<Scene> growth_capture_scene, growth_ready_scene;
   if (system && profile_growth && growth_capture_scene.lock() != scene) {
     growth_capture_scene = scene;
     auto& profiler = Profiler::GetInstance();
@@ -46,6 +46,17 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
   if (!system || system->growth.simulated_time < 5.0f * 365.0f || system->growth.grew_this_frame ||
       system->growth.remaining_time > 0.0f || !system->dynamics.tree_physics || !ProjectManager::IsProjectIdle())
     return;
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>())
+    for (const auto entity : *owners) {
+      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
+      if (scene->IsEntityEnabled(entity) && physics->IsEnabled() && !physics->GetGpuPhysicsState())
+        return;
+    }
+  // Wait one frame so the completed capture includes the final solver preparation.
+  if (profile_growth && growth_ready_scene.lock() != scene) {
+    growth_ready_scene = scene;
+    return;
+  }
   const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   const bool full_shadows = std::getenv("EVOENGINE_FULL_BRANCH_SHADOWS") != nullptr;
   if (runtime->gpu_tree_mesh_renderer_)
@@ -82,22 +93,29 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
     std::filesystem::create_directories(directory);
     if (profile_growth) {
       auto frames = Profiler::GetInstance().GetFrameHistorySnapshot();
+      const auto growth_frame = [](const auto& frame) {
+        return std::any_of(frame.events.begin(), frame.events.end(), [](const auto& event) {
+          return event.name == "EcoSysLab / Growth step";
+        });
+      };
+      const auto write_frames = [&](const char* name) {
+        std::ofstream output(std::filesystem::path(directory) / name);
+        output << std::setprecision(12) << "domain,name,frame,calls,ms\n";
+        for (const auto& frame : frames) {
+          output << "frame,Wall," << frame.application_frame_index << ",1," << frame.duration_ms << '\n';
+          for (const auto& total : BuildProfilerFrameStats(frame).named_event_totals)
+            output << "cpu," << std::quoted(total.name) << ',' << frame.application_frame_index << ',' << total.count
+                   << ',' << total.total_ms << '\n';
+        }
+      };
+      frames.erase(frames.begin(), std::find_if(frames.begin(), frames.end(), growth_frame));
+      write_frames("growth-session.csv");
       frames.erase(std::remove_if(frames.begin(), frames.end(),
-                                  [](const auto& frame) {
-                                    return std::none_of(frame.events.begin(), frame.events.end(),
-                                                        [](const auto& event) {
-                                                          return event.name == "EcoSysLab / Growth step";
-                                                        });
+                                  [&](const auto& frame) {
+                                    return !growth_frame(frame);
                                   }),
                    frames.end());
-      std::ofstream output(std::filesystem::path(directory) / "growth.csv");
-      output << std::setprecision(12) << "domain,name,frame,calls,ms\n";
-      for (const auto& frame : frames) {
-        output << "frame,Wall," << frame.application_frame_index << ",1," << frame.duration_ms << '\n';
-        for (const auto& total : BuildProfilerFrameStats(frame).named_event_totals)
-          output << "cpu," << std::quoted(total.name) << ',' << frame.application_frame_index << ',' << total.count
-                 << ',' << total.total_ms << '\n';
-      }
+      write_frames("growth.csv");
       (void)ExportProfilerChromeTrace(std::filesystem::path(directory) / "growth.trace.json", frames);
       std::ofstream skeletons(std::filesystem::path(directory) / "growth-skeletons.csv");
       skeletons << std::setprecision(9) << "tree,node,parent,x,y,z,length,thickness\n";

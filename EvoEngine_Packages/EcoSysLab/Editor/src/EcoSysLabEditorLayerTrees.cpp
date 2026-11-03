@@ -1,3 +1,4 @@
+#include "Profiler.hpp"
 #include "TreeEditorState.hpp"
 //
 // Created by lllll on 11/1/2022.
@@ -29,6 +30,7 @@
 using namespace eco_sys_lab_package;
 
 void EcoSysLabEditorLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& editor_layer) {
+  const ProfilerScope scope("EcoSysLab / Visual overlay update", "EcoSysLab");
   const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!runtime)
     return;

@@ -64,8 +64,8 @@ and wind can move their branches. The patch supplies BranchRenderer and FoliageR
 use the descriptor's leaf width and height in tree-local units, independent of tree extent. The demo does not build
 CPU geometry at the end of growth on mesh-shader devices. On devices without mesh shaders, it generates CPU geometry
 at the end of growth. If the startup scene has no environment configuration, EcoSysLab creates default climate and soil descriptors in the scene system. Growth runs only while the scene is playing.
-On mesh-shader devices, each growth iteration replaces the current GPU shoot pose from the saved growth skeleton.
-The rod solver stays paused during continuous growth and runs after growth stops. The live GPU pose feeds procedural
+On mesh-shader devices, each growth iteration uploads the rendering pose from the saved growth skeleton without
+creating solver state. Physics is initialized once after growth stops. The resulting live GPU pose feeds procedural
 branch, foliage, and shadow draws.
 
 The launcher also offers **Windy Tree** (`EvoEngineEditor --demo windy-tree --editor`). It creates an empty generated
@@ -105,8 +105,15 @@ and writes a Markdown summary beside the CSVs. CPU scopes separate runtime updat
 render registration, and debug rendering. Tree-cache build scopes and node-upload counters identify structural refreshes.
 Add `--growth` to capture CPU growth frames in `growth.csv` and `growth.trace.json`, plus the final
 shoot topology, positions, lengths and thicknesses in `growth-skeletons.csv` for before/after comparisons.
-Growth profiling includes physics rest-state rebuild/upload and air coverage registration; these occur while the
-GPU solver is paused. Parallel worker scope totals overlap and must not be treated as elapsed growth time.
+Growth renders directly from the uploaded CPU skeleton; it does not rebuild or upload solver state each iteration.
+Branches, foliage, shadows and Plant Visual use the growth pose while physics and wind–branch coupling are paused.
+For trees with physics enabled, rendering and coverage derive the same connected parent-endpoint pose used by the
+solver, including collapsed internodes; this avoids a pose jump at the handoff. Air-grid coverage continues to expand
+from these growth bounds. When growth finishes or is stopped, physics is
+initialized once from the latest growth skeleton, then rendering uses its simulated pose. Regrowth discards the old
+simulation pose and continues from the unchanged CPU growth model.
+`growth-session.csv` also includes the transition to physics, so its one-time preparation cost remains visible.
+Parallel worker scope totals overlap and must not be treated as elapsed growth time.
 Physics rest data is rebuilt independently across trees on worker threads; scene collection and GPU registration stay
 on the main thread. Rest-state creation batches its buffer uploads and packs each attribute array once for both
 simulation buffers.
@@ -205,12 +212,13 @@ Select the `DynamicTreeSkeleton` component on the same entity as `Tree`.
 Tree physics uses fixed roots and GPU rod constraints. Each tree owns its vertex, rod, topology, and solver
 workspace buffers, with local topology indices. A shared forest scheduler uses stable tree IDs, GPU device-address
 records, and batched workgroup lists to dispatch all active trees while retaining their individual time step,
-stiffness, damping, and gravity. Growth or reinitialization replaces only the changed tree's state; adding or removing
-a tree preserves neighboring dynamic poses. IDs remain stable across rebuilds and are not reused until forest reset.
+stiffness, damping, and gravity. Outside growth, reinitialization replaces only the changed tree's state; adding or
+removing a tree preserves neighboring dynamic poses. IDs remain stable across those rebuilds until forest reset.
+Entering growth retires the forest solver state; its registry is rebuilt when growth stops.
 Wind and air cells remain shared; wind workgroup references resolve a tree ID and local rod index through the registry.
 Removed buffers and scene controllers are retained until queued GPU work can finish. Growth always uses this original shoot skeleton,
-never the bent GPU pose. On each growth iteration, the new skeleton replaces the GPU dynamic state before rendering;
-GPU solving pauses during continuous growth and resumes automatically when growth is idle. Physics also
+never the bent GPU pose. Each growth iteration uploads only the rendering pose and updates air coverage. Solver
+state and LOD data are prepared once when growth becomes idle, then GPU solving resumes automatically. Physics also
 starts automatically from the original pose after loading. Use **Reset GPU pose to growth** to discard a bend.
 Both solver buffer copies retain their initialized topology and rest attributes. Iterative passes write only
 vertex position/velocity (32 bytes) and rod rotation (16 bytes) in contiguous attribute columns.
@@ -226,7 +234,8 @@ buffer using the cached rest nodes; there is no CPU readback of the bent pose.
 
 To test an earthquake-like response, move or rotate the tree entity (or its parent) in the editor.
 The shoot roots follow that transform while the branches respond through the rod simulation. Moving the entity while
-physics is paused for growth carries the current bend with it. Changing entity scale reinitializes GPU physics.
+growth is active moves the growth pose without simulating inertia; the previous bend has been discarded. Changing
+entity scale while physics is active reinitializes GPU physics.
 The default physics settings advance 0.016 seconds per fixed update with 4 substeps and 8 solver iterations. Stretch
 stiffness is 8192, bend stiffness is 512, and damping is 0. Rod mass and stiffness scale with connected branch length
 and the internode's thickness; bend stiffness also accounts for thickness at each junction.
@@ -239,7 +248,8 @@ Branch fracture and contact with `DsBoxCollider`, `DsSphereCollider`, and `DsCyl
 the GPU solver. Existing saved values for those settings are retained for a future GPU implementation.
 BranchRenderer and FoliageRenderer use the transient bent GPU pose. Physics settings are saved on
 `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no physics
-velocity. A new growth step resets the GPU dynamic pose. Roots and generated CPU meshes do not deform.
+velocity. Growth discards the transient simulated pose and uses the CPU growth model. Roots and generated CPU meshes
+do not deform.
 
 ### Physics approximation quality
 
@@ -347,8 +357,8 @@ member cylinders retain their dimensions and lever arms, so wind produces both f
 per-rod pass samples wind and evaluates loads at every substep; bodies then sum their member loads before
 the articulated solve. The scene
 path bounds endpoint aerodynamic acceleration; uniform wind remains available for mechanics tests. Reconstructed
-positions/velocities also feed the existing rod-to-air coupling. Growth pauses physics and replaces changed
-trees' GPU state from their growth skeleton; unchanged neighboring allocations are retained. Switching solvers
+positions/velocities also feed the existing rod-to-air coupling. Growth retires the forest physics state and renders
+connected poses from the growth skeletons. Forest physics is rebuilt once growth stops. Switching solvers
 fits the current GPU pose and invalidates old LOD selection rather than recovering a stored bent pose. Saved
 scenes contain configuration and original growth poses; live GPU state is transient.
 
@@ -527,3 +537,9 @@ variants compile when selected. Applications can opt into background preparation
 EcoSysLab demo growth waits for required scene shaders and pending asset/geometry/texture work, not optional shader
 prewarming. Opaque and masked procedural foliage pipelines are prepared separately when an enabled foliage renderer
 first needs each class. Required pipeline failures still prevent readiness.
+
+Growth rendering shares immutable, revision-cached base shoot/root poses with current-pose Plant Visual overlays. Historical overlays and per-view colors, thickness, picking, and materials remain independent. Air coverage keeps per-tree integer boxes and only registers newly covered cells; existing cells and their values survive movement until reset. CPU traces include environment bounds/reset/voxel registration, shared pose packing, shadow groups, Plant Visual uploads, and editor panel phases.
+
+Plant Visual packs visible foliage, flowers, and fruits in one parallel pass per tree, retaining per-tree and combined CPU buffer capacity between growth updates. Combining results preserves scene tree order and skeleton/organ order. Selection-only updates preserve organ instances; scene changes release the scratch data. This replaces serial organ counting without relying on growth counters that may be absent in loaded skeletons.
+
+Growth air coverage computes connected world/local bounds independently per tree on CPU workers, then registers full padded boxes sequentially in scene order. GPU allocation and grid mutation stay on the main thread. Environment voxel registration resolves each internode position once for shadow, biomass, and tip insertion, retaining the original tree/node accumulation order.

@@ -197,17 +197,59 @@ void WindParticleField::RegisterTreeCoverage(const std::vector<DynamicTreeSkelet
       local_lower = glm::min(local_lower, local);
       local_upper = glm::max(local_upper, local);
     }
-    TreeBounds bounds{local_lower, local_upper, tree.initial_model};
-    tree_bounds_[id] = std::move(bounds);
-    const glm::vec3 center = (lower + upper) * 0.5f;
-    const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
-    const glm::vec3 half_width = glm::max((upper - lower) * 0.5f, glm::vec3(air_grid_.GetCellSize() * 0.5f));
-    lower = {center.x - 2.0f * half_width.x, lower.y - 0.2f * height, center.z - 2.0f * half_width.z};
-    upper = {center.x + 2.0f * half_width.x, upper.y + 0.3f * height, center.z + 2.0f * half_width.z};
-    if (air_grid_.RegisterBox(lower, upper)) {
-      InvalidateAirSets();
+    RegisterCoverageBounds(id, tree.initial_model, local_lower, local_upper, lower, upper);
+  }
+}
+
+std::optional<WindParticleField::TreeCoverage> WindParticleField::CalculateTreeCoverage(const ShootSkeleton& skeleton,
+                                                                                        const glm::mat4& model) {
+  if (skeleton.PeekSortedNodeList().empty())
+    return std::nullopt;
+  glm::vec3 lower(std::numeric_limits<float>::max()), upper(std::numeric_limits<float>::lowest());
+  glm::vec3 local_lower = lower, local_upper = upper;
+  const auto inverse_model = glm::inverse(model);
+  std::vector<glm::vec3> ends(skeleton.PeekRawNodes().size());
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    const auto& node = skeleton.PeekNode(handle);
+    const auto& info = node.info;
+    const auto parent = node.GetParentHandle();
+    const auto start = parent < 0 ? glm::vec3(model * glm::vec4(info.global_position, 1.0f)) : ends[parent];
+    ends[handle] = info.length <= 1e-6f
+                       ? start
+                       : start + glm::vec3(model * glm::vec4(info.GetGlobalDirection() * info.length, 0.0f));
+    for (const auto& world : {start, ends[handle]}) {
+      lower = glm::min(lower, world);
+      upper = glm::max(upper, world);
+      const glm::vec3 local(inverse_model * glm::vec4(world, 1.0f));
+      local_lower = glm::min(local_lower, local);
+      local_upper = glm::max(local_upper, local);
     }
   }
+  return TreeCoverage{model, local_lower, local_upper, lower, upper};
+}
+
+void WindParticleField::RegisterTreeCoverage(const TreeCoverage& coverage, uint32_t id) {
+  RegisterCoverageBounds(id, coverage.model, coverage.local_lower, coverage.local_upper, coverage.lower,
+                         coverage.upper);
+}
+
+void WindParticleField::RegisterTreeCoverage(const ShootSkeleton& skeleton, const glm::mat4& model, uint32_t id) {
+  if (const auto coverage = CalculateTreeCoverage(skeleton, model))
+    RegisterTreeCoverage(*coverage, id);
+}
+
+void WindParticleField::RegisterCoverageBounds(uint32_t id, const glm::mat4& model, const glm::vec3& local_lower,
+                                               const glm::vec3& local_upper, glm::vec3 lower, glm::vec3 upper) {
+  if (tree_bounds_.size() <= id)
+    tree_bounds_.resize(id + 1);
+  tree_bounds_[id] = {local_lower, local_upper, model};
+  const glm::vec3 center = (lower + upper) * 0.5f;
+  const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
+  const glm::vec3 half_width = glm::max((upper - lower) * 0.5f, glm::vec3(air_grid_.GetCellSize() * 0.5f));
+  lower = {center.x - 2.0f * half_width.x, lower.y - 0.2f * height, center.z - 2.0f * half_width.z};
+  upper = {center.x + 2.0f * half_width.x, upper.y + 0.3f * height, center.z + 2.0f * half_width.z};
+  if (air_grid_.RegisterBox(lower, upper, id))
+    InvalidateAirSets();
 }
 
 void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models, const std::vector<uint32_t>& ids) {
@@ -232,7 +274,7 @@ void WindParticleField::RegisterTreeModels(const std::vector<glm::mat4>& models,
     const glm::vec3 half = glm::max((upper - lower) * 0.5f, glm::vec3(air_grid_.GetCellSize() * 0.5f));
     const float height = glm::max(upper.y - lower.y, air_grid_.GetCellSize());
     if (air_grid_.RegisterBox({center.x - 2.0f * half.x, lower.y - 0.2f * height, center.z - 2.0f * half.z},
-                              {center.x + 2.0f * half.x, upper.y + 0.3f * height, center.z + 2.0f * half.z})) {
+                              {center.x + 2.0f * half.x, upper.y + 0.3f * height, center.z + 2.0f * half.z}, id)) {
       InvalidateAirSets();
     }
     bounds.model = models[i];

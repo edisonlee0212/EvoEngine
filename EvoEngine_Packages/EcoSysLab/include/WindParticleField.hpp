@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <unordered_map>
 
 #include "Climate.hpp"
@@ -27,6 +28,13 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible);
   void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
                             const std::vector<uint32_t>& ids = {});
+  struct TreeCoverage {
+    glm::mat4 model{1.0f};
+    glm::vec3 local_lower{}, local_upper{}, lower{}, upper{};
+  };
+  static std::optional<TreeCoverage> CalculateTreeCoverage(const ShootSkeleton& skeleton, const glm::mat4& model);
+  void RegisterTreeCoverage(const TreeCoverage& coverage, uint32_t id);
+  void RegisterTreeCoverage(const ShootSkeleton& skeleton, const glm::mat4& model, uint32_t id);
   void RegisterTreeModels(const std::vector<glm::mat4>& models, const std::vector<uint32_t>& ids = {});
   void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
                     const std::shared_ptr<GpuTreePhysics>& physics, const std::vector<glm::mat4>& models,
@@ -138,6 +146,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     glm::mat4 model{1.0f};
   };
 
+  void RegisterCoverageBounds(uint32_t id, const glm::mat4& model, const glm::vec3& local_lower,
+                              const glm::vec3& local_upper, glm::vec3 lower, glm::vec3 upper);
   bool Prepare();
   void InvalidateAirSets();
   uint32_t Draw(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,

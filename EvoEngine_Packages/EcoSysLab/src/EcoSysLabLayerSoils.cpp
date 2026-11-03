@@ -93,32 +93,41 @@ void EcoSysLabSystem::Environment::PrepareForGrowth(const std::shared_ptr<Scene>
   auto min_bound = grid.voxel_grid.GetMinBound();
   auto max_bound = grid.voxel_grid.GetMaxBound();
   bool changed = false;
-  for (const auto entity : *entities) {
-    if (!scene->IsEntityEnabled(entity))
-      continue;
-    const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-    if (!tree || !tree->IsEnabled())
-      continue;
-    const auto transform = scene->GetDataComponent<GlobalTransform>(entity).value;
-    auto& skeleton = tree->shoot_model.RefShootSkeleton();
-    skeleton.CalculateMinMax();
-    const glm::vec3 minimum = transform * glm::vec4(skeleton.min, 1.0f);
-    const glm::vec3 maximum = transform * glm::vec4(skeleton.max, 1.0f);
-    if (glm::any(glm::lessThanEqual(minimum, min_bound)) || glm::any(glm::greaterThanEqual(maximum, max_bound))) {
-      min_bound = glm::min(minimum - glm::vec3(1.0f, 0.1f, 1.0f), min_bound);
-      max_bound = glm::max(maximum + glm::vec3(1.0f), max_bound);
-      changed = true;
+  {
+    const ProfilerScope scope("EcoSysLab / Growth bounds", "EcoSysLab");
+    for (const auto entity : *entities) {
+      if (!scene->IsEntityEnabled(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      if (!tree || !tree->IsEnabled())
+        continue;
+      const auto transform = scene->GetDataComponent<GlobalTransform>(entity).value;
+      auto& skeleton = tree->shoot_model.RefShootSkeleton();
+      skeleton.CalculateMinMax();
+      const glm::vec3 minimum = transform * glm::vec4(skeleton.min, 1.0f);
+      const glm::vec3 maximum = transform * glm::vec4(skeleton.max, 1.0f);
+      if (glm::any(glm::lessThanEqual(minimum, min_bound)) || glm::any(glm::greaterThanEqual(maximum, max_bound))) {
+        min_bound = glm::min(minimum - glm::vec3(1.0f, 0.1f, 1.0f), min_bound);
+        max_bound = glm::max(maximum + glm::vec3(1.0f), max_bound);
+        changed = true;
+      }
     }
   }
-  if (changed)
-    grid.voxel_grid.Initialize(grid.voxel_size, min_bound, max_bound);
-  grid.voxel_grid.Reset();
-  for (const auto entity : *entities) {
-    if (!scene->IsEntityEnabled(entity))
-      continue;
-    const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-    if (tree && tree->IsEnabled())
-      tree->RegisterVoxel();
+  {
+    const ProfilerScope scope("EcoSysLab / Growth grid reset", "EcoSysLab");
+    if (changed)
+      grid.voxel_grid.Initialize(grid.voxel_size, min_bound, max_bound);
+    grid.voxel_grid.Reset();
+  }
+  {
+    const ProfilerScope scope("EcoSysLab / Growth voxel registration", "EcoSysLab");
+    for (const auto entity : *entities) {
+      if (!scene->IsEntityEnabled(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      if (tree && tree->IsEnabled())
+        tree->RegisterVoxel();
+    }
   }
   grid.LightPropagation(settings);
 }

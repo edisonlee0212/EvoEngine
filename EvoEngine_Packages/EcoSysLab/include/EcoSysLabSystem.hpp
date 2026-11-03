@@ -131,6 +131,7 @@ class EcoSysLabSystem : public ISystem {
     void SyncClusters(bool growing);
     bool StepClusters(const std::shared_ptr<Scene>& scene);
     void SyncTrees(const std::shared_ptr<Scene>& scene, bool growing);
+    void RegisterGrowthCoverage(const std::shared_ptr<Scene>& scene);
     void UpdateAir(const std::shared_ptr<Scene>& scene, Environment& environment, bool growing);
     void Step(const std::shared_ptr<Scene>& scene, float delta_time, bool growing);
     void ResetAirGrid(const std::shared_ptr<Scene>& scene, float cell_size);

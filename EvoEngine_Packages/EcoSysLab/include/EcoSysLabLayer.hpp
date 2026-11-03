@@ -48,6 +48,9 @@ class EcoSysLabLayer : public ILayer {
                       std::shared_ptr<GpuTreeClusterForest> clusters = {});
   void RefreshMeshForAllDynamicStrands() const;
   void ResetAllTrees(const std::vector<Entity>* tree_entities);
+  std::shared_ptr<GpuTreeMeshRenderer> GetTreeMeshRenderer() const {
+    return gpu_tree_mesh_renderer_;
+  }
   void ResetAirGrid(float cell_size = -1.0f);
   bool Simulate();
   TreeMeshGeneratorSettings mesh_generator_settings;

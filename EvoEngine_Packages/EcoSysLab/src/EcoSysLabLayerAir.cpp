@@ -52,6 +52,8 @@ void EcoSysLabSystem::Dynamics::UpdateAir(const std::shared_ptr<Scene>& scene, E
     }
   }
   SyncTrees(scene, growing);
+  if (growing && !wind_particle_field_)
+    wind_particle_field_ = std::make_shared<WindParticleField>();
   if (wind_particle_field_) {
     wind_particle_field_->ambient_temperature_kelvin = environment.air_temperature_c + 273.15f;
     wind_particle_field_->ambient_specific_humidity = Climate::SpecificHumidity(
@@ -69,8 +71,49 @@ void EcoSysLabSystem::Dynamics::UpdateAir(const std::shared_ptr<Scene>& scene, E
       models.push_back(scene->GetDataComponent<GlobalTransform>(item.entity).value);
       ids.push_back(item.gpu_id);
     }
-    wind_particle_field_->RegisterTreeModels(models, ids);
+    if (growing)
+      RegisterGrowthCoverage(scene);
+    else
+      wind_particle_field_->RegisterTreeModels(models, ids);
   }
+}
+
+void EcoSysLabSystem::Dynamics::RegisterGrowthCoverage(const std::shared_ptr<Scene>& scene) {
+  const ProfilerScope scope("EcoSysLab / Growth air coverage", "EcoSysLab");
+  struct ActiveTree {
+    std::shared_ptr<Tree> tree;
+    glm::mat4 model;
+    uint32_t id;
+    std::optional<WindParticleField::TreeCoverage> coverage;
+  };
+  std::vector<ActiveTree> active;
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeSkeleton>()) {
+    active.reserve(owners->size());
+    for (size_t i = 0; i < owners->size(); ++i) {
+      const auto entity = owners->at(i);
+      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      const auto physics = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock();
+      if (tree && tree->IsEnabled() && physics && physics->IsEnabled())
+        active.push_back({tree, scene->GetDataComponent<GlobalTransform>(entity).value, static_cast<uint32_t>(i), {}});
+    }
+  }
+  {
+    const ProfilerScope bounds_scope("EcoSysLab / Growth air bounds", "EcoSysLab");
+    const auto calculate = [&](size_t i) {
+      auto& item = active[i];
+      item.coverage = WindParticleField::CalculateTreeCoverage(item.tree->shoot_model.PeekShootSkeleton(), item.model);
+    };
+    if (active.size() > 1)
+      Jobs::RunParallelFor(active.size(), calculate);
+    else if (!active.empty())
+      calculate(0);
+  }
+  const ProfilerScope registration_scope("EcoSysLab / Growth air registration", "EcoSysLab");
+  for (const auto& item : active)
+    if (item.coverage)
+      wind->RegisterTreeCoverage(*item.coverage, item.id);
 }
 
 void EcoSysLabLayer::ResetAirGrid(const float cell_size) {
@@ -95,6 +138,8 @@ void EcoSysLabSystem::Dynamics::ResetAirGrid(const std::shared_ptr<Scene>& scene
     }
   Platform::WaitForFrameSubmissions("EcoSysLab air grid reset");
   wind_particle_field_->ResetAirGrid(states, gpu_tree_physics_, models, cell_size);
+  if (!gpu_tree_physics_)
+    RegisterGrowthCoverage(scene);
 }
 
 void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, const bool growing) {
@@ -105,6 +150,23 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
   auto& gpu_tree_physics_ = tree_physics;
   auto& gpu_physics_entries_ = entries;
   auto& gpu_physics_scene_ = physics_scene;
+  if (gpu_physics_scene_.lock() != scene) {
+    Reset();
+    gpu_physics_scene_ = scene;
+  }
+  if (growing) {
+    if (gpu_tree_physics_ || cluster_forest)
+      if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
+        layer->RetireDynamics(gpu_tree_physics_, nullptr, cluster_forest);
+    for (const auto& entry : gpu_physics_entries_)
+      if (const auto physics = entry.physics.lock())
+        physics->ResetPhysics();
+    gpu_physics_entries_.clear();
+    cluster_members.clear();
+    cluster_forest.reset();
+    gpu_tree_physics_.reset();
+    return;
+  }
   struct ActiveGpuTree {
     Entity entity;
     std::shared_ptr<Tree> tree;
@@ -145,20 +207,6 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
                                 return !item.ready;
                               }),
                active.end());
-  if (gpu_physics_scene_.lock() != scene) {
-    if (gpu_tree_physics_ || wind_particle_field_ || cluster_forest)
-      if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
-        layer->RetireDynamics(gpu_tree_physics_, wind_particle_field_, cluster_forest);
-    for (const auto& entry : gpu_physics_entries_)
-      if (const auto component = entry.physics.lock())
-        component->SetGpuPhysics(nullptr, 0);
-    gpu_physics_entries_.clear();
-    gpu_tree_physics_.reset();
-    cluster_forest.reset();
-    cluster_members.clear();
-    wind_particle_field_.reset();
-    gpu_physics_scene_ = scene;
-  }
   if (!gpu_tree_physics_ && !active.empty())
     gpu_tree_physics_ = std::make_shared<GpuTreePhysics>();
   if (!wind_particle_field_ && !active.empty())
@@ -176,14 +224,14 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
         item.physics->GetGpuPhysics() != gpu_tree_physics_) {
       const ProfilerScope upload_scope("EcoSysLab / Register physics rest", "EcoSysLab");
       auto state = item.physics->ExportGpuRestState();
-      id = gpu_tree_physics_->RegisterTree(state, id, !growing);
+      id = gpu_tree_physics_->RegisterTree(state, id);
       if (id == UINT32_MAX)
         continue;
       changed.push_back(std::move(state));
       changed_ids.push_back(id);
       item.physics->SetGpuPhysics(gpu_tree_physics_, id);
     }
-    if (!growing && gpu_tree_physics_->GetTreeState(id)->attribute_arrays && !gpu_tree_physics_->GetTreeState(id)->lod)
+    if (gpu_tree_physics_->GetTreeState(id)->attribute_arrays && !gpu_tree_physics_->GetTreeState(id)->lod)
       gpu_tree_physics_->InitializeLod(id, item.physics->ExportGpuRestState());
     Entry entry{item.entity, item.tree, item.physics, revision, id};
     if (old != gpu_physics_entries_.end() && old->cluster_source == gpu_tree_physics_->GetTreeState(id)) {
@@ -206,15 +254,14 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
   gpu_physics_entries_ = std::move(next);
   if (gpu_tree_physics_) {
     gpu_tree_physics_->SetActiveTrees(ids);
-    // Retire old allocations even when no solver step runs.
-    if (growing || ids.empty())
+    if (ids.empty())
       gpu_tree_physics_->PrepareRegistry();
   }
   if (wind_particle_field_ && !changed.empty()) {
     const ProfilerScope coverage_scope("EcoSysLab / Growth air coverage", "EcoSysLab");
     wind_particle_field_->RegisterTreeCoverage(changed, changed_ids);
   }
-  SyncClusters(growing);
+  SyncClusters(false);
 }
 
 void EcoSysLabLayer::RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind,

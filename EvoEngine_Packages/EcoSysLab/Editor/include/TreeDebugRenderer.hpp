@@ -35,6 +35,7 @@ class TreeDebugRenderer {
   uint64_t shoot_revision_ = UINT64_MAX, root_revision_ = UINT64_MAX, generation_ = 1;
   int shoot_checkpoint_ = -1, root_checkpoint_ = -1;
   glm::vec4 visualizer_settings_{};
+  bool connected_pose_ = false;
   std::array<float, 18> parameters_{};
   std::vector<GpuTreeNode> nodes_;
   std::vector<glm::vec4> colors_;

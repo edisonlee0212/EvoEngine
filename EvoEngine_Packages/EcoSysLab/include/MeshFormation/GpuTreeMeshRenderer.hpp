@@ -16,6 +16,16 @@ class Tree;
 
 class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRenderer> {
  public:
+  struct TreePose {
+    std::weak_ptr<Tree> tree;
+    std::array<float, 18> parameters{};
+    uint64_t shoot_revision = 0, root_revision = 0;
+    bool connected_pose = false;
+    uint32_t shoot_count = 0;
+    std::vector<GpuTreeNode> nodes;
+  };
+  std::shared_ptr<const TreePose> GetTreePose(const std::shared_ptr<Tree>& tree, const BasicBarkDescriptor* bark,
+                                              bool connected_pose);
   bool Prepare();
   void Register(const std::shared_ptr<Scene>& scene);
   bool directional_shadow_impostors = true;
@@ -52,6 +62,8 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
     float impostor_diameter = 0, canopy_texels = 0;
   };
   struct TreeNodeCache {
+    std::shared_ptr<const TreePose> pose;
+    bool connected_pose = false;
     std::weak_ptr<Tree> tree;
     std::weak_ptr<GpuTreePhysicsState> physics;
     std::array<float, 18> parameters{};

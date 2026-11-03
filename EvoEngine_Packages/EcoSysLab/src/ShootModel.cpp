@@ -60,15 +60,16 @@ void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& 
     const auto& internode_info = internode.info;
     const float biomass = internode_info.thickness;
     const glm::vec3 world_position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
-    environment_grid.AddShadowValue(world_position, internode.data.shadow_size);
-    environment_grid.AddBiomass(world_position, biomass);
+    auto& voxel = environment_grid.voxel_grid.Ref(world_position);
+    voxel.self_shadow += internode.data.shadow_size;
+    voxel.total_biomass += biomass;
     if (internode.IsEndNode()) {
       InternodeVoxelRegistration registration;
       registration.position = world_position;
       registration.node_handle = *it;
       registration.tree_skeleton_index = shoot_skeleton_.data.entity_index;
       registration.thickness = internode_info.thickness;
-      environment_grid.AddNode(registration);
+      voxel.internode_voxel_registrations.emplace_back(registration);
     }
   }
 }

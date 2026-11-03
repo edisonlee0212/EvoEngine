@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "Platform.hpp"
+#include "Profiler.hpp"
 
 using namespace eco_sys_lab_package;
 
@@ -33,20 +34,37 @@ void GpuSpatialGrid::Add(const Coordinate& coordinate) {
   head_indices_[bucket] = index;
 }
 
-bool GpuSpatialGrid::RegisterBox(const glm::vec3& lower, const glm::vec3& upper) {
+bool GpuSpatialGrid::RegisterBox(const glm::vec3& lower, const glm::vec3& upper, uint32_t coverage_id) {
+  const ProfilerScope scope("EcoSysLab / Air register box", "EcoSysLab");
   const Coordinate first{static_cast<int>(std::floor(lower.x / cell_size_)),
                          static_cast<int>(std::floor(lower.y / cell_size_)),
                          static_cast<int>(std::floor(lower.z / cell_size_))};
   const Coordinate last{static_cast<int>(std::floor(upper.x / cell_size_)),
                         static_cast<int>(std::floor(upper.y / cell_size_)),
                         static_cast<int>(std::floor(upper.z / cell_size_))};
+  const auto found = registered_boxes_.find(coverage_id);
+  const bool cached = found != registered_boxes_.end();
+  const CellBox previous = cached ? found->second : CellBox{};
+  if (cached && first.x >= previous.first.x && first.y >= previous.first.y && first.z >= previous.first.z &&
+      last.x <= previous.last.x && last.y <= previous.last.y && last.z <= previous.last.z)
+    return false;
   const uint32_t before = GetCellCount();
   lower_cell_ = glm::min(lower_cell_, glm::ivec3(first.x, first.y, first.z));
   upper_cell_ = glm::max(upper_cell_, glm::ivec3(last.x, last.y, last.z));
   for (int z = first.z; z <= last.z; ++z)
-    for (int y = first.y; y <= last.y; ++y)
-      for (int x = first.x; x <= last.x; ++x)
-        Add({x, y, z});
+    for (int y = first.y; y <= last.y; ++y) {
+      if (cached && z >= previous.first.z && z <= previous.last.z && y >= previous.first.y && y <= previous.last.y) {
+        for (int x = first.x; x <= std::min(last.x, previous.first.x - 1); ++x)
+          Add({x, y, z});
+        for (int x = std::max(first.x, previous.last.x + 1); x <= last.x; ++x)
+          Add({x, y, z});
+      } else {
+        for (int x = first.x; x <= last.x; ++x)
+          Add({x, y, z});
+      }
+    }
+  if (coverage_id != UINT32_MAX)
+    registered_boxes_[coverage_id] = {first, last};
   if (GetCellCount() == before)
     return false;
   Upload(before);
@@ -54,6 +72,7 @@ bool GpuSpatialGrid::RegisterBox(const glm::vec3& lower, const glm::vec3& upper)
 }
 
 void GpuSpatialGrid::Upload(uint32_t first_new_cell) {
+  const ProfilerScope scope("EcoSysLab / Air grid upload", "EcoSysLab");
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   info.usage =
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
@@ -98,6 +117,7 @@ void GpuSpatialGrid::Upload(uint32_t first_new_cell) {
 }
 
 void GpuSpatialGrid::Reset() {
+  registered_boxes_.clear();
   lower_cell_ = glm::ivec3(INT32_MAX);
   upper_cell_ = glm::ivec3(INT32_MIN);
   lookup_.clear();

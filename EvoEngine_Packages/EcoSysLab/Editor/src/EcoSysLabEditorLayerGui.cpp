@@ -1,4 +1,5 @@
 #include "EcoSysLabEditorLayer.hpp"
+#include "Profiler.hpp"
 
 #include "BranchRenderer.hpp"
 #include "DynamicStrandsMeshingInspector.hpp"
@@ -15,6 +16,7 @@
 using namespace eco_sys_lab_package;
 
 void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
+  const ProfilerScope scope("EcoSysLab / GUI", "EcoSysLab");
   const auto runtime = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
   if (!runtime)
     return;

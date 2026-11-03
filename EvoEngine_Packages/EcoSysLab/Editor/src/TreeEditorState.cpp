@@ -139,6 +139,8 @@ void EcoSysLabEditorLayer::ClearSceneVisualization() {
   trees_.clear();
   last_selected_tree_index_ = -1;
   tree_visualization_inputs_.clear();
+  organ_buffers_.clear();
+  organ_matrices_ = {};
   soil_version_ = -1;
   need_full_flow_update = true;
   need_flow_update_for_selection_ = false;

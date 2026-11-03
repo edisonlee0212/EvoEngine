@@ -2,6 +2,7 @@
 #include <unordered_map>
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
+#include "PlantVisualOrganBuffers.hpp"
 #include "TreeEditorState.hpp"
 namespace eco_sys_lab_package {
 class TreeDebugRenderer;
@@ -90,6 +91,8 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   std::shared_ptr<ParticleInfoList> bounding_box_matrices_;
   std::shared_ptr<ParticleInfoList> flower_matrices_;
   std::shared_ptr<ParticleInfoList> foliage_matrices_;
+  std::vector<PlantVisualOrganBuffers> organ_buffers_;
+  PlantVisualOrganBuffers organ_matrices_;
   std::shared_ptr<ParticleInfoList> fruit_matrices_;
   std::shared_ptr<ParticleInfoList> ground_flower_matrices_;
   std::shared_ptr<ParticleInfoList> ground_fruit_matrices_;

@@ -85,7 +85,7 @@ struct GpuTreeInstanceIndices {
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                         const TreeMeshGeneratorSettings& settings, const BasicBarkDescriptor* bark, uint32_t tree_index,
-                        bool shoot, std::vector<GpuTreeNode>& output) {
+                        bool shoot, std::vector<GpuTreeNode>& output, bool connected_pose = false) {
   const auto& sorted = skeleton.PeekSortedNodeList();
   const uint32_t base = static_cast<uint32_t>(output.size());
   std::vector<uint32_t> packed_indices(skeleton.PeekRawNodes().size(), UINT32_MAX);
@@ -99,6 +99,17 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
     GpuTreeNode packed{};
     packed.position_thickness = glm::vec4(info.global_position, glm::max(0.0f, thickness));
     packed.direction_length = glm::vec4(info.GetGlobalDirection(), glm::max(0.0f, info.length));
+    if (connected_pose) {
+      if (packed.direction_length.w <= 1e-6f)
+        packed.direction_length.w = 0;
+      if (parent >= 0) {
+        const auto& parent_node = output[packed_indices[parent]];
+        packed.position_thickness =
+            glm::vec4(glm::vec3(parent_node.position_thickness) +
+                          glm::vec3(parent_node.direction_length) * parent_node.direction_length.w,
+                      packed.position_thickness.w);
+      }
+    }
     packed.radial_axis_distance = glm::vec4(info.regulated_global_rotation * glm::vec3(1, 0, 0), info.root_distance);
     packed.subdivisions = {
         glm::max(0.0001f, settings.x_subdivision),
@@ -111,6 +122,9 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
       packed.bark_base = {bark->base_max_distance, bark->base_distance_decrease_factor, bark->base_depth, 0.0f};
     }
     packed.links = {parent < 0 ? UINT32_MAX : packed_indices[parent], tree_index, UINT32_MAX, UINT32_MAX};
+    if (connected_pose)
+      while (packed.links.x != UINT32_MAX && output[packed.links.x].direction_length.w == 0)
+        packed.links.x = output[packed.links.x].links.x;
     packed.foliage = {info.leaves, info.end_distance, info.thickness, 0.0f};
     const auto rotation = info.global_rotation;
     packed.foliage_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};

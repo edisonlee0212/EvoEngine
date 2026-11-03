@@ -292,3 +292,51 @@ TEST(TreePhysics, ClusterQualityRoundTripsIndependentlyFromPhysicalProperties) {
   EXPECT_FALSE(legacy.physics_settings.use_subtree_clusters);
   EXPECT_FLOAT_EQ(legacy.physics_settings.bend_stiffness, 123);
 }
+
+TEST(TreeGrowthEnvironment, SingleVoxelLookupPreservesAccumulationAndTipOrder) {
+  ShootModel model;
+  auto& skeleton = model.RefShootSkeleton();
+  for (int i = 0; i < 3; ++i)
+    skeleton.Extend(0, true);
+  skeleton.SortLists();
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    auto& node = skeleton.RefNode(handle);
+    node.info.global_position = {0.1f * handle, 0.1f, -0.1f};
+    node.info.thickness = 0.01f * (handle + 1);
+    node.data.shadow_size = 0.03f * (handle + 1);
+  }
+  ClimateModel actual, expected;
+  actual.environment_grid.voxel_grid.Initialize(1.0f, glm::vec3(-2), glm::vec3(2));
+  expected.environment_grid.voxel_grid.Initialize(1.0f, glm::vec3(-2), glm::vec3(2));
+  const auto transform =
+      glm::translate(glm::vec3(0.2f, 0.3f, -0.1f)) * glm::mat4_cast(glm::quat(glm::vec3(0, 0.2f, 0.1f)));
+  for (uint32_t tree_id : {3u, 7u}) {
+    skeleton.data.entity_index = tree_id;
+    model.RegisterVoxel(transform, actual);
+    const auto& nodes = skeleton.PeekSortedNodeList();
+    for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
+      const auto& node = skeleton.PeekNode(*it);
+      const glm::vec3 position = transform * glm::vec4(node.info.global_position, 1);
+      expected.environment_grid.AddShadowValue(position, node.data.shadow_size);
+      expected.environment_grid.AddBiomass(position, node.info.thickness);
+      if (node.IsEndNode())
+        expected.environment_grid.AddNode({position, *it, tree_id, node.info.thickness});
+    }
+  }
+  for (int i = 0; i < actual.environment_grid.voxel_grid.GetVoxelCount(); ++i) {
+    const auto& a = actual.environment_grid.voxel_grid.Peek(i);
+    const auto& b = expected.environment_grid.voxel_grid.Peek(i);
+    EXPECT_EQ(a.self_shadow, b.self_shadow);
+    EXPECT_EQ(a.total_biomass, b.total_biomass);
+    EXPECT_EQ(a.light_intensity, b.light_intensity);
+    ASSERT_EQ(a.internode_voxel_registrations.size(), b.internode_voxel_registrations.size());
+    for (size_t j = 0; j < a.internode_voxel_registrations.size(); ++j) {
+      const auto& ar = a.internode_voxel_registrations[j];
+      const auto& br = b.internode_voxel_registrations[j];
+      EXPECT_EQ(ar.position, br.position);
+      EXPECT_EQ(ar.node_handle, br.node_handle);
+      EXPECT_EQ(ar.tree_skeleton_index, br.tree_skeleton_index);
+      EXPECT_EQ(ar.thickness, br.thickness);
+    }
+  }
+}
