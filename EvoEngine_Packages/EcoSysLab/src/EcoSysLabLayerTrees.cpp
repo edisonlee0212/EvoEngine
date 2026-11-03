@@ -263,6 +263,15 @@ void EcoSysLabSystem::PostCloneAction(const std::shared_ptr<ISystem>&) {
 }
 
 void eco_sys_lab_package::SerializeEcoSysLabSystem(YAML::Emitter& out, const EcoSysLabSystem& target) {
+  out << YAML::Key << "branch_rendering" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "screen_space_tessellation" << YAML::Value << target.rendering.screen_space_tessellation;
+  out << YAML::Key << "camera_impostors" << YAML::Value << target.rendering.camera_impostors;
+  out << YAML::Key << "canopy_shadows" << YAML::Value << target.rendering.canopy_shadows;
+  out << YAML::Key << "canopy_shadow_texels" << YAML::Value << target.rendering.canopy_shadow_texels;
+  out << YAML::Key << "impostor_diameter_pixels" << YAML::Value << target.rendering.impostor_diameter_pixels;
+  out << YAML::Key << "pixel_error" << YAML::Value << target.rendering.pixel_error;
+  out << YAML::Key << "segment_length_pixels" << YAML::Value << target.rendering.segment_length_pixels;
+  out << YAML::EndMap;
   const auto& env = target.environment;
   env.climate_descriptor.Save("climate_descriptor", out);
   env.soil_descriptor.Save("soil_descriptor", out);
@@ -295,6 +304,23 @@ void eco_sys_lab_package::SerializeEcoSysLabSystem(YAML::Emitter& out, const Eco
 }
 
 void eco_sys_lab_package::DeserializeEcoSysLabSystem(const YAML::Node& in, EcoSysLabSystem& target) {
+  target.rendering = {};
+  if (const auto settings = in["branch_rendering"]) {
+    if (settings["screen_space_tessellation"])
+      target.rendering.screen_space_tessellation = settings["screen_space_tessellation"].as<bool>();
+    if (settings["camera_impostors"])
+      target.rendering.camera_impostors = settings["camera_impostors"].as<bool>();
+    if (settings["canopy_shadows"])
+      target.rendering.canopy_shadows = settings["canopy_shadows"].as<bool>();
+    if (settings["canopy_shadow_texels"])
+      target.rendering.canopy_shadow_texels = settings["canopy_shadow_texels"].as<float>();
+    if (settings["impostor_diameter_pixels"])
+      target.rendering.impostor_diameter_pixels = settings["impostor_diameter_pixels"].as<float>();
+    if (settings["pixel_error"])
+      target.rendering.pixel_error = settings["pixel_error"].as<float>();
+    if (settings["segment_length_pixels"])
+      target.rendering.segment_length_pixels = settings["segment_length_pixels"].as<float>();
+  }
   auto& env = target.environment;
   env.climate_descriptor.Load("climate_descriptor", in);
   env.soil_descriptor.Load("soil_descriptor", in);

@@ -9,7 +9,6 @@ if(CMAKE_CONFIGURATION_TYPES)
 endif()
 
 evoengine_copy_resources(PyResourceCopy ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR})
-evoengine_clear_shader_binaries(PyResourceCopy ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR})
 add_custom_command(TARGET PyResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy 
 			${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini ${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR} VERBATIM)

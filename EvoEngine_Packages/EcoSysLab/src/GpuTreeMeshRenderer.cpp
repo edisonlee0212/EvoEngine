@@ -6,6 +6,7 @@
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 #include "GpuTreePhysics.hpp"
 #include "GraphicsPipeline.hpp"
@@ -128,15 +129,6 @@ void GpuTreeMeshRenderer::Initialize() {
   const auto shadow_mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                                    "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeShadow.slang");
   directional_shadow_pipeline_ = MakePipeline(shadow_task, shadow_mesh, true, layout_, "TreeShadow.slang");
-  const auto foliage_task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
-                                                    "./EcoSysLabResources/Shaders/Graphics/Task/TreeFoliage.slang");
-  const auto foliage_mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-                                                    "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeFoliage.slang");
-  foliage_opaque_pipeline_ = MakePipeline(foliage_task, foliage_mesh, false, layout_, "TreeFoliage.slang");
-  foliage_masked_pipeline_ = MakePipeline(foliage_task, foliage_mesh, false, layout_, "TreeFoliageMasked.slang");
-  foliage_opaque_shadow_pipeline_ = MakePipeline(foliage_task, foliage_mesh, true, layout_, "Empty.slang");
-  foliage_masked_shadow_pipeline_ =
-      MakePipeline(foliage_task, foliage_mesh, true, layout_, "TreeFoliageMaskedShadow.slang");
 
   default_foliage_profile_ = AssetManager::CreateTemporaryAsset<SubsurfaceProfile>();
   default_foliage_profile_->albedo = {0.75f, 0.95f, 0.45f};
@@ -159,15 +151,25 @@ bool GpuTreeMeshRenderer::Prepare() {
   return canopy_pipeline_ && canopy_pipeline_->Initialized() &&
          (!impostor_pipeline_ || impostor_pipeline_->Initialized()) && deform_pipeline_ &&
          deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() && shadow_pipeline_ &&
-         shadow_pipeline_->Initialized() && directional_shadow_pipeline_ &&
-         directional_shadow_pipeline_->Initialized() && foliage_opaque_pipeline_ &&
-         foliage_opaque_pipeline_->Initialized() && foliage_masked_pipeline_ &&
-         foliage_masked_pipeline_->Initialized() && foliage_opaque_shadow_pipeline_ &&
-         foliage_opaque_shadow_pipeline_->Initialized() && foliage_masked_shadow_pipeline_ &&
-         foliage_masked_shadow_pipeline_->Initialized();
+         shadow_pipeline_->Initialized() && directional_shadow_pipeline_ && directional_shadow_pipeline_->Initialized();
+}
+
+bool GpuTreeMeshRenderer::PrepareFoliage(bool masked) {
+  auto& camera = masked ? foliage_masked_pipeline_ : foliage_opaque_pipeline_;
+  auto& shadow = masked ? foliage_masked_shadow_pipeline_ : foliage_opaque_shadow_pipeline_;
+  if (!camera) {
+    const auto task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+                                              "./EcoSysLabResources/Shaders/Graphics/Task/TreeFoliage.slang");
+    const auto mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                              "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeFoliage.slang");
+    camera = MakePipeline(task, mesh, false, layout_, masked ? "TreeFoliageMasked.slang" : "TreeFoliage.slang");
+    shadow = MakePipeline(task, mesh, true, layout_, masked ? "TreeFoliageMaskedShadow.slang" : "Empty.slang");
+  }
+  return camera->Initialized() && shadow->Initialized();
 }
 
 void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
+  const auto& rendering = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->rendering;
   const ProfilerScope total_scope("EcoSysLab / Tree render registration", "EcoSysLab");
   const auto frame_number = Platform::GetFrameCount();
   retired_trees_.erase(std::remove_if(retired_trees_.begin(), retired_trees_.end(),
@@ -227,7 +229,8 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     if (leaf_enabled) {
       leaf_class = ClassifyGltfRasterMaterial(leaf_material->BuildGltfMaterialData().shade_material,
                                               leaf_material->draw_settings.blending);
-      leaf_enabled = leaf_class != GltfRasterMaterialClass::Forward;
+      leaf_enabled = leaf_class != GltfRasterMaterialClass::Forward &&
+                     PrepareFoliage(leaf_class == GltfRasterMaterialClass::Masked);
     }
     if (!branch_enabled && !leaf_enabled)
       continue;
@@ -361,15 +364,15 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     }
     auto& frame = cache.frames[index];
     frame.handles = handles;
-    frame.tessellation = branch && branch->screen_space_tessellation && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")
-                             ? glm::vec2(glm::clamp(branch->pixel_error, 0.1f, 2.0f),
-                                         glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f))
+    frame.tessellation = rendering.screen_space_tessellation && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")
+                             ? glm::vec2(glm::clamp(rendering.pixel_error, 0.1f, 2.0f),
+                                         glm::clamp(rendering.segment_length_pixels, 2.0f, 64.0f))
                              : glm::vec2(0);
     frame.impostor_diameter =
-        branch && branch->camera_impostors ? glm::clamp(branch->impostor_diameter_pixels, 1.0f, 8.0f) : 0.0f;
+        rendering.camera_impostors ? glm::clamp(rendering.impostor_diameter_pixels, 1.0f, 8.0f) : 0.0f;
     if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
       frame.impostor_diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
-    frame.canopy_texels = branch && branch->canopy_shadows ? glm::clamp(branch->canopy_shadow_texels, 4.0f, 512.0f) : 0;
+    frame.canopy_texels = rendering.canopy_shadows ? glm::clamp(rendering.canopy_shadow_texels, 4.0f, 512.0f) : 0;
     if (const auto value = std::getenv("EVOENGINE_TREE_CANOPY_TEXELS"))
       frame.canopy_texels = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 512.0f);
     frame.indices_ready = false;

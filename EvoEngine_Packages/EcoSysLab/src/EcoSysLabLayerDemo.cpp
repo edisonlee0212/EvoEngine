@@ -332,7 +332,8 @@ void EcoSysLabDemoBootstrap::Update(EcoSysLabLayer& layer) {
     if (AssetManager::GetAssetLoadSnapshot().Active() || TextureStorage::HasPendingUploads() ||
         GeometryStorage::HasPendingUploads() || BottomLevelAccelerationStructure::HasPendingStaticBuilds() ||
         (render_layer && (!render_layer->IsSceneShaderPrewarmComplete(scene) ||
-                          shader_progress.completed != shader_progress.total || !shader_progress.error.empty()))) {
+                          shader_progress.required_completed != shader_progress.required_total ||
+                          !shader_progress.required_error.empty()))) {
       demo_background_idle_frames_ = 0;
       return;
     }

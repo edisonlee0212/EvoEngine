@@ -1,8 +1,8 @@
 #include "TreeDebugRenderer.hpp"
 
 #include <cstdlib>
-#include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Profiler.hpp"
 #include "Shader.hpp"
@@ -311,11 +311,8 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
     rendering.pColorAttachments = attachments.data();
     rendering.pDepthAttachment = &depth;
     Platform::BeginRendering(command, rendering);
-    float diameter = 3.0f;
-    if (scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
-      const auto branch = scene->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
-      diameter = branch->camera_impostors ? glm::clamp(branch->impostor_diameter_pixels, 1.0f, 8.0f) : 0;
-    }
+    const auto& settings = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->rendering;
+    float diameter = settings.camera_impostors ? glm::clamp(settings.impostor_diameter_pixels, 1.0f, 8.0f) : 0;
     if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
       diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
     if (const auto value = std::getenv("EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS"))
@@ -349,13 +346,9 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
         push.impostor = {diameter, proxy ? 1.0f : 0.0f, 0, 0};
         push.tessellation = {static_cast<float>(width), static_cast<float>(height), 0, 0};
         push.node_count = static_cast<uint32_t>(nodes_.size());
-        if (context && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")) {
-          float error = 0.5f, edge = 12.0f;
-          if (tree->GetScene()->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
-            const auto branch = tree->GetScene()->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
-            error = branch->screen_space_tessellation ? glm::clamp(branch->pixel_error, 0.1f, 2.0f) : 0;
-            edge = glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f);
-          }
+        if (!std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")) {
+          const float error = settings.screen_space_tessellation ? glm::clamp(settings.pixel_error, 0.1f, 2.0f) : 0;
+          const float edge = glm::clamp(settings.segment_length_pixels, 2.0f, 64.0f);
           push.tessellation = {static_cast<float>(width), static_cast<float>(height), error, edge};
         }
         draw_pipeline->PushConstant(command, 0, push);

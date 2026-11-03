@@ -57,7 +57,7 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
-    parser.add_argument("--canopy-texels", type=float, default=0, help="Maximum projected canopy diameter in shadow texels; zero disables")
+    parser.add_argument("--canopy-texels", type=float, default=16, help="Maximum projected canopy diameter in shadow texels; zero disables")
     parser.add_argument("--impostor-pixels", type=float, default=3.0, help="Camera branch impostor diameter threshold; zero disables")
     parser.add_argument("--debug-impostor-pixels", type=float, help="Override Plant Visual threshold independently")
     parser.add_argument("--geometry-reference", action="store_true", help="Use original per-node tasks and triangle-local vertices")

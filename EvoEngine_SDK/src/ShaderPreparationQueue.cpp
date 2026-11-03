@@ -143,6 +143,12 @@ ShaderPreparationProgress ShaderPreparationQueue::GetProgress() const {
   result.total = state_->entries.size();
   for (const auto& entry : state_->entries) {
     result.completed += entry.done;
+    if (entry.required) {
+      ++result.required_total;
+      result.required_completed += entry.done;
+      if (!entry.error.empty())
+        result.required_error = entry.key + ": " + entry.error;
+    }
     if (!entry.error.empty())
       result.error = entry.key + ": " + entry.error;
   }

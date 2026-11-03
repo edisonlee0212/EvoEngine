@@ -12,6 +12,9 @@ struct ShaderPreparationProgress {
   size_t total = 0;
   std::string current;
   std::string error;
+  size_t required_completed = 0;
+  size_t required_total = 0;
+  std::string required_error;
 };
 
 class EVOENGINE_API ShaderPreparationQueue final {

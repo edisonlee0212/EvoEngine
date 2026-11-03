@@ -98,17 +98,6 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
   registered &= registrar.RegisterInspector<BranchRenderer>(
       [](InspectorContext& context, BranchRenderer& target) {
         bool changed = context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
-        changed |= ImGui::Checkbox("Coarse canopy shadows", &target.canopy_shadows);
-        if (target.canopy_shadows)
-          changed |= ImGui::SliderFloat("Canopy diameter (shadow texels)", &target.canopy_shadow_texels, 4.0f, 512.0f);
-        changed |= ImGui::Checkbox("Distant branch impostors", &target.camera_impostors);
-        if (target.camera_impostors)
-          changed |= ImGui::SliderFloat("Impostor diameter (pixels)", &target.impostor_diameter_pixels, 1.0f, 8.0f);
-        changed |= ImGui::Checkbox("Adaptive tessellation", &target.screen_space_tessellation);
-        if (target.screen_space_tessellation) {
-          changed |= ImGui::SliderFloat("Pixel error", &target.pixel_error, 0.1f, 2.0f);
-          changed |= ImGui::SliderFloat("Segment length (pixels)", &target.segment_length_pixels, 2.0f, 64.0f);
-        }
         return changed;
       },
       "BranchRenderer");

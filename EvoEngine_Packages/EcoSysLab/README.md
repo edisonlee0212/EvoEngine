@@ -112,13 +112,17 @@ whose timestamp query capacity was exceeded. `--full-physics-writes` selects the
 for same-executable numerical and performance comparisons; ordinary launches use motion-only writes.
 The corresponding environment flags are `EVOENGINE_TREE_PHYSICS_PHASE_TIMINGS` and
 `EVOENGINE_TREE_PHYSICS_FULL_WRITES` (set to `1`, or unset to disable).
-BranchRenderer enables **Adaptive tessellation** by default. Its **Pixel error** target (0.5 pixels) and
+**EcoSysLab → Rendering** contains scene-wide branch quality settings, saved with the scene.
+BranchRenderer stores only its material; old per-tree quality fields are ignored. Scenes without global settings
+use the defaults below. The controls apply to every tree, including Plant Visual trees without BranchRenderer.
+
+**Adaptive tessellation** is enabled by default. Its **Pixel error** target (0.5 pixels) and
 **Segment length (pixels)** target (12 pixels) reduce radial samples and longitudinal rings with projected size;
 the existing tree mesh subdivision settings remain the maximum detail. Counts use the current GPU pose and the
 camera's unjittered projection. Near-plane intersections and visible bark displacement retain full detail.
 Every child evaluates the parent's canonical radial count for its start ring. The first junction transition keeps
 its full-detail endpoint; remaining spans are simplified. No internodes are removed and no ring data is stored.
-Unselected Plant Visual trees use adaptive detail; selected inspection retains full mesh detail for nearby branches and preserves picking IDs.
+Selected and surrounding Plant Visual trees use the same adaptive detail settings and preserve picking IDs.
 This first stage adapts camera geometry and Plant Visual; existing shadow and foliage paths retain their behavior.
 Use `--full-tessellation` with the profiling script (or set `EVOENGINE_TREE_FULL_TESSELLATION=1`) for the
 full-subdivision reference. Changing views or these controls updates draw parameters without rebuilding tree buffers.
@@ -132,7 +136,7 @@ samples and separate internodes remain distinct; the original triangle topology 
 This path does not change Plant Visual or shadow geometry. Use `--geometry-reference` in the profiling script
 for the original task/triangle-local vertex path and `--geometry-details` for nested camera branch GPU timings.
 
-BranchRenderer enables **Distant branch impostors** by default, with **Impostor diameter (pixels)**
+EcoSysLab enables **Distant branch impostors** by default, with **Impostor diameter (pixels)**
 (default 3, range 1–8). Small projected internodes become camera-facing bounding quads. The fragment shader
 intersects the current GPU pose's rounded tapered segment chain and writes actual surface depth, geometric
 normal, tangent, branch-relative UVs and the existing material into the deferred buffer. Parent attachment
@@ -142,7 +146,7 @@ This is an approximation: fine bark displacement and exact mesh silhouettes/atta
 Switching uses a hard threshold without temporal history or dithering. Plant Visual uses the same threshold for
 selected and surrounding trees, including roots. Its analytic surface preserves debug colors, selected-internode
 highlights, white position markers and hit-based internode picking. Context trees retain translucent white and
-do not overwrite pick IDs or depth. Trees without BranchRenderer use the 3-pixel debug default. Foliage, physics
+do not overwrite pick IDs or depth. Trees without BranchRenderer use the same scene settings. Foliage, physics
 and shadow rendering are unchanged. Devices using the original camera task fallback keep camera meshes.
 Use `--impostor-pixels 2`, `3`, or `4` with `--geometry-details` to compare against `--impostor-pixels 0`
 (mesh-only); the profiler defaults to 3 pixels. `EVOENGINE_TREE_IMPOSTOR_PIXELS` overrides both camera and debug
@@ -162,7 +166,7 @@ no size threshold discards thin branches. Use `--shadow-reference` for the unbat
 reference and `--shadow-details` for per-cascade branch GPU timings. These scopes are nested within
 Directional Shadow and must not be added to its total.
 
-BranchRenderer offers opt-in **Coarse canopy shadows**. **Canopy diameter (shadow texels)** defaults to 64
+EcoSysLab enables **Coarse canopy shadows** by default. **Canopy diameter (shadow texels)** defaults to 16
 (range 4–512): a complete primary lateral subtree can use a solid ellipsoid when its conservative projected
 diameter fits this threshold in a directional-light cascade. Cascade zero always uses branch shadows;
 the apical main trunk and root skeleton stay separate. Larger thresholds trade branch gaps for cheaper shadows.
@@ -506,3 +510,13 @@ to downstream rendering, wind, transfers and readback. The solver equations and 
 `Scripts/profile_windy_tree.py --physics-reference` selects the previous AoS layout, uncached coefficients and
 broad per-dispatch barriers for comparison. `--full-physics-writes` additionally enables the older full-record
 writes and implies that reference path. The default uses attribute arrays, cached coefficients and scoped barriers.
+
+### Development shader preparation
+
+App builds and installs preserve content-keyed shader binaries. Unchanged shaders reuse their cache; shader source,
+imports, defines and compiler changes still invalidate the matching entries. Unused ray camera, ReSTIR and denoising
+variants compile when selected. Applications can opt into background preparation of unused rendering modes with
+`ApplicationInitializationSettings::prewarm_optional_render_pipelines = true`.
+EcoSysLab demo growth waits for required scene shaders and pending asset/geometry/texture work, not optional shader
+prewarming. Opaque and masked procedural foliage pipelines are prepared separately when an enabled foliage renderer
+first needs each class. Required pipeline failures still prevent readiness.

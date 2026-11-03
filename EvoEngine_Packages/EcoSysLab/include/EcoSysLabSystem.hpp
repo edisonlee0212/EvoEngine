@@ -22,6 +22,16 @@ class Tree;
 
 class EcoSysLabSystem : public ISystem {
  public:
+  struct Rendering {
+    bool screen_space_tessellation = true;
+    bool camera_impostors = true;
+    bool canopy_shadows = true;
+    float canopy_shadow_texels = 16.0f;
+    float impostor_diameter_pixels = 3.0f;
+    float pixel_error = 0.5f;
+    float segment_length_pixels = 12.0f;
+  } rendering;
+
   struct Environment {
     AssetRef climate_descriptor;
     AssetRef soil_descriptor;

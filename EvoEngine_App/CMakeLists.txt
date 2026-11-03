@@ -47,9 +47,7 @@ if(WIN32)
 endif()
 
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
-evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_BUILD_RUNTIME_DIR})
 evoengine_copy_resources(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
-evoengine_clear_shader_binaries(AppResourceCopy ${EVOENGINE_APP_INSTALL_RUNTIME_DIR})
 add_custom_command(TARGET AppResourceCopy POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E make_directory ${EVOENGINE_APP_BUILD_RUNTIME_DIR}/Launcher/DemoPreviews
 			COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -80,6 +80,22 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
         }
         ImGui::EndTabItem();
       }
+      if (ImGui::BeginTabItem("Rendering")) {
+        auto& settings = growth->rendering;
+        ImGui::TextDisabled("Applies to all trees in this scene, including Plant Visual.");
+        ImGui::Checkbox("Coarse canopy shadows", &settings.canopy_shadows);
+        if (settings.canopy_shadows)
+          ImGui::SliderFloat("Canopy diameter (shadow texels)", &settings.canopy_shadow_texels, 4.0f, 512.0f);
+        ImGui::Checkbox("Distant branch impostors", &settings.camera_impostors);
+        if (settings.camera_impostors)
+          ImGui::SliderFloat("Impostor diameter (pixels)", &settings.impostor_diameter_pixels, 1.0f, 8.0f);
+        ImGui::Checkbox("Adaptive tessellation", &settings.screen_space_tessellation);
+        if (settings.screen_space_tessellation) {
+          ImGui::SliderFloat("Pixel error", &settings.pixel_error, 0.1f, 2.0f);
+          ImGui::SliderFloat("Segment length (pixels)", &settings.segment_length_pixels, 2.0f, 64.0f);
+        }
+        ImGui::EndTabItem();
+      }
       if (ImGui::BeginTabItem("Wind & air")) {
         ImGui::Checkbox("Show wind particles", &runtime->visualize_wind_particles);
         ImGui::Checkbox("Show air volume", &runtime->visualize_air_grid);

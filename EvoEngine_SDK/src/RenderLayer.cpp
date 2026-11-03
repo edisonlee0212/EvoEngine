@@ -3355,11 +3355,12 @@ void RenderLayer::PrepareSceneForRendering(
       scene_shader_background_complete_ = false;
       scene_shader_prewarm_error_.clear();
     }
-    const bool prewarm_scene_shaders = application_mode != ApplicationMode::Player &&
-                                       !scene_shader_background_complete_ && ProjectManager::IsProjectIdle() &&
-                                       !AssetManager::GetAssetLoadSnapshot().Active() &&
-                                       !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
-                                       !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
+    const bool prewarm_scene_shaders =
+        ApplicationContext::Get().GetApplicationInfo().prewarm_optional_render_pipelines &&
+        application_mode != ApplicationMode::Player && !scene_shader_background_complete_ &&
+        ProjectManager::IsProjectIdle() && !AssetManager::GetAssetLoadSnapshot().Active() &&
+        !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
+        !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
     for (const bool optional : {false, true}) {
       if (optional && (!prewarm_scene_shaders || !scene_shader_prewarm_complete_))
         break;
@@ -3727,8 +3728,7 @@ void RenderLayer::PrepareSceneForRendering(
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
   if (update_ray_tracing_resources) {
     shader_preparation_.Tick();
-    if (const auto error = shader_preparation_.GetProgress().error; !error.empty())
-      scene_shader_prewarm_error_ = error;
+    scene_shader_prewarm_error_ = shader_preparation_.GetProgress().required_error;
   }
 }
 

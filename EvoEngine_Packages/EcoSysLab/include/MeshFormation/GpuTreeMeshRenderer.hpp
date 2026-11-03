@@ -22,6 +22,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
 
  private:
   void Initialize();
+  bool PrepareFoliage(bool masked);
   bool shadow_reference_ = false;
   uint32_t camera_batch_ = 1;
   struct TreeNodeCache;
