@@ -13,8 +13,9 @@ struct GpuTreeDebugState {
   glm::mat4 projection_view{1.0f};
   glm::uvec4 selected{UINT32_MAX};
   glm::vec4 selection{};
+  glm::mat4 inverse_projection_view{1.0f};
 };
-static_assert(sizeof(GpuTreeDebugState) == 160);
+static_assert(sizeof(GpuTreeDebugState) == 224);
 
 struct GpuTreeDebugPick {
   uint32_t node;

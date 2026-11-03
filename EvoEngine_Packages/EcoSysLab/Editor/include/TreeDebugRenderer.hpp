@@ -25,7 +25,7 @@ class TreeDebugRenderer {
   };
   std::vector<Frame> frames_;
   std::shared_ptr<TreeDebugRenderer> shared_renderer_;
-  std::shared_ptr<GraphicsPipeline> pipeline_;
+  std::shared_ptr<GraphicsPipeline> pipeline_, impostor_pipeline_;
   std::shared_ptr<ComputePipeline> deform_pipeline_;
   std::shared_ptr<DescriptorSetLayout> layout_, deform_layout_;
   BufferUploadArena upload_arena_;
@@ -48,6 +48,7 @@ class TreeDebugRenderer {
   explicit TreeDebugRenderer(const std::shared_ptr<TreeDebugRenderer>& shared)
       : shared_renderer_(shared),
         pipeline_(shared->pipeline_),
+        impostor_pipeline_(shared->impostor_pipeline_),
         deform_pipeline_(shared->deform_pipeline_),
         layout_(shared->layout_),
         deform_layout_(shared->deform_layout_) {

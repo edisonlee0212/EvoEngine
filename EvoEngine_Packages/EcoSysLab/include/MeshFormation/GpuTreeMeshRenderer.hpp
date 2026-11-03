@@ -46,6 +46,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
     bool indices_ready = false, params_ready = false;
     GpuTreeFoliageParams params{};
     glm::vec2 tessellation{};
+    float impostor_diameter = 0;
   };
   struct TreeNodeCache {
     std::weak_ptr<Tree> tree;
@@ -63,6 +64,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
   std::shared_ptr<DescriptorSetLayout> deform_layout_;
   std::shared_ptr<ComputePipeline> deform_pipeline_;
   std::shared_ptr<GraphicsPipeline> camera_pipeline_;
+  std::shared_ptr<GraphicsPipeline> impostor_pipeline_;
   std::shared_ptr<GraphicsPipeline> shadow_pipeline_;
   std::shared_ptr<GraphicsPipeline> directional_shadow_pipeline_;
   std::shared_ptr<GraphicsPipeline> foliage_opaque_pipeline_;

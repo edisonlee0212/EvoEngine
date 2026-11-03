@@ -62,12 +62,15 @@ void GpuTreeMeshRenderer::Initialize() {
   if (layout_ || !Platform::MeshShaderEnabled())
     return;
   layout_ = std::make_shared<DescriptorSetLayout>();
-  layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-  layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+  layout_->PushDescriptorBinding(
+      0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  layout_->PushDescriptorBinding(
+      1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  layout_->PushDescriptorBinding(
+      2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
   layout_->Initialize();
   deform_layout_ = std::make_shared<DescriptorSetLayout>();
   for (uint32_t i = 0; i < 5; ++i)
@@ -98,6 +101,11 @@ void GpuTreeMeshRenderer::Initialize() {
         Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                 "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeMeshIndexed.slang");
     camera_pipeline_ = MakePipeline(batch_task, indexed_mesh, false, layout_, "TreeMesh.slang");
+    impostor_pipeline_ =
+        MakePipeline(batch_task,
+                     Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                             "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeImpostor.slang"),
+                     false, layout_, "TreeImpostor.slang");
   }
   shadow_pipeline_ = MakePipeline(task, mesh, true, layout_, "Empty.slang");
   shadow_reference_ = std::getenv("EVOENGINE_TREE_SHADOW_REFERENCE") != nullptr;
@@ -136,8 +144,9 @@ void GpuTreeMeshRenderer::Initialize() {
 
 bool GpuTreeMeshRenderer::Prepare() {
   Initialize();
-  return deform_pipeline_ && deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() &&
-         shadow_pipeline_ && shadow_pipeline_->Initialized() && directional_shadow_pipeline_ &&
+  return (!impostor_pipeline_ || impostor_pipeline_->Initialized()) && deform_pipeline_ &&
+         deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() && shadow_pipeline_ &&
+         shadow_pipeline_->Initialized() && directional_shadow_pipeline_ &&
          directional_shadow_pipeline_->Initialized() && foliage_opaque_pipeline_ &&
          foliage_opaque_pipeline_->Initialized() && foliage_masked_pipeline_ &&
          foliage_masked_pipeline_->Initialized() && foliage_opaque_shadow_pipeline_ &&
@@ -335,6 +344,10 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
                              ? glm::vec2(glm::clamp(branch->pixel_error, 0.1f, 2.0f),
                                          glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f))
                              : glm::vec2(0);
+    frame.impostor_diameter =
+        branch && branch->camera_impostors ? glm::clamp(branch->impostor_diameter_pixels, 1.0f, 8.0f) : 0.0f;
+    if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
+      frame.impostor_diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
     frame.indices_ready = false;
     frame.physics = state;
     frame.node_count = static_cast<uint32_t>(cache.nodes.size());
@@ -399,8 +412,12 @@ void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
     if (handles.has_branch) {
       render->RawOpaqueRenderingAllCameras(
           [self, cached](VkCommandBuffer command, const auto&, const RenderLayer::DeferredRenderingView& view) {
-            return self->Draw(cached, command, self->camera_pipeline_, view.viewport, 0, 0, view.camera_index, 0, 0,
-                              VK_CULL_MODE_NONE);
+            const auto count = self->Draw(cached, command, self->camera_pipeline_, view.viewport, 0, 0,
+                                          view.camera_index, 0, 0, VK_CULL_MODE_NONE);
+            if (self->impostor_pipeline_ && cached->frames[Platform::GetCurrentFrameIndex()].impostor_diameter > 0)
+              self->Draw(cached, command, self->impostor_pipeline_, view.viewport, 0, 0, view.camera_index, 0, 0,
+                         VK_CULL_MODE_NONE);
+            return count;
           });
       render->RenderOpaqueToPointLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
         return self->Draw(cached, command, self->shadow_pipeline_, view.viewport, 0, 1, 0, view.light_index,
@@ -503,7 +520,7 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
           ? Platform::BeginGpuTimestampScope(command, {"EcoSysLabBranchGeometry", "EcoSysLab Branch Geometry",
                                                        "EcoSysLab", GpuTimestampQueue::Graphics})
           : GpuTimestampScopeToken{};
-  const uint32_t batch = pipeline == camera_pipeline_                                     ? camera_batch_
+  const uint32_t batch = (pipeline == camera_pipeline_ || pipeline == impostor_pipeline_) ? camera_batch_
                          : pipeline == directional_shadow_pipeline_ && !shadow_reference_ ? 32
                                                                                           : 1;
   const auto limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
@@ -517,6 +534,8 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
     push.light_index = light;
     push.light_face = face;
     push.geometry_pass = geometry;
+    if (geometry == 0 && pass == 0 && impostor_pipeline_)
+      push.impostor = {frame.impostor_diameter, pipeline == impostor_pipeline_ ? 1.0f : 0.0f, 0.0f, 0.0f};
     if (geometry == 0 && pass == 0)
       push.tessellation = {static_cast<float>(viewport.z), static_cast<float>(viewport.w), frame.tessellation.x,
                            frame.tessellation.y};

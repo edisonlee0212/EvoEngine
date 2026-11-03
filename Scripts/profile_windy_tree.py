@@ -57,6 +57,8 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--impostor-pixels", type=float, default=3.0, help="Camera branch impostor diameter threshold; zero disables")
+    parser.add_argument("--debug-impostor-pixels", type=float, help="Override Plant Visual threshold independently")
     parser.add_argument("--geometry-reference", action="store_true", help="Use original per-node tasks and triangle-local vertices")
     parser.add_argument("--geometry-details", action="store_true", help="Capture procedural camera branch GPU time")
     parser.add_argument("--shadow-reference", action="store_true", help="Use unbatched branch shadows without task culling")
@@ -75,6 +77,10 @@ def main():
         parser.error("--cluster-order must be between 0 and 64")
     if not 0 <= args.physics_tolerance <= 2:
         parser.error("--physics-tolerance must be between 0 and 2")
+    if not 0 <= args.impostor_pixels <= 8:
+        parser.error("--impostor-pixels must be between 0 and 8")
+    if args.debug_impostor_pixels is not None and not 0 <= args.debug_impostor_pixels <= 8:
+        parser.error("--debug-impostor-pixels must be between 0 and 8")
     directory = args.output.resolve()
     if not args.analyze_only:
         if args.editor is None:
@@ -84,6 +90,10 @@ def main():
         directory.mkdir(parents=True, exist_ok=True)
         editor = args.editor.resolve(strict=True)
         environment = os.environ.copy()
+        environment.pop("EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS", None)
+        if args.debug_impostor_pixels is not None:
+            environment["EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS"] = str(args.debug_impostor_pixels)
+        environment["EVOENGINE_TREE_IMPOSTOR_PIXELS"] = str(args.impostor_pixels)
         environment["EVOENGINE_WINDY_TREE_PROFILE"] = str(directory)
         environment["EVOENGINE_TREE_PHYSICS_TOLERANCE"] = str(args.physics_tolerance)
         environment.pop("EVOENGINE_TREE_CLUSTER_ORDER", None)
@@ -118,6 +128,8 @@ def main():
         with (directory / "configuration.txt").open("a", encoding="utf-8") as configuration:
             configuration.write(f"geometry_reference={int(args.geometry_reference)}\ngeometry_details={int(args.geometry_details)}\n")
             configuration.write(f"shadow_reference={int(args.shadow_reference)}\nshadow_details={int(args.shadow_details)}\n")
+            configuration.write(f"debug_impostor_pixels={args.debug_impostor_pixels if args.debug_impostor_pixels is not None else args.impostor_pixels}\n")
+            configuration.write(f"impostor_pixels={args.impostor_pixels}\n")
             configuration.write(f"physics_reference={int(args.physics_reference)}\n")
             configuration.write(f"tessellation={'full' if args.full_tessellation else 'adaptive'}\n")
             configuration.write(f"physics_writes={'full' if args.full_physics_writes else 'motion'}\n")

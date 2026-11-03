@@ -17,7 +17,9 @@
 #include "GpuTreeClusterPhysics.hpp"
 #include "GpuTreePhysics.hpp"
 #include "GpuTreeSubtreePhysics.hpp"
+#include "GraphicsPipeline.hpp"
 #include "Jobs.hpp"
+#include "MeshFormation/GpuTreeDebugData.hpp"
 #include "MeshFormation/GpuTreeMeshData.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
@@ -188,7 +190,10 @@ TEST(TreeDebugRendering, SharedMeshStagesCompileWithDebugOutputs) {
   const std::vector<std::pair<ShaderType, std::filesystem::path>> stages{
       {ShaderType::Task, "EcoSysLabResources/Shaders/Graphics/Task/TreeMesh.slang"},
       {ShaderType::Mesh, "EcoSysLabResources/Shaders/Graphics/Mesh/TreeMesh.slang"},
-      {ShaderType::Fragment, "EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebug.slang"}};
+      {ShaderType::Fragment, "EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebug.slang"},
+      {ShaderType::Task, "EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang"},
+      {ShaderType::Mesh, "EcoSysLabResources/Shaders/Graphics/Mesh/TreeImpostor.slang"},
+      {ShaderType::Fragment, "EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebugImpostor.slang"}};
   for (const auto& [type, path] : stages) {
     std::ifstream file(path);
     ASSERT_TRUE(file.is_open()) << path;
@@ -243,6 +248,331 @@ TEST(TreeDebugRendering, PickPixelReadbackUsesSdkDispatch) {
   ASSERT_NE(readback.GetVmaAllocationInfo().pMappedData, nullptr);
   EXPECT_EQ(*static_cast<const glm::uvec4*>(readback.GetVmaAllocationInfo().pMappedData),
             glm::uvec4(17, 1, 0x3f000000, 0));
+}
+
+TEST(TreeDebugRendering, ImpostorRasterPreservesHighlightAndPickAtCurrentPose) {
+  ScopedTreeGpuPlatform platform;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i = 0; i < 5; ++i)
+    layout->PushDescriptorBinding(
+        i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  layout->Initialize();
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto set = std::make_shared<DescriptorSet>(layout);
+  const auto buffer = [](const auto& data) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = data.size() * sizeof(data[0]);
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    auto result = std::make_shared<Buffer>(info, allocation);
+    result->UploadVector(data);
+    return result;
+  };
+  GpuTreeNode node{};
+  node.position_thickness = {0, -0.5f, 0.5f, 0.1f};
+  node.direction_length = {0, 1, 0, 1};
+  node.radial_axis_distance = {1, 0, 0, 0};
+  node.subdivisions = {0.01f, 0.1f, 0, 0};
+  node.links = {UINT32_MAX, 0, 0, UINT32_MAX};
+  node.foliage_meta = {16, 1, 0, 0};
+  GpuTreeDebugState state;
+  state.selected.x = 16;
+  state.selection.x = 0.5f;
+  auto nodes = buffer(std::vector{node});
+  auto states = buffer(std::vector{state});
+  auto colors = buffer(std::vector{glm::vec4(0.2f, 0.4f, 0.6f, 0.18f)});
+  set->UpdateBufferDescriptorBinding(0, nodes);
+  set->UpdateBufferDescriptorBinding(3, states);
+  set->UpdateBufferDescriptorBinding(4, colors);
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  const auto defines = Platform::GetShaderGlobalDefines() + "\n#define EE_TREE_DEBUG 1\n";
+  pipeline->task_shader = Shader::CreateTemporary(ShaderType::Task, defines,
+                                                  "EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang");
+  pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, defines, "EcoSysLabResources/Shaders/Graphics/Mesh/TreeImpostor.slang");
+  pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, defines, "EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebugImpostor.slang");
+  pipeline->descriptor_set_layouts = {empty, empty, empty, layout};
+  pipeline->geometry_type = GeometryType::Mesh;
+  pipeline->vertex_input_enabled = false;
+  pipeline->depth_attachment_format = pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  pipeline->color_attachment_formats = {VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R32G32B32A32_UINT};
+  pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_ALL, 0, sizeof(GpuTreeDrawParameters)});
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  std::vector<std::shared_ptr<Image>> images;
+  std::vector<std::shared_ptr<ImageView>> views;
+  std::vector<std::shared_ptr<Buffer>> readbacks;
+  for (auto format : pipeline->color_attachment_formats) {
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = format;
+    info.extent = {32, 32, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    images.push_back(std::make_shared<Image>(info));
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = images.back()->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    views.push_back(std::make_shared<ImageView>(view, images.back()));
+    VkBufferCreateInfo read{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    read.size = sizeof(glm::vec4);
+    read.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo host{};
+    host.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    host.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    host.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    readbacks.push_back(std::make_shared<Buffer>(read, host));
+  }
+  for (uint32_t mode = 0; mode < 4; ++mode) {
+    if (mode == 1)
+      state.selection.x = 0.1f;
+    if (mode == 2) {
+      node.foliage_meta.y = 0;
+      state.selected = glm::uvec4(UINT32_MAX);
+    }
+    if (mode == 3)
+      node.position_thickness.x = 0.5f;
+    nodes->UploadVector(std::vector{node});
+    states->UploadVector(std::vector{state});
+    evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+    Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+      std::vector<VkRenderingAttachmentInfo> attachments;
+      for (uint32_t i = 0; i < images.size(); ++i) {
+        images[i]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+        VkRenderingAttachmentInfo attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        attachment.imageView = views[i]->GetVkImageView();
+        attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments.push_back(attachment);
+      }
+      VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+      rendering.renderArea.extent = {32, 32};
+      rendering.layerCount = 1;
+      rendering.colorAttachmentCount = static_cast<uint32_t>(attachments.size());
+      rendering.pColorAttachments = attachments.data();
+      Platform::BeginRendering(command, rendering);
+      pipeline->Bind(command);
+      pipeline->BindDescriptorSet(command, 3, set->GetVkDescriptorSet());
+      pipeline->states.ResetAllStates(2);
+      pipeline->states.SetViewportScissor({0, 0, 32, 32});
+      pipeline->states.cull_mode = VK_CULL_MODE_NONE;
+      pipeline->states.depth_test = pipeline->states.depth_write = false;
+      pipeline->states.ApplyAllStates(command);
+      GpuTreeDrawParameters push;
+      push.node_count = 1;
+      push.padding0 = 32;
+      push.tessellation = {32, 32, 0, 0};
+      push.impostor = {3, 1, 0, 0};
+      pipeline->PushConstant(command, 0, push);
+      pipeline->DrawMeshTasks(command, 1, 1, 1);
+      Platform::EndRendering(command);
+      for (uint32_t i = 0; i < images.size(); ++i) {
+        images[i]->TransitImageLayout(command, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        VkBufferImageCopy copy{};
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageOffset = {16, 16, 0};
+        copy.imageExtent = {1, 1, 1};
+        Platform::CopyImageToBuffer(command, *images[i], *readbacks[i], copy);
+      }
+      Platform::EverythingBarrier(command);
+    });
+    evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("debug impostor raster pick");
+    const auto color = *static_cast<const glm::vec4*>(readbacks[0]->GetVmaAllocationInfo().pMappedData);
+    const auto pixel = *static_cast<const glm::uvec4*>(readbacks[1]->GetVmaAllocationInfo().pMappedData);
+    if (mode == 3) {
+      EXPECT_EQ(pixel, glm::uvec4(0));
+      EXPECT_EQ(color, glm::vec4(0));
+    } else {
+      auto pick = DecodeGpuTreeDebugPick(pixel, 17, 17);
+      ASSERT_TRUE(pick);
+      EXPECT_EQ(pick->node, 16);
+      EXPECT_EQ(pick->shoot, mode < 2);
+      EXPECT_NEAR(pick->length_factor, 0.5f, 0.04f);
+      EXPECT_NEAR(color.w, 0.18f, 1e-6f);
+      const auto expected = mode == 0   ? glm::vec3(1)
+                            : mode == 1 ? glm::mix(glm::vec3(0.2f, 0.4f, 0.6f), glm::vec3(1, 0.8f, 0.05f), 0.65f)
+                                        : glm::vec3(0.2f, 0.4f, 0.6f);
+      for (int axis = 0; axis < 3; ++axis)
+        EXPECT_NEAR(color[axis], expected[axis], 1e-6f);
+    }
+  }
+}
+
+TEST(TreeDebugRendering, IndexedMeshRasterMatchesOriginal) {
+  ScopedTreeGpuPlatform platform;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t i = 0; i < 5; ++i)
+    layout->PushDescriptorBinding(
+        i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+        VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+  layout->Initialize();
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto set = std::make_shared<DescriptorSet>(layout);
+  const auto buffer = [](const auto& data) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = data.size() * sizeof(data[0]);
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    auto result = std::make_shared<Buffer>(info, allocation);
+    result->UploadVector(data);
+    return result;
+  };
+  GpuTreeNode node{};
+  node.position_thickness = {0, -0.5f, 0.5f, 0.1f};
+  node.direction_length = {0, 1, 0, 1};
+  node.radial_axis_distance = {1, 0, 0, 0};
+  node.subdivisions = {0.01f, 0.1f, 0, 0};
+  node.links = {UINT32_MAX, 0, 0, UINT32_MAX};
+  node.foliage_meta = {16, 1, 0, 0};
+  GpuTreeDebugState state;
+  state.selected.x = UINT32_MAX;
+  state.selection.x = 0.5f;
+  auto nodes = buffer(std::vector{node, node});
+  auto states = buffer(std::vector{state});
+  auto colors = buffer(std::vector(2, glm::vec4(0.2f, 0.4f, 0.6f, 0.18f)));
+  set->UpdateBufferDescriptorBinding(0, nodes);
+  set->UpdateBufferDescriptorBinding(3, states);
+  set->UpdateBufferDescriptorBinding(4, colors);
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  const auto defines = Platform::GetShaderGlobalDefines() + "\n#define EE_TREE_DEBUG 1\n";
+  pipeline->task_shader = Shader::CreateTemporary(ShaderType::Task, defines,
+                                                  "EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang");
+  pipeline->mesh_shader = Shader::CreateTemporary(ShaderType::Mesh, defines,
+                                                  "EcoSysLabResources/Shaders/Graphics/Mesh/TreeMeshIndexed.slang");
+  pipeline->fragment_shader = Shader::CreateTemporary(ShaderType::Fragment, defines,
+                                                      "EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebug.slang");
+  pipeline->descriptor_set_layouts = {empty, empty, empty, layout};
+  pipeline->geometry_type = GeometryType::Mesh;
+  pipeline->vertex_input_enabled = false;
+  pipeline->depth_attachment_format = pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  pipeline->color_attachment_formats = {VK_FORMAT_R32G32B32A32_SFLOAT, VK_FORMAT_R32G32B32A32_UINT};
+  pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_ALL, 0, sizeof(GpuTreeDrawParameters)});
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  auto reference = std::make_shared<GraphicsPipeline>();
+  reference->task_shader =
+      Shader::CreateTemporary(ShaderType::Task, defines, "EcoSysLabResources/Shaders/Graphics/Task/TreeMesh.slang");
+  reference->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, defines, "EcoSysLabResources/Shaders/Graphics/Mesh/TreeMesh.slang");
+  reference->fragment_shader = pipeline->fragment_shader;
+  reference->descriptor_set_layouts = pipeline->descriptor_set_layouts;
+  reference->geometry_type = GeometryType::Mesh;
+  reference->vertex_input_enabled = false;
+  reference->depth_attachment_format = reference->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  reference->color_attachment_formats = pipeline->color_attachment_formats;
+  reference->push_constant_ranges = pipeline->push_constant_ranges;
+  reference->Initialize();
+  ASSERT_TRUE(reference->Initialized());
+  std::vector<std::shared_ptr<Image>> images;
+  std::vector<std::shared_ptr<ImageView>> views;
+  std::vector<std::shared_ptr<Buffer>> readbacks;
+  for (auto format : pipeline->color_attachment_formats) {
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = format;
+    info.extent = {128, 128, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    images.push_back(std::make_shared<Image>(info));
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = images.back()->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    views.push_back(std::make_shared<ImageView>(view, images.back()));
+    VkBufferCreateInfo read{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    read.size = 128 * 128 * sizeof(glm::vec4);
+    read.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo host{};
+    host.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+    host.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    host.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    readbacks.push_back(std::make_shared<Buffer>(read, host));
+  }
+  const uint32_t radials[] = {4, 6, 10, 14, 32, 126, 158, 256};
+  for (uint32_t radial : radials) {
+    node.position_thickness.w = 0.6f;
+    node.subdivisions = {0.6f * glm::pi<float>() / (radial - 0.25f), 0.01f, 0, 0};
+    GpuTreeNode child = node;
+    child.links.x = 0;
+    child.position_thickness = {0, 0.5f, 0.5f, 0.1f};
+    child.direction_length = {0.6f, 0.8f, 0, 0.5f};
+    child.foliage_meta.x = 17;
+    nodes->UploadVector(std::vector{node, child});
+    std::vector<glm::vec4> expected;
+    for (uint32_t mode = 0; mode < 2; ++mode) {
+      const auto draw = mode == 0 ? reference : pipeline;
+      evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+        std::vector<VkRenderingAttachmentInfo> attachments;
+        for (uint32_t i = 0; i < images.size(); ++i) {
+          images[i]->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+          VkRenderingAttachmentInfo attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+          attachment.imageView = views[i]->GetVkImageView();
+          attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+          attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+          attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+          attachments.push_back(attachment);
+        }
+        VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+        rendering.renderArea.extent = {128, 128};
+        rendering.layerCount = 1;
+        rendering.colorAttachmentCount = static_cast<uint32_t>(attachments.size());
+        rendering.pColorAttachments = attachments.data();
+        Platform::BeginRendering(command, rendering);
+        draw->Bind(command);
+        draw->BindDescriptorSet(command, 3, set->GetVkDescriptorSet());
+        draw->states.ResetAllStates(2);
+        draw->states.SetViewportScissor({0, 0, 128, 128});
+        draw->states.cull_mode = VK_CULL_MODE_NONE;
+        draw->states.depth_test = pipeline->states.depth_write = false;
+        draw->states.ApplyAllStates(command);
+        GpuTreeDrawParameters push;
+        push.node_count = 2;
+        push.padding0 = mode == 0 ? 1 : 21;
+        push.tessellation = {128, 128, 0, 0};
+        push.impostor = glm::vec4(0);
+        draw->PushConstant(command, 0, push);
+        draw->DrawMeshTasks(command, mode == 0 ? 2 : 1, 1, 1);
+        Platform::EndRendering(command);
+        for (uint32_t i = 0; i < images.size(); ++i) {
+          images[i]->TransitImageLayout(command, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+          VkBufferImageCopy copy{};
+          copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+          copy.imageOffset = {0, 0, 0};
+          copy.imageExtent = {128, 128, 1};
+          Platform::CopyImageToBuffer(command, *images[i], *readbacks[i], copy);
+        }
+        Platform::EverythingBarrier(command);
+      });
+      evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+      Platform::WaitForFrameSubmissions("debug impostor raster pick");
+      const auto pixels = static_cast<const glm::vec4*>(readbacks[0]->GetVmaAllocationInfo().pMappedData);
+      if (mode == 0)
+        expected.assign(pixels, pixels + 128 * 128);
+      else {
+        uint32_t differences = 0, covered = 0;
+        for (uint32_t i = 0; i < 128 * 128; ++i) {
+          covered += expected[i].w > 0;
+          differences += (pixels[i].w > 0) != (expected[i].w > 0);
+        }
+        EXPECT_GT(covered, 1000u);
+        EXPECT_EQ(differences, 0u) << "radial=" << radial << " covered=" << covered;
+      }
+    }
+  }
 }
 
 TEST(GpuTreePhysics, PinnedRodRespondsToGravity) {
@@ -1370,6 +1700,81 @@ TEST(GpuTreePhysics, DeformationUsesEachTreesLocalNodeMapAndDynamicPose) {
       EXPECT_EQ(actual[i].position_thickness.w, nodes[i].position_thickness.w);
     }
   }
+}
+
+TEST(TreeTessellation, CameraImpostorBoundsSelectionAndNormals) {
+  ScopedTreeGpuPlatform platform;
+  for (const auto& stage : {std::pair{ShaderType::Task, "Task/TreeMeshBatched.slang"},
+                            std::pair{ShaderType::Mesh, "Mesh/TreeImpostor.slang"},
+                            std::pair{ShaderType::Fragment, "Fragment/TreeImpostor.slang"}}) {
+    const auto shader =
+        Shader::CreateTemporary(stage.first, Platform::GetShaderGlobalDefines(),
+                                std::filesystem::path("./EcoSysLabResources/Shaders/Graphics") / stage.second);
+    ASSERT_TRUE(shader->Compiled()) << stage.second;
+  }
+  std::vector<GpuTreeNode> nodes(4);
+  for (auto& node : nodes) {
+    node.position_thickness = {0, 0, 0.5f, 0.02f};
+    node.direction_length = {0, 1, 0, 0.5f};
+    node.radial_axis_distance = {1, 0, 0, 0};
+    node.subdivisions = {0.01f, 0.1f, 0, 0};
+    node.links = {UINT32_MAX, 0, 0, UINT32_MAX};
+  }
+  nodes[1].position_thickness.w = 0.2f;
+  nodes[2].links.x = 1;
+  nodes[3].position_thickness.z = 0;
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = nodes.size() * sizeof(GpuTreeNode);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  VmaAllocationCreateInfo allocation{};
+  allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto input = std::make_shared<Buffer>(info, allocation);
+  input->UploadVector(nodes);
+  info.size = 7 * sizeof(glm::vec4);
+  auto output = std::make_shared<Buffer>(info, allocation);
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto empty = std::make_shared<DescriptorSetLayout>();
+  empty->Initialize();
+  auto input_set = std::make_shared<DescriptorSet>(layout), output_set = std::make_shared<DescriptorSet>(layout);
+  input_set->UpdateBufferDescriptorBinding(0, input);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                                     std::filesystem::path(__FILE__).parent_path().parent_path() /
+                                                         "Resources/Shaders/Compute/TreeImpostorProbe.slang");
+  pipeline->descriptor_set_layouts = {layout, empty, empty, layout};
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  evo_engine::PlatformLifecycleTestAccess::PreUpdate();
+  Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, output_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 3, input_set->GetVkDescriptorSet());
+    pipeline->Dispatch(command, 1, 1, 1);
+    Platform::EverythingBarrier(command);
+  });
+  evo_engine::PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("projected branch tessellation");
+  std::vector<glm::vec4> result;
+  output->DownloadVector(result, 7);
+  EXPECT_EQ(result[0].x, 1);
+  EXPECT_NEAR(result[0].y, 0.5f, 1e-5f);
+  EXPECT_NEAR(result[0].z, -0.01f, 1e-5f);
+  EXPECT_NEAR(result[0].w, 0.01f, 1e-5f);
+  EXPECT_EQ(result[1].x, 0);
+  const auto normal = glm::normalize(glm::vec3(0, 0.05f, -1));
+  for (int axis = 0; axis < 3; ++axis)
+    EXPECT_NEAR(result[2][axis], normal[axis], 1e-5f);
+  EXPECT_NEAR(result[2].w, 1.85f, 1e-5f);
+  EXPECT_NEAR(result[3].y, -1, 1e-5f);
+  EXPECT_NEAR(result[3].w, 1.8f, 1e-5f);
+  EXPECT_EQ(result[4], glm::vec4(1, 0, 0, 0));
+  EXPECT_EQ(result[5], glm::vec4(0));
+  EXPECT_EQ(result[6].x, 1);
+  EXPECT_EQ(result[6].y, 0);
+  EXPECT_GT(result[6].z, 0);
 }
 
 TEST(TreeTessellation, ProjectedDetailPreservesJunctionsAndBoundsCurveError) {

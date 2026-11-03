@@ -1,4 +1,4 @@
-import EcoSysLab.GpuTreeMesh;
+import EcoSysLab.TreeImpostor;
 #ifdef EE_TREE_DEBUG
 import EcoSysLab.TreeDebug;
 #else
@@ -27,6 +27,13 @@ void main(uint3 group_id : SV_GroupID) {
     transform = mul(EE_INSTANCES[instance].model,EE_CAMERAS[camera_index].unjittered_projection_view);
 #endif
   }
+#ifdef EE_TREE_DEBUG
+  if(TreeUseImpostor(index,mul(tree_debug_state[0].model,tree_debug_state[0].projection_view),tessellation.xy,impostor.x)) {
+    TreeTaskPayload empty=(TreeTaskPayload)0;
+    DispatchMesh(0u,1u,1u,empty);
+    return;
+  }
+#endif
   TreeTaskPayload payload = TreeBuildTask(index,transform,tessellation);
   if (payload.rings == 0) {
     DispatchMesh(0u,1u,1u,payload);

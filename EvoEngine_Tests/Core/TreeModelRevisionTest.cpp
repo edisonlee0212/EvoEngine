@@ -148,6 +148,8 @@ TEST(BranchRenderer, TessellationSettingsRoundTripAndLegacyDefaults) {
       {}, "AssetRef"));
   BranchRenderer source;
   source.screen_space_tessellation = false;
+  source.camera_impostors = false;
+  source.impostor_diameter_pixels = 4;
   source.pixel_error = 1.25f;
   source.segment_length_pixels = 24;
   YAML::Emitter out;
@@ -157,11 +159,15 @@ TEST(BranchRenderer, TessellationSettingsRoundTripAndLegacyDefaults) {
   BranchRenderer restored;
   DeserializeBranchRenderer(YAML::Load(out.c_str()), restored);
   EXPECT_FALSE(restored.screen_space_tessellation);
+  EXPECT_FALSE(restored.camera_impostors);
+  EXPECT_FLOAT_EQ(restored.impostor_diameter_pixels, 4);
   EXPECT_FLOAT_EQ(restored.pixel_error, 1.25f);
   EXPECT_FLOAT_EQ(restored.segment_length_pixels, 24);
   BranchRenderer legacy;
   DeserializeBranchRenderer(YAML::Load("{}"), legacy);
   EXPECT_TRUE(legacy.screen_space_tessellation);
+  EXPECT_TRUE(legacy.camera_impostors);
+  EXPECT_FLOAT_EQ(legacy.impostor_diameter_pixels, 3);
   EXPECT_FLOAT_EQ(legacy.pixel_error, 0.5f);
   EXPECT_FLOAT_EQ(legacy.segment_length_pixels, 12);
 }

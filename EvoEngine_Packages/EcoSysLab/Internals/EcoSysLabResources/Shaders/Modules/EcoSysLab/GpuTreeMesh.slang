@@ -40,6 +40,7 @@ public struct GpuTreeInstanceIndices {
   public uint padding0;
   public uint geometry_pass;
   public float4 tessellation;
+  public float4 impostor;
 };
 
 public uint TreeRadialCount(GpuTreeNode node) {
@@ -353,12 +354,14 @@ public uint4 TreeMeshletRange(TreeTaskPayload task,uint group) {
 }
 
 public uint4 TreeMeshletBounds(TreeTaskPayload task,uint4 range) {
+  // Indexed vector writes lose raster coverage in the mesh stage; keep these updates scalar.
   uint4 bounds=uint4(0xffffffffu,0,0xffffffffu,0);
   uint3 first=TreeTriangleKeys(task,range.x),last=TreeTriangleKeys(task,range.x+range.y-1);
   for(uint i=0;i<3;++i) {
-    uint a=first[i]/257==range.z ? 0u : 2u,b=last[i]/257==range.z ? 0u : 2u;
-    bounds[a]=min(bounds[a],first[i]);bounds[a+1]=max(bounds[a+1],first[i]);
-    bounds[b]=min(bounds[b],last[i]);bounds[b+1]=max(bounds[b+1],last[i]);
+    if(first[i]/257==range.z) { bounds.x=min(bounds.x,first[i]); bounds.y=max(bounds.y,first[i]); }
+    else { bounds.z=min(bounds.z,first[i]); bounds.w=max(bounds.w,first[i]); }
+    if(last[i]/257==range.z) { bounds.x=min(bounds.x,last[i]); bounds.y=max(bounds.y,last[i]); }
+    else { bounds.z=min(bounds.z,last[i]); bounds.w=max(bounds.w,last[i]); }
   }
   return bounds;
 }

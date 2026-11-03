@@ -9,6 +9,8 @@ class BranchRenderer : public IPrivateComponent {
  public:
   AssetRef material_ref;
   bool screen_space_tessellation = true;
+  bool camera_impostors = true;
+  float impostor_diameter_pixels = 3.0f;
   float pixel_error = 0.5f;
   float segment_length_pixels = 12.0f;
 

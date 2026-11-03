@@ -118,7 +118,7 @@ the existing tree mesh subdivision settings remain the maximum detail. Counts us
 camera's unjittered projection. Near-plane intersections and visible bark displacement retain full detail.
 Every child evaluates the parent's canonical radial count for its start ring. The first junction transition keeps
 its full-detail endpoint; remaining spans are simplified. No internodes are removed and no ring data is stored.
-Unselected Plant Visual trees use adaptive detail; selected inspection retains full detail and picking IDs.
+Unselected Plant Visual trees use adaptive detail; selected inspection retains full mesh detail for nearby branches and preserves picking IDs.
 This first stage adapts camera geometry and Plant Visual; existing shadow and foliage paths retain their behavior.
 Use `--full-tessellation` with the profiling script (or set `EVOENGINE_TREE_FULL_TESSELLATION=1`) for the
 full-subdivision reference. Changing views or these controls updates draw parameters without rebuilding tree buffers.
@@ -126,10 +126,29 @@ Camera branch tasks batch up to 32 internodes, bounded by device mesh-dispatch l
 frustum bounds include the Bezier control hull, bark displacement and parent-end junction. They are tested
 against the current jittered camera projection; tessellation still uses the unjittered view.
 Each meshlet emits up to 20 triangles using at most 22 vertices. Ring-strip indexing evaluates identical
-samples once without a duplicate search or atomic counters. Angular UV seam
+samples once without a duplicate search or atomic counters. Ring bounds use explicit component updates;
+GPU raster regression tests compare connected thick-branch coverage against the original mesh shader. Angular UV seam
 samples and separate internodes remain distinct; the original triangle topology and detail settings are retained.
 This path does not change Plant Visual or shadow geometry. Use `--geometry-reference` in the profiling script
 for the original task/triangle-local vertex path and `--geometry-details` for nested camera branch GPU timings.
+
+BranchRenderer enables **Distant branch impostors** by default, with **Impostor diameter (pixels)**
+(default 3, range 1–8). Small projected internodes become camera-facing bounding quads. The fragment shader
+intersects the current GPU pose's rounded tapered segment chain and writes actual surface depth, geometric
+normal, tangent, branch-relative UVs and the existing material into the deferred buffer. Parent attachment
+width participates in selection; near-plane crossings and curves needing more than two approximation spans
+at 0.25-pixel error remain meshes. Selection uses the unjittered camera; quad bounds use the jittered view.
+This is an approximation: fine bark displacement and exact mesh silhouettes/attachment shading are not retained.
+Switching uses a hard threshold without temporal history or dithering. Plant Visual uses the same threshold for
+selected and surrounding trees, including roots. Its analytic surface preserves debug colors, selected-internode
+highlights, white position markers and hit-based internode picking. Context trees retain translucent white and
+do not overwrite pick IDs or depth. Trees without BranchRenderer use the 3-pixel debug default. Foliage, physics
+and shadow rendering are unchanged. Devices using the original camera task fallback keep camera meshes.
+Use `--impostor-pixels 2`, `3`, or `4` with `--geometry-details` to compare against `--impostor-pixels 0`
+(mesh-only); the profiler defaults to 3 pixels. `EVOENGINE_TREE_IMPOSTOR_PIXELS` overrides both camera and debug
+thresholds. `--debug-impostor-pixels 0` (or `EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS=0`) independently disables debug
+impostors for comparison. Both camera draw paths are
+included in the branch geometry timing; compare aggregate GPU/frame time, not just time per draw.
 
 Directional branch shadows use one light-facing quad per internode. A fragment shader intersects a short
 rounded, tapered segment chain following the current GPU-deformed centerline, including the parent-end junction,

@@ -17,8 +17,9 @@ bool TreeDebugRenderer::Prepare() {
   if (!pipeline_) {
     layout_ = std::make_shared<DescriptorSetLayout>();
     for (uint32_t i = 0; i < 5; ++i)
-      layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                     VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+      layout_->PushDescriptorBinding(
+          i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     layout_->Initialize();
     deform_layout_ = std::make_shared<DescriptorSetLayout>();
     for (uint32_t i = 0; i < 5; ++i)
@@ -49,6 +50,21 @@ bool TreeDebugRenderer::Prepare() {
     pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color, VK_FORMAT_R32G32B32A32_UINT};
     pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_ALL, 0, sizeof(GpuTreeDrawParameters)});
     pipeline_->Initialize();
+    impostor_pipeline_ = std::make_shared<GraphicsPipeline>();
+    impostor_pipeline_->task_shader = Shader::CreateTemporary(
+        ShaderType::Task, defines, "./EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang");
+    impostor_pipeline_->mesh_shader = Shader::CreateTemporary(
+        ShaderType::Mesh, defines, "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeImpostor.slang");
+    impostor_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, defines, "./EcoSysLabResources/Shaders/Graphics/Fragment/TreeDebugImpostor.slang");
+    impostor_pipeline_->descriptor_set_layouts = pipeline_->descriptor_set_layouts;
+    impostor_pipeline_->vertex_input_enabled = false;
+    impostor_pipeline_->geometry_type = GeometryType::Mesh;
+    impostor_pipeline_->depth_attachment_format = pipeline_->depth_attachment_format;
+    impostor_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    impostor_pipeline_->color_attachment_formats = pipeline_->color_attachment_formats;
+    impostor_pipeline_->push_constant_ranges = pipeline_->push_constant_ranges;
+    impostor_pipeline_->Initialize();
   }
   if (frames_.empty()) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -76,7 +92,7 @@ bool TreeDebugRenderer::Prepare() {
       frame.deform_set = std::make_shared<DescriptorSet>(deform_layout_);
     }
   }
-  return pipeline_->Initialized() && deform_pipeline_->Initialized();
+  return pipeline_->Initialized() && impostor_pipeline_->Initialized() && deform_pipeline_->Initialized();
 }
 
 void TreeDebugRenderer::PollPick(const std::shared_ptr<Tree>& tree, ShootVisualizer& shoot, RootVisualizer& root) {
@@ -216,7 +232,8 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
                                 projection_view,
                                 {context ? UINT32_MAX : static_cast<uint32_t>(shoot.selected_node_handle),
                                  context ? UINT32_MAX : static_cast<uint32_t>(root.selected_node_handle), 0, 0},
-                                {shoot.selected_node_length_factor, root.selected_node_length_factor, 0, 0}};
+                                {shoot.selected_node_length_factor, root.selected_node_length_factor, 0, 0},
+                                glm::inverse(projection_view)};
   std::memcpy(frame.state->GetVmaAllocationInfo().pMappedData, &state, sizeof(state));
   frame.draw_set->UpdateBufferDescriptorBinding(0, frame.nodes);
   frame.draw_set->UpdateBufferDescriptorBinding(1, frame.nodes);
@@ -294,40 +311,57 @@ void TreeDebugRenderer::Render(const std::shared_ptr<Tree>& tree, ShootVisualize
     rendering.pColorAttachments = attachments.data();
     rendering.pDepthAttachment = &depth;
     Platform::BeginRendering(command, rendering);
-    pipeline_->Bind(command);
-    pipeline_->BindDescriptorSet(command, 3, frame.draw_set->GetVkDescriptorSet());
-    pipeline_->states.ResetAllStates(2);
-    pipeline_->states.SetViewportScissor({0, 0, width, height});
-    pipeline_->states.cull_mode = VK_CULL_MODE_NONE;
-    pipeline_->states.depth_test = true;
-    pipeline_->states.depth_write = !context;
-    if (context) {
-      auto& blend = pipeline_->states.color_blend_attachment_states[0];
-      blend.blendEnable = VK_TRUE;
-      blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-      blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      pipeline_->states.color_blend_attachment_states[1].colorWriteMask = 0;
+    float diameter = 3.0f;
+    if (scene->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
+      const auto branch = scene->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
+      diameter = branch->camera_impostors ? glm::clamp(branch->impostor_diameter_pixels, 1.0f, 8.0f) : 0;
     }
-    pipeline_->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-    pipeline_->states.ApplyAllStates(command);
-    const uint32_t limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
-    for (uint32_t base = 0; base < nodes_.size(); base += limit) {
-      GpuTreeDrawParameters push;
-      push.node_base = base;
-      push.node_count = static_cast<uint32_t>(nodes_.size());
-      if (context && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")) {
-        float error = 0.5f, edge = 12.0f;
-        if (tree->GetScene()->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
-          const auto branch = tree->GetScene()->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
-          error = branch->screen_space_tessellation ? glm::clamp(branch->pixel_error, 0.1f, 2.0f) : 0;
-          edge = glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f);
-        }
-        push.tessellation = {static_cast<float>(width), static_cast<float>(height), error, edge};
+    if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
+      diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
+    if (const auto value = std::getenv("EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS"))
+      diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
+    for (uint32_t proxy = 0; proxy < (diameter > 0 ? 2u : 1u); ++proxy) {
+      const auto& draw_pipeline = proxy ? impostor_pipeline_ : pipeline_;
+      draw_pipeline->Bind(command);
+      draw_pipeline->BindDescriptorSet(command, 3, frame.draw_set->GetVkDescriptorSet());
+      draw_pipeline->states.ResetAllStates(2);
+      draw_pipeline->states.SetViewportScissor({0, 0, width, height});
+      draw_pipeline->states.cull_mode = VK_CULL_MODE_NONE;
+      draw_pipeline->states.depth_test = true;
+      draw_pipeline->states.depth_write = !context;
+      if (context) {
+        auto& blend = draw_pipeline->states.color_blend_attachment_states[0];
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        draw_pipeline->states.color_blend_attachment_states[1].colorWriteMask = 0;
       }
-      pipeline_->PushConstant(command, 0, push);
-      pipeline_->DrawMeshTasks(command, std::min(limit, static_cast<uint32_t>(nodes_.size()) - base), 1, 1);
+      draw_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+      draw_pipeline->states.ApplyAllStates(command);
+      const uint32_t limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
+      const uint32_t batch = proxy ? 32u : 1u;
+      for (uint32_t base = 0; base < nodes_.size(); base += limit * batch) {
+        GpuTreeDrawParameters push;
+        push.node_base = base;
+        push.padding0 = batch;
+        push.impostor = {diameter, proxy ? 1.0f : 0.0f, 0, 0};
+        push.tessellation = {static_cast<float>(width), static_cast<float>(height), 0, 0};
+        push.node_count = static_cast<uint32_t>(nodes_.size());
+        if (context && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")) {
+          float error = 0.5f, edge = 12.0f;
+          if (tree->GetScene()->HasPrivateComponent<BranchRenderer>(tree->GetOwner())) {
+            const auto branch = tree->GetScene()->GetOrSetPrivateComponent<BranchRenderer>(tree->GetOwner()).lock();
+            error = branch->screen_space_tessellation ? glm::clamp(branch->pixel_error, 0.1f, 2.0f) : 0;
+            edge = glm::clamp(branch->segment_length_pixels, 2.0f, 64.0f);
+          }
+          push.tessellation = {static_cast<float>(width), static_cast<float>(height), error, edge};
+        }
+        draw_pipeline->PushConstant(command, 0, push);
+        draw_pipeline->DrawMeshTasks(
+            command, std::min(limit, (static_cast<uint32_t>(nodes_.size()) - base + batch - 1) / batch), 1, 1);
+      }
     }
     Platform::EndRendering(command);
     if (!context && click_ && click_->x >= 0 && click_->y >= 0 && click_->x < width && click_->y < height) {

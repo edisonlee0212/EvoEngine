@@ -13,8 +13,9 @@ struct GpuTreeDrawParameters {
   uint32_t node_base = 0, node_count = 0, camera_index = 0, pass_index = 0;
   uint32_t light_index = 0, light_face = 0, padding0 = 0, geometry_pass = 0;
   glm::vec4 tessellation{};
+  glm::vec4 impostor{};
 };
-static_assert(sizeof(GpuTreeDrawParameters) == 48);
+static_assert(sizeof(GpuTreeDrawParameters) == 64);
 
 struct GpuTreeDeformParameters {
   uint32_t node_base = 0;
