@@ -32,14 +32,39 @@ std::shared_ptr<GpuTreePhysicsState> eco_sys_lab_package::MakeGpuTreePhysicsStat
   auto state = std::make_shared<GpuTreePhysicsState>();
   state->attribute_arrays = arrays;
   state->reference_density = rest.density;
-  state->vertices[0] = MakeAttributeBuffer(rest.vertices, arrays);
-  state->vertices[1] = immutable ? state->vertices[0] : MakeAttributeBuffer(rest.vertices, arrays);
-  state->rods[0] = MakeAttributeBuffer(rest.rods, arrays);
-  state->rods[1] = immutable ? state->rods[0] : MakeAttributeBuffer(rest.rods, arrays);
-  state->angles = MakeBuffer(rest.angles);
-  state->vertex_rods = MakeBuffer(rest.vertex_rods);
-  state->rod_angles = MakeBuffer(rest.rod_angles);
-  state->node_rods = MakeBuffer(rest.node_rods);
+  BufferUploadBatch upload;
+  const auto make_buffer = [&](const auto& source) {
+    using T = typename std::decay_t<decltype(source)>::value_type;
+    static const T empty{};
+    auto buffer = Allocate(std::max<size_t>(1, source.size()) * sizeof(T));
+    upload.Add(buffer, source.empty() ? &empty : source.data(), std::max<size_t>(1, source.size()) * sizeof(T));
+    return buffer;
+  };
+  const auto pack = [](const auto& source) {
+    using T = typename std::decay_t<decltype(source)>::value_type;
+    static_assert(sizeof(T) % 16 == 0);
+    constexpr size_t fields = sizeof(T) / 16;
+    std::vector<glm::uvec4> packed(source.size() * fields);
+    for (size_t i = 0; i < source.size(); ++i)
+      for (size_t field = 0; field < fields; ++field)
+        std::memcpy(&packed[field * source.size() + i], reinterpret_cast<const char*>(&source[i]) + field * 16, 16);
+    return packed;
+  };
+  const auto vertices = arrays ? pack(rest.vertices) : std::vector<glm::uvec4>{};
+  const auto rods = arrays ? pack(rest.rods) : std::vector<glm::uvec4>{};
+  for (uint32_t i = 0; i < (immutable ? 1u : 2u); ++i) {
+    state->vertices[i] = arrays ? make_buffer(vertices) : make_buffer(rest.vertices);
+    state->rods[i] = arrays ? make_buffer(rods) : make_buffer(rest.rods);
+  }
+  if (immutable) {
+    state->vertices[1] = state->vertices[0];
+    state->rods[1] = state->rods[0];
+  }
+  state->angles = make_buffer(rest.angles);
+  state->vertex_rods = make_buffer(rest.vertex_rods);
+  state->rod_angles = make_buffer(rest.rod_angles);
+  state->node_rods = make_buffer(rest.node_rods);
+  upload.SubmitImmediate();
   state->vertex_count = static_cast<uint32_t>(rest.vertices.size());
   state->rod_count = static_cast<uint32_t>(rest.rods.size());
   state->angle_count = static_cast<uint32_t>(rest.angles.size());

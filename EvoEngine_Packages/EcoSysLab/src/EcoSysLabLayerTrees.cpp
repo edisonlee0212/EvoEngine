@@ -3,6 +3,7 @@
 //
 
 #include "EcoSysLabLayer.hpp"
+#include "Profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -385,6 +386,7 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
 
 bool EcoSysLabSystem::Growth::Step(EcoSysLabSystem& system, const SimulationSettings& target_simulation_settings,
                                    SimulationStats& target_simulation_stats) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth step", "EcoSysLab");
   const auto scene = system.GetScene();
   auto& simulated_time = system.growth.simulated_time;
   auto& climate = system.environment.climate;
@@ -411,23 +413,28 @@ bool EcoSysLabSystem::Growth::Step(EcoSysLabSystem& system, const SimulationSett
     system.environment.PrepareForGrowth(scene, target_simulation_settings);
     std::vector<bool> grown_stat{};
     grown_stat.resize(Jobs::GetWorkerSize());
-    Jobs::RunParallelFor(tree_entities->size(), [&](size_t i, size_t thread_index) {
-      const auto tree_entity = tree_entities->at(i);
-      if (!scene->IsEntityEnabled(tree_entity))
-        return;
-      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-      if (!tree->IsEnabled())
-        return;
-      if (tree->start_time > simulated_time)
-        return;
-      if (target_simulation_settings.max_node_count > 0 &&
-          tree->shoot_model.RefShootSkeleton().PeekSortedNodeList().size() >= target_simulation_settings.max_node_count)
-        return;
-      if (target_simulation_settings.max_flow_count > 0 &&
-          tree->shoot_model.RefShootSkeleton().PeekSortedFlowList().size() >= target_simulation_settings.max_flow_count)
-        return;
-      grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true, climate, soil);
-    });
+    {
+      const ProfilerScope trees_scope("EcoSysLab / Grow trees parallel", "EcoSysLab");
+      Jobs::RunParallelFor(tree_entities->size(), [&](size_t i, size_t thread_index) {
+        const auto tree_entity = tree_entities->at(i);
+        if (!scene->IsEntityEnabled(tree_entity))
+          return;
+        const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+        if (!tree->IsEnabled())
+          return;
+        if (tree->start_time > simulated_time)
+          return;
+        if (target_simulation_settings.max_node_count > 0 &&
+            tree->shoot_model.RefShootSkeleton().PeekSortedNodeList().size() >=
+                target_simulation_settings.max_node_count)
+          return;
+        if (target_simulation_settings.max_flow_count > 0 &&
+            tree->shoot_model.RefShootSkeleton().PeekSortedFlowList().size() >=
+                target_simulation_settings.max_flow_count)
+          return;
+        grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true, climate, soil);
+      });
+    }
 
     const auto soil_descriptor = system.environment.soil_descriptor.Get<SoilDescriptor>();
     const auto height_field = soil_descriptor ? soil_descriptor->height_field.Get<HeightField>() : nullptr;

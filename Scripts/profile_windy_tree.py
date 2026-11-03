@@ -13,14 +13,14 @@ def summarize(directory):
     for path in sorted(directory.glob("*.csv")):
         with path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.DictReader(stream))
-        wall = [float(row["ms"]) for row in rows if row["domain"] == "frame"]
+        wall = [float(row["ms"]) for row in rows if row.get("domain") == "frame"]
         if wall:
             results[path.stem] = (rows, wall)
     lines = ["# Windy Tree performance", "", "```text",
              (directory / "configuration.txt").read_text().strip(), "```", "",
              "| Configuration | Frames | Mean frame ms | Median frame ms | FPS |",
              "|---|---:|---:|---:|---:|"]
-    order = ["full", "without_plant_visual", "physics_without_branches"]
+    order = (["growth"] if "growth" in results else []) + ["full", "without_plant_visual", "physics_without_branches"]
     for name in order:
         rows, wall = results[name]
         mean = statistics.mean(wall)
@@ -57,6 +57,7 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--growth", action="store_true", help="Capture CPU growth frames and final skeleton geometry")
     parser.add_argument("--canopy-texels", type=float, default=16, help="Maximum projected canopy diameter in shadow texels; zero disables")
     parser.add_argument("--impostor-pixels", type=float, default=3.0, help="Camera branch impostor diameter threshold; zero disables")
     parser.add_argument("--debug-impostor-pixels", type=float, help="Override Plant Visual threshold independently")
@@ -93,6 +94,9 @@ def main():
         directory.mkdir(parents=True, exist_ok=True)
         editor = args.editor.resolve(strict=True)
         environment = os.environ.copy()
+        environment.pop("EVOENGINE_WINDY_TREE_GROWTH_PROFILE", None)
+        if args.growth:
+            environment["EVOENGINE_WINDY_TREE_GROWTH_PROFILE"] = "1"
         environment.pop("EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS", None)
         if args.debug_impostor_pixels is not None:
             environment["EVOENGINE_TREE_DEBUG_IMPOSTOR_PIXELS"] = str(args.debug_impostor_pixels)

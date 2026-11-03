@@ -1,4 +1,5 @@
 #include "EnvironmentGrid.hpp"
+#include "Profiler.hpp"
 #include "SimulationSettings.hpp"
 using namespace eco_sys_lab_package;
 
@@ -34,6 +35,7 @@ void EnvironmentGrid::AddShadowValue(const glm::vec3& position, const float valu
 }
 
 void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_settings) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth light propagation", "EcoSysLab");
   const auto resolution = voxel_grid.GetResolution();
   const int shadow_disk_size = glm::ceil(simulation_settings.detection_radius / voxel_size);
   Jobs::RunParallelFor(resolution.x * resolution.z, [&](size_t i) {

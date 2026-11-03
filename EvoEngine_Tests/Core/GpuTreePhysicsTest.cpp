@@ -16,6 +16,7 @@
 #include "GpuSpatialGrid.hpp"
 #include "GpuTreeClusterPhysics.hpp"
 #include "GpuTreePhysics.hpp"
+#include "GpuTreePhysicsLod.hpp"
 #include "GpuTreeSubtreePhysics.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Jobs.hpp"
@@ -739,6 +740,44 @@ TEST(GpuTreePhysics, FineAirCellsFollowCurrentBentPose) {
   std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
   physics.DownloadVertices(vertices);
   EXPECT_GT(vertices[1].position_inverse_mass.z, 1e-5f);
+}
+
+TEST(GpuTreePhysics, RestUploadsPreserveBothLayoutsAndPingPongBuffers) {
+  ScopedTreeGpuPlatform platform;
+  Tree tree;
+  tree.shoot_model.Initialize(MakeGpuPhysicsFork());
+  DynamicTreeSkeleton component;
+  ASSERT_TRUE(component.InitializePhysics(tree));
+  const auto rest = component.ExportGpuRestState();
+  for (const bool arrays : {false, true}) {
+    for (const bool immutable : {false, true}) {
+      const auto state = MakeGpuTreePhysicsState(rest, arrays, immutable);
+      EXPECT_EQ(state->vertices[0] == state->vertices[1], immutable);
+      EXPECT_EQ(state->rods[0] == state->rods[1], immutable);
+      const auto check = [&](const auto& source, const auto& buffer) {
+        using T = typename std::decay_t<decltype(source)>::value_type;
+        std::vector<glm::uvec4> downloaded;
+        constexpr size_t fields = sizeof(T) / 16;
+        buffer->DownloadVector(downloaded, source.size() * fields);
+        for (size_t i = 0; i < source.size(); ++i)
+          for (size_t field = 0; field < fields; ++field)
+            EXPECT_EQ(std::memcmp(&downloaded[arrays ? field * source.size() + i : i * fields + field],
+                                  reinterpret_cast<const char*>(&source[i]) + 16 * field, 16),
+                      0);
+      };
+      for (uint32_t i = 0; i < 2; ++i) {
+        check(rest.vertices, state->vertices[i]);
+        check(rest.rods, state->rods[i]);
+      }
+      std::vector<uint32_t> mapping;
+      state->node_rods->DownloadVector(mapping, rest.node_rods.size());
+      EXPECT_EQ(mapping, rest.node_rods);
+    }
+  }
+  const auto empty = MakeGpuTreePhysicsState({}, true);
+  uint32_t zero = 1;
+  empty->node_rods->Download(zero);
+  EXPECT_EQ(zero, 0u);
 }
 
 TEST(GpuTreePhysics, ForestTreesOwnLocalTopologyBuffers) {

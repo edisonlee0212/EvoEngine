@@ -4,6 +4,7 @@
 
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "Profiler.hpp"
 
 #include "AssetManager.hpp"
 #include "ClassRegistry.hpp"
@@ -84,6 +85,7 @@ Entity EcoSysLabSystem::Environment::GetOrCreateVisualizationOwner(const std::sh
 
 void EcoSysLabSystem::Environment::PrepareForGrowth(const std::shared_ptr<Scene>& scene,
                                                     const SimulationSettings& settings) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth environment", "EcoSysLab");
   const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   if (!entities || entities->empty())
     return;

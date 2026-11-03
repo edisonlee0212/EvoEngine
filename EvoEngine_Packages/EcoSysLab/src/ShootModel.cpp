@@ -2,6 +2,7 @@
 // Created by lllll on 10/21/2022.
 //
 #include "ShootModel.hpp"
+#include "Profiler.hpp"
 #include "SkeletonSerializer.hpp"
 #include "Soil.hpp"
 using namespace eco_sys_lab_package;
@@ -91,6 +92,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
                       const FoliageController& foliage_controller,
                       const ShootReproductionController& reproduction_controller,
                       const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Grow shoot", "EcoSysLab");
   if (!initialized_) {
     EVOENGINE_ERROR("ShootModel not initialized!")
     return false;
@@ -157,6 +159,7 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
                       const FoliageController& foliage_controller,
                       const ShootReproductionController& reproduction_controller,
                       const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Grow shoot", "EcoSysLab");
   if (!initialized_) {
     EVOENGINE_ERROR("ShootModel not initialized!")
     return false;
@@ -243,6 +246,7 @@ void ShootModel::Initialize(const ShootGrowthController& shoot_growth_controller
 
 Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const ClimateModel& climate_model,
                                   const ShootGrowthController& shoot_growth_controller) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth shoot flux", "EcoSysLab");
   shoot_skeleton_.SortLists();
   auto& shoot_data = shoot_skeleton_.data;
   shoot_data.max_marker_count = 0;
@@ -359,6 +363,7 @@ Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const Clima
 }
 
 void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_controller, const Vigor vigor) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth vigor distribution", "EcoSysLab");
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   float max_grow_potential = 0.0f;
   for (const auto& internode_handle : sorted_internode_list) {
@@ -590,6 +595,7 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
 }
 
 void ShootModel::CalculateGrowthData(const ShootGrowthController& shoot_growth_controller) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth derived data", "EcoSysLab");
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   {
     CalculateThickness(shoot_growth_controller);

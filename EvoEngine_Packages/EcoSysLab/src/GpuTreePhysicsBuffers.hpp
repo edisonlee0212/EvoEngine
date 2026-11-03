@@ -1,6 +1,5 @@
 #pragma once
 #include <algorithm>
-#include <cstring>
 #include "GpuTreePhysicsState.hpp"
 namespace eco_sys_lab_package::tree_physics_buffers {
 inline std::shared_ptr<Buffer> Allocate(size_t bytes, VkBufferUsageFlags extra_usage = 0) {
@@ -21,17 +20,5 @@ std::shared_ptr<Buffer> MakeBuffer(const std::vector<T>& source) {
   else
     buffer->UploadVector(source);
   return buffer;
-}
-template <typename T>
-std::shared_ptr<Buffer> MakeAttributeBuffer(const std::vector<T>& source, bool arrays) {
-  if (!arrays)
-    return MakeBuffer(source);
-  static_assert(sizeof(T) % 16 == 0);
-  constexpr size_t fields = sizeof(T) / 16;
-  std::vector<glm::uvec4> packed(source.size() * fields);
-  for (size_t i = 0; i < source.size(); ++i)
-    for (size_t field = 0; field < fields; ++field)
-      std::memcpy(&packed[field * source.size() + i], reinterpret_cast<const char*>(&source[i]) + field * 16, 16);
-  return MakeBuffer(packed);
 }
 }  // namespace eco_sys_lab_package::tree_physics_buffers

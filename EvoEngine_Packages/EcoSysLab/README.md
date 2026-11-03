@@ -103,6 +103,13 @@ active along with the solver in each configuration; GPU pass timestamps separate
 `python Scripts/profile_windy_tree.py --editor <installed-editor-path> --output <fresh-directory>` runs the capture
 and writes a Markdown summary beside the CSVs. CPU scopes separate runtime update, air synchronization, per-tree
 render registration, and debug rendering. Tree-cache build scopes and node-upload counters identify structural refreshes.
+Add `--growth` to capture CPU growth frames in `growth.csv` and `growth.trace.json`, plus the final
+shoot topology, positions, lengths and thicknesses in `growth-skeletons.csv` for before/after comparisons.
+Growth profiling includes physics rest-state rebuild/upload and air coverage registration; these occur while the
+GPU solver is paused. Parallel worker scope totals overlap and must not be treated as elapsed growth time.
+Physics rest data is rebuilt independently across trees on worker threads; scene collection and GPU registration stay
+on the main thread. Rest-state creation batches its buffer uploads and packs each attribute array once for both
+simulation buffers.
 CPU scope times are inclusive; GPU pass call counts show the fixed-update
 duty cycle, and pass times must be distinguished from whole-frame time.
 Solver phase timings are opt-in: add `--physics-phase-timings` to record prediction, position constraints,

@@ -1,5 +1,6 @@
 #include "EcoSysLabEditorLayer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -24,6 +25,15 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
     return;
   const auto scene = GetScene();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
+  const bool profile_growth = std::getenv("EVOENGINE_WINDY_TREE_GROWTH_PROFILE") != nullptr;
+  static std::weak_ptr<Scene> growth_capture_scene;
+  if (system && profile_growth && growth_capture_scene.lock() != scene) {
+    growth_capture_scene = scene;
+    auto& profiler = Profiler::GetInstance();
+    profiler.SetEnabled(true);
+    profiler.SetMaxFrameHistory(1024);
+    profiler.ClearFrameHistory();
+  }
   if (system) {
     if (const auto order = std::getenv("EVOENGINE_TREE_CLUSTER_ORDER")) {
       system->dynamics.use_subtree_clusters = true;
@@ -70,6 +80,39 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
         capture.branches.emplace_back(renderer, renderer->IsEnabled());
       }
     std::filesystem::create_directories(directory);
+    if (profile_growth) {
+      auto frames = Profiler::GetInstance().GetFrameHistorySnapshot();
+      frames.erase(std::remove_if(frames.begin(), frames.end(),
+                                  [](const auto& frame) {
+                                    return std::none_of(frame.events.begin(), frame.events.end(),
+                                                        [](const auto& event) {
+                                                          return event.name == "EcoSysLab / Growth step";
+                                                        });
+                                  }),
+                   frames.end());
+      std::ofstream output(std::filesystem::path(directory) / "growth.csv");
+      output << std::setprecision(12) << "domain,name,frame,calls,ms\n";
+      for (const auto& frame : frames) {
+        output << "frame,Wall," << frame.application_frame_index << ",1," << frame.duration_ms << '\n';
+        for (const auto& total : BuildProfilerFrameStats(frame).named_event_totals)
+          output << "cpu," << std::quoted(total.name) << ',' << frame.application_frame_index << ',' << total.count
+                 << ',' << total.total_ms << '\n';
+      }
+      (void)ExportProfilerChromeTrace(std::filesystem::path(directory) / "growth.trace.json", frames);
+      std::ofstream skeletons(std::filesystem::path(directory) / "growth-skeletons.csv");
+      skeletons << std::setprecision(9) << "tree,node,parent,x,y,z,length,thickness\n";
+      if (const auto trees = scene->UnsafeGetPrivateComponentOwnersList<Tree>())
+        for (size_t i = 0; i < trees->size(); ++i) {
+          const auto tree = scene->GetOrSetPrivateComponent<Tree>(trees->at(i)).lock();
+          const auto& skeleton = tree->shoot_model.PeekShootSkeleton();
+          for (const auto handle : skeleton.PeekSortedNodeList()) {
+            const auto& node = skeleton.PeekNode(handle);
+            skeletons << i << ',' << handle << ',' << node.GetParentHandle() << ',' << node.info.global_position.x
+                      << ',' << node.info.global_position.y << ',' << node.info.global_position.z << ','
+                      << node.info.length << ',' << node.info.thickness << '\n';
+          }
+        }
+    }
     std::ofstream config(std::filesystem::path(directory) / "configuration.txt");
     config << "branch_shadows=" << (full_shadows ? "geometry" : "impostor") << "\n"
            << "rod_air=" << (gather ? "gather" : "scatter") << "\n"

@@ -6,6 +6,7 @@
 #include <Mesh.hpp>
 #include <TransformGraph.hpp>
 #include "BasicShootDescriptor.hpp"
+#include "Profiler.hpp"
 #include "SkeletonSerializer.hpp"
 #include "StrandGroupSerializer.hpp"
 
@@ -159,6 +160,7 @@ bool Tree::TryGrow(const SimulationSettings& simulation_settings, const Skeleton
 
 bool Tree::TryGrow(const SimulationSettings& simulation_settings, const SkeletonNodeHandle base_internode_handle,
                    const bool pruning, ClimateModel& climate_model, VoxelSoilModel& soil_model) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Grow tree", "EcoSysLab");
   const auto scene = GetScene();
   std::shared_ptr<DynamicTreeSkeleton> physics;
   if (scene && scene->HasPrivateComponent<DynamicTreeSkeleton>(GetOwner())) {
@@ -305,6 +307,7 @@ void Tree::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 void Tree::PrepareController(const SimulationSettings& simulation_settings) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth controllers", "EcoSysLab");
   const auto td = tree_descriptor_ref.Get<TreeDescriptor>();
   if (!td) {
     throw std::runtime_error("Growing tree without tree descriptor!");
