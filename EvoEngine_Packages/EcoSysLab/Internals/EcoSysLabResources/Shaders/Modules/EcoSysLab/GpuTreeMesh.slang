@@ -190,9 +190,13 @@ public float TreePerlin(float3 p) {
 public float TreeBark(GpuTreeNode node, float angular, float distance) {
   float a = angular * 6.28318530718;
   float s = sin(a), c = cos(a);
-  float bark = node.bark.z * TreePerlin(float3(node.bark.x * s, node.bark.x * c, node.bark.y * distance));
-  float base = node.bark_base.z * (1.0 + TreePerlin(float3(node.bark.w * s, node.bark.w * c, 0.0)));
-  base *= pow(max(0.0, (node.bark_base.x - distance) / max(node.bark_base.x, 0.0001)), node.bark_base.y);
+  float bark = 0, base = 0;
+  if (node.bark.z != 0)
+    bark = node.bark.z * TreePerlin(float3(node.bark.x * s, node.bark.x * c, node.bark.y * distance));
+  if (node.bark_base.z != 0) {
+    base = node.bark_base.z * (1.0 + TreePerlin(float3(node.bark.w * s, node.bark.w * c, 0.0)));
+    base *= pow(max(0.0, (node.bark_base.x - distance) / max(node.bark_base.x, 0.0001)), node.bark_base.y);
+  }
   return bark + base;
 }
 
@@ -260,4 +264,114 @@ public void TreeZipper(uint triangle, uint start_count, uint end_count,
     samples = uint3(k, lo - 1u, lo);
     ring_ids = uint3(0u, 1u, 1u);
   }
+}
+
+
+public struct TreeBatchPayload {
+  public TreeTaskPayload nodes[32];
+  public uint ends[32];
+};
+
+public bool TreeBoundsVisible(float3 low,float3 high,float4x4 transform) {
+  float3 center=(low+high)*0.5,extent=(high-low)*0.5;
+  for(uint i=0;i<6;++i) {
+    float4 clip=float4(0,0,0,1);
+    if(i<4) clip[i/2]=(i&1)==0 ? 1.0 : -1.0;
+    else clip=i==4 ? float4(0,0,1,0) : float4(0,0,-1,1);
+    float4 plane=mul(transform,clip);
+    if(dot(float4(center,1),plane)+dot(extent,abs(plane.xyz)) < -1e-5) return false;
+  }
+  return true;
+}
+
+public bool TreeNodeVisible(uint index,float4x4 transform) {
+  GpuTreeNode node=tree_nodes[index];
+  float3 p0,p1,p2,p3;
+  TreeControlPoints(node,p0,p1,p2,p3);
+  float radius=0.5*node.position_thickness.w*(1+TreeBarkBound(node));
+  float3 low=min(min(p0,p1),min(p2,p3))-radius;
+  float3 high=max(max(p0,p1),max(p2,p3))+radius;
+  if(node.links.x!=0xffffffffu) {
+    GpuTreeNode parent=tree_nodes[node.links.x];
+    if(parent.links.z!=0xffffffffu && parent.direction_length.w>1e-6) {
+      float3 end,axis,radial;
+      EvaluateTreeFrame(parent,1,end,axis,radial);
+      float parent_radius=0.5*parent.position_thickness.w*(1+TreeBarkBound(parent));
+      low=min(low,end-parent_radius);high=max(high,end+parent_radius);
+    }
+  }
+  return TreeBoundsVisible(low,high,transform);
+}
+
+// Keep angular sample count distinct from zero so the UV seam is never welded.
+public uint3 TreeTriangleKeys(TreeTaskPayload task,uint triangle_index) {
+  uint first_count=task.start_radial+task.radial;
+  uint span=triangle_index<first_count ? 0u : 1u+(triangle_index-first_count)/(2u*task.radial);
+  uint triangle=triangle_index<first_count ? triangle_index : (triangle_index-first_count)%(2u*task.radial);
+  uint3 samples,rings;
+  TreeZipper(triangle,span==0 ? task.start_radial : task.radial,task.radial,samples,rings);
+  return (span+rings)*257u+samples;
+}
+
+public TreeRingVertex TreeKeyVertex(TreeTaskPayload task,uint key) {
+  uint ring=key/257u,sample=key%257u;
+  GpuTreeNode node=tree_nodes[task.node_index];
+  float t0,t1;
+  TreeSpanParameters(task,ring==0 ? 0 : ring-1,t0,t1);
+  if(ring==0 && node.links.x!=0xffffffffu) {
+    GpuTreeNode parent=tree_nodes[node.links.x];
+    if(parent.links.z!=0xffffffffu && parent.direction_length.w>1e-6)
+      return EvaluateTreeRing(parent,1,sample,task.start_radial);
+  }
+  return EvaluateTreeRing(node,ring==0 ? t0 : t1,sample,ring==0 ? task.start_radial : task.radial);
+}
+
+
+public uint TreeMeshletCount(TreeTaskPayload task) {
+  uint first=task.start_radial!=task.radial ? (task.start_radial+task.radial+19)/20 : 0;
+  uint remaining=task.rings-(first!=0 ? 1u : 0u),strip=2*task.radial;
+  return first+(strip<=20 ? (remaining+20/strip-1)/(20/strip) : remaining*((strip+19)/20));
+}
+
+// First triangle, triangle count, first span, span count. Small equal-ring strips share complete rings.
+public uint4 TreeMeshletRange(TreeTaskPayload task,uint group) {
+  uint first_triangles=task.start_radial+task.radial;
+  uint first_groups=task.start_radial!=task.radial ? (first_triangles+19)/20 : 0;
+  if(group<first_groups) return uint4(group*20,min(20u,first_triangles-group*20),0,1);
+  group-=first_groups;
+  uint strip=2*task.radial,span=first_groups!=0 ? 1u : 0u;
+  if(strip<=20) {
+    uint per_group=20/strip;
+    span+=group*per_group;
+    uint spans=min(per_group,task.rings-span);
+    return uint4(span==0 ? 0 : first_triangles+(span-1)*strip,spans*strip,span,spans);
+  }
+  uint groups=(strip+19)/20;
+  span+=group/groups;
+  uint offset=(group%groups)*20;
+  return uint4((span==0 ? 0 : first_triangles+(span-1)*strip)+offset,min(20u,strip-offset),span,1);
+}
+
+public uint4 TreeMeshletBounds(TreeTaskPayload task,uint4 range) {
+  uint4 bounds=uint4(0xffffffffu,0,0xffffffffu,0);
+  uint3 first=TreeTriangleKeys(task,range.x),last=TreeTriangleKeys(task,range.x+range.y-1);
+  for(uint i=0;i<3;++i) {
+    uint a=first[i]/257==range.z ? 0u : 2u,b=last[i]/257==range.z ? 0u : 2u;
+    bounds[a]=min(bounds[a],first[i]);bounds[a+1]=max(bounds[a+1],first[i]);
+    bounds[b]=min(bounds[b],last[i]);bounds[b+1]=max(bounds[b+1],last[i]);
+  }
+  return bounds;
+}
+
+public uint TreeMeshletVertexCount(TreeTaskPayload task,uint4 range,uint4 bounds) {
+  return range.w>1 ? (range.w+1)*(task.radial+1) : bounds.y-bounds.x+bounds.w-bounds.z+2;
+}
+public uint TreeMeshletVertexKey(TreeTaskPayload task,uint4 range,uint4 bounds,uint vertex) {
+  if(range.w>1) return (range.z+vertex/(task.radial+1))*257+vertex%(task.radial+1);
+  uint first_count=bounds.y-bounds.x+1;
+  return vertex<first_count ? bounds.x+vertex : bounds.z+vertex-first_count;
+}
+public uint TreeMeshletVertexIndex(TreeTaskPayload task,uint4 range,uint4 bounds,uint key) {
+  if(range.w>1) return (key/257-range.z)*(task.radial+1)+key%257;
+  return key/257==range.z ? key-bounds.x : bounds.y-bounds.x+1+key-bounds.z;
 }

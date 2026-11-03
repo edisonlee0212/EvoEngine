@@ -4,6 +4,7 @@
 #include "AirEnvironment.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "GpuTreeClusterPhysics.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Platform/Platform.hpp"
 #include "Profiler.hpp"
@@ -12,14 +13,16 @@
 using namespace eco_sys_lab_package;
 
 void EcoSysLabSystem::Dynamics::Reset() {
-  if (tree_physics || wind)
+  if (tree_physics || wind || cluster_forest)
     if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
-      layer->RetireDynamics(tree_physics, wind);
+      layer->RetireDynamics(tree_physics, wind, cluster_forest);
   for (const auto& entry : entries)
     if (const auto physics = entry.physics.lock())
       physics->SetGpuPhysics(nullptr, 0);
   entries.clear();
   tree_physics.reset();
+  cluster_forest.reset();
+  cluster_members.clear();
   physics_scene.reset();
   wind.reset();
 }
@@ -120,14 +123,16 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
     }
   }
   if (gpu_physics_scene_.lock() != scene) {
-    if (gpu_tree_physics_ || wind_particle_field_)
+    if (gpu_tree_physics_ || wind_particle_field_ || cluster_forest)
       if (const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>())
-        layer->RetireDynamics(gpu_tree_physics_, wind_particle_field_);
+        layer->RetireDynamics(gpu_tree_physics_, wind_particle_field_, cluster_forest);
     for (const auto& entry : gpu_physics_entries_)
       if (const auto component = entry.physics.lock())
         component->SetGpuPhysics(nullptr, 0);
     gpu_physics_entries_.clear();
     gpu_tree_physics_.reset();
+    cluster_forest.reset();
+    cluster_members.clear();
     wind_particle_field_.reset();
     gpu_physics_scene_ = scene;
   }
@@ -147,14 +152,23 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
     if (old == gpu_physics_entries_.end() || old->revision != revision ||
         item.physics->GetGpuPhysics() != gpu_tree_physics_) {
       auto state = item.physics->ExportGpuRestState();
-      id = gpu_tree_physics_->RegisterTree(state, id);
+      id = gpu_tree_physics_->RegisterTree(state, id, !growing);
       if (id == UINT32_MAX)
         continue;
       changed.push_back(std::move(state));
       changed_ids.push_back(id);
       item.physics->SetGpuPhysics(gpu_tree_physics_, id);
     }
-    next.push_back({item.entity, item.tree, item.physics, revision, id});
+    if (!growing && gpu_tree_physics_->GetTreeState(id)->attribute_arrays && !gpu_tree_physics_->GetTreeState(id)->lod)
+      gpu_tree_physics_->InitializeLod(id, item.physics->ExportGpuRestState());
+    Entry entry{item.entity, item.tree, item.physics, revision, id};
+    if (old != gpu_physics_entries_.end() && old->cluster_source == gpu_tree_physics_->GetTreeState(id)) {
+      entry.cluster = old->cluster;
+      entry.cluster_source = old->cluster_source;
+      entry.cluster_running = old->cluster_running;
+      entry.pose_revision = old->pose_revision;
+    }
+    next.push_back(std::move(entry));
     ids.push_back(id);
   }
   for (const auto& old : gpu_physics_entries_) {
@@ -174,10 +188,13 @@ void EcoSysLabSystem::Dynamics::SyncTrees(const std::shared_ptr<Scene>& scene, c
   }
   if (wind_particle_field_ && !changed.empty())
     wind_particle_field_->RegisterTreeCoverage(changed, changed_ids);
+  SyncClusters(growing);
 }
 
-void EcoSysLabLayer::RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind) {
+void EcoSysLabLayer::RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind,
+                                    std::shared_ptr<GpuTreeClusterForest> clusters) {
   if (!Platform::Initialized())
     return;
-  retired_dynamics_.push_back({Platform::TrackCurrentFrameSubmission(), std::move(physics), std::move(wind)});
+  retired_dynamics_.push_back(
+      {Platform::TrackCurrentFrameSubmission(), std::move(physics), std::move(wind), std::move(clusters)});
 }

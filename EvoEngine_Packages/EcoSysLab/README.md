@@ -122,12 +122,26 @@ Unselected Plant Visual trees use adaptive detail; selected inspection retains f
 This first stage adapts camera geometry and Plant Visual; existing shadow and foliage paths retain their behavior.
 Use `--full-tessellation` with the profiling script (or set `EVOENGINE_TREE_FULL_TESSELLATION=1`) for the
 full-subdivision reference. Changing views or these controls updates draw parameters without rebuilding tree buffers.
+Camera branch tasks batch up to 32 internodes, bounded by device mesh-dispatch limits. Conservative camera
+frustum bounds include the Bezier control hull, bark displacement and parent-end junction. They are tested
+against the current jittered camera projection; tessellation still uses the unjittered view.
+Each meshlet emits up to 20 triangles using at most 22 vertices. Ring-strip indexing evaluates identical
+samples once without a duplicate search or atomic counters. Angular UV seam
+samples and separate internodes remain distinct; the original triangle topology and detail settings are retained.
+This path does not change Plant Visual or shadow geometry. Use `--geometry-reference` in the profiling script
+for the original task/triangle-local vertex path and `--geometry-details` for nested camera branch GPU timings.
+
 Directional branch shadows use one light-facing quad per internode. A fragment shader intersects a short
 rounded, tapered segment chain following the current GPU-deformed centerline, including the parent-end junction,
 and writes the hit depth. This approximates bark and curved surfaces rather than reproducing every mesh triangle;
 point/spot shadows retain the full branch mesh. The quad covers axial branches and supports affine entity transforms.
 Run the profiler with `--full-shadows` for the full-geometry reference, or without it for the default impostor path.
 Each profiling phase also saves the Scene camera image after timing collection for visual comparisons.
+Directional shadow tasks process 32 internodes per workgroup and conservatively reject capsule chains outside
+the current cascade before emitting mesh work. Bounds include radii, junctions and affine transforms;
+no size threshold discards thin branches. Use `--shadow-reference` for the unbatched, unculled impostor
+reference and `--shadow-details` for per-cascade branch GPU timings. These scopes are nested within
+Directional Shadow and must not be added to its total.
 
 Rod-to-air feedback uses a rod-driven GPU pass: each rod visits nearby existing air cells and atomically
 accumulates weighted motion, then a cell pass resolves the average. Scratch storage grows by grid chunks and
@@ -172,7 +186,7 @@ The default physics settings advance 0.016 seconds per fixed update with 4 subst
 stiffness is 8192, bend stiffness is 512, and damping is 0. Rod mass and stiffness scale with connected branch length
 and the internode's thickness; bend stiffness also accounts for thickness at each junction.
 The solver's structural-length scaling draws on the [Stable Cosserat Rods tree example](https://github.com/jerry060599/StableCosseratRods/blob/main/KittenEngine/Cosserat/examples/tree.cpp),
-but EcoSysLab uses one rod per internode and its own solver. Existing saved components retain their settings; press
+but EcoSysLab uses its own solver and one rod per internode at full quality. Existing saved components retain their settings; press
 **Reset physics settings to defaults** in the `DynamicTreeSkeleton` inspector to restore all default physics settings
 and reinitialize physics from the growth pose.
 
@@ -181,6 +195,178 @@ the GPU solver. Existing saved values for those settings are retained for a futu
 BranchRenderer and FoliageRenderer use the transient bent GPU pose. Physics settings are saved on
 `DynamicTreeSkeleton`, while the saved tree retains its growth pose. Loading starts with that pose and no physics
 velocity. A new growth step resets the GPU dynamic pose. Roots and generated CPU meshes do not deform.
+
+### Physics approximation quality
+
+**EcoSysLab → Physics → Approximation tolerance** sets one forest-wide, camera-independent quality value.
+Zero (the default) simulates every rod. A positive value allows centerline error up to that fraction of the
+original local branch radius. The value is copied into each tree's quality settings; physical properties remain
+independent. New trees copy their descriptor's default physical properties, while existing saved components keep
+their own settings. Editing a tree does not change its descriptor or neighboring trees.
+
+When growth stops, the CPU builds a nested hierarchy, merging low-error chains before difficult ones, and uploads its immutable topology and
+reconstruction maps. Roots, forks, tips, thickness discontinuities and free hinges remain explicit. Levels vary
+with the tree; they also enforce frame and merged-length limits. The span guard limits a merged rod to the larger of
+`4 * sqrt(tolerance)` local radii or `(1 + 6 * sqrt(tolerance))` times the longest original member. This allows
+bounded merging of already-slender internodes while preventing a straight chain from collapsing without limit. Each tree owns reusable GPU solver storage.
+The GPU chooses a qualifying level, transfers the current pose and velocity, and builds indirect work lists for
+only the active rods. A quality change needs no CPU pose readback, allocation or topology upload. Coarsening is
+rejected if the current bend cannot fit the requested tolerance; periodic retries use hysteresis. Refinement
+starts from the current pose, without restoring old fine-level motion. Density and stiffness edits refresh solver weights
+without rebuilding the hierarchy or resetting the dynamic pose.
+
+Mass and effective compliance are aggregated from original rods. Wind still samples the original member rods,
+then distributes those loads to coarse endpoints. After solving, the GPU reconstructs the original skeleton for
+branch/foliage rendering, picking and wind feedback. Approximation changes mechanical response as well as cost;
+full quality remains the reference. Growth replaces the hierarchy and dynamic state from the growth pose.
+
+Use `Scripts/profile_windy_tree.py --physics-tolerance 0.25` for an opt-in comparison against the default zero
+at unchanged timestep, substeps and iterations. Captures record each tree's available rod counts and selected
+level. These diagnostic readbacks happen outside measured frames.
+
+### Subtree clustering policies
+
+`BuildTreeClusterHierarchy(rest)` builds a CPU candidate hierarchy from the original physics rest snapshot.
+Each rod is a potential complete-subtree root. Preorder intervals encode nested membership without storing
+all descendant lists: construction and storage are linear in rod count, with iterative traversal for deep trees.
+Candidates retain extent, attachment radius, total length, mass, branch order and pinned-member eligibility.
+Non-tree input (cycles or multiply-parented endpoints) is rejected.
+
+`SelectTreeClusters(hierarchy, rules)` accepts these policies:
+
+| Policy | Eligibility |
+|---|---|
+| `Size` | Extent/tree height and attachment radius/trunk radius both meet their limits |
+| `BranchOrder` | Root branch order meets the minimum |
+| `Combined` | Both the size and branch-order conditions hold |
+
+Botanical order starts at zero for the trunk, increases for lateral branches, and stays unchanged along apical
+continuations. The CPU physics snapshot exports `branch_orders` independently of GPU rod attributes; zero-length
+nodes still contribute their branching order even when they produce no rod. Order is derived from topology rather
+than possibly stale cached order fields. Order-dependent policies do not select clusters if that metadata is absent.
+Use the original rest snapshot, not an already chain-merged topology, to construct this hierarchy.
+
+Multiple rules are alternatives (union). `Combined` is the way to impose both restrictions; adding separate Size
+and BranchOrder rules allows either to qualify. The selector chooses the largest eligible ancestor, suppresses
+its descendants, and emits individual rods everywhere else. Every original rod has exactly one element owner,
+and every element records its parent. Roots and subtrees containing pinned or invalid physical members are retained.
+The minimum cluster size is at least two rods. A selected cluster root can be passed directly to
+`BuildTreeSubtreeBody` without a policy-specific solver representation.
+
+Extent is the diagonal of a conservative subtree bounding box in the original model's rotation frame, including
+rod radii. Tree height is the corresponding Y span; trunk radius is the maximum radius among root rods. These
+ratios are invariant under rigid entity transforms and uniform scale. They are geometric heuristics, not mechanical
+error bounds. Default rules use Combined, minimum order 2, minimum 2 rods, extent ratio 0.15 and radius ratio 0.25;
+these are provisional API defaults, not an enabled scene preset.
+
+The hierarchy is reused when changing rules. CPU reference tests cover multiple policies, exact ownership,
+nested candidates, metadata export, transformed trees and a 50,000-rod chain. The scene backend below
+selects and transfers live layouts on GPU; the separate approximation control selects chain LOD.
+
+### Subtree physics LOD
+
+Enable **EcoSysLab → Physics → Subtree physics LOD** to treat selected complete subtrees as rigid bodies with
+compliant parent joints. The existing rod solver remains the default. The scene-wide settings are copied to
+independent per-tree quality records; density, bend stiffness, damping, gravity and wind drag remain per-tree
+physical properties. All quality decisions are camera-independent. Stretch stiffness and iteration count apply
+to the rod solver; individual rods in the cluster solver are rigid and joints are solved directly.
+
+Three rules can run together: size, botanical branch order, or both requirements together. Size limits are
+relative to the original tree height and trunk radius; order zero is the trunk, and lateral children increase
+order while apical continuation does not. Rules form a union, and the largest eligible ancestor wins. Roots
+and pinned subtrees do not collapse. Disabling all rules retains individual rigid internodes within this solver.
+The initial subtree preset enables branch order with a minimum order of two and at least two internodes.
+
+CPU initialization uploads a compact subtree hierarchy, original properties and finest-capacity storage once.
+The GPU selects disjoint active bodies, parent links and depth ranges when rules change. There is no CPU pose
+readback, topology re-upload or GPU buffer reallocation for live quality changes. Larger trees naturally offer
+more distinct clusterings; no fixed number of LOD levels is imposed.
+
+At each switch, GPU state transfer captures current endpoints and rod orientations in each new body's local
+frame, recomputes center of mass and cylinder inertia, and fits rigid velocity from linear/angular momentum.
+The current bent geometry is preserved; internal deformation becomes frozen while clustered. Refinement
+inherits current coarse motion, without restoring historical fine-state oscillations. Parent joints still target
+the original rest orientations. Density changes scale mass/inertia without rebuilding topology. Joint stiffness
+uses each original boundary joint's bend scale divided by its mean rod length; the direct rigid model is an
+approximation of the stretch/shear rod solver, not numerically identical to it.
+
+The forest scheduler retains each tree's buffers and settings. Narrow trees use dependency-ordered walks
+batched across GPU invocations. Trees with more than four bodies per depth on average use one workgroup per
+tree, processing same-depth bodies concurrently with workgroup barriers. This camera-independent heuristic
+avoids CPU dispatches for each depth; package APIs also expose forced modes for comparisons. Child contributions
+are gathered deterministically, without shared-parent write races. Geometry reconstruction writes the original
+skeleton format consumed directly by branch, foliage and Plant Visual rendering.
+
+Cluster loads sample the same trilinear climate-grid velocity, density and strength as the rod solver. Original
+member cylinders retain their dimensions and lever arms, so wind produces both force and torque. A parallel
+per-rod pass samples wind and evaluates loads at every substep; bodies then sum their member loads before
+the articulated solve. The scene
+path bounds endpoint aerodynamic acceleration; uniform wind remains available for mechanics tests. Reconstructed
+positions/velocities also feed the existing rod-to-air coupling. Growth pauses physics and replaces changed
+trees' GPU state from their growth skeleton; unchanged neighboring allocations are retained. Switching solvers
+fits the current GPU pose and invalidates old LOD selection rather than recovering a stored bent pose. Saved
+scenes contain configuration and original growth poses; live GPU state is transient.
+
+`GpuTreeClusterPhysics::InitializeDynamic(rest, shared_state)` prepares live clustering on optional existing
+GPU skeleton buffers. Step dynamic instances through `GpuTreeClusterForest`, whose `TreeStep` retains per-tree
+settings, transform, rules, scheduling preference and running state. Paused entries can change clustering without
+moving their displayed pose. Recreate the forest batch when its tree membership/topology changes, and do not
+also step its members individually. Shared ownership plus frame retirement keeps replaced buffers alive.
+
+`Initialize(rest, rules)` and the single-tree `Serial`/`LevelParallel` modes remain fixed-layout reference APIs.
+`TreeClusterPhysics.*` and `TreeClusterForest.*` cover analytical acceleration, momentum, moving roots,
+climate forces/torques, serial/workgroup equivalence, mixed-tree isolation, live rule unions, current-pose
+handoff and growth/cache lifecycle. Opt-in scheduling benchmarks use GPU timestamps; synthetic solver timings
+must not be presented as forest FPS. The Windy Tree profiler accepts `--cluster-order N` and
+`--validate-cluster-switches` for scene measurements and warmup-time coarse/fine transitions.
+
+Branch fracture, collider contact and tree-to-tree contact still await GPU support in the scene physics paths.
+
+### Subtree-body mechanics prototype
+
+`GpuTreeSubtreePhysics` is an opt-in package/test API for validating rigid subtrees, individually or as a coupled pair.
+It is not selected by the editor approximation-tolerance control. `BuildTreeSubtreeBody(rest, root_rod)`
+collects the selected rod and all descendants, excluding neighboring subtrees and rejecting pinned members.
+Cylinder masses determine the center of mass and full inertia tensor, including parallel-axis contributions.
+
+The GPU integrates bending and twisting about a driven parent attachment. The attachment position is exact;
+its target orientation is compliant. Gravity and uniform-air drag produce torque from the actual member
+positions and dimensions. Translation of the attachment supplies inertial loading for shaking. Angular stiffness
+uses torque per radian (twist X, bending Y/Z in the cluster frame), and damping uses inverse seconds; these
+prototype settings are not yet calibrated from the existing rod solver's stiffness controls. The solver includes
+the gyroscopic term and treats spring/damping terms implicitly. Large-rotation accuracy still depends on timestep.
+
+Initialize once from a rest skeleton, then call `Step(settings, anchor_world, target_rotation_world)`.
+The target quaternion is the desired world orientation of the selected root rod's frame, not a rotation delta.
+`GetTreeState()` exposes persistent full-resolution buffers in the existing procedural-rendering format.
+Only cluster members and the shared attachment vertex are reconstructed; other branches remain untouched.
+This state must not also be advanced by `GpuTreePhysics`. No pose readback or allocation is needed during stepping.
+
+For reciprocal coupling, call `InitializeCoupled(rest, parent_rod, child_rod)`. The child must be a strict
+descendant of the parent. Its subtree becomes body 1; the rest of the selected parent subtree becomes body 0.
+Rods and mass belong to exactly one body. The shared attachment vertex is written once by the parent.
+`Step` drives body 0's base position and target orientation; both body rotations remain dynamic.
+`angular_stiffness` controls the child joint and `base_angular_stiffness` controls the parent's base attachment.
+Both are torque per radian, with X twist and Y/Z bending. Damping is mass-proportional angular damping
+relative to the world, not an internal joint damper.
+
+The coupled GPU solver includes translational cross-inertia between parent and child and equal/opposite
+joint spring torques. It solves their 6x6 angular system using a 3x3 Schur complement, with implicit spring
+and damping terms. Attachment positions and velocities follow the parent rotation exactly. The base is
+still prescribed; this is not a free-falling articulated-body solver or a coupling to the full rod solver.
+`GetMotionBuffer()` contains one record in single mode and two records (parent, child) in coupled mode.
+
+This prototype uses uniform wind input. It does not yet provide air-grid sampling, collision, fracture,
+automatic cluster activation in the solver, live level transitions, or scene controls.
+Wind uses the full solver's endpoint drag convention before its per-vertex acceleration cap; the prototype does
+not apply that cap. It sums member loads serially for mechanical validation, so no forest speedup is claimed.
+The `TreeSubtreePhysics.*` tests compare gravity, shaking and wind against full-resolution physics, and verify
+inertia, analytic initial acceleration, bend/twist restoration, rotational covariance, torque-free momentum,
+attachment continuity and reconstruction. `TreeSubtreePair.*` additionally verifies disjoint mass/inertia,
+analytical child-to-parent loading, reciprocal spring reaction, momentum/energy conservation, frame covariance,
+strong-stiffness response and shared-vertex reconstruction. Rigid clusters intentionally discard internal
+branch deformation. Physical attachment calibration against flexible trees remains separate from these
+mechanical correctness checks.
 
 ## Wind authoring
 

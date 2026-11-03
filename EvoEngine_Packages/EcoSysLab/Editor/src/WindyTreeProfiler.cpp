@@ -1,5 +1,6 @@
 #include "EcoSysLabEditorLayer.hpp"
 
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <iomanip>
@@ -7,6 +8,7 @@
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "GpuTreeClusterPhysics.hpp"
 #include "GpuTreeMeshRenderer.hpp"
 #include "GpuTreePhysics.hpp"
 #include "Profiler.hpp"
@@ -22,6 +24,15 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
     return;
   const auto scene = GetScene();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (system) {
+    if (const auto order = std::getenv("EVOENGINE_TREE_CLUSTER_ORDER")) {
+      system->dynamics.use_subtree_clusters = true;
+      system->dynamics.cluster_lod.enabled_policies = 2;
+      system->dynamics.cluster_lod.rules[1].z = glm::clamp(std::strtof(order, nullptr), 0.0f, 64.0f);
+    }
+    if (const auto tolerance = std::getenv("EVOENGINE_TREE_PHYSICS_TOLERANCE"))
+      system->dynamics.physics_approximation_tolerance = glm::clamp(std::strtof(tolerance, nullptr), 0.0f, 2.0f);
+  }
   if (!system || system->growth.simulated_time < 5.0f * 365.0f || system->growth.grew_this_frame ||
       system->growth.remaining_time > 0.0f || !system->dynamics.tree_physics || !ProjectManager::IsProjectIdle())
     return;
@@ -66,6 +77,25 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
            << "\ntrees=" << capture.physics.size() << "\nrods=" << system->dynamics.tree_physics->GetRodCount()
            << "\nair_cells=" << (system->dynamics.wind ? system->dynamics.wind->GetAirCellCount() : 0)
            << "\nair_cell_size=" << system->environment.air_cell_size << '\n';
+    config << "subtree_clusters=" << system->dynamics.use_subtree_clusters
+           << "\ncluster_order=" << system->dynamics.cluster_lod.rules[1].z << '\n';
+    config << "physics_tolerance=" << system->dynamics.physics_approximation_tolerance << '\n';
+    for (const auto id : system->dynamics.tree_physics->GetActiveTreeIds()) {
+      const auto& state = system->dynamics.tree_physics->GetTreeState(id);
+      config << "tree_" << id << "_level_rods=" << state->rod_count;
+      if (state->lod)
+        for (const auto& level : state->lod->templates)
+          config << ',' << level->rod_count;
+      config << '\n';
+      if (state->lod) {
+        std::vector<GpuTreePhysicsLodLevel> levels;
+        state->lod->levels->DownloadVector(levels, state->lod->level_count);
+        config << "tree_" << id << "_level_min_tolerance=0";
+        for (size_t i = 1; i < levels.size(); ++i)
+          config << ',' << std::max(levels[i].metrics.x, levels[i].metrics.z);
+        config << '\n';
+      }
+    }
     if (!capture.physics.empty()) {
       const auto& settings = capture.physics.front().first->physics_settings;
       config << "time_step=" << settings.time_step << "\nsubsteps=" << settings.substeps
@@ -86,6 +116,15 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
     EVOENGINE_LOG("Windy Tree profile phase: " + std::string(phase.name))
   }
   constexpr size_t warmup_frames = 32, measured_frames = 60;
+  if (std::getenv("EVOENGINE_TREE_CLUSTER_VALIDATE") && system->dynamics.use_subtree_clusters && capture.phase == 0 &&
+      capture.frame < warmup_frames) {
+    if (capture.frame < 8)
+      system->dynamics.cluster_lod.rules[1].z = 3;
+    else if (capture.frame < 16)
+      system->dynamics.cluster_lod.rules[1].z = 1;
+    else if (capture.frame < 24)
+      system->dynamics.cluster_lod.enabled_policies = 0;
+  }
   if (capture.frame == warmup_frames) {
     Profiler::GetInstance().ClearFrameHistory();
     Platform::ResetGpuTimestampStats();
@@ -93,6 +132,41 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
   if (++capture.frame <= warmup_frames + measured_frames)
     return;
   Platform::WaitForFrameSubmissions("Windy Tree profiling readback");
+  {
+    std::ofstream levels(std::filesystem::path(directory) / (std::string(phase.name) + ".lod.txt"));
+    uint32_t rods = 0;
+    for (const auto id : system->dynamics.tree_physics->GetActiveTreeIds()) {
+      const auto& state = system->dynamics.tree_physics->GetTreeState(id);
+      uint32_t selected = 0;
+      if (state->lod) {
+        std::vector<uint32_t> values;
+        state->lod->state->DownloadVector(values, 1);
+        selected = values.front();
+      }
+      const auto count = selected ? state->lod->templates[selected - 1]->rod_count : state->rod_count;
+      levels << "tree=" << id << " level=" << selected << " rods=" << count << '\n';
+      rods += count;
+    }
+    levels << "active_rods=" << rods << '\n';
+    if (system->dynamics.cluster_forest) {
+      uint32_t bodies = 0, invalid = 0;
+      for (const auto& entry : system->dynamics.entries)
+        if (entry.cluster) {
+          std::vector<glm::uvec4> status;
+          entry.cluster->GetLodStateBuffer()->DownloadVector(status, 6);
+          bodies += status[0].x;
+          levels << "cluster_tree=" << entry.gpu_id << " bodies=" << status[0].x << " depth=" << status[1].z
+                 << " transitions=" << status[0].w << '\n';
+          std::vector<glm::vec4> values;
+          const auto& state = entry.cluster->GetTreeState();
+          state->vertices[0]->DownloadVector(values, state->vertex_count * 4);
+          for (uint32_t i = 0; i < state->vertex_count; ++i)
+            if (!std::isfinite(glm::length(glm::vec3(values[i]))))
+              ++invalid;
+        }
+      levels << "active_cluster_bodies=" << bodies << "\ninvalid_cluster_vertices=" << invalid << '\n';
+    }
+  }
   const auto frames = Profiler::GetInstance().GetFrameHistorySnapshot();
   const auto begin = frames.size() > measured_frames ? frames.size() - measured_frames : 0;
   std::ofstream output(std::filesystem::path(directory) / (std::string(phase.name) + ".csv"));

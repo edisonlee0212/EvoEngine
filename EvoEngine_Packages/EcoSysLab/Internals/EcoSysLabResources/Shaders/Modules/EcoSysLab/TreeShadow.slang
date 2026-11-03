@@ -91,3 +91,21 @@ public struct TreeShadowOutput {
   [[vk::location(5)]] public nointerpolation float4 p3 : TEXCOORD5;
   [[vk::location(6)]] public nointerpolation uint2 instance_count : TEXCOORD6;
 };
+
+public struct TreeShadowPayload { public uint node_indices[32]; };
+
+// The capsule chain lies inside the convex hull of its endpoint spheres.
+public bool TreeShadowVisible(float4 points[4], uint count, float4x4 transform) {
+  for (uint plane = 0; plane < 6; ++plane) {
+    float4 clip_plane = float4(0,0,0,1);
+    if (plane < 4) clip_plane[plane / 2] = (plane & 1) == 0 ? 1.0 : -1.0;
+    else clip_plane = plane == 4 ? float4(0,0,1,0) : float4(0,0,-1,1);
+    float4 local_plane = mul(transform,clip_plane);
+    float radius_scale = length(local_plane.xyz);
+    bool outside = true;
+    for (uint i = 0; i < count; ++i)
+      outside = outside && dot(float4(points[i].xyz,1),local_plane) + points[i].w * radius_scale < -1e-5;
+    if (outside) return false;
+  }
+  return true;
+}

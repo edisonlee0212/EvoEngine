@@ -136,17 +136,11 @@ void SerializeDynamicTreeSkeleton(YAML::Emitter& out, const DynamicTreeSkeleton&
   out << YAML::Key << "time_step" << YAML::Value << p.time_step;
   out << YAML::Key << "substeps" << YAML::Value << p.substeps;
   out << YAML::Key << "iterations" << YAML::Value << p.iterations;
-  out << YAML::Key << "stretch_stiffness" << YAML::Value << p.stretch_stiffness;
-  out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
-  out << YAML::Key << "density" << YAML::Value << p.density;
-  out << YAML::Key << "damping" << YAML::Value << p.damping;
-  out << YAML::Key << "wind_drag" << YAML::Value << p.wind_drag;
-  out << YAML::Key << "contact_friction" << YAML::Value << p.contact_friction;
-  out << YAML::Key << "gravity" << YAML::Value << p.gravity;
-  out << YAML::Key << "anchor_offset" << YAML::Value << p.anchor_offset;
-  out << YAML::Key << "fracture_enabled" << YAML::Value << p.fracture_enabled;
-  out << YAML::Key << "fracture_angle_degrees" << YAML::Value << p.fracture_angle_degrees;
-  out << YAML::Key << "fracture_duration" << YAML::Value << p.fracture_duration;
+  out << YAML::Key << "approximation_tolerance" << YAML::Value << p.approximation_tolerance;
+  out << YAML::Key << "use_subtree_clusters" << YAML::Value << p.use_subtree_clusters;
+  out << YAML::Key << "cluster_lod" << YAML::Value;
+  SerializeTreeClusterLodSettings(out, p.cluster_lod);
+  SerializeTreePhysicsProperties(out, p);
 }
 
 void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& target) {
@@ -157,28 +151,13 @@ void DeserializeDynamicTreeSkeleton(const YAML::Node& in, DynamicTreeSkeleton& t
     p.substeps = in["substeps"].as<int>();
   if (in["iterations"])
     p.iterations = in["iterations"].as<int>();
-  if (in["stretch_stiffness"])
-    p.stretch_stiffness = in["stretch_stiffness"].as<float>();
-  if (in["bend_stiffness"])
-    p.bend_stiffness = in["bend_stiffness"].as<float>();
-  if (in["density"])
-    p.density = in["density"].as<float>();
-  if (in["damping"])
-    p.damping = in["damping"].as<float>();
-  if (in["wind_drag"])
-    p.wind_drag = in["wind_drag"].as<float>();
-  if (in["contact_friction"])
-    p.contact_friction = in["contact_friction"].as<float>();
-  if (in["gravity"])
-    p.gravity = in["gravity"].as<glm::vec3>();
-  if (in["anchor_offset"])
-    p.anchor_offset = in["anchor_offset"].as<glm::vec3>();
-  if (in["fracture_enabled"])
-    p.fracture_enabled = in["fracture_enabled"].as<bool>();
-  if (in["fracture_angle_degrees"])
-    p.fracture_angle_degrees = in["fracture_angle_degrees"].as<float>();
-  if (in["fracture_duration"])
-    p.fracture_duration = in["fracture_duration"].as<float>();
+  if (in["approximation_tolerance"])
+    p.approximation_tolerance = glm::max(0.0f, in["approximation_tolerance"].as<float>());
+  if (in["use_subtree_clusters"])
+    p.use_subtree_clusters = in["use_subtree_clusters"].as<bool>();
+  DeserializeTreeClusterLodSettings(in["cluster_lod"], p.cluster_lod);
+  DeserializeTreePhysicsProperties(in, p);
+  target.SetPhysicsProperties(p);
   target.RequestGpuPoseInitialization();
 }
 

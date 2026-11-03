@@ -251,6 +251,8 @@ void EcoSysLabSystem::PostCloneAction(const std::shared_ptr<ISystem>&) {
   environment.climate.environment_grid = {};
   environment.soil = {};
   dynamics.tree_physics.reset();
+  dynamics.cluster_forest.reset();
+  dynamics.cluster_members.clear();
   dynamics.physics_scene.reset();
   dynamics.entries.clear();
   dynamics.wind.reset();
@@ -272,6 +274,11 @@ void eco_sys_lab_package::SerializeEcoSysLabSystem(YAML::Emitter& out, const Eco
   out << YAML::Key << "air_friction" << YAML::Value << env.air_friction;
   out << YAML::Key << "air_cell_size" << YAML::Value << env.air_cell_size;
   target.growth.settings.Save("simulation_settings", out);
+  out << YAML::Key << "physics_approximation_tolerance" << YAML::Value
+      << target.dynamics.physics_approximation_tolerance;
+  out << YAML::Key << "use_subtree_clusters" << YAML::Value << target.dynamics.use_subtree_clusters;
+  out << YAML::Key << "cluster_lod" << YAML::Value;
+  SerializeTreeClusterLodSettings(out, target.dynamics.cluster_lod);
   const auto& strands = target.dynamics.strands;
   out << YAML::Key << "strands_settings" << YAML::Value;
   SaveFields(out, strands, [](const auto& value, auto&& f) {
@@ -306,6 +313,11 @@ void eco_sys_lab_package::DeserializeEcoSysLabSystem(const YAML::Node& in, EcoSy
   if (in["air_cell_size"])
     env.air_cell_size = glm::clamp(in["air_cell_size"].as<float>(), 0.05f, 0.2f);
   target.growth.settings.Load("simulation_settings", in);
+  if (in["physics_approximation_tolerance"])
+    target.dynamics.physics_approximation_tolerance = glm::max(0.0f, in["physics_approximation_tolerance"].as<float>());
+  if (in["use_subtree_clusters"])
+    target.dynamics.use_subtree_clusters = in["use_subtree_clusters"].as<bool>();
+  DeserializeTreeClusterLodSettings(in["cluster_lod"], target.dynamics.cluster_lod);
   auto& strands = target.dynamics.strands;
   LoadFields(in["strands_settings"], strands, [](auto& value, auto&& f) {
     VisitStrands(value, f);

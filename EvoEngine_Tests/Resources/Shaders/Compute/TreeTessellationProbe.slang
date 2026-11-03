@@ -75,4 +75,76 @@ void main() {
     largest_step=max(largest_step,abs(previous1-current0));
   }
   values[9]=float4(triangles_full,triangles_far,largest_step,b0);
+
+  float4 largest_difference=0;
+  uint original_vertices=0,unique_vertices=0;
+  for(uint test=0;test<8;++test) {
+    TreeTaskPayload task=TreeBuildTask(test==0 ? 0 : 1,mid_view,detail);
+    task.radial=test==0 ? 4 : test==1 ? 8 : test==2 ? 32 : 256;
+    task.start_radial=test==0 ? 4 : test==1 ? 32 : test==2 ? 8 : 126;
+    if(test>=4) {
+      task.radial=test==4 ? 6 : test==5 ? 10 : test==6 ? 14 : 4;
+      task.start_radial=test==7 ? 256 : task.radial;
+    }
+    task.rings=3; task.full_rings=5;
+    uint total=task.start_radial+task.radial+(task.rings-1)*2*task.radial;
+    uint next_triangle=0;
+    for(uint group=0;group<TreeMeshletCount(task);++group) {
+      uint4 range=TreeMeshletRange(task,group),bounds=TreeMeshletBounds(task,range);
+      uint first=range.x,count=range.y,keys[60];
+      uint vertex_count=TreeMeshletVertexCount(task,range,bounds);
+      if(first!=next_triangle || count==0 || count>20 || vertex_count>22) largest_difference=1e30;
+      next_triangle=first+count;
+      for(uint i=0;i<count;++i) {
+        uint triangle_index=first+i;
+        uint first_count=task.start_radial+task.radial;
+        uint span=triangle_index<first_count ? 0 : 1+(triangle_index-first_count)/(2*task.radial);
+        uint triangle=triangle_index<first_count ? triangle_index : (triangle_index-first_count)%(2*task.radial);
+        uint3 samples,ring_ids;
+        TreeZipper(triangle,span==0 ? task.start_radial : task.radial,task.radial,samples,ring_ids);
+        uint3 encoded=TreeTriangleKeys(task,triangle_index);
+        float t0,t1;TreeSpanParameters(task,span,t0,t1);
+        GpuTreeNode node=tree_nodes[task.node_index];
+        for(uint corner=0;corner<3;++corner) {
+          bool start=ring_ids[corner]==0;
+          bool parent=span==0 && start && node.links.x!=0xffffffffu;
+          TreeRingVertex reference=EvaluateTreeRing(parent ? tree_nodes[node.links.x] : node,
+              start ? (parent ? 1.0 : t0) : t1,samples[corner],start && span==0 ? task.start_radial : task.radial);
+          TreeRingVertex indexed=TreeKeyVertex(task,encoded[corner]);
+          if(!all(isfinite(reference.position)) || !all(isfinite(indexed.position))) largest_difference=1e30;
+          largest_difference=max(largest_difference,float4(length(reference.position-indexed.position),
+              length(reference.normal-indexed.normal),length(reference.tangent-indexed.tangent),length(reference.uv-indexed.uv)));
+          keys[3*i+corner]=encoded[corner];
+          uint index=TreeMeshletVertexIndex(task,range,bounds,encoded[corner]);
+          if(index>=vertex_count || TreeMeshletVertexKey(task,range,bounds,index)!=encoded[corner]) largest_difference=1e30;
+        }
+      }
+      original_vertices+=count*3;
+      uint distinct=0;
+      for(uint i=0;i<count*3;++i) {
+        bool first=true;
+        for(uint j=0;j<i;++j) first=first && keys[i]!=keys[j];
+        distinct+=first ? 1 : 0;
+      }
+      if(distinct!=vertex_count) largest_difference=1e30;
+      unique_vertices+=vertex_count;
+    }
+    if(next_triangle!=total) largest_difference=1e30;
+  }
+  values[10]=largest_difference;
+  TreeTaskPayload seam=TreeBuildTask(0,near_view,disabled);
+  TreeRingVertex seam0=TreeKeyVertex(seam,0),seam1=TreeKeyVertex(seam,seam.start_radial);
+  values[11]=float4(original_vertices,unique_vertices,abs(seam0.uv.x-seam1.uv.x),length(seam0.position-seam1.position));
+  float4x4 outside=near_view;outside[3][0]=3;
+  values[12]=float4(TreeNodeVisible(0,near_view),TreeNodeVisible(0,outside),TreeNodeVisible(4,near_view),TreeNodeVisible(0,clipped));
+  float4x4 bark_edge=near_view;bark_edge[3][0]=1.12;
+  values[13]=float4(TreeNodeVisible(0,bark_edge),TreeNodeVisible(3,bark_edge),TreeNodeVisible(0,scaled),TreeNodeVisible(0,perspective));
+  uint rejected=0;
+  for(uint i=0;i<6;++i) {
+    float3 center=float3(0,0,0.5);center[i/2]=(i&1)==0 ? -2.0 : 2.0;
+    rejected+=TreeBoundsVisible(center-0.1,center+0.1,near_view) ? 0 : 1;
+  }
+  values[14]=float4(rejected,TreeBoundsVisible(float3(-0.1,-0.1,-0.1),float3(0.1,0.1,0.1),near_view),
+      TreeBoundsVisible(float3(-2,-0.1,0.4),float3(2,0.1,0.6),near_view),
+      TreeBoundsVisible(float3(-0.1,-0.1,-2),float3(0.1,0.1,-1),perspective));
 }

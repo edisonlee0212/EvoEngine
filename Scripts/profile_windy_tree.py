@@ -57,13 +57,24 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--geometry-reference", action="store_true", help="Use original per-node tasks and triangle-local vertices")
+    parser.add_argument("--geometry-details", action="store_true", help="Capture procedural camera branch GPU time")
+    parser.add_argument("--shadow-reference", action="store_true", help="Use unbatched branch shadows without task culling")
+    parser.add_argument("--shadow-details", action="store_true", help="Capture branch shadow GPU time per cascade")
     parser.add_argument("--full-shadows", action="store_true", help="Benchmark full branch shadow geometry")
     parser.add_argument("--gather", action="store_true", help="Benchmark the reference cell-driven coupling")
     parser.add_argument("--full-physics-writes", action="store_true", help="Benchmark full-record solver writes")
     parser.add_argument("--physics-phase-timings", action="store_true", help="Add per-dispatch solver GPU scopes")
     parser.add_argument("--physics-reference", action="store_true", help="Benchmark AoS physics with uncached coefficients and broad barriers")
     parser.add_argument("--full-tessellation", action="store_true", help="Use configured full branch subdivisions")
+    parser.add_argument("--physics-tolerance", type=float, default=0.0, help="Physics LOD error as a fraction of branch radius; zero uses all rods")
+    parser.add_argument("--cluster-order", type=int, help="Enable subtree physics LOD at this minimum branch order")
+    parser.add_argument("--validate-cluster-switches", action="store_true", help="Exercise live coarse/fine switches during warmup")
     args = parser.parse_args()
+    if args.cluster_order is not None and not 0 <= args.cluster_order <= 64:
+        parser.error("--cluster-order must be between 0 and 64")
+    if not 0 <= args.physics_tolerance <= 2:
+        parser.error("--physics-tolerance must be between 0 and 2")
     directory = args.output.resolve()
     if not args.analyze_only:
         if args.editor is None:
@@ -74,6 +85,20 @@ def main():
         editor = args.editor.resolve(strict=True)
         environment = os.environ.copy()
         environment["EVOENGINE_WINDY_TREE_PROFILE"] = str(directory)
+        environment["EVOENGINE_TREE_PHYSICS_TOLERANCE"] = str(args.physics_tolerance)
+        environment.pop("EVOENGINE_TREE_CLUSTER_ORDER", None)
+        environment.pop("EVOENGINE_TREE_CLUSTER_VALIDATE", None)
+        if args.cluster_order is not None:
+            environment["EVOENGINE_TREE_CLUSTER_ORDER"] = str(args.cluster_order)
+        if args.validate_cluster_switches:
+            environment["EVOENGINE_TREE_CLUSTER_VALIDATE"] = "1"
+        for name, enabled in (("EVOENGINE_TREE_GEOMETRY_REFERENCE", args.geometry_reference),
+                              ("EVOENGINE_TREE_GEOMETRY_PROFILE", args.geometry_details),
+                              ("EVOENGINE_TREE_SHADOW_REFERENCE", args.shadow_reference),
+                              ("EVOENGINE_TREE_SHADOW_PROFILE", args.shadow_details)):
+            environment.pop(name, None)
+            if enabled:
+                environment[name] = "1"
         environment.pop("EVOENGINE_FULL_BRANCH_SHADOWS", None)
         if args.full_shadows:
             environment["EVOENGINE_FULL_BRANCH_SHADOWS"] = "1"
@@ -91,6 +116,8 @@ def main():
             subprocess.run([str(editor), "--demo", "windy-tree"], cwd=editor.parent, env=environment,
                            stdout=log, stderr=subprocess.STDOUT, timeout=1800, check=True)
         with (directory / "configuration.txt").open("a", encoding="utf-8") as configuration:
+            configuration.write(f"geometry_reference={int(args.geometry_reference)}\ngeometry_details={int(args.geometry_details)}\n")
+            configuration.write(f"shadow_reference={int(args.shadow_reference)}\nshadow_details={int(args.shadow_details)}\n")
             configuration.write(f"physics_reference={int(args.physics_reference)}\n")
             configuration.write(f"tessellation={'full' if args.full_tessellation else 'adaptive'}\n")
             configuration.write(f"physics_writes={'full' if args.full_physics_writes else 'motion'}\n")

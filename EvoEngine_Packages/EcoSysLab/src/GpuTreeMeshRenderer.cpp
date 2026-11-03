@@ -84,9 +84,26 @@ void GpuTreeMeshRenderer::Initialize() {
                                             "./EcoSysLabResources/Shaders/Graphics/Task/TreeMesh.slang");
   const auto mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                             "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeMesh.slang");
-  camera_pipeline_ = MakePipeline(task, mesh, false, layout_, "TreeMesh.slang");
+  const auto& limits = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext;
+  if (std::getenv("EVOENGINE_TREE_GEOMETRY_REFERENCE") ||
+      std::min(limits.maxMeshWorkGroupCount[0], limits.maxMeshWorkGroupTotalCount) < 3u * 65535u) {
+    camera_pipeline_ = MakePipeline(task, mesh, false, layout_, "TreeMesh.slang");
+  } else {
+    camera_batch_ = std::max(
+        1u,
+        std::min(32u, std::min(limits.maxMeshWorkGroupCount[0], limits.maxMeshWorkGroupTotalCount) / (3u * 65535u)));
+    const auto batch_task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+                                                    "./EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang");
+    const auto indexed_mesh =
+        Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeMeshIndexed.slang");
+    camera_pipeline_ = MakePipeline(batch_task, indexed_mesh, false, layout_, "TreeMesh.slang");
+  }
   shadow_pipeline_ = MakePipeline(task, mesh, true, layout_, "Empty.slang");
-  const auto shadow_task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+  shadow_reference_ = std::getenv("EVOENGINE_TREE_SHADOW_REFERENCE") != nullptr;
+  const auto shadow_defines =
+      Platform::GetShaderGlobalDefines() + (shadow_reference_ ? "\n#define EE_TREE_SHADOW_REFERENCE 1\n" : "");
+  const auto shadow_task = Shader::CreateTemporary(ShaderType::Task, shadow_defines,
                                                    "./EcoSysLabResources/Shaders/Graphics/Task/TreeShadow.slang");
   const auto shadow_mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                                    "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeShadow.slang");
@@ -474,11 +491,27 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
   pipeline->states.SetViewportScissor(viewport);
   pipeline->states.cull_mode = cull_mode;
   pipeline->states.ApplyAllStates(command);
+  const bool shadow = geometry == 0 && pass == 3;
+  const auto timing =
+      shadow && std::getenv("EVOENGINE_TREE_SHADOW_PROFILE")
+          ? Platform::BeginGpuTimestampScope(command, {"EcoSysLabBranchShadow" + std::to_string(face),
+                                                       "EcoSysLab Branch Shadow Cascade " + std::to_string(face),
+                                                       "EcoSysLab", GpuTimestampQueue::Graphics})
+          : GpuTimestampScopeToken{};
+  const auto geometry_timing =
+      geometry == 0 && pass == 0 && std::getenv("EVOENGINE_TREE_GEOMETRY_PROFILE")
+          ? Platform::BeginGpuTimestampScope(command, {"EcoSysLabBranchGeometry", "EcoSysLab Branch Geometry",
+                                                       "EcoSysLab", GpuTimestampQueue::Graphics})
+          : GpuTimestampScopeToken{};
+  const uint32_t batch = pipeline == camera_pipeline_                                     ? camera_batch_
+                         : pipeline == directional_shadow_pipeline_ && !shadow_reference_ ? 32
+                                                                                          : 1;
   const auto limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
-  for (uint32_t base = 0; base < count; base += limit) {
+  for (uint32_t base = 0; base < count; base += limit * batch) {
     TreeMeshPushConstant push{};
     push.node_base = base;
     push.node_count = count;
+    push.padding0 = batch;
     push.camera_index = camera;
     push.pass_index = pass;
     push.light_index = light;
@@ -488,7 +521,9 @@ uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, V
       push.tessellation = {static_cast<float>(viewport.z), static_cast<float>(viewport.w), frame.tessellation.x,
                            frame.tessellation.y};
     pipeline->PushConstant(command, 0, push);
-    pipeline->DrawMeshTasks(command, std::min(limit, count - base), 1, 1);
+    pipeline->DrawMeshTasks(command, std::min(limit, (count - base + batch - 1) / batch), 1, 1);
   }
+  Platform::EndGpuTimestampScope(command, geometry_timing);
+  Platform::EndGpuTimestampScope(command, timing);
   return count;
 }

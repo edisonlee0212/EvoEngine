@@ -1,4 +1,5 @@
 import EcoSysLab.TreePhysicsData;
+import EcoSysLab.TreePhysicsLodData;
 struct TreePhysicsTreeParameters {
   float4 mechanics;
   float4 gravity;
@@ -10,6 +11,7 @@ struct TreePhysicsTreeParameters {
   float4 anchor_current;
   float4 rotation_delta;
   float4 anchor_offset;
+  float4 material;
 };
 
 import EcoSysLab.AirGrid;
@@ -35,25 +37,36 @@ import EcoSysLab.AirGrid;
 
 float4 SampleWind(float3 start, float3 end) {
   if (cell_count == 0) return 0;
-  float3 position = (start + end) * (0.5 / cell_size) - 0.5;
-  int3 base = int3(floor(position));
-  float3 fraction = frac(position);
-  float4 result = 0;
-  float total = 0;
-  for (int z = 0; z < 2; ++z)
-    for (int y = 0; y < 2; ++y)
-      for (int x = 0; x < 2; ++x) {
-        uint index = AirGridFind(wind_heads, wind_addresses, base + int3(x, y, z), bucket_count);
-        if (index == 0xffffffffu) continue;
-        AirGridValue value = AirGridReadValue(wind_addresses, index);
-        float weight = (x != 0 ? fraction.x : 1.0 - fraction.x) *
-                       (y != 0 ? fraction.y : 1.0 - fraction.y) *
-                       (z != 0 ? fraction.z : 1.0 - fraction.z);
-        result += weight * float4(value.velocity_temperature.xyz,
-                                  value.humidity_strength_density.y * value.humidity_strength_density.z / 1.225);
-        total += weight;
-      }
-  return total > 0.0 ? result / total : 0;
+  return AirGridSampleWind(wind_heads, wind_addresses, bucket_count, cell_size, (start+end)*0.5);
+}
+
+float3 CoarseWindDrag(uint vertex_id,TreePhysicsBuffers buffers,TreePhysicsVertex vertex) {
+  TreeLodHeader header=PhysicsLoad<TreeLodHeader>(buffers.reserved,0);
+  TreeLodLevel level=PhysicsLoad<TreeLodLevel>(header.levels,PhysicsLoad<uint>(header.state,0));
+  float3 drag=0;
+  for (uint j=0;j<vertex.incident_rods.y;++j) {
+    uint coarse_id=PhysicsLoad<uint>(buffers.vertex_rods,vertex.incident_rods.x+j);
+    TreePhysicsRod coarse=PhysicsRod(buffers,rod_index,coarse_id);
+    for (uint k=0;k<coarse.incident_angles.w;++k) {
+      uint original=PhysicsLoad<uint>(level.members,coarse.incident_angles.z+k);
+      TreePhysicsRod fine=PhysicsRod(header.full,0,original);
+      float3 a,b,va,vb;
+      LodMappedMotion(buffers,level,fine.links.x,vertex_index,rod_index,a,va);
+      LodMappedMotion(buffers,level,fine.links.y,vertex_index,rod_index,b,vb);
+      float3 direction=b-a;float squared=dot(direction,direction);
+      if (squared<=1e-12) continue;
+      direction*=rsqrt(squared);
+      float4 wind=SampleWind(a,b);
+      if (wind.w<=0) continue;
+      float3 ra=wind.xyz-va,rb=wind.xyz-vb;
+      float3 ca=ra-dot(ra,direction)*direction,cb=rb-dot(rb,direction)*direction;
+      float wa=LodVertexWeight(level,fine.links.x,vertex_id,coarse_id);
+      float wb=LodVertexWeight(level,fine.links.y,vertex_id,coarse_id);
+      drag+=wind.w*fine.length_scale_mass_radius.w*fine.length_scale_mass_radius.x*
+            (wa*length(ca)*ca+wb*length(cb)*cb);
+    }
+  }
+  return drag;
 }
 
 float4 QuatMultiply(float4 a, float4 b) {
@@ -111,7 +124,7 @@ void PrepareCoefficients(uint i, TreePhysicsBuffers buffers, TreePhysicsTreePara
   if ((tree.control.w & 2u) == 0) return;
   if (i < buffers.counts.x) {
     TreePhysicsVertex v = PhysicsVertex(buffers,0,i);
-    float inertia = v.position_inverse_mass.w > 0 ? 1.0/(v.position_inverse_mass.w*tree.mechanics.x*tree.mechanics.x) : 0;
+    float inertia = v.position_inverse_mass.w > 0 ? tree.material.x/(v.position_inverse_mass.w*tree.mechanics.x*tree.mechanics.x) : 0;
     float denominator = inertia;
     for (uint j=0; j<v.incident_rods.y; ++j) {
       TreePhysicsRod r = PhysicsRod(buffers,0,PhysicsLoad<uint>(buffers.vertex_rods,v.incident_rods.x+j));
@@ -160,7 +173,8 @@ void Predict(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree)
     float3 acceleration = tree.gravity.xyz;
     if (cell_count != 0 && tree.gravity.w > 0.0) {
       float3 drag = 0;
-      for (uint j = 0; j < vertex.incident_rods.y; ++j) {
+      if ((buffers.counts.w & 2u) != 0) drag=CoarseWindDrag(i,buffers,vertex);
+      else for (uint j = 0; j < vertex.incident_rods.y; ++j) {
         uint rod_id = PhysicsLoad<uint>(buffers.vertex_rods, vertex.incident_rods.x + j);
         TreePhysicsRod rod = PhysicsRod(buffers, rod_index, rod_id);
         uint other = rod.links.x == i ? rod.links.y : rod.links.x;
@@ -180,7 +194,7 @@ void Predict(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters tree)
       float drag_length = length(drag);
       if (drag_length > 0.0)
         acceleration += min(50.0, drag_length * 0.6 * tree.gravity.w *
-                                      vertex.position_inverse_mass.w) * drag / drag_length;
+                                      vertex.position_inverse_mass.w / tree.material.x) * drag / drag_length;
     }
     position += time_step * vertex.velocity_radius.xyz + time_step * time_step * acceleration;
   }
@@ -204,7 +218,7 @@ void SolvePosition(uint i, TreePhysicsBuffers buffers, TreePhysicsTreeParameters
     return;
   }
 #ifdef EE_TREE_PHYSICS_REFERENCE
-  float inertia = 1.0 / (inverse_mass * time_step * time_step);
+  float inertia = tree.material.x / (inverse_mass * time_step * time_step);
   float denominator = inertia;
 #else
   float2 coefficients = PhysicsLoad<float2>(buffers.vertex_coefficients,i);

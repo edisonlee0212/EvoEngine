@@ -92,6 +92,46 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
           runtime->ResetAirGrid();
         ImGui::EndTabItem();
       }
+      if (ImGui::BeginTabItem("Physics")) {
+        auto& dynamics = growth->dynamics;
+        ImGui::Checkbox("Subtree physics LOD", &dynamics.use_subtree_clusters);
+        if (dynamics.use_subtree_clusters) {
+          auto& settings = dynamics.cluster_lod;
+          ImGui::TextWrapped(
+              "Selected subtrees move as rigid units. Changes preserve the current branch shape. Rules apply to every "
+              "tree; larger eligible subtrees take priority.");
+          constexpr const char* labels[] = {"Size", "Branch order", "Size and branch order"};
+          for (uint32_t policy = 0; policy < 3; ++policy) {
+            ImGui::PushID(static_cast<int>(policy));
+            ImGui::CheckboxFlags(labels[policy], &settings.enabled_policies, 1u << policy);
+            if (settings.enabled_policies & (1u << policy)) {
+              auto& rule = settings.rules[policy];
+              if (policy != 1) {
+                ImGui::DragFloat("Maximum extent / tree height", &rule.x, 0.01f, 0.001f, 2.0f, "%.3f",
+                                 ImGuiSliderFlags_AlwaysClamp);
+                ImGui::DragFloat("Maximum attachment / trunk radius", &rule.y, 0.01f, 0.001f, 1.0f, "%.3f",
+                                 ImGuiSliderFlags_AlwaysClamp);
+              }
+              if (policy != 0) {
+                int order = static_cast<int>(rule.z);
+                if (ImGui::DragInt("Minimum branch order", &order, 1, 0, 64, "%d", ImGuiSliderFlags_AlwaysClamp))
+                  rule.z = static_cast<float>(order);
+              }
+              int count = static_cast<int>(rule.w);
+              if (ImGui::DragInt("Minimum internodes", &count, 1, 2, 4096, "%d", ImGuiSliderFlags_AlwaysClamp))
+                rule.w = static_cast<float>(count);
+            }
+            ImGui::PopID();
+          }
+          ImGui::TextDisabled("No enabled rules: individual rigid internodes. Roots remain fixed.");
+        } else {
+          ImGui::DragFloat("Approximation tolerance (radius fraction)", &dynamics.physics_approximation_tolerance,
+                           0.01f, 0.0f, 2.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+          ImGui::TextWrapped(
+              "Applies to all trees. Zero uses the original skeleton. Physical properties belong to each tree.");
+        }
+        ImGui::EndTabItem();
+      }
       if (ImGui::BeginTabItem("Environment")) {
         auto& environment = growth->environment;
         if (editor_layer->DragAndDropButton<ClimateDescriptor>(environment.climate_descriptor, "Climate", true) |

@@ -44,7 +44,8 @@ class EcoSysLabLayer : public ILayer {
   [[nodiscard]] int GetDynamicStrandsFungusStepsPerFrame() const;
   EcoSysLabSystem::Dynamics::StrandsSettings& GetDynamicStrandsSettings() const;
   void OnDestroy() override;
-  void RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind);
+  void RetireDynamics(std::shared_ptr<GpuTreePhysics> physics, std::shared_ptr<WindParticleField> wind,
+                      std::shared_ptr<GpuTreeClusterForest> clusters = {});
   void RefreshMeshForAllDynamicStrands() const;
   void ResetAllTrees(const std::vector<Entity>* tree_entities);
   void ResetAirGrid(float cell_size = -1.0f);
@@ -60,6 +61,7 @@ class EcoSysLabLayer : public ILayer {
     std::shared_ptr<FrameSubmissionState> submission;
     std::shared_ptr<GpuTreePhysics> physics;
     std::shared_ptr<WindParticleField> wind;
+    std::shared_ptr<GpuTreeClusterForest> clusters;
   };
   std::vector<RetiredDynamics> retired_dynamics_;
   friend class EcoSysLabEditorLayer;

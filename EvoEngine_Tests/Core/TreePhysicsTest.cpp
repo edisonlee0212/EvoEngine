@@ -270,3 +270,25 @@ TEST(TreePhysics, GpuGrowthReplacesDynamicRestAndResumesAfterward) {
   EXPECT_TRUE(physics.physics_running);
   EXPECT_LT(glm::length(tip(physics.ExportGpuRestState()) - tip(current)), 1e-5f);
 }
+
+TEST(TreePhysics, ClusterQualityRoundTripsIndependentlyFromPhysicalProperties) {
+  DynamicTreeSkeleton source;
+  source.physics_settings.use_subtree_clusters = true;
+  source.physics_settings.cluster_lod.enabled_policies = 7;
+  source.physics_settings.cluster_lod.rules[1] = {0.2f, 0.4f, 5, 6};
+  source.physics_settings.bend_stiffness = 321;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeDynamicTreeSkeleton(out, source);
+  out << YAML::EndMap;
+  DynamicTreeSkeleton loaded;
+  DeserializeDynamicTreeSkeleton(YAML::Load(out.c_str()), loaded);
+  EXPECT_TRUE(loaded.physics_settings.use_subtree_clusters);
+  EXPECT_EQ(loaded.physics_settings.cluster_lod.enabled_policies, 7u);
+  EXPECT_EQ(loaded.physics_settings.cluster_lod.rules[1], source.physics_settings.cluster_lod.rules[1]);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 321);
+  DynamicTreeSkeleton legacy;
+  DeserializeDynamicTreeSkeleton(YAML::Load("bend_stiffness: 123"), legacy);
+  EXPECT_FALSE(legacy.physics_settings.use_subtree_clusters);
+  EXPECT_FLOAT_EQ(legacy.physics_settings.bend_stiffness, 123);
+}

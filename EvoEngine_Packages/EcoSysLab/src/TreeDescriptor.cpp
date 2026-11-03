@@ -53,6 +53,7 @@ Entity TreeDescriptor::Instantiate() const {
     system->environment.EnsureConfiguration(scene);
     const auto tree_entity = scene->CreateEntity(GetTitle());
     const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
+    dynamic_tree_skeleton_entity->SetPhysicsProperties(physics_properties);
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     float height = 0;
     if (const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>()) {
@@ -70,6 +71,9 @@ Entity TreeDescriptor::Instantiate() const {
 }
 
 void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const TreeDescriptor& target) {
+  out << YAML::Key << "physics_properties" << YAML::Value << YAML::BeginMap;
+  SerializeTreePhysicsProperties(out, target.physics_properties);
+  out << YAML::EndMap;
   target.shoot_descriptor.Save("shoot_descriptor", out);
   target.root_descriptor.Save("root_descriptor", out);
   target.pruning_descriptor.Save("pruning_descriptor", out);
@@ -80,6 +84,7 @@ void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const Tree
 }
 
 void eco_sys_lab_package::DeserializeTreeDescriptor(const YAML::Node& in, TreeDescriptor& target) {
+  DeserializeTreePhysicsProperties(in["physics_properties"], target.physics_properties);
   target.shoot_descriptor.Load("shoot_descriptor", in);
   target.root_descriptor.Load("root_descriptor", in);
   target.pruning_descriptor.Load("pruning_descriptor", in);

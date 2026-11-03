@@ -1,13 +1,13 @@
 import EvoEngine.PerFrame;
 import EcoSysLab.TreeShadow;
-struct TreeShadowPayload { uint node_index; };
+
 
 [outputtopology("triangle")]
 [numthreads(1, 1, 1)]
 [shader("mesh")]
-void main(in payload TreeShadowPayload task, OutputVertices<TreeShadowOutput, 4> vertices,
+void main(uint3 group_id : SV_GroupID, in payload TreeShadowPayload task, OutputVertices<TreeShadowOutput, 4> vertices,
           OutputIndices<uint3, 2> triangles) {
-  GpuTreeNode node = tree_nodes[task.node_index];
+  GpuTreeNode node = tree_nodes[task.node_indices[group_id.x]];
   uint instance = tree_instance_indices[node.links.y].branch;
   float4x4 model = EE_INSTANCES[instance].model;
   float4x4 projection = EE_DIRECTIONAL_LIGHTS[light_index].light_space_matrix[light_face];

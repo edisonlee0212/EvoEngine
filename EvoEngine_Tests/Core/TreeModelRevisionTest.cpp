@@ -45,6 +45,9 @@ TEST(EcoSysLabSystem, SceneConfigurationRoundTripsWithoutTransientGrowth) {
   source.growth.settings.delta_time = 12.0f;
   source.growth.Queue(90.0f);
   source.dynamics.strands.enable_physics = false;
+  source.dynamics.use_subtree_clusters = true;
+  source.dynamics.cluster_lod.enabled_policies = 5;
+  source.dynamics.cluster_lod.rules[2] = {0.4f, 0.3f, 4, 7};
   source.dynamics.strands.physics_parameters.time_step = 0.025f;
   source.dynamics.strands.fungus_parameters.matrixAw[0][0] = 3.0f;
   source.dynamics.strands.segment_pairs_render_parameters.thickness_multiplier = 0.75f;
@@ -60,6 +63,10 @@ TEST(EcoSysLabSystem, SceneConfigurationRoundTripsWithoutTransientGrowth) {
   EXPECT_FLOAT_EQ(restored.growth.settings.delta_time, 12.0f);
   EXPECT_FLOAT_EQ(restored.growth.remaining_time, 0.0f);
   EXPECT_FALSE(restored.dynamics.strands.enable_physics);
+  EXPECT_TRUE(restored.dynamics.use_subtree_clusters);
+  EXPECT_EQ(restored.dynamics.cluster_lod.enabled_policies, 5u);
+  EXPECT_EQ(restored.dynamics.cluster_lod.rules[2], source.dynamics.cluster_lod.rules[2]);
+  EXPECT_FALSE(restored.dynamics.cluster_forest);
   EXPECT_FLOAT_EQ(restored.dynamics.strands.physics_parameters.time_step, 0.025f);
   EXPECT_FLOAT_EQ(restored.dynamics.strands.fungus_parameters.matrixAw[0][0], 3.0f);
   EXPECT_FLOAT_EQ(restored.dynamics.strands.segment_pairs_render_parameters.thickness_multiplier, 0.75f);

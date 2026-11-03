@@ -43,5 +43,14 @@ bool eco_sys_lab_package::InspectTreeDescriptor(InspectorContext& context, TreeD
 
   if (editor_layer->DragAndDropButton<IBarkDescriptor>(target.bark_descriptor, "Bark Descriptor"))
     changed = true;
+  if (ImGui::CollapsingHeader("Default physics properties")) {
+    auto& p = target.physics_properties;
+    changed |= ImGui::DragFloat("Stretch stiffness", &p.stretch_stiffness, 10, 0, 1000000);
+    changed |= ImGui::DragFloat("Bend stiffness", &p.bend_stiffness, 1, 0, 100000);
+    changed |= ImGui::DragFloat("Wood density", &p.density, 1, 0.001f, 2000);
+    changed |= ImGui::DragFloat("Damping", &p.damping, 0.001f, 0, 10);
+    changed |= ImGui::DragFloat("Wind drag", &p.wind_drag, 0.1f, 0, 100);
+    ImGui::TextDisabled("Copied into new trees; existing trees retain their own properties.");
+  }
   return changed;
 }

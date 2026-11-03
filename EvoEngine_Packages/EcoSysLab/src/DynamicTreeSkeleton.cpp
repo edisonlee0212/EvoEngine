@@ -8,8 +8,10 @@ DynamicTreeSkeleton::GpuRestState DynamicTreeSkeleton::ExportGpuRestState() cons
   if (physics_rods_.empty())
     return state;
   state.initial_model = previous_model_;
+  state.density = physics_density_;
   state.vertices.reserve(physics_vertices_.size());
   state.rods.reserve(physics_rods_.size());
+  state.branch_orders.reserve(physics_rods_.size());
   state.angles.reserve(physics_angles_.size());
   for (size_t i = 0; i < physics_vertices_.size(); ++i) {
     const auto& vertex = physics_vertices_[i];
@@ -24,6 +26,7 @@ DynamicTreeSkeleton::GpuRestState DynamicTreeSkeleton::ExportGpuRestState() cons
   }
   for (size_t i = 0; i < physics_rods_.size(); ++i) {
     const auto& rod = physics_rods_[i];
+    state.branch_orders.push_back(rod.branch_order);
     const auto& incident = physics_rod_angles_[i];
     state.rods.push_back(
         {{static_cast<uint32_t>(rod.start), static_cast<uint32_t>(rod.end), static_cast<uint32_t>(rod.node),

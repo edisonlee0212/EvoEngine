@@ -241,11 +241,14 @@ void EcoSysLabSystem::Dynamics::Step(const std::shared_ptr<Scene>& scene, const 
       wind_particle_field_ = std::make_shared<WindParticleField>();
     wind_particle_field_->Step(scene, delta_time, gpu_tree_physics_);
   }
+  if (!growing && StepClusters(scene))
+    return;
   if (gpu_tree_physics_) {
     std::vector<GpuTreePhysics::TreeStep> steps;
     steps.reserve(gpu_physics_entries_.size());
     for (const auto& item : gpu_physics_entries_) {
       const auto physics = item.physics.lock();
+      physics->physics_settings.approximation_tolerance = glm::max(0.0f, physics_approximation_tolerance);
       steps.push_back(
           {physics->physics_settings, physics->physics_running, scene->GetDataComponent<GlobalTransform>(item.entity)});
     }

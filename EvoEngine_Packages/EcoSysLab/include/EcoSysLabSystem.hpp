@@ -7,11 +7,15 @@
 #include "ISystem.hpp"
 #include "SimulationSettings.hpp"
 #include "Transform.hpp"
+#include "TreePhysicsSettings.hpp"
 #include "VoxelSoilModel.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 class GpuTreePhysics;
+class GpuTreeClusterPhysics;
+class GpuTreeClusterForest;
+struct GpuTreePhysicsState;
 class DynamicTreeSkeleton;
 class WindParticleField;
 class Tree;
@@ -78,6 +82,9 @@ class EcoSysLabSystem : public ISystem {
   } interactions;
 
   struct Dynamics {
+    float physics_approximation_tolerance = 0.0f;
+    bool use_subtree_clusters = false;
+    TreeClusterLodSettings cluster_lod{2};
     struct StrandsSettings {
       FoliageRenderParameters foliage_render_parameters{};
       SegmentPairsRenderParameters segment_pairs_render_parameters{};
@@ -98,13 +105,21 @@ class EcoSysLabSystem : public ISystem {
       std::weak_ptr<DynamicTreeSkeleton> physics;
       uint64_t revision = 0;
       uint32_t gpu_id = UINT32_MAX;
+      std::shared_ptr<GpuTreeClusterPhysics> cluster;
+      std::shared_ptr<GpuTreePhysicsState> cluster_source;
+      bool cluster_running = false;
+      uint32_t pose_revision = 0;
     };
     std::shared_ptr<GpuTreePhysics> tree_physics;
+    std::shared_ptr<GpuTreeClusterForest> cluster_forest;
+    std::vector<std::shared_ptr<GpuTreeClusterPhysics>> cluster_members;
     std::weak_ptr<Scene> physics_scene;
     std::vector<Entry> entries;
     std::shared_ptr<WindParticleField> wind;
 
     void Reset();
+    void SyncClusters(bool growing);
+    bool StepClusters(const std::shared_ptr<Scene>& scene);
     void SyncTrees(const std::shared_ptr<Scene>& scene, bool growing);
     void UpdateAir(const std::shared_ptr<Scene>& scene, Environment& environment, bool growing);
     void Step(const std::shared_ptr<Scene>& scene, float delta_time, bool growing);

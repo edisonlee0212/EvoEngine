@@ -1,5 +1,6 @@
 #pragma once
 #include "Tree.hpp"
+#include "TreePhysicsSettings.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -10,6 +11,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
  public:
   struct GpuRestState {
     glm::mat4 initial_model{1.0f};
+    float density = 700.0f;
     struct Vertex {
       glm::vec4 position_inverse_mass;
       glm::vec4 velocity_radius;
@@ -34,24 +36,15 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     std::vector<uint32_t> vertex_rods;
     std::vector<uint32_t> rod_angles;
     std::vector<uint32_t> node_rods;
+    std::vector<uint32_t> branch_orders;  // CPU-only botanical order per original rod.
   };
 
-  struct PhysicsSettings {
-    float time_step = 0.016f;
-    int substeps = 4;
-    int iterations = 8;
-    float stretch_stiffness = 8192.0f;
-    float bend_stiffness = 512.0f;
-    float density = 700.0f;
-    float damping = 0.0f;
-    float wind_drag = 20.0f;
-    float contact_friction = 0.6f;
-    glm::vec3 gravity{0, -9.8f, 0};
-    glm::vec3 anchor_offset{};
-    bool fracture_enabled = false;
-    float fracture_angle_degrees = 45.0f;
-    float fracture_duration = 0.05f;
+  struct PhysicsSettings : TreePhysicsProperties, TreePhysicsQuality {
   } physics_settings;
+  void SetPhysicsProperties(const TreePhysicsProperties& properties) {
+    static_cast<TreePhysicsProperties&>(physics_settings) = properties;
+    physics_properties_initialized_ = true;
+  }
 
   bool physics_running = false;
   bool InitializePhysics(Tree& tree);
@@ -85,6 +78,8 @@ class DynamicTreeSkeleton : public IPrivateComponent {
 
  private:
   bool restore_gpu_pose_on_load_ = false;
+  bool physics_properties_initialized_ = false;
+  float physics_density_ = 700.0f;
   struct PhysicsVertex {
     glm::vec3 position{};
     float inverse_mass = 0;
@@ -95,6 +90,7 @@ class DynamicTreeSkeleton : public IPrivateComponent {
     int start = -1;
     int end = -1;
     SkeletonNodeHandle node = -1;
+    uint32_t branch_order = 0;
     float length = 0;
     float mass = 0;
     float radius = 0;

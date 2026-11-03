@@ -22,7 +22,14 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree) {
 }
 
 bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& model) {
+  if (!physics_properties_initialized_) {
+    const auto descriptor = tree.tree_descriptor_ref.Get<TreeDescriptor>();
+    if (descriptor && static_cast<const TreePhysicsProperties&>(physics_settings) == TreePhysicsProperties{})
+      SetPhysicsProperties(descriptor->physics_properties);
+    physics_properties_initialized_ = true;
+  }
   ResetPhysics();
+  physics_density_ = glm::max(physics_settings.density, 0.001f);
   previous_model_ = model.value;
   initial_scale_ = model.GetScale();
   initial_rotation_ = model.GetRotation();
@@ -33,10 +40,12 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
   const auto& nodes = skeleton.PeekRawNodes();
   physics_node_rods_.assign(nodes.size(), -1);
   std::vector<int> end_vertices(nodes.size(), -1);
+  std::vector<uint32_t> branch_orders(nodes.size());
   for (const auto handle : sorted) {
     const auto& node = skeleton.PeekNode(handle);
     const auto& info = node.info;
     const int parent = node.GetParentHandle();
+    branch_orders[handle] = parent < 0 ? 0 : branch_orders[parent] + (node.IsApical() ? 0 : 1);
     int start = parent < 0 ? -1 : end_vertices[parent];
     if (start < 0) {
       start = static_cast<int>(physics_vertices_.size());
@@ -59,6 +68,7 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     rod.start = start;
     rod.end = finish;
     rod.node = handle;
+    rod.branch_order = branch_orders[handle];
     rod.length = glm::length(end - physics_vertices_[start].position);
     const glm::vec3 scale = glm::abs(initial_scale_);
     const auto& mesh = tree.tree_mesh_generator_settings;
@@ -91,8 +101,8 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     const float area_scale = thickness_ratio * thickness_ratio;
     rod.structural_length_scale = 0.5f * (structural_lengths[rod.start] + structural_lengths[rod.end]) * area_scale;
     rod_bend_scales[i] = area_scale * area_scale;
-    rod.mass = glm::max(1e-6f, physics_settings.density * 3.14159265f * reference_radius * reference_radius *
-                                   rod.structural_length_scale);
+    rod.mass = glm::max(
+        1e-6f, physics_density_ * 3.14159265f * reference_radius * reference_radius * rod.structural_length_scale);
     physics_vertices_[rod.start].inverse_mass += 0.5f * rod.mass;
     physics_vertices_[rod.end].inverse_mass += 0.5f * rod.mass;
     physics_vertices_[rod.start].radius = glm::max(physics_vertices_[rod.start].radius, rod.radius);
