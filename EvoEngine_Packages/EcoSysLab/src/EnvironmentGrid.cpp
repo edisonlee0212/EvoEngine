@@ -173,8 +173,19 @@ bool EnvironmentGrid::HasForeignNodeWithin(const glm::vec3& position, const floa
   const auto radius = glm::vec3(distance * 2.f);
   const auto cell_size = glm::vec3(voxel_grid.GetVoxelSize());
   const auto resolution = voxel_grid.GetResolution();
-  const auto start = glm::max(glm::ivec3(0), glm::ivec3(glm::floor((center - radius) / cell_size)));
-  const auto end = glm::min(resolution - glm::ivec3(1), glm::ivec3(glm::ceil((center + radius) / cell_size)));
+  auto start = glm::max(glm::ivec3(0), glm::ivec3(glm::floor((center - radius) / cell_size)));
+  auto end = glm::min(resolution - glm::ivec3(1), glm::ivec3(glm::ceil((center + radius) / cell_size)));
+  // Round world bounds outward before using the same coordinate mapping as registrations.
+  const float infinity = std::numeric_limits<float>::infinity();
+  const auto reach = glm::vec3(std::nextafter(distance, infinity));
+  auto lower = position - reach;
+  auto upper = position + reach;
+  for (int axis = 0; axis < 3; ++axis) {
+    lower[axis] = std::nextafter(lower[axis], -infinity);
+    upper[axis] = std::nextafter(upper[axis], infinity);
+  }
+  start = glm::max(start, voxel_grid.GetCoordinate(lower));
+  end = glm::min(end, voxel_grid.GetCoordinate(upper));
   for (int z = start.z; z <= end.z; ++z) {
     for (int y = start.y; y <= end.y; ++y) {
       auto index = voxel_grid.GetIndex(glm::ivec3(start.x, y, z));

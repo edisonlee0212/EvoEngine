@@ -404,3 +404,36 @@ TEST(TreeGrowthEnvironment, OwnershipAndStrictDistanceSurviveResetAndMixedRegist
   EXPECT_TRUE(grid.HasForeignNodeWithin({std::nextafter(threshold, 0.f), 0, 0}, threshold, 7));
   EXPECT_FALSE(grid.HasForeignNodeWithin({std::nextafter(threshold, 1.f), 0, 0}, threshold, 7));
 }
+
+TEST(TreeGrowthEnvironment, TightQueryBoundsPreserveTranslatedGridBoundaryMatches) {
+  std::mt19937 rng(123);
+  std::uniform_real_distribution<float> coordinate(2.f, 26.f), component(-1.f, 1.f);
+  for (float size : {0.01f, 0.2f, 1.f}) {
+    for (float origin : {-4096.f, -4.f, 0.f, 4096.f}) {
+      EnvironmentGrid grid;
+      grid.voxel_grid.Initialize(size, glm::ivec3(32), glm::vec3(origin));
+      for (int sample = 0; sample < 1000; ++sample) {
+        const glm::vec3 cell(coordinate(rng), coordinate(rng), coordinate(rng));
+        const glm::vec3 point = glm::vec3(origin) + (sample % 2 ? glm::floor(cell) : cell) * size;
+        const float distance = size * (sample % 3 == 0 ? 0.01f : 0.75f);
+        const auto direction = glm::normalize(glm::vec3(component(rng), component(rng), component(rng)));
+        const glm::vec3 query = point + direction * distance;
+        grid.AddNode({point, 0, 7, 0.01f});
+        for (int axis = 0; axis < 3; ++axis) {
+          for (float toward : {-std::numeric_limits<float>::infinity(), std::numeric_limits<float>::infinity()}) {
+            auto adjacent = query;
+            adjacent[axis] = std::nextafter(adjacent[axis], toward);
+            bool expected = false;
+            grid.voxel_grid.PeekEach(adjacent, 2.f * distance, [&](const EnvironmentVoxel& voxel) {
+              for (const auto& record : voxel.internode_voxel_registrations)
+                expected |= glm::distance(adjacent, record.position) < distance;
+            });
+            ASSERT_EQ(grid.HasForeignNodeWithin(adjacent, distance, 8), expected)
+                << size << ":" << origin << ":" << sample << ":" << axis;
+          }
+        }
+        grid.voxel_grid.Ref(point) = EnvironmentVoxel{};
+      }
+    }
+  }
+}

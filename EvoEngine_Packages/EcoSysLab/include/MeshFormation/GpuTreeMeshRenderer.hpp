@@ -36,6 +36,8 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
   bool shadow_reference_ = false;
   uint32_t camera_batch_ = 1;
   struct TreeNodeCache;
+  static std::shared_ptr<const TreePose> GetTreePose(const std::shared_ptr<Tree>& tree, const BasicBarkDescriptor* bark,
+                                                     bool connected_pose, TreeNodeCache& cache);
   uint32_t Draw(const std::shared_ptr<TreeNodeCache>& tree, VkCommandBuffer command_buffer,
                 const std::shared_ptr<GraphicsPipeline>& pipeline, const glm::ivec4& viewport, uint32_t geometry_pass,
                 uint32_t pass, uint32_t camera, uint32_t light, uint32_t face, VkCullModeFlags cull_mode);
@@ -93,6 +95,7 @@ class GpuTreeMeshRenderer : public std::enable_shared_from_this<GpuTreeMeshRende
   std::unordered_map<Entity, std::shared_ptr<TreeNodeCache>, Entity> tree_node_cache_;
   std::vector<std::pair<uint32_t, std::shared_ptr<TreeNodeCache>>> retired_trees_;
   BufferUploadArena upload_arena_;
+  std::vector<GpuTreeNode> upload_nodes_;
 };
 
 }  // namespace eco_sys_lab_package
