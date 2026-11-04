@@ -561,3 +561,7 @@ Procedural tree node and shadow buffers retain geometrically grown capacity (at 
 Forest growth results are stored per tree in separate bytes so a later non-growing tree cannot erase an earlier result and workers do not share packed boolean storage.
 
 Growth voxel registration prepares transformed per-tree node records on CPU workers, then applies them in the original tree and reverse-node order. Shared grid writes stay serial, preserving light/biomass sums, ownership metadata and tip-record ordering before light propagation.
+
+Growth light intensity retains its dependent top-to-bottom passes. Once intensities are ready, light directions are evaluated in one parallel grid pass, preserving each cell's neighbor order and world-position distance calculations.
+
+Plant Visual organ packing composes local transforms by scaling the rotation basis and assigning translation directly, avoiding full translation/rotation/scale matrix products. World transforms, organ scale factors, visibility, ordering and colors are unchanged.

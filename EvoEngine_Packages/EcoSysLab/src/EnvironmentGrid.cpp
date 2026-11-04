@@ -119,40 +119,39 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
     }
   }
   const int light_space_size = glm::ceil(simulation_settings.detection_radius / voxel_size);
-  for (int y = resolution.y - 1; y >= 0; y--) {
-    Jobs::RunParallelFor(resolution.x * resolution.z, [&](size_t i) {
-      const int x = i / resolution.z;
-      const int z = i % resolution.z;
-      glm::vec3 sum = glm::vec3(0.0f);
-      for (int x_offset = -light_space_size; x_offset <= light_space_size; x_offset++) {
-        for (int z_offset = -light_space_size; z_offset <= light_space_size; z_offset++) {
-          for (int y_offset = 1; y_offset <= light_space_size; y_offset++) {
-            if (y + y_offset < 0 || y + y_offset > resolution.y - 1)
-              continue;
-            const auto other_voxel_center = glm::ivec3(x + x_offset, y + y_offset, z + z_offset);
-            const auto position_diff =
-                voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
-            const float distance = glm::length(position_diff);
-            if (distance > simulation_settings.detection_radius)
-              continue;
+  const ProfilerScope direction_scope("EcoSysLab / Growth light direction", "EcoSysLab");
+  Jobs::RunParallelFor(voxel_grid.GetVoxelCount(), [&](size_t i) {
+    const auto coordinate = voxel_grid.GetCoordinate(static_cast<int>(i));
+    const int x = coordinate.x, y = coordinate.y, z = coordinate.z;
+    glm::vec3 sum = glm::vec3(0.0f);
+    for (int x_offset = -light_space_size; x_offset <= light_space_size; x_offset++) {
+      for (int z_offset = -light_space_size; z_offset <= light_space_size; z_offset++) {
+        for (int y_offset = 1; y_offset <= light_space_size; y_offset++) {
+          if (y + y_offset < 0 || y + y_offset > resolution.y - 1)
+            continue;
+          const auto other_voxel_center = glm::ivec3(x + x_offset, y + y_offset, z + z_offset);
+          const auto position_diff =
+              voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
+          const float distance = glm::length(position_diff);
+          if (distance > simulation_settings.detection_radius)
+            continue;
 
-            if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 ||
-                z + z_offset > resolution.z - 1) {
-              sum += position_diff;
-            } else {
-              const auto& target_voxel = voxel_grid.Ref(other_voxel_center);
-              sum += target_voxel.light_intensity * position_diff;
-            }
+          if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 ||
+              z + z_offset > resolution.z - 1) {
+            sum += position_diff;
+          } else {
+            const auto& target_voxel = voxel_grid.Ref(other_voxel_center);
+            sum += target_voxel.light_intensity * position_diff;
           }
         }
       }
-      auto& voxel = voxel_grid.Ref(glm::ivec3(x, y, z));
-      if (glm::length(sum) > glm::epsilon<float>())
-        voxel.light_direction = glm::normalize(sum);
-      else
-        voxel.light_direction = glm::vec3(0.0f, 1.0f, 0.0f);
-    });
-  }
+    }
+    auto& voxel = voxel_grid.Ref(glm::ivec3(x, y, z));
+    if (glm::length(sum) > glm::epsilon<float>())
+      voxel.light_direction = glm::normalize(sum);
+    else
+      voxel.light_direction = glm::vec3(0.0f, 1.0f, 0.0f);
+  });
 }
 
 void EnvironmentGrid::AddBiomass(const glm::vec3& position, const float value) {

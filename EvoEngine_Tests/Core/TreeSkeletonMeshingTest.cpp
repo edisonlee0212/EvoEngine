@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <random>
 
 #include "../../EvoEngine_Packages/EcoSysLab/Editor/include/PlantVisualOrganBuffers.hpp"
 #include "Application.hpp"
@@ -374,4 +375,42 @@ TEST(SkeletonRemoval, OverlappingSubtreesCompactHandlesAndAllowSubsequentRemoval
   EXPECT_EQ(skeleton.PeekSortedNodeList().size(), 2u);
   skeleton.RemoveNodes({0});
   EXPECT_TRUE(skeleton.PeekRawNodes().empty());
+}
+
+TEST(PlantVisualOrgans, DirectTrsMatchesOriginalMatrixProductsExactly) {
+  ShootSkeleton skeleton;
+  skeleton.SortLists();
+  auto& data = skeleton.RefNode(0).data;
+  data.leaves.resize(1);
+  data.flowers.resize(1);
+  data.fruits.resize(1);
+  std::mt19937 rng(53);
+  std::uniform_real_distribution<float> value(-10.f, 10.f);
+  const auto vector = [&] {
+    return glm::vec3(value(rng), value(rng), value(rng));
+  };
+  PlantVisualOrganBuffers buffers;
+  for (int i = 0; i < 1000; ++i) {
+    auto& organ = data.leaves[0];
+    organ.status = OrganStatus::Flushed;
+    organ.position = vector();
+    organ.rotation = glm::quat(vector());
+    if (i % 2)
+      organ.rotation *= 2.f;
+    organ.scale = i % 7 ? vector() : glm::vec3(0.f);
+    static_cast<ShootOrgan&>(data.flowers[0]) = organ;
+    static_cast<ShootOrgan&>(data.fruits[0]) = organ;
+    const auto world = glm::translate(vector()) * glm::mat4_cast(glm::quat(vector())) * glm::scale(vector());
+    buffers.Build(skeleton, world, true, true, true);
+    const std::vector<ParticleInfo>* lists[] = {&buffers.foliage, &buffers.flowers, &buffers.fruits};
+    const float scales[] = {0.5f, 1.f, 0.25f};
+    for (int type = 0; type < 3; ++type) {
+      const auto local =
+          glm::translate(organ.position) * glm::mat4_cast(organ.rotation) * glm::scale(organ.scale * scales[type]);
+      const auto expected = world * local;
+      ASSERT_EQ(lists[type]->size(), 1u);
+      for (int column = 0; column < 4; ++column)
+        EXPECT_EQ(lists[type]->front().instance_matrix.value[column], expected[column]);
+    }
+  }
 }

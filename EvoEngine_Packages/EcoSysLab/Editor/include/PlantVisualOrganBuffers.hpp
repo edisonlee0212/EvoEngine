@@ -24,8 +24,8 @@ struct PlantVisualOrganBuffers {
           for (const auto& leaf : internode_data.leaves) {
             if (leaf.status != OrganStatus::Inactive) {
               foliage.emplace_back();
-              glm::mat4 leaf_transform =
-                  glm::translate(leaf.position) * glm::mat4_cast(leaf.rotation) * glm::scale(leaf.scale * .5f);
+              auto leaf_transform = glm::scale(glm::mat4_cast(leaf.rotation), leaf.scale * .5f);
+              leaf_transform[3] = glm::vec4(leaf.position, 1.0f);
               foliage.back().instance_matrix.value = transform * leaf_transform;
               foliage.back().instance_color =
                   glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 203 / 255.0f, 0 / 255.0f),
@@ -38,8 +38,8 @@ struct PlantVisualOrganBuffers {
           for (const auto& flower : internode_data.flowers) {
             if (flower.status != OrganStatus::Inactive) {
               flowers.emplace_back();
-              glm::mat4 flower_transform =
-                  glm::translate(flower.position) * glm::mat4_cast(flower.rotation) * glm::scale(flower.scale);
+              auto flower_transform = glm::scale(glm::mat4_cast(flower.rotation), flower.scale);
+              flower_transform[3] = glm::vec4(flower.position, 1.0f);
               flowers.back().instance_matrix.value = transform * flower_transform;
               flowers.back().instance_color =
                   glm::vec4(glm::mix(glm::vec3(255 / 255.0f, 255 / 255.0f, 255 / 255.0f),
@@ -52,8 +52,8 @@ struct PlantVisualOrganBuffers {
           for (const auto& fruit : internode_data.fruits) {
             if (fruit.status != OrganStatus::Inactive) {
               fruits.emplace_back();
-              glm::mat4 fruit_transform =
-                  glm::translate(fruit.position) * glm::mat4_cast(fruit.rotation) * glm::scale(fruit.scale * .25f);
+              auto fruit_transform = glm::scale(glm::mat4_cast(fruit.rotation), fruit.scale * .25f);
+              fruit_transform[3] = glm::vec4(fruit.position, 1.0f);
               fruits.back().instance_matrix.value = transform * fruit_transform;
               fruits.back().instance_color =
                   glm::vec4(glm::mix(glm::vec3(152 / 255.0f, 255 / 255.0f, 152 / 255.0f),
