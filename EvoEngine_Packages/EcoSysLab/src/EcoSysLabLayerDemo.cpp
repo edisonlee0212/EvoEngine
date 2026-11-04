@@ -51,7 +51,7 @@ struct WindyTreeDemoSettings {
   glm::vec3 ground_size{12.0f, 0.2f, 12.0f};
   glm::vec3 camera_position{0.0f, 5.0f, 14.0f};
   glm::vec3 camera_target{0.0f, 2.8f, 0.0f};
-  glm::vec3 sun_direction{0.35f, -0.8f, -0.48f};
+  glm::vec3 sun_direction{0.45f, -0.8f, 0.6f};
   float sun_brightness = 20.0f;
   float ambient_brightness = 4.0f;
   glm::vec3 ambient_color{0.65f, 0.72f, 0.8f};
