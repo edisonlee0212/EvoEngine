@@ -411,11 +411,10 @@ bool EcoSysLabSystem::Growth::Step(EcoSysLabSystem& system, const SimulationSett
       soil.Step();
     }
     system.environment.PrepareForGrowth(scene, target_simulation_settings);
-    std::vector<bool> grown_stat{};
-    grown_stat.resize(Jobs::GetWorkerSize());
+    std::vector<uint8_t> grown_stat(tree_entities->size());
     {
       const ProfilerScope trees_scope("EcoSysLab / Grow trees parallel", "EcoSysLab");
-      Jobs::RunParallelFor(tree_entities->size(), [&](size_t i, size_t thread_index) {
+      Jobs::RunParallelFor(tree_entities->size(), [&](size_t i) {
         const auto tree_entity = tree_entities->at(i);
         if (!scene->IsEntityEnabled(tree_entity))
           return;
@@ -432,7 +431,7 @@ bool EcoSysLabSystem::Growth::Step(EcoSysLabSystem& system, const SimulationSett
             tree->shoot_model.RefShootSkeleton().PeekSortedFlowList().size() >=
                 target_simulation_settings.max_flow_count)
           return;
-        grown_stat[thread_index] = tree->TryGrow(target_simulation_settings, -1, true, climate, soil);
+        grown_stat[i] = tree->TryGrow(target_simulation_settings, -1, true, climate, soil);
       });
     }
 

@@ -6,6 +6,7 @@
 #include "AssetManager.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
@@ -14,6 +15,7 @@
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "HeightField.hpp"
+#include "Jobs.hpp"
 #include "Material.hpp"
 #include "Scene.hpp"
 
@@ -179,4 +181,41 @@ TEST(ForestPatch, AppleForestAssetUsesFourTrees) {
   const auto asset = YAML::LoadFile(path.string());
   EXPECT_EQ(asset["grid_size"].as<glm::ivec2>(), glm::ivec2(2, 2));
   EXPECT_FLOAT_EQ(asset["simulation_time"].as<float>(), 4.0f);
+}
+
+TEST(ForestGrowth, GrowingTreeResultSurvivesFollowingNonGrowingTrees) {
+  Application application;
+  ApplicationContextScope scope(application);
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterAsset<BasicShootDescriptor>("BasicShootDescriptor", {".shoot"});
+  application.RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
+  application.RegisterPrivateComponent<Tree>("Tree");
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  application.Attach(scene);
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.climate.Initialize(ClimateParameters{});
+  const auto empty = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+  const auto growing = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+  const auto shoot = AssetManager::CreateTemporaryAsset<BasicShootDescriptor>();
+  growing->shoot_descriptor = shoot;
+  std::shared_ptr<Tree> first;
+  for (size_t i = 0; i < 2 * Jobs::GetWorkerSize(); ++i) {
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(scene->CreateEntity()).lock();
+    tree->tree_descriptor_ref = i == 0 ? growing : empty;
+    if (i == 0)
+      first = tree;
+  }
+  SimulationSettings simulation;
+  simulation.soil_simulation = false;
+  SimulationStats stats;
+  EXPECT_TRUE(system->growth.Step(*system, simulation, stats));
+  EXPECT_FALSE(first->shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty());
+  application.Terminate();
 }
