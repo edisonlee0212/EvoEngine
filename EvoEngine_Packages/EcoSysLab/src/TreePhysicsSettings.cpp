@@ -25,6 +25,8 @@ void DeserializeTreeClusterLodSettings(const YAML::Node& in, TreeClusterLodSetti
 void SerializeTreePhysicsProperties(YAML::Emitter& out, const TreePhysicsProperties& p) {
   out << YAML::Key << "stretch_stiffness" << YAML::Value << p.stretch_stiffness;
   out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
+  out << YAML::Key << "bend_thickness_exponent" << YAML::Value << p.bend_thickness_exponent;
+  out << YAML::Key << "bend_downstream_exponent" << YAML::Value << p.bend_downstream_exponent;
   out << YAML::Key << "density" << YAML::Value << p.density;
   out << YAML::Key << "damping" << YAML::Value << p.damping;
   out << YAML::Key << "wind_drag" << YAML::Value << p.wind_drag;
@@ -42,6 +44,10 @@ void DeserializeTreePhysicsProperties(const YAML::Node& in, TreePhysicsPropertie
     p.stretch_stiffness = in["stretch_stiffness"].as<float>();
   if (in["bend_stiffness"])
     p.bend_stiffness = in["bend_stiffness"].as<float>();
+  if (in["bend_thickness_exponent"])
+    p.bend_thickness_exponent = in["bend_thickness_exponent"].as<float>();
+  if (in["bend_downstream_exponent"])
+    p.bend_downstream_exponent = in["bend_downstream_exponent"].as<float>();
   if (in["density"])
     p.density = in["density"].as<float>();
   if (in["damping"])

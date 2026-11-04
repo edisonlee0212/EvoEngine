@@ -70,6 +70,9 @@ void DeserializeAirEnvironment(const YAML::Node& in, AirEnvironment& target) {
 
 void SerializeBlower(YAML::Emitter& out, const Blower& target) {
   out << YAML::Key << "speed" << YAML::Value << target.speed;
+  out << YAML::Key << "speed_noise" << YAML::Value << target.speed_noise;
+  out << YAML::Key << "speed_max" << YAML::Value << target.speed_max;
+  out << YAML::Key << "speed_noise_frequency" << YAML::Value << target.speed_noise_frequency;
   out << YAML::Key << "particle_rate" << YAML::Value << target.particle_rate;
   out << YAML::Key << "particle_radius" << YAML::Value << target.particle_radius;
   out << YAML::Key << "wind_strength" << YAML::Value << target.wind_strength;
@@ -82,6 +85,12 @@ void SerializeBlower(YAML::Emitter& out, const Blower& target) {
 void DeserializeBlower(const YAML::Node& in, Blower& target) {
   if (in["speed"])
     target.speed = in["speed"].as<float>();
+  if (in["speed_noise"])
+    target.speed_noise = in["speed_noise"].as<bool>();
+  if (in["speed_max"])
+    target.speed_max = in["speed_max"].as<float>();
+  if (in["speed_noise_frequency"])
+    target.speed_noise_frequency = in["speed_noise_frequency"].as<float>();
   if (in["particle_rate"])
     target.particle_rate = in["particle_rate"].as<float>();
   if (in["particle_radius"])

@@ -201,11 +201,7 @@ void EcoSysLabLayer::Update() {
   const auto scene = GetScene();
   if (!scene)
     return;
-  auto system = scene->GetSystem<EcoSysLabSystem>();
-  if (!system) {
-    system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
-    system->Enable();
-  }
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
   {
     const ProfilerScope scope("EcoSysLab / Environment configuration", "EcoSysLab");
     system->environment.EnsureConfiguration(scene);

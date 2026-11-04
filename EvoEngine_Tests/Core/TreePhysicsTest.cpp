@@ -17,10 +17,13 @@ using namespace eco_sys_lab_package;
 
 TEST(Blower, SettingsRoundTrip) {
   Blower source;
-  source.speed = 12.0f;
+  source.speed = 100.0f;
+  source.speed_noise = true;
+  source.speed_max = 200.0f;
+  source.speed_noise_frequency = 0.3f;
   source.particle_rate = 2400.0f;
   source.particle_radius = 0.35f;
-  source.wind_strength = 2.0f;
+  source.wind_strength = 30.0f;
   source.temperature_c = 32.0f;
   source.relative_humidity = 0.8f;
   source.spread_degrees = 15.0f;
@@ -33,6 +36,9 @@ TEST(Blower, SettingsRoundTrip) {
   Blower loaded;
   DeserializeBlower(YAML::Load(out.c_str()), loaded);
   EXPECT_FLOAT_EQ(loaded.speed, source.speed);
+  EXPECT_EQ(loaded.speed_noise, source.speed_noise);
+  EXPECT_FLOAT_EQ(loaded.speed_max, source.speed_max);
+  EXPECT_FLOAT_EQ(loaded.speed_noise_frequency, source.speed_noise_frequency);
   EXPECT_FLOAT_EQ(loaded.particle_rate, source.particle_rate);
   EXPECT_FLOAT_EQ(loaded.particle_radius, source.particle_radius);
   EXPECT_FLOAT_EQ(loaded.wind_strength, source.wind_strength);
@@ -169,6 +175,8 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DynamicTreeSkeleton source;
   source.physics_settings.time_step = 0.01f;
   source.physics_settings.bend_stiffness = 120.0f;
+  source.physics_settings.bend_thickness_exponent = 3.0f;
+  source.physics_settings.bend_downstream_exponent = 1.5f;
   source.physics_settings.wind_drag = 7.5f;
   source.physics_settings.contact_friction = 0.8f;
   source.physics_settings.gravity = {1, -2, 3};
@@ -186,6 +194,8 @@ TEST(TreePhysics, ComponentSettingsRoundTripWithoutSimulationState) {
   DeserializeDynamicTreeSkeleton(YAML::Load(out.c_str()), loaded);
   EXPECT_FLOAT_EQ(loaded.physics_settings.time_step, 0.01f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.bend_stiffness, 120.0f);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.bend_thickness_exponent, 3.0f);
+  EXPECT_FLOAT_EQ(loaded.physics_settings.bend_downstream_exponent, 1.5f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.wind_drag, 7.5f);
   EXPECT_FLOAT_EQ(loaded.physics_settings.contact_friction, 0.8f);
   EXPECT_EQ(loaded.physics_settings.gravity, glm::vec3(1, -2, 3));
@@ -614,4 +624,82 @@ TEST(TreeGrowthEnvironment, FlatLightDirectionsMatchLayeredReference) {
     }
   }
   application.Terminate();
+}
+
+TEST(TreePhysics, BendScalingChangesOnlyBendingAndReducesThicknessContrast) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  for (const float thickness : {0.01f, 0.1f}) {
+    Tree tree;
+    auto skeleton = MakeFork();
+    for (const auto handle : {0, 1, 2})
+      skeleton.RefNode(handle).info.thickness = thickness;
+    tree.shoot_model.Initialize(skeleton);
+    DynamicTreeSkeleton physics;
+    physics.physics_settings.bend_thickness_exponent = 4;
+    physics.physics_settings.bend_downstream_exponent = 1.8f;
+    ASSERT_TRUE(physics.InitializePhysics(tree));
+    const auto original = physics.ExportGpuRestState();
+    physics.physics_settings.bend_thickness_exponent = 2;
+    physics.physics_settings.bend_downstream_exponent = 1;
+    ASSERT_TRUE(physics.InitializePhysics(tree));
+    const auto candidate = physics.ExportGpuRestState();
+    ASSERT_EQ(original.rods.size(), candidate.rods.size());
+    for (size_t i = 0; i < original.rods.size(); ++i) {
+      EXPECT_EQ(original.rods[i].length_scale_mass_radius, candidate.rods[i].length_scale_mass_radius);
+      EXPECT_EQ(original.rods[i].links, candidate.rods[i].links);
+    }
+    for (size_t i = 0; i < original.vertices.size(); ++i)
+      EXPECT_EQ(original.vertices[i].position_inverse_mass, candidate.vertices[i].position_inverse_mass);
+    // Incoming-edge-inclusive structural lengths: root 5.2, fork 4.2, each tip 0.8.
+    const float downstream = (5.2f + 4.2f + 4.2f + 0.8f) * 0.25f;
+    for (size_t i = 0; i < original.angles.size(); ++i) {
+      const float expected = 4 * downstream * std::pow(thickness / 0.05f, 2.0f);
+      EXPECT_NEAR(candidate.angles[i].bend_scale.x, expected, expected * 1e-5f);
+      if (thickness < 0.05f)
+        EXPECT_GT(candidate.angles[i].bend_scale.x, original.angles[i].bend_scale.x);
+      else
+        EXPECT_LT(candidate.angles[i].bend_scale.x, original.angles[i].bend_scale.x);
+    }
+  }
+}
+
+TEST(TreePhysics, BendScalingDefaultsAndPropertyEquality) {
+  TreePhysicsProperties defaults, loaded;
+  DeserializeTreePhysicsProperties(YAML::Load("bend_stiffness: 512"), loaded);
+  EXPECT_FLOAT_EQ(loaded.bend_thickness_exponent, 3.5f);
+  EXPECT_FLOAT_EQ(loaded.bend_downstream_exponent, 1.5f);
+  EXPECT_TRUE(loaded == defaults);
+  loaded.bend_thickness_exponent = 4;
+  EXPECT_FALSE(loaded == defaults);
+  loaded = defaults;
+  loaded.bend_downstream_exponent = 1.8f;
+  EXPECT_FALSE(loaded == defaults);
+}
+
+TEST(Blower, PerlinSpeedIsBoundedSmoothAndDeterministic) {
+  Blower blower;
+  blower.speed = 100;
+  blower.speed_max = 200;
+  EXPECT_FLOAT_EQ(blower.SampleSpeed(13), 100);
+  blower.speed_noise = true;
+  float previous = blower.SampleSpeed(0), minimum = previous, maximum = previous;
+  for (int i = 0; i < 6000; ++i) {
+    const float t = i * 0.016f;
+    const float speed = blower.SampleSpeed(t);
+    EXPECT_GE(speed, 100);
+    EXPECT_LE(speed, 200);
+    EXPECT_FLOAT_EQ(speed, blower.SampleSpeed(t));
+    EXPECT_LT(std::abs(speed - previous), 2);
+    minimum = std::min(minimum, speed);
+    maximum = std::max(maximum, speed);
+    previous = speed;
+  }
+  EXPECT_GT(maximum - minimum, 10);
+  blower.speed_max = 50;
+  EXPECT_FLOAT_EQ(blower.SampleSpeed(2), 100);
+  Blower legacy;
+  DeserializeBlower(YAML::Load("speed: 8"), legacy);
+  EXPECT_FALSE(legacy.speed_noise);
+  EXPECT_FLOAT_EQ(legacy.SampleSpeed(10), 8);
 }

@@ -74,7 +74,7 @@ project and enters Play automatically. `WindyTreeDemoSettings` in `src/EcoSysLab
 `WindyTreeDemoSettings::TreePreset` can switch between the script-defined Spruce and Acacia presets. The Spruce growth
 parameters match the project's Spruce descriptor, while the demo supplies its own materials and smaller foliage cards
 to keep branches visible.
-The demo uses rasterization for procedural branches and hides foliage. Plant Visual overlays are enabled; gizmos defer first use until their instance data is uploaded. Selection refreshes branch overlays without rebuilding foliage or hidden climate grids. Spruce grows for five simulated years by default (Acacia for eight) after background preparation completes, and the Blower begins emitting wind after growth finishes. Wind particles are hidden by default so the branches remain visible; use Show wind particles in the EcoSysLab panel to display them. Stop returns to
+The demo uses rasterization for procedural branches and foliage, with a FoliageRenderer and script-owned leaf material on each tree. Plant Visual overlays are enabled; gizmos defer first use until their instance data is uploaded. Selection refreshes branch overlays without rebuilding foliage or hidden climate grids. Spruce grows for five simulated years by default (Acacia for eight) after background preparation completes, and the Blower begins emitting wind after growth finishes. Wind particles are hidden by default so the branches remain visible; use Show wind particles in the EcoSysLab panel to display them. Stop returns to
 the generated project's empty starting scene.
 
 ## Editor panel
@@ -565,3 +565,11 @@ Growth voxel registration prepares transformed per-tree node records on CPU work
 Growth light intensity retains its dependent top-to-bottom passes. Once intensities are ready, light directions are evaluated in one parallel grid pass, preserving each cell's neighbor order and world-position distance calculations.
 
 Plant Visual organ packing composes local transforms by scaling the rotation basis and assigning translation directly, avoiding full translation/rotation/scale matrix products. World transforms, organ scale factors, visibility, ordering and colors are unchanged.
+
+Bending uses per-tree `bend_thickness_exponent` and `bend_downstream_exponent` properties, available in DynamicTreeSkeleton and TreeDescriptor inspectors. Defaults are 3.5 and 1.5 (previous hardcoded values: 4 and 1.8); older serialized properties without these fields adopt the new defaults. The coefficient remains `4 * downstream_length^exponent * min(thickness_ratio^exponent)`, with thickness normalized by 0.05 m. Mass, stretch scaling and bend stiffness are unchanged. These rest-data settings apply on **Reset GPU pose to growth**, loading, or physics initialization after regrowth; changing them does not alter an already-running pose. Both rod and subtree-cluster solvers consume the resulting coefficients.
+
+The scripted Windy Tree demo uses Perlin-varying wind bounded between 100 and 500 m/s, emitting 60,000 particles/s at wind strength 100. Noise frequency is 10 units per simulated second. It still enables the blower only after growth finishes. These values are adjustable in `WindyTreeDemoSettings` in `EcoSysLabLayerDemo.cpp`.
+
+Blower Perlin speed variation is optional and saved with its minimum/maximum speed and frequency. The seeded noise clock advances only during enabled emission updates, pauses with simulation, and resets with the wind field/scene. Existing blowers retain constant speed. The particle pool holds 262,144 entries (enough for one 60,000/s blower with the existing three-second lifetime); per-update emission is bounded by pool capacity rather than 2,048. Strength supports 0–100.
+
+New EcoSysLabSystem instances start enabled, regardless of whether the editor panel, runtime layer or scene system menu creates them. Retrieving an existing system does not enable it. Saved disabled states and the enabled state copied into Play are preserved; previously saved disabled systems must be enabled explicitly.

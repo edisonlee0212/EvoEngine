@@ -1310,15 +1310,15 @@ TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
   };
   struct EmitParameters {
     glm::mat4 model{1.0f};
-    glm::vec4 speed_spread_lifetime{10.0f, 0.0f, 3.0f, 0.1f};
-    glm::vec4 collision{0.3f, 2.0f, 0.01f, 303.15f};
-    glm::uvec4 base_count_seed_capacity{0, 64, 17, 64};
+    glm::vec4 speed_spread_lifetime{150.0f, 0.0f, 3.0f, 0.1f};
+    glm::vec4 collision{0.3f, 30.0f, 0.01f, 303.15f};
+    glm::uvec4 base_count_seed_capacity{0, 6000, 17, 6000};
   };
   auto layout = std::make_shared<DescriptorSetLayout>();
   layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   layout->Initialize();
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  info.size = 64 * sizeof(Particle);
+  info.size = 6000 * sizeof(Particle);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   VmaAllocationCreateInfo allocation{};
@@ -1338,23 +1338,24 @@ TEST(GpuTreePhysics, WindEmissionFillsTheSpaceBehindBlower) {
     pipeline->Bind(command);
     pipeline->BindDescriptorSet(command, 0, descriptor->GetVkDescriptorSet());
     pipeline->PushConstant(command, 0, EmitParameters{});
-    pipeline->Dispatch(command, 1, 1, 1);
+    pipeline->Dispatch(command, (6000 + 63) / 64, 1, 1);
   });
   evo_engine::PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("GPU wind emission spacing");
   std::vector<Particle> particles;
-  buffer->DownloadVector(particles, 64);
+  buffer->DownloadVector(particles, 6000);
   bool near_surface = false;
   bool far_behind = false;
   for (const auto& particle : particles) {
-    EXPECT_GE(particle.position_age.z, -1.0f);
+    EXPECT_FLOAT_EQ(particle.velocity_lifetime.z, 150.0f);
+    EXPECT_GE(particle.position_age.z, -15.0f);
     EXPECT_LE(particle.position_age.z, 0.0f);
     EXPECT_FLOAT_EQ(particle.collision.x, 0.3f);
-    EXPECT_FLOAT_EQ(particle.collision.y, 2.0f);
+    EXPECT_FLOAT_EQ(particle.collision.y, 30.0f);
     EXPECT_FLOAT_EQ(particle.collision.z, 0.01f);
     EXPECT_FLOAT_EQ(particle.collision.w, 303.15f);
-    near_surface |= particle.position_age.z > -0.2f;
-    far_behind |= particle.position_age.z < -0.8f;
+    near_surface |= particle.position_age.z > -3.0f;
+    far_behind |= particle.position_age.z < -12.0f;
   }
   EXPECT_TRUE(near_surface);
   EXPECT_TRUE(far_behind);
@@ -3877,4 +3878,44 @@ TEST(GpuTreePhysics, ParallelAirBoundsPreserveConnectedCoverageAndRegistration) 
   EXPECT_EQ(prepared.GetAirCellCount(), direct.GetAirCellCount());
   ShootSkeleton empty(0);
   EXPECT_FALSE(WindParticleField::CalculateTreeCoverage(empty, glm::mat4(1)));
+}
+
+TEST(GpuTreePhysics, BendScalingExperiment) {
+  ScopedTreeGpuPlatform platform;
+  for (const float thickness : {0.01f, 0.1f}) {
+    Tree tree;
+    auto skeleton = MakeGpuPhysicsFork();
+    for (const auto handle : {0, 1, 2})
+      skeleton.RefNode(handle).info.thickness = thickness;
+    tree.shoot_model.Initialize(skeleton);
+    DynamicTreeSkeleton source;
+    source.physics_settings.bend_thickness_exponent = 4;
+    source.physics_settings.bend_downstream_exponent = 1.8f;
+    ASSERT_TRUE(source.InitializePhysics(tree));
+    const auto original = source.ExportGpuRestState();
+    source.physics_settings.bend_thickness_exponent = 2;
+    source.physics_settings.bend_downstream_exponent = 1;
+    ASSERT_TRUE(source.InitializePhysics(tree));
+    const auto candidate = source.ExportGpuRestState();
+    GpuTreePhysics physics;
+    ASSERT_TRUE(physics.Initialize({original, candidate}));
+    DynamicTreeSkeleton::PhysicsSettings settings;
+    double old_drop = 0, new_drop = 0;
+    for (int frame = 0; frame < 120; ++frame) {
+      StepLod(physics, {{settings, true}, {settings, true}});
+      std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> a, b;
+      physics.DownloadVertices(a, 0);
+      physics.DownloadVertices(b, 1);
+      ASSERT_TRUE(std::isfinite(a.back().position_inverse_mass.y));
+      ASSERT_TRUE(std::isfinite(b.back().position_inverse_mass.y));
+      old_drop += original.vertices.back().position_inverse_mass.y - a.back().position_inverse_mass.y;
+      new_drop += candidate.vertices.back().position_inverse_mass.y - b.back().position_inverse_mass.y;
+    }
+    std::cout << "BEND_SCALING thickness=" << thickness << " original_mean_drop=" << old_drop / 120
+              << " candidate_mean_drop=" << new_drop / 120 << std::endl;
+    if (thickness < 0.05f)
+      EXPECT_LT(new_drop, old_drop);
+    else
+      EXPECT_GT(new_drop, old_drop);
+  }
 }

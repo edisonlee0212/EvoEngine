@@ -22,6 +22,9 @@ class Tree;
 
 class EcoSysLabSystem : public ISystem {
  public:
+  EcoSysLabSystem() {
+    Enable();
+  }
   struct Rendering {
     bool screen_space_tessellation = true;
     bool camera_impostors = true;

@@ -19,6 +19,8 @@ struct TreeClusterLodSettings {
 struct TreePhysicsProperties {
   float stretch_stiffness = 8192.0f;
   float bend_stiffness = 512.0f;
+  float bend_thickness_exponent = 3.5f;
+  float bend_downstream_exponent = 1.5f;
   float density = 700.0f;
   float damping = 0.0f;
   float wind_drag = 20.0f;
@@ -29,9 +31,11 @@ struct TreePhysicsProperties {
   float fracture_angle_degrees = 45.0f;
   float fracture_duration = 0.05f;
   bool operator==(const TreePhysicsProperties& other) const {
-    return std::tie(stretch_stiffness, bend_stiffness, density, damping, wind_drag, contact_friction, gravity,
-                    anchor_offset, fracture_enabled, fracture_angle_degrees, fracture_duration) ==
-           std::tie(other.stretch_stiffness, other.bend_stiffness, other.density, other.damping, other.wind_drag,
+    return std::tie(stretch_stiffness, bend_stiffness, bend_thickness_exponent, bend_downstream_exponent, density,
+                    damping, wind_drag, contact_friction, gravity, anchor_offset, fracture_enabled,
+                    fracture_angle_degrees, fracture_duration) ==
+           std::tie(other.stretch_stiffness, other.bend_stiffness, other.bend_thickness_exponent,
+                    other.bend_downstream_exponent, other.density, other.damping, other.wind_drag,
                     other.contact_friction, other.gravity, other.anchor_offset, other.fracture_enabled,
                     other.fracture_angle_degrees, other.fracture_duration);
   }

@@ -11,6 +11,7 @@
 #include "Climate.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "GeometryStorage.hpp"
 #include "GpuTreeMeshRenderer.hpp"
@@ -53,9 +54,11 @@ struct WindyTreeDemoSettings {
   float sun_brightness = 2.0f;
   glm::vec3 blower_position{-5.0f, 2.5f, 0.0f};
   glm::vec3 blower_size{8.0f, 6.0f, 1.0f};
-  float wind_speed = 5.0f;
-  float wind_particle_rate = 1500.0f;
-  float wind_strength = 1.5f;
+  float wind_speed = 100.0f;
+  float wind_speed_max = 500.0f;
+  float wind_noise_frequency = 10.0f;
+  float wind_particle_rate = 60000.0f;
+  float wind_strength = 100.0f;
   float wind_particle_radius = 0.25f;
   float air_cell_size = 0.1f;
   bool show_wind_particles = false;
@@ -106,7 +109,6 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   const bool spruce = settings.tree_preset == WindyTreeDemoSettings::TreePreset::Spruce;
   const auto root = scene->CreateEntity("Windy Tree Demo");
   auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
-  system->Enable();
   system->environment.climate_descriptor = AssetManager::CreateTemporaryAsset<ClimateDescriptor>();
   auto soil = AssetManager::CreateTemporaryAsset<SoilDescriptor>();
   soil->texture_resolution = {64, 64};
@@ -205,6 +207,7 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
       tree->shoot_model.seed = settings.tree_seed + static_cast<uint32_t>(trees.size());
       tree->generate_mesh = false;
       scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock()->material_ref = bark_material;
+      scene->GetOrSetPrivateComponent<FoliageRenderer>(entity).lock()->material_ref = leaf_material;
       trees.push_back(entity);
     }
   }
@@ -217,6 +220,9 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   scene->SetDataComponent(blower_entity, blower_transform);
   const auto blower = scene->GetOrSetPrivateComponent<Blower>(blower_entity).lock();
   blower->speed = settings.wind_speed;
+  blower->speed_noise = true;
+  blower->speed_max = settings.wind_speed_max;
+  blower->speed_noise_frequency = settings.wind_noise_frequency;
   blower->particle_rate = settings.wind_particle_rate;
   blower->wind_strength = settings.wind_strength;
   blower->particle_radius = settings.wind_particle_radius;
@@ -362,7 +368,7 @@ void EcoSysLabDemoBootstrap::Update(EcoSysLabLayer& layer) {
     auto demo_mesh_generator_settings = layer.mesh_generator_settings;
     demo_mesh_generator_settings.foliage_instancing = false;
     if (windy_tree_)
-      demo_mesh_generator_settings.enable_foliage = false;
+      demo_mesh_generator_settings.enable_foliage = true;
     for (const auto entity : demo_tree_entities_)
       scene->GetOrSetPrivateComponent<Tree>(entity).lock()->GenerateGeometryEntities(demo_mesh_generator_settings);
   }

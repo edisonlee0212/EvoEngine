@@ -36,6 +36,9 @@ bool DynamicTreeSkeletonInspector::Inspect(InspectorContext&, DynamicTreeSkeleto
     changed |= ImGui::DragFloat("Stretch stiffness", &physics.stretch_stiffness, 10.0f, 0.0f, 1000000.0f);
     ImGui::EndDisabled();
     changed |= ImGui::DragFloat("Bend stiffness", &physics.bend_stiffness, 1.0f, 0.0f, 100000.0f);
+    changed |= ImGui::DragFloat("Bend thickness exponent", &physics.bend_thickness_exponent, 0.05f, 0.0f, 4.0f);
+    changed |= ImGui::DragFloat("Bend downstream exponent", &physics.bend_downstream_exponent, 0.05f, 0.0f, 2.0f);
+    ImGui::TextDisabled("Scaling exponents apply on Reset GPU pose to growth or after regrowth.");
     changed |= ImGui::DragFloat("Wood density", &physics.density, 1.0f, 0.001f, 2000.0f);
     changed |= ImGui::DragFloat("Physics damping", &physics.damping, 0.001f, 0.0f, 10.0f);
     changed |= ImGui::DragFloat("Wind drag", &physics.wind_drag, 0.1f, 0.0f, 100.0f);

@@ -347,7 +347,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     rod_air_pipeline_.reset();
     rod_air_scatter_pipeline_.reset();
     retired_air_sets_.clear();
-    emission_remainders_.clear();
+    emission_states_.clear();
     emitted_ = 0;
     scene_ = scene;
   }
@@ -401,18 +401,21 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       if (!blower || !blower->IsEnabled())
         continue;
       const uint64_t key = (static_cast<uint64_t>(entity.GetVersion()) << 32) | entity.GetIndex();
-      float& remainder = emission_remainders_[key];
+      auto& emission = emission_states_[key];
+      const float speed = blower->SampleSpeed(emission.time);
+      emission.time += dt;
+      float& remainder = emission.remainder;
       const float requested = remainder + glm::max(0.0f, blower->particle_rate) * dt;
-      const uint32_t count = static_cast<uint32_t>(glm::min(std::floor(requested), 2048.0f));
+      const uint32_t count = static_cast<uint32_t>(glm::min(std::floor(requested), static_cast<float>(capacity)));
       remainder = requested - std::floor(requested);
       if (!count)
         continue;
       EmitParameters parameters;
       parameters.model = scene->GetDataComponent<GlobalTransform>(entity).value;
-      parameters.speed_spread_lifetime = {glm::max(0.0f, blower->speed),
-                                          glm::radians(glm::clamp(blower->spread_degrees, 0.0f, 90.0f)), 3.0f, dt};
+      parameters.speed_spread_lifetime = {speed, glm::radians(glm::clamp(blower->spread_degrees, 0.0f, 90.0f)), 3.0f,
+                                          dt};
       parameters.collision.x = glm::clamp(blower->particle_radius, 0.0f, 1.0f);
-      parameters.collision.y = glm::clamp(blower->wind_strength, 0.0f, 20.0f);
+      parameters.collision.y = glm::clamp(blower->wind_strength, 0.0f, 100.0f);
       parameters.collision.z =
           Climate::SpecificHumidity(blower->temperature_c, blower->relative_humidity, ambient_pressure_pa);
       parameters.collision.w = blower->temperature_c + 273.15f;

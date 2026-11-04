@@ -219,3 +219,39 @@ TEST(ForestGrowth, GrowingTreeResultSurvivesFollowingNonGrowingTrees) {
   EXPECT_FALSE(first->shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty());
   application.Terminate();
 }
+
+TEST(ForestInstantiation, NewSystemEnabledAndDisabledStateSurvivesRetrievalCloneAndLoad) {
+  Application application;
+  ApplicationContextScope scope(application);
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
+  Serialization::RegisterSerializationHandler<EcoSysLabSystem>(SerializeEcoSysLabSystem, DeserializeEcoSysLabSystem);
+  for (const bool enabled : {true, false}) {
+    const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    ASSERT_TRUE(system->Enabled());
+    if (!enabled)
+      system->Disable();
+    EXPECT_EQ(scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f), system);
+    EXPECT_EQ(system->Enabled(), enabled);
+    const auto clone = AssetManager::CreateTemporaryAsset<Scene>();
+    Scene::Clone(scene, clone);
+    ASSERT_NE(clone->GetSystem<EcoSysLabSystem>(), nullptr);
+    EXPECT_EQ(clone->GetSystem<EcoSysLabSystem>()->Enabled(), enabled);
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    Serialization::SerializeObject(out, static_cast<IAsset&>(*scene));
+    out << YAML::EndMap;
+    const auto loaded = AssetManager::CreateTemporaryAsset<Scene>();
+    Serialization::DeserializeObject(YAML::Load(out.c_str()), static_cast<IAsset&>(*loaded));
+    ASSERT_NE(loaded->GetSystem<EcoSysLabSystem>(), nullptr);
+    EXPECT_EQ(loaded->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->Enabled(), enabled);
+  }
+  application.Terminate();
+}

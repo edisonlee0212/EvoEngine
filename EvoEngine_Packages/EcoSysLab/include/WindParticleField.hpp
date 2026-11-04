@@ -17,7 +17,7 @@ class GpuTreePhysics;
 
 class WindParticleField : public std::enable_shared_from_this<WindParticleField> {
  public:
-  static constexpr uint32_t capacity = 65536;
+  static constexpr uint32_t capacity = 262144;
   static constexpr uint32_t grid_bucket_count = 32768;
   static constexpr float grid_cell_size = 1.0f;
 
@@ -193,7 +193,11 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<ComputePipeline> grid_pipeline_;
   std::shared_ptr<GraphicsPipeline> render_pipeline_;
   std::shared_ptr<GraphicsPipeline> grid_render_pipeline_;
-  std::unordered_map<uint64_t, float> emission_remainders_;
+  struct EmissionState {
+    float remainder = 0;
+    float time = 0;
+  };
+  std::unordered_map<uint64_t, EmissionState> emission_states_;
   uint64_t emitted_ = 0;
 };
 }  // namespace eco_sys_lab_package
