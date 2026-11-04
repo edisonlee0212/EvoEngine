@@ -159,7 +159,7 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   bark->bark_material_ref = bark_material;
   descriptor->bark_descriptor = bark;
   const auto foliage = AssetManager::CreateTemporaryAsset<BasicFoliageDescriptor>();
-  foliage->leaf_size = spruce ? glm::vec2{0.015f, 0.06f} : settings.leaf_size;
+  foliage->leaf_size = spruce ? glm::vec2{0.0075f, 0.03f} : settings.leaf_size;
   foliage->rotation_variance = spruce ? 0.1f : 999.0f;
   foliage->gravitropism = 0.0f;
   foliage->leaf_material_ref = leaf_material;

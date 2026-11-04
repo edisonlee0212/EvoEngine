@@ -73,7 +73,7 @@ project and enters Play automatically. `WindyTreeDemoSettings` in `src/EcoSysLab
 16 Spruce trees in a 4×4 grid, ground, materials, lighting, air grid, and Blower without relying on `Default.evescene` or tree assets.
 `WindyTreeDemoSettings::TreePreset` can switch between the script-defined Spruce and Acacia presets. The Spruce growth
 parameters match the project's Spruce descriptor, while the demo supplies its own materials and smaller foliage cards
-to keep branches visible.
+to keep branches visible (Spruce cards are 0.0075 × 0.03 m). Windy Tree appears immediately after Subsurface Scattering in the launcher, with its own demo capture.
 The demo uses rasterization for procedural branches and foliage, with a FoliageRenderer and script-owned leaf material on each tree. Plant Visual overlays are enabled; gizmos defer first use until their instance data is uploaded. Selection refreshes branch overlays without rebuilding foliage or hidden climate grids. Spruce grows for five simulated years by default (Acacia for eight) after background preparation completes, and the Blower begins emitting wind after growth finishes. Wind particles are hidden by default so the branches remain visible; use Show wind particles in the EcoSysLab panel to display them. Stop returns to
 the generated project's empty starting scene.
 
