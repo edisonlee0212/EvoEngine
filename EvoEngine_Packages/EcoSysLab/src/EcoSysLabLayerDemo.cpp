@@ -11,6 +11,7 @@
 #include "Climate.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSystem.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
 #include "GeometryStorage.hpp"
@@ -51,7 +52,9 @@ struct WindyTreeDemoSettings {
   glm::vec3 camera_position{0.0f, 5.0f, 14.0f};
   glm::vec3 camera_target{0.0f, 2.8f, 0.0f};
   glm::vec3 sun_direction{0.35f, -0.8f, -0.48f};
-  float sun_brightness = 2.0f;
+  float sun_brightness = 20.0f;
+  float ambient_brightness = 4.0f;
+  glm::vec3 ambient_color{0.65f, 0.72f, 0.8f};
   glm::vec3 blower_position{-5.0f, 2.5f, 0.0f};
   glm::vec3 blower_size{8.0f, 6.0f, 1.0f};
   float wind_speed = 100.0f;
@@ -108,6 +111,13 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   const auto& settings = windy_tree_settings;
   const bool spruce = settings.tree_preset == WindyTreeDemoSettings::TreePreset::Spruce;
   const auto root = scene->CreateEntity("Windy Tree Demo");
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+  lighting->environment_lighting_intensity = settings.ambient_brightness;
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting->indirect_environment_source.color = settings.ambient_color;
+  lighting->indirect_environment_source.gamma = 1.0f;
+  scene->environmental_lighting = lighting;
   auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
   system->environment.climate_descriptor = AssetManager::CreateTemporaryAsset<ClimateDescriptor>();
   auto soil = AssetManager::CreateTemporaryAsset<SoilDescriptor>();
