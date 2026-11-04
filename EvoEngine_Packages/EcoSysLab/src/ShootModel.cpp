@@ -52,26 +52,33 @@ void ShootModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& int
   }
 }
 
-void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
-  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-  auto& environment_grid = climate_model.environment_grid;
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    const auto& internode = shoot_skeleton_.RefNode(*it);
-    const auto& internode_info = internode.info;
-    const float biomass = internode_info.thickness;
-    const glm::vec3 world_position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
-    auto& voxel = environment_grid.voxel_grid.Ref(world_position);
-    voxel.self_shadow += internode.data.shadow_size;
-    voxel.total_biomass += biomass;
-    if (internode.IsEndNode()) {
-      InternodeVoxelRegistration registration;
-      registration.position = world_position;
-      registration.node_handle = *it;
-      registration.tree_skeleton_index = shoot_skeleton_.data.entity_index;
-      registration.thickness = internode_info.thickness;
-      voxel.AddNode(registration);
-    }
+void ShootModel::CollectVoxelRegistrations(const glm::mat4& global_transform,
+                                           std::vector<VoxelRegistration>& records) const {
+  const auto& nodes = shoot_skeleton_.PeekSortedNodeList();
+  records.resize(nodes.size());
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const auto handle = nodes[nodes.size() - 1 - i];
+    const auto& node = shoot_skeleton_.PeekNode(handle);
+    records[i] = {{global_transform * glm::vec4(node.info.global_position, 1.0f), node.IsEndNode() ? handle : -1,
+                   shoot_skeleton_.data.entity_index, node.info.thickness},
+                  node.data.shadow_size};
   }
+}
+
+void ShootModel::RegisterVoxel(const std::vector<VoxelRegistration>& records, ClimateModel& climate_model) {
+  for (const auto& record : records) {
+    auto& voxel = climate_model.environment_grid.voxel_grid.Ref(record.node.position);
+    voxel.self_shadow += record.shadow;
+    voxel.total_biomass += record.node.thickness;
+    if (record.node.node_handle != -1)
+      voxel.AddNode(record.node);
+  }
+}
+
+void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
+  std::vector<VoxelRegistration> records;
+  CollectVoxelRegistrations(global_transform, records);
+  RegisterVoxel(records, climate_model);
 }
 
 void ShootModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function) {

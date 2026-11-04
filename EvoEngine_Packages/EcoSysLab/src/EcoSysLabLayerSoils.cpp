@@ -121,12 +121,32 @@ void EcoSysLabSystem::Environment::PrepareForGrowth(const std::shared_ptr<Scene>
   }
   {
     const ProfilerScope scope("EcoSysLab / Growth voxel registration", "EcoSysLab");
+    struct Work {
+      std::shared_ptr<Tree> tree;
+      glm::mat4 transform;
+      std::vector<ShootModel::VoxelRegistration> records;
+    };
+    std::vector<Work> work;
+    work.reserve(entities->size());
     for (const auto entity : *entities) {
       if (!scene->IsEntityEnabled(entity))
         continue;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-      if (tree && tree->IsEnabled())
-        tree->RegisterVoxel();
+      if (!tree || !tree->IsEnabled())
+        continue;
+      tree->shoot_model.RefShootSkeleton().data.entity_index = entity.GetIndex();
+      work.push_back({tree, scene->GetDataComponent<GlobalTransform>(entity).value, {}});
+    }
+    if (!work.empty()) {
+      {
+        const ProfilerScope scope("EcoSysLab / Prepare growth voxels parallel", "EcoSysLab");
+        Jobs::RunParallelFor(work.size(), [&](size_t i) {
+          work[i].tree->shoot_model.CollectVoxelRegistrations(work[i].transform, work[i].records);
+        });
+      }
+      const ProfilerScope scope("EcoSysLab / Apply growth voxels", "EcoSysLab");
+      for (const auto& item : work)
+        ShootModel::RegisterVoxel(item.records, climate);
     }
   }
   grid.LightPropagation(settings);

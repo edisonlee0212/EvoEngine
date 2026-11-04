@@ -305,14 +305,18 @@ TEST(TreeGrowthEnvironment, SingleVoxelLookupPreservesAccumulationAndTipOrder) {
     node.info.thickness = 0.01f * (handle + 1);
     node.data.shadow_size = 0.03f * (handle + 1);
   }
-  ClimateModel actual, expected;
+  ClimateModel actual, expected, staged;
   actual.environment_grid.voxel_grid.Initialize(1.0f, glm::vec3(-2), glm::vec3(2));
+  staged.environment_grid.voxel_grid.Initialize(1.0f, glm::vec3(-2), glm::vec3(2));
+  std::vector<ShootModel::VoxelRegistration> records;
   expected.environment_grid.voxel_grid.Initialize(1.0f, glm::vec3(-2), glm::vec3(2));
   const auto transform =
       glm::translate(glm::vec3(0.2f, 0.3f, -0.1f)) * glm::mat4_cast(glm::quat(glm::vec3(0, 0.2f, 0.1f)));
   for (uint32_t tree_id : {3u, 7u}) {
     skeleton.data.entity_index = tree_id;
     model.RegisterVoxel(transform, actual);
+    model.CollectVoxelRegistrations(transform, records);
+    ShootModel::RegisterVoxel(records, staged);
     const auto& nodes = skeleton.PeekSortedNodeList();
     for (auto it = nodes.rbegin(); it != nodes.rend(); ++it) {
       const auto& node = skeleton.PeekNode(*it);
@@ -326,6 +330,19 @@ TEST(TreeGrowthEnvironment, SingleVoxelLookupPreservesAccumulationAndTipOrder) {
   for (int i = 0; i < actual.environment_grid.voxel_grid.GetVoxelCount(); ++i) {
     const auto& a = actual.environment_grid.voxel_grid.Peek(i);
     const auto& b = expected.environment_grid.voxel_grid.Peek(i);
+    const auto& c = staged.environment_grid.voxel_grid.Peek(i);
+    EXPECT_EQ(a.self_shadow, c.self_shadow);
+    EXPECT_EQ(a.total_biomass, c.total_biomass);
+    EXPECT_EQ(a.tree_owner, c.tree_owner);
+    ASSERT_EQ(a.internode_voxel_registrations.size(), c.internode_voxel_registrations.size());
+    for (size_t j = 0; j < a.internode_voxel_registrations.size(); ++j) {
+      const auto& ar = a.internode_voxel_registrations[j];
+      const auto& cr = c.internode_voxel_registrations[j];
+      EXPECT_EQ(ar.position, cr.position);
+      EXPECT_EQ(ar.node_handle, cr.node_handle);
+      EXPECT_EQ(ar.tree_skeleton_index, cr.tree_skeleton_index);
+      EXPECT_EQ(ar.thickness, cr.thickness);
+    }
     EXPECT_EQ(a.self_shadow, b.self_shadow);
     EXPECT_EQ(a.total_biomass, b.total_biomass);
     EXPECT_EQ(a.tree_owner, b.tree_owner);

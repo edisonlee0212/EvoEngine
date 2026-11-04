@@ -559,3 +559,5 @@ Procedural render registration gathers enabled tree/renderer references on the m
 Procedural tree node and shadow buffers retain geometrically grown capacity (at least twice the previous allocation when exceeded), avoiding exact-size GPU reallocations on each growth step. Only active elements are uploaded and dispatched; unused capacity is not rendered. Capacity remains allocated until the renderer cache is released. A renderer-owned CPU scratch array is reused for node/material packing after each synchronous staging copy, retaining capacity for the largest tree processed. CPU traces separate node upload packing, buffer growth and upload recording.
 
 Forest growth results are stored per tree in separate bytes so a later non-growing tree cannot erase an earlier result and workers do not share packed boolean storage.
+
+Growth voxel registration prepares transformed per-tree node records on CPU workers, then applies them in the original tree and reverse-node order. Shared grid writes stay serial, preserving light/biomass sums, ownership metadata and tip-record ordering before light propagation.
