@@ -83,7 +83,7 @@ void TreeVisualizer::ClearSelections() {
   selected_node_handle = -1;
 }
 
-bool ShootVisualizer::DrawGui(ShootModel& model) {
+bool ShootVisualizer::DrawGui(ShootModel& model, const bool allow_editing) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Max descendant light intensity", "Light intensity", "Light direction",
@@ -99,14 +99,18 @@ bool ShootVisualizer::DrawGui(ShootModel& model) {
       selected_node_hierarchy_list.clear();
       need_update = true;
     }
+    ImGui::BeginDisabled(!allow_editing);
     if (checkpoint_iteration != model.CurrentIteration() && ImGui::Button("Reverse")) {
       model.Reverse(checkpoint_iteration);
       need_update = true;
+      updated = true;
     }
     if (ImGui::Button("Clear checkpoints")) {
       checkpoint_iteration = 0;
       model.ClearHistory();
+      need_update = true;
     }
+    ImGui::EndDisabled();
     ImGui::TreePop();
   }
   if (ImGui::Button("Add Checkpoint")) {
@@ -145,7 +149,7 @@ bool ShootVisualizer::DrawGui(ShootModel& model) {
 
   if (ImGui::TreeNodeEx("Inspection")) {
     if (selected_node_handle >= 0) {
-      if (checkpoint_iteration == model.CurrentIteration()) {
+      if (allow_editing && checkpoint_iteration == model.CurrentIteration()) {
         InspectInternode(model.RefShootSkeleton(), selected_node_handle);
       } else {
         PeekInternode(model.PeekShootSkeleton(checkpoint_iteration), selected_node_handle);
@@ -155,7 +159,7 @@ bool ShootVisualizer::DrawGui(ShootModel& model) {
     if (tree_hierarchy_gui) {
       if (ImGui::TreeNodeEx("Tree Hierarchy")) {
         bool deleted = false;
-        if (checkpoint_iteration == model.CurrentIteration()) {
+        if (allow_editing && checkpoint_iteration == model.CurrentIteration()) {
           if (DrawInternodeInspectionGui(model, 0, deleted, 0)) {
             need_update = true;
             updated = true;
@@ -453,7 +457,7 @@ bool ShootVisualizer::InspectInternode(ShootSkeleton& skeleton, SkeletonNodeHand
 void ShootVisualizer::PeekInternode(const ShootSkeleton& skeleton, const SkeletonNodeHandle internode_handle) const {
   const auto& internode = skeleton.PeekNode(internode_handle);
   if (ImGui::TreeNode("Internode info")) {
-    ImGui::Checkbox("Is max child", (bool*)&internode.info.max_child);
+    ImGui::Text("Is max child: %s", internode.info.max_child ? "Yes" : "No");
     ImGui::Text("Thickness: %.3f", internode.info.thickness);
     ImGui::Text("Length: %.3f", internode.info.length);
     ImGui::InputFloat3("Position", (float*)&internode.info.global_position.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
@@ -535,13 +539,82 @@ void ShootVisualizer::Reset(const ShootModel& model) {
   need_update = true;
 }
 
-void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
-                                   const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+void ShootVisualizer::SyncColors(const ShootSkeleton& skeleton) {
   if (random_colors_.empty()) {
     for (int i = 0; i < 1000; i++) {
       random_colors_.emplace_back(glm::abs(glm::ballRand(1.0f)), 1.0f);
     }
   }
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  node_colors_.resize(sorted_node_list.size());
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
+    const auto node_handle = sorted_node_list[i];
+    const auto& node = skeleton.PeekNode(node_handle);
+    switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
+      case ShootVisualizerMode::Default:
+        node_colors_[i] = random_colors_[node_handle % random_colors_.size()];
+        break;
+      case ShootVisualizerMode::Order:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
+        break;
+      case ShootVisualizerMode::Locked:
+        node_colors_[i] = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
+        break;
+      case ShootVisualizerMode::Level:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.level) % random_colors_.size()];
+        break;
+      case ShootVisualizerMode::MaxDescendantLightIntensity:
+        node_colors_[i] = glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
+                                   glm::clamp(glm::pow(node.data.descendant_total_light_intake,
+                                                       tree_visualizer_color_settings.color_multiplier),
+                                              0.0f, 1.f));
+        break;
+      case ShootVisualizerMode::LightIntensity:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
+            glm::clamp(glm::pow(node.data.light_intake, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
+        break;
+      case ShootVisualizerMode::LightDirection:
+        node_colors_[i] = glm::vec4(glm::vec3(glm::clamp(node.data.light_direction, 0.0f, 1.f)), 1.0f);
+        break;
+      case ShootVisualizerMode::IsMaxChild:
+        node_colors_[i] = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
+        break;
+      case ShootVisualizerMode::DesiredGrowthRate:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.desired_growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f,
+                       1.f));
+        break;
+      case ShootVisualizerMode::GrowthPotential:
+        node_colors_[i] =
+            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                     glm::clamp(glm::pow(node.data.growth_potential, tree_visualizer_color_settings.color_multiplier),
+                                0.0f, 1.f));
+        break;
+      case ShootVisualizerMode::SaggingStress:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.sagging_stress, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
+        break;
+      case ShootVisualizerMode::GrowthRate:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
+        break;
+      default:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
+        break;
+    }
+    node_colors_[i].a = 1.0f;
+    if (selected_node_handle != -1)
+      node_colors_[i].a = 1.0f;
+  });
+}
+
+void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
+                                   const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+  SyncColors(skeleton);
   const auto& sorted_node_list = skeleton.PeekSortedNodeList();
   std::vector<ParticleInfo> matrices;
 
@@ -573,69 +646,8 @@ void ShootVisualizer::SyncMatrices(const ShootSkeleton& skeleton,
           rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
-    const auto node_handle = sorted_node_list[i];
-    const auto& node = skeleton.PeekNode(node_handle);
-    switch (static_cast<ShootVisualizerMode>(tree_visualizer_color_settings.visualization_mode)) {
-      case ShootVisualizerMode::Default:
-        matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
-        break;
-      case ShootVisualizerMode::Order:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-      case ShootVisualizerMode::Locked:
-        matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
-        break;
-      case ShootVisualizerMode::Level:
-        matrices[i].instance_color = random_colors_[node.info.level];
-        break;
-      case ShootVisualizerMode::MaxDescendantLightIntensity:
-        matrices[i].instance_color = glm::mix(glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-                                              glm::clamp(glm::pow(node.data.descendant_total_light_intake,
-                                                                  tree_visualizer_color_settings.color_multiplier),
-                                                         0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::LightIntensity:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 0, 0, 1), glm::vec4(1, 1, 1, 1),
-            glm::clamp(glm::pow(node.data.light_intake, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::LightDirection:
-        matrices[i].instance_color = glm::vec4(glm::vec3(glm::clamp(node.data.light_direction, 0.0f, 1.f)), 1.0f);
-        break;
-      case ShootVisualizerMode::IsMaxChild:
-        matrices[i].instance_color = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
-        break;
-      case ShootVisualizerMode::DesiredGrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.desired_growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f,
-                       1.f));
-        break;
-      case ShootVisualizerMode::GrowthPotential:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.growth_potential, tree_visualizer_color_settings.color_multiplier),
-                                0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::SaggingStress:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.sagging_stress, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
-        break;
-      case ShootVisualizerMode::GrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.growth_rate, tree_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
-        break;
-      default:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-    }
-    matrices[i].instance_color.a = 1.0f;
-    if (selected_node_handle != -1)
-      matrices[i].instance_color.a = 1.0f;
-  });
+  for (size_t i = 0; i < matrices.size(); ++i)
+    matrices[i].instance_color = node_colors_[i];
   particle_info_list->SetParticleInfos(matrices);
 }
 
@@ -710,7 +722,7 @@ void RootVisualizer::PeekNodeInspectionGui(const RootSkeleton& skeleton, Skeleto
 void RootVisualizer::PeekRootNode(const RootSkeleton& skeleton, SkeletonNodeHandle node_handle) const {
   const auto& internode = skeleton.PeekNode(node_handle);
   if (ImGui::TreeNode("Internode info")) {
-    ImGui::Checkbox("Is max child", (bool*)&internode.info.max_child);
+    ImGui::Text("Is max child: %s", internode.info.max_child ? "Yes" : "No");
     ImGui::Text("Thickness: %.3f", internode.info.thickness);
     ImGui::Text("Length: %.3f", internode.info.length);
     ImGui::InputFloat3("Position", (float*)&internode.info.global_position.x, "%.3f", ImGuiInputTextFlags_ReadOnly);
@@ -803,7 +815,7 @@ bool RootVisualizer::InspectRootNode(RootSkeleton& skeleton, SkeletonNodeHandle 
   return changed;
 }
 
-bool RootVisualizer::DrawGui(RootModel& model) {
+bool RootVisualizer::DrawGui(RootModel& model, const bool allow_editing) {
   bool updated = false;
   if (ImGui::Combo("Visualizer mode",
                    {"Default", "Order", "Level", "Desired growth rate", "Growth potential", "Growth rate",
@@ -818,14 +830,18 @@ bool RootVisualizer::DrawGui(RootModel& model) {
       selected_node_hierarchy_list.clear();
       need_update = true;
     }
+    ImGui::BeginDisabled(!allow_editing);
     if (checkpoint_iteration != model.CurrentIteration() && ImGui::Button("Reverse")) {
       model.Reverse(checkpoint_iteration);
       need_update = true;
+      updated = true;
     }
     if (ImGui::Button("Clear checkpoints")) {
       checkpoint_iteration = 0;
       model.ClearHistory();
+      need_update = true;
     }
+    ImGui::EndDisabled();
     ImGui::TreePop();
   }
   if (ImGui::Button("Add Checkpoint")) {
@@ -864,7 +880,7 @@ bool RootVisualizer::DrawGui(RootModel& model) {
 
   if (ImGui::TreeNodeEx("Inspection")) {
     if (selected_node_handle >= 0) {
-      if (checkpoint_iteration == model.CurrentIteration()) {
+      if (allow_editing && checkpoint_iteration == model.CurrentIteration()) {
         InspectRootNode(model.RefRootSkeleton(), selected_node_handle);
       } else {
         PeekRootNode(model.PeekRootSkeleton(checkpoint_iteration), selected_node_handle);
@@ -874,7 +890,7 @@ bool RootVisualizer::DrawGui(RootModel& model) {
     if (tree_hierarchy_gui) {
       if (ImGui::TreeNodeEx("Tree Hierarchy")) {
         bool deleted = false;
-        if (checkpoint_iteration == model.CurrentIteration()) {
+        if (allow_editing && checkpoint_iteration == model.CurrentIteration()) {
           if (DrawNodeInspectionGui(model, 0, deleted, 0)) {
             need_update = true;
             updated = true;
@@ -925,13 +941,63 @@ void RootVisualizer::Visualize(const RootModel& model, const GlobalTransform& gl
   }
 }
 
-void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
-                                  const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+void RootVisualizer::SyncColors(const RootSkeleton& skeleton) {
   if (random_colors_.empty()) {
     for (int i = 0; i < 1000; i++) {
       random_colors_.emplace_back(glm::abs(glm::ballRand(1.0f)), 1.0f);
     }
   }
+  const auto& sorted_node_list = skeleton.PeekSortedNodeList();
+  node_colors_.resize(sorted_node_list.size());
+  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
+    const auto node_handle = sorted_node_list[i];
+    const auto& node = skeleton.PeekNode(node_handle);
+    switch (static_cast<RootVisualizerMode>(root_visualizer_color_settings.visualization_mode)) {
+      case RootVisualizerMode::Default:
+        node_colors_[i] = random_colors_[node_handle % random_colors_.size()];
+        break;
+      case RootVisualizerMode::Order:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
+        break;
+      case RootVisualizerMode::Locked:
+        node_colors_[i] = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
+        break;
+      case RootVisualizerMode::Level:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.level) % random_colors_.size()];
+        break;
+      case RootVisualizerMode::IsMaxChild:
+        node_colors_[i] = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
+        break;
+      case RootVisualizerMode::DesiredGrowthRate:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.desired_growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f,
+                       1.f));
+        break;
+      case RootVisualizerMode::GrowthPotential:
+        node_colors_[i] =
+            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+                     glm::clamp(glm::pow(node.data.growth_potential, root_visualizer_color_settings.color_multiplier),
+                                0.0f, 1.f));
+        break;
+      case RootVisualizerMode::GrowthRate:
+        node_colors_[i] = glm::mix(
+            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
+            glm::clamp(glm::pow(node.data.growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
+        break;
+      default:
+        node_colors_[i] = random_colors_[static_cast<size_t>(node.info.order) % random_colors_.size()];
+        break;
+    }
+    node_colors_[i].a = 1.0f;
+    if (selected_node_handle != -1)
+      node_colors_[i].a = 1.0f;
+  });
+}
+
+void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
+                                  const std::shared_ptr<ParticleInfoList>& particle_info_list) {
+  SyncColors(skeleton);
   const auto& sorted_node_list = skeleton.PeekSortedNodeList();
   std::vector<ParticleInfo> matrices;
 
@@ -963,50 +1029,8 @@ void RootVisualizer::SyncMatrices(const RootSkeleton& skeleton,
           rotation_transform * glm::scale(glm::vec3(node.info.thickness, node.info.length, node.info.thickness));
     }
   });
-  Jobs::RunParallelFor(sorted_node_list.size(), [&](size_t i) {
-    const auto node_handle = sorted_node_list[i];
-    const auto& node = skeleton.PeekNode(node_handle);
-    switch (static_cast<RootVisualizerMode>(root_visualizer_color_settings.visualization_mode)) {
-      case RootVisualizerMode::Default:
-        matrices[i].instance_color = random_colors_[node_handle % random_colors_.size()];
-        break;
-      case RootVisualizerMode::Order:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-      case RootVisualizerMode::Locked:
-        matrices[i].instance_color = node.info.locked ? glm::vec4(1, 0, 0, 1) : glm::vec4(0, 1, 0, 1);
-        break;
-      case RootVisualizerMode::Level:
-        matrices[i].instance_color = random_colors_[node.info.level];
-        break;
-      case RootVisualizerMode::IsMaxChild:
-        matrices[i].instance_color = glm::vec4(glm::vec3(node.info.max_child ? 1.0f : 0.0f), 1.0f);
-        break;
-      case RootVisualizerMode::DesiredGrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.desired_growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f,
-                       1.f));
-        break;
-      case RootVisualizerMode::GrowthPotential:
-        matrices[i].instance_color =
-            glm::mix(glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-                     glm::clamp(glm::pow(node.data.growth_potential, root_visualizer_color_settings.color_multiplier),
-                                0.0f, 1.f));
-        break;
-      case RootVisualizerMode::GrowthRate:
-        matrices[i].instance_color = glm::mix(
-            glm::vec4(0, 1, 0, 1), glm::vec4(1, 0, 0, 1),
-            glm::clamp(glm::pow(node.data.growth_rate, root_visualizer_color_settings.color_multiplier), 0.0f, 1.f));
-        break;
-      default:
-        matrices[i].instance_color = random_colors_[node.info.order];
-        break;
-    }
-    matrices[i].instance_color.a = 1.0f;
-    if (selected_node_handle != -1)
-      matrices[i].instance_color.a = 1.0f;
-  });
+  for (size_t i = 0; i < matrices.size(); ++i)
+    matrices[i].instance_color = node_colors_[i];
   particle_info_list->SetParticleInfos(matrices);
 }
 

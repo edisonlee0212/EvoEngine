@@ -1473,6 +1473,15 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
       application_info.startup_runtime_packages = profile.startup_runtime_packages;
       break;
     }
+    case DemoProfileId::WindyTree: {
+      ConfigurePackageDemoNewSceneDefaults();
+      const auto& profile = GetDemoProfile(profile_id);
+      application_info.application_name = profile.title;
+      application_info.project_path = ResolveDemoProfileProjectPath(profile_id, resource_root);
+      application_info.enable_runtime_packages = true;
+      application_info.startup_runtime_packages = profile.startup_runtime_packages;
+      break;
+    }
     case DemoProfileId::EcoSysLab:
     case DemoProfileId::DigitalAgriculture: {
       NormalizeLegacyResourceExtensions(resource_root);
@@ -1493,7 +1502,8 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
     return;
   }
   switch (profile_id) {
-    case DemoProfileId::EcoSysLab: {
+    case DemoProfileId::EcoSysLab:
+    case DemoProfileId::WindyTree: {
       editor_layer->velocity = 2.f;
       editor_layer->apply_transform_to_main_camera = true;
 
@@ -1502,6 +1512,14 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
         return;
       }
       auto& camera_settings = scene_camera->camera_settings;
+      if (profile_id == DemoProfileId::WindyTree) {
+        scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+        editor_layer->default_scene_camera_position = glm::vec3(0.0f, 5.0f, 14.0f);
+        editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
+        editor_layer->SetSceneCameraRotation(
+            glm::quatLookAt(glm::normalize(glm::vec3(0.0f, 2.8f, 0.0f) - editor_layer->default_scene_camera_position),
+                            glm::vec3(0, 1, 0)));
+      }
       camera_settings.background_source = Camera::BackgroundSource::ClearColor;
       camera_settings.clear_color = glm::vec4(1.f);
       camera_settings.background_intensity = 3.f;
@@ -1626,6 +1644,12 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
     case DemoProfileId::EcoSysLab:
       if (application_mode == ApplicationMode::Editor) {
         ApplyEcoSysLabDemoEditorSetup();
+      }
+      break;
+    case DemoProfileId::WindyTree:
+      if (application_mode == ApplicationMode::Editor) {
+        ApplyEcoSysLabDemoEditorSetup();
+        ApplicationContext::Get().Play();
       }
       break;
     case DemoProfileId::DigitalAgriculture:

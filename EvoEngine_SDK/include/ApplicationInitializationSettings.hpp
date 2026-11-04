@@ -132,6 +132,7 @@ struct ApplicationInitializationSettings {
   bool load_project_start_scene = true;      /**< Whether project open should load/create and attach a scene. */
   bool enable_gpu_timestamp_capture = false; /**< Whether GPU timing starts before default resources are loaded. */
   bool prewarm_render_pipelines = true;      /**< Whether RenderLayer builds scene-render pipelines during startup. */
+  bool prewarm_optional_render_pipelines = false; /**< Prepare unused rendering modes in the background. */
   bool defer_window_show = false;
   std::function<void(std::string_view)> startup_status;
   bool enable_runtime_packages = false; /**< Whether to load runtime packages during initialization. */

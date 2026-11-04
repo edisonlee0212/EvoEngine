@@ -8,6 +8,7 @@
 #include "Application.hpp"
 #include "Climate.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "HeightField.hpp"
 #include "Material.hpp"
 #include "Octree.hpp"
@@ -47,19 +48,15 @@ void TreeDescriptor::CollectAssetRef(std::vector<AssetRef>& list) {
 }
 
 Entity TreeDescriptor::Instantiate() const {
-  std::shared_ptr<Climate> climate;
-  std::shared_ptr<Soil> soil;
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (soil && climate) {
-    const auto scene = ApplicationContext::Get().GetActiveScene();
+  if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    system->environment.EnsureConfiguration(scene);
     const auto tree_entity = scene->CreateEntity(GetTitle());
     const auto dynamic_tree_skeleton_entity = scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(tree_entity).lock();
+    dynamic_tree_skeleton_entity->SetPhysicsProperties(physics_properties);
     const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
     float height = 0;
-    if (const auto soil_descriptor = soil->soil_descriptor_ref.Get<SoilDescriptor>()) {
+    if (const auto soil_descriptor = system->environment.soil_descriptor.Get<SoilDescriptor>()) {
       if (const auto height_field = soil_descriptor->height_field.Get<HeightField>())
         height = height_field->GetValue({0.0f, 0.0f}) - 0.05f;
     }
@@ -74,6 +71,9 @@ Entity TreeDescriptor::Instantiate() const {
 }
 
 void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const TreeDescriptor& target) {
+  out << YAML::Key << "physics_properties" << YAML::Value << YAML::BeginMap;
+  SerializeTreePhysicsProperties(out, target.physics_properties);
+  out << YAML::EndMap;
   target.shoot_descriptor.Save("shoot_descriptor", out);
   target.root_descriptor.Save("root_descriptor", out);
   target.pruning_descriptor.Save("pruning_descriptor", out);
@@ -84,6 +84,7 @@ void eco_sys_lab_package::SerializeTreeDescriptor(YAML::Emitter& out, const Tree
 }
 
 void eco_sys_lab_package::DeserializeTreeDescriptor(const YAML::Node& in, TreeDescriptor& target) {
+  DeserializeTreePhysicsProperties(in["physics_properties"], target.physics_properties);
   target.shoot_descriptor.Load("shoot_descriptor", in);
   target.root_descriptor.Load("root_descriptor", in);
   target.pruning_descriptor.Load("pruning_descriptor", in);

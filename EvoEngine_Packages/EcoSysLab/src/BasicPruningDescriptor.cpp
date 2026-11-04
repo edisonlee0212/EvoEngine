@@ -68,19 +68,8 @@ void BasicPruningDescriptor::PrepareController(const SimulationSettings& simulat
         }
         if (simulation_settings.crown_shyness_distance > 0.f && internode.IsEndNode()) {
           const glm::vec3 end_position = global_transform * glm::vec4(internode.info.GetGlobalEndPosition(), 1.0f);
-          bool prune_by_crown_shyness = false;
-          climate_model.environment_grid.voxel_grid.PeekEach(
-              end_position, simulation_settings.crown_shyness_distance * 2.0f, [&](const EnvironmentVoxel& data) {
-                if (prune_by_crown_shyness)
-                  return;
-                for (const auto& i : data.internode_voxel_registrations) {
-                  if (i.tree_skeleton_index == shoot_skeleton.data.entity_index)
-                    continue;
-                  if (glm::distance(end_position, i.position) < simulation_settings.crown_shyness_distance)
-                    prune_by_crown_shyness = true;
-                }
-              });
-          if (prune_by_crown_shyness)
+          if (climate_model.environment_grid.HasForeignNodeWithin(
+                  end_position, simulation_settings.crown_shyness_distance, shoot_skeleton.data.entity_index))
             return 999.f;
         }
         constexpr float pruning_probability = 0.0f;

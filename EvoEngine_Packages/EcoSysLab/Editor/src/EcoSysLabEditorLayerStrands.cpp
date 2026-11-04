@@ -75,7 +75,7 @@ void EcoSysLabEditorLayer::DynamicStrandsVisualization(const std::shared_ptr<Edi
         tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Disabled) ||
         tree_operator_mode == static_cast<unsigned>(TreeOperatorMode::Select)) {
       if (window_focused && (editor_layer->GetKey(GLFW_KEY_SPACE) == Input::KeyActionType::Press)) {
-        runtime->dynamic_strands_settings_.enable_physics = !runtime->dynamic_strands_settings_.enable_physics;
+        runtime->GetDynamicStrandsSettings().enable_physics = !runtime->GetDynamicStrandsSettings().enable_physics;
       }
       if (window_focused && (editor_layer->GetKey(GLFW_KEY_TAB) == Input::KeyActionType::Press)) {
         for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {

@@ -4,21 +4,12 @@
 
 #include "ComputePipeline.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "GpuTreePhysicsLod.hpp"
+#include "GpuTreePhysicsState.hpp"
 
 namespace eco_sys_lab_package {
 class GpuTreePhysics {
  public:
-  struct TreeRange {
-    uint32_t vertex_base = 0;
-    uint32_t vertex_count = 0;
-    uint32_t rod_base = 0;
-    uint32_t rod_count = 0;
-    uint32_t node_rod_base = 0;
-  };
-  struct PackedRestState {
-    DynamicTreeSkeleton::GpuRestState state;
-    std::vector<TreeRange> ranges;
-  };
   struct TreeStep {
     DynamicTreeSkeleton::PhysicsSettings settings;
     bool running = true;
@@ -31,35 +22,64 @@ class GpuTreePhysics {
     float cell_size = 1.0f;
   };
 
-  [[nodiscard]] static PackedRestState PackRestStates(const std::vector<DynamicTreeSkeleton::GpuRestState>& states);
   bool Initialize(const DynamicTreeSkeleton::GpuRestState& rest_state);
   bool Initialize(const std::vector<DynamicTreeSkeleton::GpuRestState>& rest_states);
+  uint32_t RegisterTree(const DynamicTreeSkeleton::GpuRestState& state, uint32_t id = UINT32_MAX,
+                        bool build_lod = true);
+  void InitializeLod(uint32_t id, const DynamicTreeSkeleton::GpuRestState& rest);
+  void RemoveTree(uint32_t id);
+  void SetActiveTrees(const std::vector<uint32_t>& ids);
+  void PrepareRegistry();
+  void ResetLodSelection(uint32_t id);
   void Step(const DynamicTreeSkeleton::PhysicsSettings& settings);
   void Step(const std::vector<TreeStep>& trees);
   void Step(const std::vector<TreeStep>& trees, const WindInput& wind);
-  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetWindDescriptorSetLayout() const {
+  const std::shared_ptr<DescriptorSetLayout>& GetWindDescriptorSetLayout() const {
     return wind_layout_;
   }
-  [[nodiscard]] const TreeRange& GetTreeRange(uint32_t index) const {
-    return ranges_[index];
+  const std::vector<uint32_t>& GetActiveTreeIds() const {
+    return active_ids_;
   }
-  [[nodiscard]] uint32_t GetRodCount() const {
-    return rod_count_;
+  const std::shared_ptr<GpuTreePhysicsState>& GetTreeState(uint32_t id) const {
+    return trees_[id];
   }
-  [[nodiscard]] const std::shared_ptr<Buffer>& GetVertexBuffer() const {
-    return vertices_[vertex_index_];
+  uint32_t GetRodCount() const {
+    uint32_t count = 0;
+    for (const auto id : active_ids_)
+      if (trees_[id])
+        count += trees_[id]->rod_count;
+    return count;
   }
-  [[nodiscard]] const std::shared_ptr<Buffer>& GetRodBuffer() const {
-    return rods_[rod_index_];
+  uint32_t GetRodGroupCount() const {
+    return rod_group_count_;
   }
-  [[nodiscard]] const std::shared_ptr<Buffer>& GetNodeRodBuffer() const {
-    return node_rods_;
+  const std::shared_ptr<Buffer>& GetRegistryBuffer() const {
+    return registry_;
   }
+  const std::shared_ptr<Buffer>& GetRodGroupBuffer() const {
+    return rod_groups_;
+  }
+  const std::shared_ptr<Buffer>& GetVertexBuffer(uint32_t id = 0) const {
+    const auto& t = *trees_[id];
+    return t.vertices[t.vertex_index];
+  }
+  const std::shared_ptr<Buffer>& GetRodBuffer(uint32_t id = 0) const {
+    const auto& t = *trees_[id];
+    return t.rods[t.rod_index];
+  }
+  const std::shared_ptr<Buffer>& GetNodeRodBuffer(uint32_t id = 0) const {
+    return trees_[id]->node_rods;
+  }
+
+  void DownloadVertices(std::vector<DynamicTreeSkeleton::GpuRestState::Vertex>& output, uint32_t id = 0,
+                        uint32_t copy = UINT32_MAX) const;
+  void DownloadRods(std::vector<DynamicTreeSkeleton::GpuRestState::Rod>& output, uint32_t id = 0,
+                    uint32_t copy = UINT32_MAX) const;
 
  private:
   struct Parameters {
-    uint32_t vertex_count = 0;
-    uint32_t rod_count = 0;
+    uint32_t vertex_index = 0;
+    uint32_t rod_index = 0;
     uint32_t substep = 0;
     uint32_t iteration = 0;
     uint32_t cell_count = 0;
@@ -78,35 +98,33 @@ class GpuTreePhysics {
     glm::vec4 anchor_current{0, 0, 0, 1};
     glm::vec4 rotation_delta{0, 0, 0, 1};
     glm::vec4 anchor_offset{};
+    glm::vec4 material{1, 0, 0, 0};
   };
   static_assert(sizeof(Parameters) == 32);
-  static_assert(sizeof(TreeParameters) == 304);
+  static_assert(sizeof(TreeParameters) == 320);
 
-  std::shared_ptr<DescriptorSetLayout> layout_;
-  std::shared_ptr<DescriptorSetLayout> wind_layout_;
-  std::shared_ptr<DescriptorSet> empty_wind_set_;
+  using TreeAddresses = GpuTreePhysicsAddresses;
+  bool Prepare();
+  std::shared_ptr<DescriptorSetLayout> layout_, wind_layout_;
+  std::shared_ptr<DescriptorSet> descriptor_set_, empty_wind_set_;
   std::array<std::shared_ptr<Buffer>, 2> empty_wind_buffers_;
-  std::array<std::shared_ptr<DescriptorSet>, 4> descriptor_sets_;
-  std::array<std::shared_ptr<Buffer>, 2> vertices_;
-  std::array<std::shared_ptr<Buffer>, 2> rods_;
-  std::shared_ptr<Buffer> angles_;
-  std::shared_ptr<Buffer> vertex_rods_;
-  std::shared_ptr<Buffer> rod_angles_;
-  std::shared_ptr<Buffer> node_rods_;
-  std::shared_ptr<Buffer> predicted_;
-  std::shared_ptr<Buffer> previous_;
-  std::shared_ptr<Buffer> tree_parameters_;
+  std::shared_ptr<Buffer> registry_, vertex_groups_, rod_groups_, tree_parameters_, coefficient_groups_;
   BufferUploadArena upload_arena_;
-  std::shared_ptr<ComputePipeline> predict_;
-  std::shared_ptr<ComputePipeline> solve_position_;
-  std::shared_ptr<ComputePipeline> solve_rotation_;
-  std::shared_ptr<ComputePipeline> update_velocity_;
-  uint32_t vertex_count_ = 0;
-  uint32_t rod_count_ = 0;
-  uint32_t vertex_index_ = 0;
-  uint32_t rod_index_ = 0;
-  std::vector<TreeRange> ranges_;
-  std::vector<glm::mat4> previous_models_;
-  std::vector<glm::quat> initial_rotations_;
+  std::shared_ptr<ComputePipeline> predict_, solve_position_, solve_rotation_, update_velocity_, prepare_coefficients_;
+  std::shared_ptr<DescriptorSetLayout> lod_layout_;
+  std::shared_ptr<DescriptorSet> lod_set_, lod_solver_set_;
+  std::array<std::shared_ptr<ComputePipeline>, 7> lod_pipelines_;
+  std::shared_ptr<Buffer> selected_registry_, lod_active_ids_, lod_vertex_groups_, lod_rod_groups_,
+      lod_coefficient_groups_, lod_error_groups_, lod_dispatch_;
+  bool lod_was_requested_ = false;
+  bool reference_ = false;
+  std::vector<std::shared_ptr<GpuTreePhysicsState>> trees_;
+  std::vector<uint32_t> active_ids_;
+  std::vector<TreeAddresses> cached_addresses_;
+  bool groups_dirty_ = true;
+  uint32_t vertex_group_count_ = 0, rod_group_count_ = 0, coefficient_group_count_ = 0;
+  std::vector<std::pair<uint32_t, std::shared_ptr<GpuTreePhysicsState>>> retired_states_;
+  std::vector<std::pair<uint32_t, std::shared_ptr<Buffer>>> retired_buffers_;
+  std::vector<std::pair<uint32_t, std::shared_ptr<DescriptorSet>>> retired_sets_;
 };
 }  // namespace eco_sys_lab_package

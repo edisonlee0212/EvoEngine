@@ -1,17 +1,9 @@
-struct TreePhysicsVertex {
-  float4 position_inverse_mass;
-  float4 velocity_radius;
-  float4 rest_local;
-  uint4 incident_rods;
-};
-
-struct TreePhysicsRod {
-  uint4 links;
-  float4 length_scale_mass_radius;
-  float4 rotation;
-  float4 rest_rotation;
-  uint4 incident_angles;
-};
+import EcoSysLab.TreePhysicsData;
+#if defined(EE_FOREST_PHYSICS)
+import EcoSysLab.ForestWindRods;
+#else
+import EcoSysLab.WindRodAccess;
+#endif
 
 struct Parameters {
   uint particle_count;
@@ -23,8 +15,6 @@ struct Parameters {
 [[vk::binding(1, 0)]] RWStructuredBuffer<uint> rod_heads;
 [[vk::binding(2, 0)]] RWStructuredBuffer<uint> rod_next;
 [[vk::binding(3, 0)]] RWStructuredBuffer<uint> max_rod_extent;
-[[vk::binding(4, 0)]] StructuredBuffer<TreePhysicsVertex, Std430DataLayout> vertices;
-[[vk::binding(5, 0)]] StructuredBuffer<TreePhysicsRod, Std430DataLayout> rods;
 [[vk::push_constant]] ConstantBuffer<Parameters> parameters;
 
 uint HashCell(int3 cell) {
@@ -36,9 +26,10 @@ uint HashCell(int3 cell) {
 void main(uint3 id : SV_DispatchThreadID) {
   uint index = id.x;
   if (index >= parameters.rod_count) return;
-  TreePhysicsRod rod = rods[index];
-  float3 start = vertices[rod.links.x].position_inverse_mass.xyz;
-  float3 end = vertices[rod.links.y].position_inverse_mass.xyz;
+  TreePhysicsRod rod;TreePhysicsVertex a,b;
+  if(!LoadWindRod(index,rod,a,b)) return;
+  float3 start=a.position_inverse_mass.xyz;
+  float3 end=b.position_inverse_mass.xyz;
   float3 midpoint = 0.5 * (start + end);
   float extent = 0.5 * length(end - start) + rod.length_scale_mass_radius.w;
   uint ignored;

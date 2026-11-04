@@ -1,16 +1,47 @@
 #include <gtest/gtest.h>
 
 #include <cmath>
+#include <random>
 
+#include "../../EvoEngine_Packages/EcoSysLab/Editor/include/PlantVisualOrganBuffers.hpp"
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "BasicFoliageDescriptor.hpp"
+#include "GpuTreeDebugData.hpp"
 #include "GpuTreeMeshData.hpp"
 #include "Jobs.hpp"
 #include "TreeMeshGenerator.hpp"
 #include "TreeSkinnedMeshGenerator.hpp"
 
 using namespace eco_sys_lab_package;
+
+TEST(TreeDebugPicking, DecodesOriginalNodeIdentityAndPositionForBothSkeletons) {
+  uint32_t factor;
+  const float expected = 0.375f;
+  std::memcpy(&factor, &expected, sizeof(factor));
+  const auto shoot = DecodeGpuTreeDebugPick({8, 1, factor, 0}, 10, 2);
+  ASSERT_TRUE(shoot);
+  EXPECT_EQ(shoot->node, 7u);
+  EXPECT_TRUE(shoot->shoot);
+  EXPECT_FLOAT_EQ(shoot->length_factor, expected);
+  const auto root = DecodeGpuTreeDebugPick({2, 0, factor, 0}, 1, 3);
+  ASSERT_TRUE(root);
+  EXPECT_EQ(root->node, 1u);
+  EXPECT_FALSE(root->shoot);
+  EXPECT_FLOAT_EQ(root->length_factor, expected);
+}
+
+TEST(TreeDebugPicking, RejectsBackgroundInvalidHandlesAndNonFinitePositions) {
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({}, 10, 10));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({11, 1, 0, 0}, 10, 20));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({11, 0, 0, 0}, 20, 10));
+  EXPECT_FALSE(DecodeGpuTreeDebugPick({1, 2, 0, 0}, 10, 10));
+  for (float value : {-0.1f, 1.1f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+    uint32_t bits;
+    std::memcpy(&bits, &value, sizeof(bits));
+    EXPECT_FALSE(DecodeGpuTreeDebugPick({1, 1, bits, 0}, 10, 10));
+  }
+}
 
 namespace {
 using MeshGenerator = CylindricalMeshGenerator<BaseSkeletonData, BaseFlowData, BaseNodeData>;
@@ -213,24 +244,173 @@ TEST(TreeSkeletonMeshing, PacksForkParentsAndRebasesTreeRanges) {
   EXPECT_EQ(nodes[4].foliage_meta.y, 0u);
 }
 
-TEST(TreeSkeletonMeshing, ReusesPackedNodesAtDifferentTreeOffsets) {
-  BaseSkeleton skeleton;
+TEST(PlantVisualOrgans, PreservesOrganOrderTransformsColorsAndVisibility) {
+  ShootSkeleton skeleton;
   skeleton.Extend(0, false);
   skeleton.SortLists();
-  std::vector<GpuTreeNode> packed;
-  AppendGpuTreeNodes(skeleton, {}, nullptr, 0, true, packed);
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    auto& data = skeleton.RefNode(handle).data;
+    data.leaves.resize(3);
+    data.flowers.resize(3);
+    data.fruits.resize(3);
+    const auto initialize = [&](auto& organs) {
+      for (size_t i = 0; i < organs.size(); ++i) {
+        auto& organ = organs[i];
+        organ.status = i == 1 ? OrganStatus::Inactive : (i == 0 ? OrganStatus::Dormant : OrganStatus::Flushed);
+        organ.position = {handle * 3.0f, static_cast<float>(i), -2};
+        organ.rotation = glm::quat(glm::vec3(0.2f, 0.4f, -0.3f));
+        organ.scale = {0.5f, 2.0f, 1.0f};
+        organ.health = 0.25f;
+        organ.maturity = 0.75f;
+      }
+    };
+    initialize(data.leaves);
+    initialize(data.flowers);
+    initialize(data.fruits);
+  }
+  const auto transform = glm::translate(glm::vec3(4, -3, 2)) * glm::mat4_cast(glm::quat(glm::vec3(0.3f, -0.2f, 0.1f))) *
+                         glm::scale(glm::vec3(2, 1, 3));
+  PlantVisualOrganBuffers buffers;
+  for (uint32_t mask = 0; mask < 8; ++mask) {
+    buffers.Build(skeleton, transform, mask & 1, mask & 2, mask & 4);
+    const std::vector<ParticleInfo>* lists[] = {&buffers.foliage, &buffers.flowers, &buffers.fruits};
+    const float scales[] = {0.5f, 1.0f, 0.25f};
+    const glm::vec4 colors[] = {
+        {glm::mix(glm::vec3(152, 203, 0) / 255.0f, glm::vec3(159, 100, 66) / 255.0f, 0.75f), 0.5f},
+        {glm::mix(glm::vec3(1), glm::vec3(255, 192, 203) / 255.0f, 0.75f), 0.75f},
+        {glm::mix(glm::vec3(152, 255, 152) / 255.0f, glm::vec3(255, 165, 0) / 255.0f, 0.75f), 0.75f}};
+    for (uint32_t type = 0; type < 3; ++type) {
+      ASSERT_EQ(lists[type]->size(), mask & (1u << type) ? 4u : 0u);
+      for (size_t i = 0; i < lists[type]->size(); ++i) {
+        const auto& organ = skeleton.PeekNode(static_cast<int>(i / 2)).data.leaves[(i % 2) * 2];
+        const auto& result = lists[type]->at(i);
+        const glm::vec4 local(0.2f, -0.4f, 0.7f, 1);
+        const glm::vec4 expected =
+            transform * glm::vec4(organ.position + organ.rotation * (organ.scale * scales[type] * glm::vec3(local)), 1);
+        EXPECT_LT(glm::length(result.instance_matrix.value * local - expected), 1e-5f);
+        EXPECT_LT(glm::length(result.instance_color - colors[type]), 1e-6f);
+      }
+    }
+  }
+}
 
-  std::vector<GpuTreeNode> nodes;
-  AppendPackedGpuTreeNodes(packed, 3, nodes);
-  AppendPackedGpuTreeNodes(packed, 7, nodes);
+TEST(PlantVisualOrgans, ReusesBuffersAndCombinesTreesInInputOrder) {
+  ShootSkeleton skeleton;
+  skeleton.SortLists();
+  auto& organs = skeleton.RefNode(0).data.leaves;
+  organs.resize(8);
+  for (auto& organ : organs)
+    organ.status = OrganStatus::Flushed;
+  PlantVisualOrganBuffers first, second, combined;
+  first.Build(skeleton, glm::mat4(1), true, false, false);
+  second.Build(skeleton, glm::translate(glm::vec3(10, 0, 0)), true, false, false);
+  const auto* first_storage = first.foliage.data();
+  const auto capacity = first.foliage.capacity();
+  combined.Append(first);
+  combined.Append(second);
+  ASSERT_EQ(combined.foliage.size(), 16u);
+  EXPECT_FLOAT_EQ(combined.foliage.front().instance_matrix.value[3].x, 0);
+  EXPECT_FLOAT_EQ(combined.foliage[8].instance_matrix.value[3].x, 10);
+  const auto* combined_storage = combined.foliage.data();
+  combined.Clear();
+  combined.Append(second);
+  combined.Append(first);
+  EXPECT_EQ(combined.foliage.data(), combined_storage);
+  EXPECT_FLOAT_EQ(combined.foliage.front().instance_matrix.value[3].x, 10);
+  first.Build(skeleton, glm::mat4(1), false, false, false);
+  EXPECT_TRUE(first.foliage.empty());
+  EXPECT_EQ(first.foliage.capacity(), capacity);
+  organs.resize(2);
+  first.Build(skeleton, glm::mat4(1), true, false, false);
+  EXPECT_EQ(first.foliage.size(), 2u);
+  EXPECT_EQ(first.foliage.data(), first_storage);
+  first.Clear();
+  EXPECT_TRUE(first.foliage.empty());
+  EXPECT_EQ(first.foliage.capacity(), capacity);
+}
 
-  ASSERT_EQ(nodes.size(), 4);
-  EXPECT_EQ(nodes[0].links.x, UINT32_MAX);
-  EXPECT_EQ(nodes[1].links.x, 0u);
-  EXPECT_EQ(nodes[2].links.x, UINT32_MAX);
-  EXPECT_EQ(nodes[3].links.x, 2u);
-  EXPECT_EQ(nodes[0].links.y, 3u);
-  EXPECT_EQ(nodes[3].links.y, 7u);
-  EXPECT_EQ(packed[1].links.x, 0u);
-  EXPECT_EQ(packed[1].links.y, 0u);
+TEST(SkeletonRemoval, EmptyRemovalPreservesTopologyAndAdvancesVersion) {
+  BaseSkeleton skeleton(1);
+  const auto tip = skeleton.Extend(0, false);
+  const auto branch = skeleton.Extend(0, true);
+  skeleton.SortLists();
+  const auto nodes = skeleton.PeekSortedNodeList();
+  const auto flows = skeleton.PeekSortedFlowList();
+  const auto version = skeleton.GetVersion();
+  skeleton.RemoveNodes({});
+  EXPECT_EQ(skeleton.GetVersion(), version + 1);
+  EXPECT_EQ(skeleton.PeekSortedNodeList(), nodes);
+  EXPECT_EQ(skeleton.PeekSortedFlowList(), flows);
+  EXPECT_EQ(skeleton.PeekNode(tip).GetParentHandle(), 0);
+  EXPECT_EQ(skeleton.PeekNode(branch).GetParentHandle(), 0);
+}
+
+TEST(SkeletonRemoval, OverlappingSubtreesCompactHandlesAndAllowSubsequentRemoval) {
+  BaseSkeleton skeleton(1);
+  const auto trunk = skeleton.Extend(0, false);
+  const auto branch = skeleton.Extend(trunk, true);
+  const auto tip = skeleton.Extend(branch, false);
+  const auto survivor = skeleton.Extend(trunk, false);
+  skeleton.RefNode(survivor).info.length = 7.f;
+  skeleton.RemoveNodes({branch, tip, branch});
+  ASSERT_EQ(skeleton.PeekSortedNodeList().size(), 3u);
+  int remaining_tip = -1;
+  for (const auto handle : skeleton.PeekSortedNodeList()) {
+    const auto& node = skeleton.PeekNode(handle);
+    EXPECT_EQ(node.GetHandle(), handle);
+    for (const auto child : node.PeekChildHandles()) {
+      EXPECT_EQ(skeleton.PeekNode(child).GetParentHandle(), handle);
+    }
+    if (node.info.length == 7.f)
+      remaining_tip = handle;
+  }
+  ASSERT_NE(remaining_tip, -1);
+  EXPECT_EQ(skeleton.PeekNode(remaining_tip).GetParentHandle(), trunk);
+  for (const auto flow : skeleton.PeekSortedFlowList()) {
+    for (const auto handle : skeleton.PeekFlow(flow).PeekNodeHandles()) {
+      EXPECT_EQ(skeleton.PeekNode(handle).GetFlowHandle(), flow);
+    }
+  }
+  skeleton.RemoveNodes({remaining_tip});
+  EXPECT_EQ(skeleton.PeekSortedNodeList().size(), 2u);
+  skeleton.RemoveNodes({0});
+  EXPECT_TRUE(skeleton.PeekRawNodes().empty());
+}
+
+TEST(PlantVisualOrgans, DirectTrsMatchesOriginalMatrixProductsExactly) {
+  ShootSkeleton skeleton;
+  skeleton.SortLists();
+  auto& data = skeleton.RefNode(0).data;
+  data.leaves.resize(1);
+  data.flowers.resize(1);
+  data.fruits.resize(1);
+  std::mt19937 rng(53);
+  std::uniform_real_distribution<float> value(-10.f, 10.f);
+  const auto vector = [&] {
+    return glm::vec3(value(rng), value(rng), value(rng));
+  };
+  PlantVisualOrganBuffers buffers;
+  for (int i = 0; i < 1000; ++i) {
+    auto& organ = data.leaves[0];
+    organ.status = OrganStatus::Flushed;
+    organ.position = vector();
+    organ.rotation = glm::quat(vector());
+    if (i % 2)
+      organ.rotation *= 2.f;
+    organ.scale = i % 7 ? vector() : glm::vec3(0.f);
+    static_cast<ShootOrgan&>(data.flowers[0]) = organ;
+    static_cast<ShootOrgan&>(data.fruits[0]) = organ;
+    const auto world = glm::translate(vector()) * glm::mat4_cast(glm::quat(vector())) * glm::scale(vector());
+    buffers.Build(skeleton, world, true, true, true);
+    const std::vector<ParticleInfo>* lists[] = {&buffers.foliage, &buffers.flowers, &buffers.fruits};
+    const float scales[] = {0.5f, 1.f, 0.25f};
+    for (int type = 0; type < 3; ++type) {
+      const auto local =
+          glm::translate(organ.position) * glm::mat4_cast(organ.rotation) * glm::scale(organ.scale * scales[type]);
+      const auto expected = world * local;
+      ASSERT_EQ(lists[type]->size(), 1u);
+      for (int column = 0; column < 4; ++column)
+        EXPECT_EQ(lists[type]->front().instance_matrix.value[column], expected[column]);
+    }
+  }
 }

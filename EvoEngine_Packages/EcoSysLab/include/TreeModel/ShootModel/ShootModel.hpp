@@ -113,7 +113,7 @@ class ShootModel : public PlantModel {
    * @brief Performs pre-processing computations after shoot growth.
    * @param shoot_growth_controller The controller that regulates shoot growth.
    */
-  void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller);
+  void CalculateGrowthData(const ShootGrowthController& shoot_growth_controller, bool update_counts = true);
 
   friend class Tree;
 #pragma endregion
@@ -181,6 +181,12 @@ class ShootModel : public PlantModel {
    * @param global_transform The global transformation of the tree.
    * @param climate_model The climate model affecting growth.
    */
+  struct VoxelRegistration {
+    InternodeVoxelRegistration node;
+    float shadow = 0;
+  };
+  void CollectVoxelRegistrations(const glm::mat4& global_transform, std::vector<VoxelRegistration>& records) const;
+  static void RegisterVoxel(const std::vector<VoxelRegistration>& records, ClimateModel& climate_model);
   void RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model);
 
   TreeOccupancyGrid tree_occupancy_grid{};  ///< The tree's occupancy grid.

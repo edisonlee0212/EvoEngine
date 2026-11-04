@@ -7,6 +7,8 @@
 namespace eco_sys_lab_package {
 using namespace evo_engine;
 
+void BuildSoilModel(VoxelSoilModel& model, const std::shared_ptr<SoilDescriptor>& descriptor);
+
 /**
  * \brief Enum representing different soil properties that can be visualized or simulated.
  */
@@ -19,6 +21,19 @@ enum class SoilProperty {
   NutrientDensity,       ///< Represents the density of nutrients in soil.
   SoilDensity,           ///< Represents soil density.
   SoilLayer              ///< Represents different soil layers.
+};
+
+struct SoilVisualization {
+  VoxelSoilModel& soil_model;
+  AssetRef& soil_descriptor_ref;
+  Entity owner;
+  Entity GenerateSurfaceQuadX(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
+                              float water_factor, float nutrient_factor);
+  Entity GenerateSurfaceQuadZ(bool back_facing, float depth, const glm::vec2& min_xy, const glm::vec2 max_xy,
+                              float water_factor, float nutrient_factor);
+  Entity GenerateCutOut(float x_depth, float z_depth, float water_factor, float nutrient_factor, bool ground_surface);
+  Entity GenerateFullBox(float water_factor, float nutrient_factor, bool ground_surface);
+  Entity GenerateMesh(float x_depth = 0.0f, float z_depth = 0.0f);
 };
 
 /**

@@ -1,79 +1,32 @@
 #include "GpuTreeMeshRenderer.hpp"
 
+#include <limits>
 #include "Application.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "FoliageRenderer.hpp"
 #include "GpuTreePhysics.hpp"
 #include "GraphicsPipeline.hpp"
+#include "Jobs.hpp"
 #include "Material.hpp"
 #include "Platform/Platform.hpp"
+#include "Profiler.hpp"
 #include "Shader.hpp"
 #include "Tree.hpp"
 
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 
 using namespace eco_sys_lab_package;
 
 namespace {
-struct TreeMeshPushConstant {
-  uint32_t node_base = 0;
-  uint32_t node_count = 0;
-  uint32_t camera_index = 0;
-  uint32_t pass_index = 0;
-  uint32_t light_index = 0;
-  uint32_t light_face = 0;
-  uint32_t padding0 = 0;
-  uint32_t geometry_pass = 0;
-};
+using TreeMeshPushConstant = GpuTreeDrawParameters;
 
-struct DeformPushConstant {
-  uint32_t node_base = 0;
-  uint32_t node_count = 0;
-  uint32_t node_rods_base = 0;
-  uint32_t padding = 0;
-  glm::vec4 model_position{};
-  glm::vec4 model_scale{};
-  glm::vec4 inverse_rotation{};
-};
-static_assert(sizeof(DeformPushConstant) == 64);
-
-struct DeformTree {
-  uint32_t base;
-  uint32_t count;
-  uint32_t node_rods_base;
-  glm::vec4 position;
-  glm::vec4 scale;
-  glm::vec4 inverse_rotation;
-  std::shared_ptr<GpuTreePhysics> physics;
-};
-
-std::array<float, 18> PackParameters(const TreeMeshGeneratorSettings& settings, const BasicBarkDescriptor* bark) {
-  std::array<float, 18> values = {settings.trunk_thickness,
-                                  settings.x_subdivision,
-                                  settings.trunk_y_subdivision,
-                                  settings.branch_y_subdivision,
-                                  settings.radius_multiplier,
-                                  settings.radius,
-                                  settings.base_control_point_ratio,
-                                  settings.branch_control_point_ratio,
-                                  settings.override_radius ? 1.0f : 0.0f,
-                                  settings.smoothness ? 1.0f : 0.0f};
-  if (bark) {
-    values[10] = 1.0f;
-    values[11] = bark->bark_x_frequency;
-    values[12] = bark->bark_y_frequency;
-    values[13] = bark->bark_depth;
-    values[14] = bark->base_frequency;
-    values[15] = bark->base_max_distance;
-    values[16] = bark->base_distance_decrease_factor;
-    values[17] = bark->base_depth;
-  }
-  return values;
-}
+using DeformPushConstant = GpuTreeDeformParameters;
 
 std::shared_ptr<GraphicsPipeline> MakePipeline(const std::shared_ptr<Shader>& task, const std::shared_ptr<Shader>& mesh,
                                                bool shadow, const std::shared_ptr<DescriptorSetLayout>& layout,
@@ -112,10 +65,19 @@ void GpuTreeMeshRenderer::Initialize() {
     return;
   layout_ = std::make_shared<DescriptorSetLayout>();
   layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
+  layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
   layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+                                 VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                                     VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+                                 0);
+  for (uint32_t i = 5; i <= 8; ++i)
+    layout_->PushDescriptorBinding(i, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout_->Initialize();
   deform_layout_ = std::make_shared<DescriptorSetLayout>();
   for (uint32_t i = 0; i < 5; ++i)
@@ -128,50 +90,46 @@ void GpuTreeMeshRenderer::Initialize() {
   deform_pipeline_->descriptor_set_layouts = {deform_layout_};
   deform_pipeline_->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DeformPushConstant)});
   deform_pipeline_->Initialize();
-  VkBufferCreateInfo buffer_info{};
-  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-  buffer_info.size = sizeof(GpuTreeNode);
-  VmaAllocationCreateInfo allocation_info{};
-  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  VmaAllocationCreateInfo instance_allocation_info{};
-  instance_allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-  instance_allocation_info.flags =
-      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-  instance_allocation_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-  for (uint32_t i = 0; i < Platform::GetMaxFramesInFlight(); ++i) {
-    node_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, allocation_info));
-    rest_node_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, allocation_info));
-    cached_nodes_.emplace_back();
-    cached_deform_ranges_.emplace_back();
-    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_info.size = sizeof(GpuTreeInstanceIndices);
-    instance_index_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, instance_allocation_info));
-    buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-    buffer_info.size = sizeof(GpuTreeFoliageParams);
-    foliage_params_buffers_.emplace_back(std::make_shared<Buffer>(buffer_info, allocation_info));
-    buffer_info.size = sizeof(GpuTreeNode);
-    descriptor_sets_.emplace_back(std::make_shared<DescriptorSet>(layout_));
-    tree_handles_.emplace_back();
-    deform_descriptor_sets_.emplace_back();
-    instance_indices_ready_.push_back(false);
-  }
+  canopy_pipeline_ = std::make_shared<ComputePipeline>();
+  canopy_pipeline_->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              "./EcoSysLabResources/Shaders/Compute/TreeCanopyBounds.slang");
+  const auto empty = ApplicationContext::Get().GetLayer<RenderLayer>()->GetEmptyDescriptorSetLayout();
+  canopy_pipeline_->descriptor_set_layouts = {empty, empty, empty, layout_};
+  canopy_pipeline_->Initialize();
   const auto task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                                             "./EcoSysLabResources/Shaders/Graphics/Task/TreeMesh.slang");
   const auto mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                             "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeMesh.slang");
-  camera_pipeline_ = MakePipeline(task, mesh, false, layout_, "TreeMesh.slang");
+  const auto& limits = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext;
+  if (std::getenv("EVOENGINE_TREE_GEOMETRY_REFERENCE") ||
+      std::min(limits.maxMeshWorkGroupCount[0], limits.maxMeshWorkGroupTotalCount) < 3u * 65535u) {
+    camera_pipeline_ = MakePipeline(task, mesh, false, layout_, "TreeMesh.slang");
+  } else {
+    camera_batch_ = std::max(
+        1u,
+        std::min(32u, std::min(limits.maxMeshWorkGroupCount[0], limits.maxMeshWorkGroupTotalCount) / (3u * 65535u)));
+    const auto batch_task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+                                                    "./EcoSysLabResources/Shaders/Graphics/Task/TreeMeshBatched.slang");
+    const auto indexed_mesh =
+        Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeMeshIndexed.slang");
+    camera_pipeline_ = MakePipeline(batch_task, indexed_mesh, false, layout_, "TreeMesh.slang");
+    impostor_pipeline_ =
+        MakePipeline(batch_task,
+                     Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                             "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeImpostor.slang"),
+                     false, layout_, "TreeImpostor.slang");
+  }
   shadow_pipeline_ = MakePipeline(task, mesh, true, layout_, "Empty.slang");
-  const auto foliage_task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
-                                                    "./EcoSysLabResources/Shaders/Graphics/Task/TreeFoliage.slang");
-  const auto foliage_mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-                                                    "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeFoliage.slang");
-  foliage_opaque_pipeline_ = MakePipeline(foliage_task, foliage_mesh, false, layout_, "TreeFoliage.slang");
-  foliage_masked_pipeline_ = MakePipeline(foliage_task, foliage_mesh, false, layout_, "TreeFoliageMasked.slang");
-  foliage_opaque_shadow_pipeline_ = MakePipeline(foliage_task, foliage_mesh, true, layout_, "Empty.slang");
-  foliage_masked_shadow_pipeline_ =
-      MakePipeline(foliage_task, foliage_mesh, true, layout_, "TreeFoliageMaskedShadow.slang");
+  shadow_reference_ = std::getenv("EVOENGINE_TREE_SHADOW_REFERENCE") != nullptr;
+  const auto shadow_defines =
+      Platform::GetShaderGlobalDefines() + (shadow_reference_ ? "\n#define EE_TREE_SHADOW_REFERENCE 1\n" : "");
+  const auto shadow_task = Shader::CreateTemporary(ShaderType::Task, shadow_defines,
+                                                   "./EcoSysLabResources/Shaders/Graphics/Task/TreeShadow.slang");
+  const auto shadow_mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                                   "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeShadow.slang");
+  directional_shadow_pipeline_ = MakePipeline(shadow_task, shadow_mesh, true, layout_, "TreeShadow.slang");
 
   default_foliage_profile_ = AssetManager::CreateTemporaryAsset<SubsurfaceProfile>();
   default_foliage_profile_->albedo = {0.75f, 0.95f, 0.45f};
@@ -191,342 +149,571 @@ void GpuTreeMeshRenderer::Initialize() {
 
 bool GpuTreeMeshRenderer::Prepare() {
   Initialize();
-  return deform_pipeline_ && deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() &&
-         shadow_pipeline_ && shadow_pipeline_->Initialized() && foliage_opaque_pipeline_ &&
-         foliage_opaque_pipeline_->Initialized() && foliage_masked_pipeline_ &&
-         foliage_masked_pipeline_->Initialized() && foliage_opaque_shadow_pipeline_ &&
-         foliage_opaque_shadow_pipeline_->Initialized() && foliage_masked_shadow_pipeline_ &&
-         foliage_masked_shadow_pipeline_->Initialized();
+  return canopy_pipeline_ && canopy_pipeline_->Initialized() &&
+         (!impostor_pipeline_ || impostor_pipeline_->Initialized()) && deform_pipeline_ &&
+         deform_pipeline_->Initialized() && camera_pipeline_ && camera_pipeline_->Initialized() && shadow_pipeline_ &&
+         shadow_pipeline_->Initialized() && directional_shadow_pipeline_ && directional_shadow_pipeline_->Initialized();
+}
+
+bool GpuTreeMeshRenderer::PrepareFoliage(bool masked) {
+  auto& camera = masked ? foliage_masked_pipeline_ : foliage_opaque_pipeline_;
+  auto& shadow = masked ? foliage_masked_shadow_pipeline_ : foliage_opaque_shadow_pipeline_;
+  if (!camera) {
+    const auto task = Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
+                                              "./EcoSysLabResources/Shaders/Graphics/Task/TreeFoliage.slang");
+    const auto mesh = Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+                                              "./EcoSysLabResources/Shaders/Graphics/Mesh/TreeFoliage.slang");
+    camera = MakePipeline(task, mesh, false, layout_, masked ? "TreeFoliageMasked.slang" : "TreeFoliage.slang");
+    shadow = MakePipeline(task, mesh, true, layout_, masked ? "TreeFoliageMaskedShadow.slang" : "Empty.slang");
+  }
+  return camera->Initialized() && shadow->Initialized();
+}
+
+std::shared_ptr<const GpuTreeMeshRenderer::TreePose> GpuTreeMeshRenderer::GetTreePose(const std::shared_ptr<Tree>& tree,
+                                                                                      const BasicBarkDescriptor* bark,
+                                                                                      bool connected_pose) {
+  auto& cache = tree_node_cache_[tree->GetOwner()];
+  if (!cache)
+    cache = std::make_shared<TreeNodeCache>();
+  return GetTreePose(tree, bark, connected_pose, *cache);
+}
+
+std::shared_ptr<const GpuTreeMeshRenderer::TreePose> GpuTreeMeshRenderer::GetTreePose(const std::shared_ptr<Tree>& tree,
+                                                                                      const BasicBarkDescriptor* bark,
+                                                                                      bool connected_pose,
+                                                                                      TreeNodeCache& cache) {
+  const auto parameters = GpuTreeMeshParameters(tree->tree_mesh_generator_settings, bark);
+  const auto shoot_revision = tree->GetShootModelRevision().content;
+  const auto root_revision = tree->GetRootModelRevision().content;
+  const auto& previous = cache.pose;
+  if (previous && previous->tree.lock() == tree && previous->parameters == parameters &&
+      previous->shoot_revision == shoot_revision && previous->root_revision == root_revision &&
+      previous->connected_pose == connected_pose)
+    return previous;
+  const ProfilerScope scope("EcoSysLab / Pack shared tree pose", "EcoSysLab");
+  // Recycle capacity only when no consumer retains the previous immutable snapshot.
+  auto pose = previous && previous.use_count() == 1 ? std::const_pointer_cast<TreePose>(previous)
+                                                    : std::make_shared<TreePose>();
+  pose->nodes.clear();
+  pose->tree = tree;
+  pose->parameters = parameters;
+  pose->shoot_revision = shoot_revision;
+  pose->root_revision = root_revision;
+  pose->connected_pose = connected_pose;
+  AppendGpuTreeNodes(tree->shoot_model.PeekShootSkeleton(), tree->tree_mesh_generator_settings, bark, 0, true,
+                     pose->nodes, connected_pose);
+  pose->shoot_count = static_cast<uint32_t>(pose->nodes.size());
+  AppendGpuTreeNodes(tree->root_model.PeekRootSkeleton(), tree->tree_mesh_generator_settings, bark, 0, false,
+                     pose->nodes);
+  cache.pose = pose;
+  return pose;
 }
 
 void GpuTreeMeshRenderer::Register(const std::shared_ptr<Scene>& scene) {
+  const auto& rendering = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->rendering;
+  const ProfilerScope total_scope("EcoSysLab / Tree render registration", "EcoSysLab");
+  const auto frame_number = Platform::GetFrameCount();
+  retired_trees_.erase(std::remove_if(retired_trees_.begin(), retired_trees_.end(),
+                                      [&](const auto& entry) {
+                                        return frame_number - entry.first > Platform::GetMaxFramesInFlight() + 1;
+                                      }),
+                       retired_trees_.end());
   if (cached_scene_.lock() != scene) {
+    for (auto& entry : tree_node_cache_)
+      retired_trees_.emplace_back(frame_number, std::move(entry.second));
     tree_node_cache_.clear();
     cached_scene_ = scene;
   }
-  const auto branch_entities = scene->UnsafeGetPrivateComponentOwnersList<BranchRenderer>();
-  const auto foliage_entities = scene->UnsafeGetPrivateComponentOwnersList<FoliageRenderer>();
-  if ((!branch_entities || branch_entities->empty()) && (!foliage_entities || foliage_entities->empty())) {
-    tree_node_cache_.clear();
-    return;
-  }
+  const auto branches = scene->UnsafeGetPrivateComponentOwnersList<BranchRenderer>();
+  const auto leaves = scene->UnsafeGetPrivateComponentOwnersList<FoliageRenderer>();
+  std::unordered_set<Entity, Entity> entities;
+  if (branches)
+    entities.insert(branches->begin(), branches->end());
+  if (leaves)
+    entities.insert(leaves->begin(), leaves->end());
   if (!Prepare())
     return;
-  std::unordered_set<Entity, Entity> tree_entities;
-  if (branch_entities)
-    tree_entities.insert(branch_entities->begin(), branch_entities->end());
-  if (foliage_entities)
-    tree_entities.insert(foliage_entities->begin(), foliage_entities->end());
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  const auto storage = render_layer->GetCurrentRenderInstanceStorage();
-  std::vector<GpuTreeNode> nodes;
-  std::vector<GpuTreeFoliageParams> foliage_params;
-  bool any_branch = false;
-  bool any_foliage_opaque = false;
-  bool any_foliage_masked = false;
-  const auto frame = Platform::GetCurrentFrameIndex();
-  auto& handles = tree_handles_[frame];
-  handles.clear();
-  auto& deform_sets = deform_descriptor_sets_[frame];
-  deform_sets.clear();
-  std::vector<DeformTree> deform_trees;
-  instance_indices_ready_[frame] = false;
+  {
+    const ProfilerScope scope("EcoSysLab / Prepare render caches parallel", "EcoSysLab");
+    struct PoseWork {
+      std::shared_ptr<Tree> tree;
+      std::shared_ptr<BasicBarkDescriptor> bark;
+      std::shared_ptr<TreeNodeCache> cache;
+      bool connected;
+      Entity entity;
+      std::shared_ptr<DynamicTreeSkeleton> physics;
+      std::shared_ptr<GpuTreePhysicsState> state;
+    };
+    std::vector<PoseWork> work;
+    work.reserve(entities.size());
+    for (const auto entity : entities) {
+      if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
+        continue;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+      if (!tree || !tree->IsEnabled())
+        continue;
+      const auto branch = scene->HasPrivateComponent<BranchRenderer>(entity)
+                              ? scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock()
+                              : nullptr;
+      const auto leaf = scene->HasPrivateComponent<FoliageRenderer>(entity)
+                            ? scene->GetOrSetPrivateComponent<FoliageRenderer>(entity).lock()
+                            : nullptr;
+      if ((!branch || !branch->IsEnabled()) && (!leaf || !leaf->IsEnabled()))
+        continue;
+      const auto descriptor = tree->tree_descriptor_ref.Get<TreeDescriptor>();
+      const auto bark = descriptor ? descriptor->bark_descriptor.Get<BasicBarkDescriptor>() : nullptr;
+      const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
+                               ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
+                               : nullptr;
+      auto& cache = tree_node_cache_[entity];
+      if (!cache)
+        cache = std::make_shared<TreeNodeCache>();
+      const bool connected = physics && physics->IsEnabled();
+      const auto state = connected ? physics->GetGpuPhysicsState() : nullptr;
+      const auto& pose = cache->pose;
+      if (pose && pose->tree.lock() == tree && pose->connected_pose == connected &&
+          pose->shoot_revision == tree->GetShootModelRevision().content &&
+          pose->root_revision == tree->GetRootModelRevision().content &&
+          pose->parameters == GpuTreeMeshParameters(tree->tree_mesh_generator_settings, bark.get()) &&
+          cache->tree.lock() == tree && cache->physics.lock() == state && cache->connected_pose == connected &&
+          cache->shoot_revision == pose->shoot_revision && cache->root_revision == pose->root_revision &&
+          cache->parameters == pose->parameters)
+        continue;
+      work.push_back({tree, bark, cache, connected, entity, physics, state});
+    }
+    if (!work.empty())
+      Jobs::RunParallelFor(work.size(), [&](size_t i) {
+        const auto& item = work[i];
+        const auto& owner = item.tree;
+        const auto& bark = item.bark;
+        const auto& physics = item.physics;
+        const auto& state = item.state;
+        const auto entity = item.entity;
+        const bool connected_pose = item.connected;
+        auto& cache = *item.cache;
+        const auto parameters = GpuTreeMeshParameters(owner->tree_mesh_generator_settings, bark.get());
+        const auto pose = GetTreePose(owner, bark.get(), connected_pose, cache);
+        if (cache.tree.lock() != owner || cache.parameters != parameters || cache.physics.lock() != state ||
+            cache.connected_pose != connected_pose || cache.shoot_revision != owner->GetShootModelRevision().content ||
+            cache.root_revision != owner->GetRootModelRevision().content) {
+          const ProfilerScope build_scope("EcoSysLab / Build tree render cache", "EcoSysLab");
+          cache.nodes = pose->nodes;
+          cache.shoot_count = pose->shoot_count;
+          if (state)
+            for (uint32_t i = 0; i < cache.shoot_count; ++i) {
+              auto& node = cache.nodes[i];
+              if (!physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(node.foliage_meta.x)))
+                continue;
+              while (node.links.x != UINT32_MAX && !physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(
+                                                       cache.nodes[node.links.x].foliage_meta.x)))
+                node.links.x = cache.nodes[node.links.x].links.x;
+            }
+          for (size_t i = 0; i < cache.nodes.size(); ++i) {
+            auto& node = cache.nodes[i];
+            node.foliage_meta.z = entity.GetIndex() ^ (entity.GetVersion() * 0x9e3779b9u);
+            if (state && i < cache.shoot_count &&
+                !physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(node.foliage_meta.x)))
+              node.links.z = UINT32_MAX;
+            else
+              node.links.z = 0;
+          }
+          {
+            const ProfilerScope scope("EcoSysLab / Build shadow groups", "EcoSysLab");
+            std::vector<bool> apical;
+            for (const auto handle : owner->shoot_model.PeekShootSkeleton().PeekSortedNodeList())
+              apical.push_back(owner->shoot_model.PeekShootSkeleton().PeekNode(handle).IsApical());
+            cache.shadow_groups = BuildTreeShadowGroups(cache.nodes, apical);
+          }
+          cache.tree = owner;
+          cache.physics = state;
+          cache.connected_pose = connected_pose;
+          cache.parameters = parameters;
+          cache.shoot_revision = owner->GetShootModelRevision().content;
+          cache.root_revision = owner->GetRootModelRevision().content;
+          cache.foliage_padding = -1;
+          ++cache.generation;
+        }
+      });
+  }
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto storage = render->GetCurrentRenderInstanceStorage();
+  const auto index = Platform::GetCurrentFrameIndex();
   auto scene_bound = scene->GetBound();
-  for (const auto& entity : tree_entities) {
+  const auto self = shared_from_this();
+  for (const auto entity : entities) {
+    const ProfilerScope tree_scope("EcoSysLab / Prepare render tree", "EcoSysLab");
     if (!scene->IsEntityEnabled(entity) || !scene->HasPrivateComponent<Tree>(entity))
       continue;
-    const auto tree = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
-    if (!tree || !tree->IsEnabled())
+    const auto owner = scene->GetOrSetPrivateComponent<Tree>(entity).lock();
+    if (!owner || !owner->IsEnabled())
       continue;
-    const auto branch_renderer = scene->HasPrivateComponent<BranchRenderer>(entity)
-                                     ? scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock()
-                                     : nullptr;
-    const auto foliage_renderer = scene->HasPrivateComponent<FoliageRenderer>(entity)
-                                      ? scene->GetOrSetPrivateComponent<FoliageRenderer>(entity).lock()
-                                      : nullptr;
-    bool branch_enabled = branch_renderer && branch_renderer->IsEnabled();
-    bool foliage_enabled = foliage_renderer && foliage_renderer->IsEnabled();
-    if (!branch_enabled && !foliage_enabled)
+    const auto branch = scene->HasPrivateComponent<BranchRenderer>(entity)
+                            ? scene->GetOrSetPrivateComponent<BranchRenderer>(entity).lock()
+                            : nullptr;
+    const auto leaf = scene->HasPrivateComponent<FoliageRenderer>(entity)
+                          ? scene->GetOrSetPrivateComponent<FoliageRenderer>(entity).lock()
+                          : nullptr;
+    bool branch_enabled = branch && branch->IsEnabled(), leaf_enabled = leaf && leaf->IsEnabled();
+    if (!branch_enabled && !leaf_enabled)
       continue;
-    const auto& settings = tree->tree_mesh_generator_settings;
-    const auto& shoots = tree->shoot_model.PeekShootSkeleton();
-    const auto& roots = tree->root_model.PeekRootSkeleton();
-    std::shared_ptr<BasicBarkDescriptor> bark;
-    std::shared_ptr<BasicFoliageDescriptor> foliage_descriptor;
-    if (const auto descriptor = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
-      bark = descriptor->bark_descriptor.Get<BasicBarkDescriptor>();
-      foliage_descriptor = descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>();
-    }
-    const auto branch_material = branch_enabled ? branch_renderer->material_ref.Get<Material>() : nullptr;
+    const auto descriptor = owner->tree_descriptor_ref.Get<TreeDescriptor>();
+    const auto foliage = descriptor ? descriptor->foliage_descriptor.Get<BasicFoliageDescriptor>() : nullptr;
+    const auto branch_material = branch_enabled ? branch->material_ref.Get<Material>() : nullptr;
     branch_enabled = branch_material && ClassifyGltfRasterMaterial(
                                             branch_material->BuildGltfMaterialData().shade_material,
                                             branch_material->draw_settings.blending) == GltfRasterMaterialClass::Opaque;
-    auto foliage_material = foliage_enabled ? foliage_renderer->material_ref.Get<Material>() : nullptr;
-    if (foliage_enabled && !foliage_material && foliage_descriptor)
-      foliage_material = foliage_descriptor->leaf_material_ref.Get<Material>();
-    if (foliage_enabled && !foliage_material)
-      foliage_material = default_foliage_material_;
-    GltfRasterMaterialClass foliage_class = GltfRasterMaterialClass::Forward;
-    if (foliage_enabled) {
-      foliage_class = ClassifyGltfRasterMaterial(foliage_material->BuildGltfMaterialData().shade_material,
-                                                 foliage_material->draw_settings.blending);
-      foliage_enabled = foliage_class != GltfRasterMaterialClass::Forward;
+    auto leaf_material = leaf_enabled ? leaf->material_ref.Get<Material>() : nullptr;
+    if (leaf_enabled && !leaf_material && foliage)
+      leaf_material = foliage->leaf_material_ref.Get<Material>();
+    if (leaf_enabled && !leaf_material)
+      leaf_material = default_foliage_material_;
+    auto leaf_class = GltfRasterMaterialClass::Forward;
+    if (leaf_enabled) {
+      leaf_class = ClassifyGltfRasterMaterial(leaf_material->BuildGltfMaterialData().shade_material,
+                                              leaf_material->draw_settings.blending);
+      leaf_enabled = leaf_class != GltfRasterMaterialClass::Forward &&
+                     PrepareFoliage(leaf_class == GltfRasterMaterialClass::Masked);
     }
-    if (!branch_enabled && !foliage_enabled)
+    if (!branch_enabled && !leaf_enabled)
       continue;
-    TreeHandles tree_handles;
-    int branch_material_index = -1;
-    int foliage_material_index = -1;
+    TreeHandles handles;
+    int branch_index = -1, leaf_index = -1;
     if (branch_enabled) {
-      tree_handles.branch = branch_renderer->GetHandle();
-      tree_handles.has_branch =
-          storage->RegisterRenderInstance(scene, entity, tree_handles.branch, branch_material, &branch_material_index);
+      handles.branch = branch->GetHandle();
+      handles.has_branch =
+          storage->RegisterRenderInstance(scene, entity, handles.branch, branch_material, &branch_index);
     }
-    if (foliage_enabled) {
-      tree_handles.foliage = foliage_renderer->GetHandle();
-      tree_handles.has_foliage = storage->RegisterRenderInstance(scene, entity, tree_handles.foliage, foliage_material,
-                                                                 &foliage_material_index);
+    if (leaf_enabled) {
+      handles.foliage = leaf->GetHandle();
+      handles.has_foliage = storage->RegisterRenderInstance(scene, entity, handles.foliage, leaf_material, &leaf_index);
     }
-    if (!tree_handles.has_branch && !tree_handles.has_foliage)
+    if (!handles.has_branch && !handles.has_foliage)
       continue;
-    const size_t base = nodes.size();
-    const auto tree_index = static_cast<uint32_t>(handles.size());
     const auto physics = scene->HasPrivateComponent<DynamicTreeSkeleton>(entity)
                              ? scene->GetOrSetPrivateComponent<DynamicTreeSkeleton>(entity).lock()
                              : nullptr;
-    const auto gpu_physics = physics && physics->IsEnabled() ? physics->GetGpuPhysics() : nullptr;
-    auto& cache = tree_node_cache_[entity];
-    const auto parameters = PackParameters(settings, bark.get());
-    if (cache.tree.lock() != tree || cache.parameters != parameters) {
-      cache = {};
-      cache.tree = tree;
-      cache.parameters = parameters;
-    }
-    if (cache.shoot_revision != tree->GetShootModelRevision().content) {
-      std::vector<GpuTreeNode> packed;
-      AppendGpuTreeNodes(shoots, settings, bark.get(), 0, true, packed);
-      cache.shoots = std::move(packed);
-      cache.shoot_revision = tree->GetShootModelRevision().content;
-    }
-    AppendPackedGpuTreeNodes(cache.shoots, tree_index, nodes);
-    if (gpu_physics && nodes.size() > base) {
-      for (size_t i = base; i < nodes.size(); ++i) {
-        auto& node = nodes[i];
-        if (physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(node.foliage_meta.x)))
-          while (node.links.x != UINT32_MAX &&
-                 !physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(nodes[node.links.x].foliage_meta.x)))
-            node.links.x = nodes[node.links.x].links.x;
-      }
-      const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
-      const auto rotation = glm::inverse(transform.GetRotation());
-      deform_trees.push_back({static_cast<uint32_t>(base), static_cast<uint32_t>(nodes.size() - base),
-                              gpu_physics->GetTreeRange(physics->GetGpuTreeIndex()).node_rod_base,
-                              glm::vec4(transform.GetPosition(), 0.0f), glm::vec4(transform.GetScale(), 0.0f),
-                              glm::vec4(rotation.x, rotation.y, rotation.z, rotation.w), gpu_physics});
-    }
-    const size_t shoot_end = nodes.size();
-    if (tree_handles.has_branch) {
-      if (cache.root_revision != tree->GetRootModelRevision().content) {
-        std::vector<GpuTreeNode> packed;
-        AppendGpuTreeNodes(roots, settings, bark.get(), 0, false, packed);
-        cache.roots = std::move(packed);
-        cache.root_revision = tree->GetRootModelRevision().content;
-      }
-      AppendPackedGpuTreeNodes(cache.roots, tree_index, nodes);
-    }
-    handles.push_back(tree_handles);
-    const BasicFoliageDescriptor fallback_descriptor;
-    const auto& foliage = foliage_descriptor ? *foliage_descriptor : fallback_descriptor;
+    const bool connected_pose = physics && physics->IsEnabled();
+    const auto state = connected_pose ? physics->GetGpuPhysicsState() : nullptr;
+    auto& cached = tree_node_cache_[entity];
+    if (!cached)
+      cached = std::make_shared<TreeNodeCache>();
+    auto& cache = *cached;
+    if (cache.nodes.empty())
+      continue;
     GpuTreeFoliageParams params{};
-    params.size_count = {foliage.leaf_size.x, foliage.leaf_size.y, 0.0f, static_cast<float>(foliage.leaf_count)};
-    params.filters = {foliage.max_node_thickness, foliage.min_root_distance, foliage.max_end_distance,
-                      foliage.rotation_variance};
-    params.distributions = {foliage.stem_length.mean, foliage.stem_length.deviation, foliage.branching_angle.mean,
-                            foliage.branching_angle.deviation};
-    params.tropism = {foliage.horizontal_tropism, foliage.gravitropism, 0.0f, 0.0f};
-    params.flags.x = tree_handles.has_foliage ? (foliage_class == GltfRasterMaterialClass::Masked ? 2u : 1u) : 0u;
-    foliage_params.push_back(params);
-    any_branch |= tree_handles.has_branch;
-    any_foliage_opaque |= tree_handles.has_foliage && params.flags.x == 1u;
-    any_foliage_masked |= tree_handles.has_foliage && params.flags.x == 2u;
-    const auto model = scene->GetDataComponent<GlobalTransform>(entity).value;
-    const float max_scale = glm::max(glm::length(glm::vec3(model[0])),
-                                     glm::max(glm::length(glm::vec3(model[1])), glm::length(glm::vec3(model[2]))));
-    for (size_t i = base; i < nodes.size(); ++i) {
-      nodes[i].foliage_meta.z = entity.GetIndex() ^ (entity.GetVersion() * 0x9e3779b9u);
-      const bool drawable = !(gpu_physics && i < shoot_end) ||
-                            physics->HasPhysicsRodForNode(static_cast<SkeletonNodeHandle>(nodes[i].foliage_meta.x));
-      if (tree_handles.has_branch && drawable)
-        nodes[i].links.z = static_cast<uint32_t>(branch_material_index);
-      if (tree_handles.has_foliage && drawable && nodes[i].foliage_meta.y)
-        nodes[i].links.w = static_cast<uint32_t>(foliage_material_index);
-      const auto& node = nodes[i];
-      const glm::vec3 start = glm::vec3(model * glm::vec4(glm::vec3(node.position_thickness), 1.0f));
-      const glm::vec3 end = glm::vec3(model * glm::vec4(glm::vec3(node.position_thickness) +
-                                                            glm::vec3(node.direction_length) * node.direction_length.w,
-                                                        1.0f));
-      const glm::vec3 padding(
-          (node.position_thickness.w +
-           (tree_handles.has_foliage ? 2.0f * glm::max(params.size_count.x, params.size_count.y) : 0.0f)) *
-          max_scale);
-      scene_bound.min = glm::min(scene_bound.min, glm::min(start, end) - padding);
-      scene_bound.max = glm::max(scene_bound.max, glm::max(start, end) + padding);
+    if (foliage) {
+      params.size_count = {foliage->leaf_size.x, foliage->leaf_size.y, 0, static_cast<float>(foliage->leaf_count)};
+      params.filters = {foliage->max_node_thickness, foliage->min_root_distance, foliage->max_end_distance,
+                        foliage->rotation_variance};
+      params.distributions = {foliage->stem_length.mean, foliage->stem_length.deviation, foliage->branching_angle.mean,
+                              foliage->branching_angle.deviation};
+      params.tropism = {foliage->horizontal_tropism, foliage->gravitropism, 0, 0};
+    } else if (handles.has_foliage) {
+      const BasicFoliageDescriptor fallback;
+      params.size_count = {fallback.leaf_size.x, fallback.leaf_size.y, 0, static_cast<float>(fallback.leaf_count)};
+      params.filters = {fallback.max_node_thickness, fallback.min_root_distance, fallback.max_end_distance,
+                        fallback.rotation_variance};
+      params.distributions = {fallback.stem_length.mean, fallback.stem_length.deviation, fallback.branching_angle.mean,
+                              fallback.branching_angle.deviation};
+      params.tropism = {fallback.horizontal_tropism, fallback.gravitropism, 0, 0};
+    }
+    params.flags.x = handles.has_foliage ? (leaf_class == GltfRasterMaterialClass::Masked ? 2u : 1u) : 0u;
+    const float leaf_padding = handles.has_foliage ? 2 * glm::max(params.size_count.x, params.size_count.y) : 0;
+    if (cache.foliage_padding != leaf_padding) {
+      cache.local_bound.min = glm::vec3(std::numeric_limits<float>::max());
+      cache.local_bound.max = glm::vec3(std::numeric_limits<float>::lowest());
+      for (const auto& node : cache.nodes) {
+        const glm::vec3 a(node.position_thickness), b = a + glm::vec3(node.direction_length) * node.direction_length.w;
+        const glm::vec3 padding(node.position_thickness.w + leaf_padding);
+        cache.local_bound.min = glm::min(cache.local_bound.min, glm::min(a, b) - padding);
+        cache.local_bound.max = glm::max(cache.local_bound.max, glm::max(a, b) + padding);
+      }
+      cache.foliage_padding = leaf_padding;
+    }
+    const auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+    for (uint32_t corner = 0; corner < 8; ++corner) {
+      const auto& a = cache.local_bound.min;
+      const auto& b = cache.local_bound.max;
+      const glm::vec3 point(transform.value *
+                            glm::vec4(corner & 1 ? b.x : a.x, corner & 2 ? b.y : a.y, corner & 4 ? b.z : a.z, 1));
+      scene_bound.min = glm::min(scene_bound.min, point);
+      scene_bound.max = glm::max(scene_bound.max, point);
+    }
+    if (cache.frames.empty()) {
+      VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      info.size = sizeof(GpuTreeNode);
+      info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      VmaAllocationCreateInfo device{};
+      device.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+      auto host = device;
+      host.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+      host.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+      host.requiredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+      cache.frames.resize(Platform::GetMaxFramesInFlight());
+      for (auto& frame : cache.frames) {
+        frame.nodes = std::make_shared<Buffer>(info, device);
+        frame.rest = std::make_shared<Buffer>(info, device);
+        frame.shadow_groups = std::make_shared<Buffer>(info, device);
+        frame.shadow_ranges = std::make_shared<Buffer>(info, device);
+        frame.shadow_members = std::make_shared<Buffer>(info, device);
+        frame.canopy_bounds = std::make_shared<Buffer>(info, device);
+        info.size = sizeof(GpuTreeFoliageParams);
+        frame.foliage = std::make_shared<Buffer>(info, device);
+        info.size = sizeof(GpuTreeInstanceIndices);
+        frame.instances = std::make_shared<Buffer>(info, host);
+        info.size = sizeof(GpuTreeNode);
+        frame.draw_set = std::make_shared<DescriptorSet>(layout_);
+        frame.deform_set = std::make_shared<DescriptorSet>(deform_layout_);
+      }
+    }
+    auto& frame = cache.frames[index];
+    frame.handles = handles;
+    frame.tessellation = rendering.screen_space_tessellation && !std::getenv("EVOENGINE_TREE_FULL_TESSELLATION")
+                             ? glm::vec2(glm::clamp(rendering.pixel_error, 0.1f, 2.0f),
+                                         glm::clamp(rendering.segment_length_pixels, 2.0f, 64.0f))
+                             : glm::vec2(0);
+    frame.impostor_diameter =
+        rendering.camera_impostors ? glm::clamp(rendering.impostor_diameter_pixels, 1.0f, 8.0f) : 0.0f;
+    if (const auto value = std::getenv("EVOENGINE_TREE_IMPOSTOR_PIXELS"))
+      frame.impostor_diameter = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 8.0f);
+    frame.canopy_texels = rendering.canopy_shadows ? glm::clamp(rendering.canopy_shadow_texels, 4.0f, 512.0f) : 0;
+    if (const auto value = std::getenv("EVOENGINE_TREE_CANOPY_TEXELS"))
+      frame.canopy_texels = glm::clamp(static_cast<float>(std::atof(value)), 0.0f, 512.0f);
+    frame.indices_ready = false;
+    frame.physics = state;
+    frame.node_count = static_cast<uint32_t>(cache.nodes.size());
+    const ProfilerScope upload_scope("EcoSysLab / Tree upload preparation", "EcoSysLab");
+    BufferUploadBatch upload;
+    const auto add_upload = [&](const std::shared_ptr<Buffer>& buffer, const auto& data, BufferUploadUsage usage) {
+      if (data.empty())
+        return;
+      const VkDeviceSize bytes = data.size() * sizeof(data[0]);
+      if (buffer->GetSize() < bytes) {
+        const ProfilerScope scope("EcoSysLab / Grow tree render buffer", "EcoSysLab");
+        buffer->Resize(std::max(bytes, buffer->GetSize() * 2));
+      }
+      upload.AddVector(buffer, data, {usage, BufferUploadCapacityPolicy::RequireCapacity});
+    };
+    auto& packed = upload_nodes_;
+    std::vector<glm::vec4> empty_bounds;
+    std::vector<GpuTreeFoliageParams> foliage_upload;
+    const int branch_slot = handles.has_branch ? branch_index : -1, leaf_slot = handles.has_foliage ? leaf_index : -1;
+    if (frame.generation != cache.generation || frame.branch_material != branch_slot ||
+        frame.foliage_material != leaf_slot) {
+      add_upload(frame.shadow_groups, cache.shadow_groups.node_groups, BufferUploadUsage::StorageRead);
+      if (!cache.shadow_groups.groups.empty()) {
+        add_upload(frame.shadow_ranges, cache.shadow_groups.groups, BufferUploadUsage::StorageRead);
+        add_upload(frame.shadow_members, cache.shadow_groups.members, BufferUploadUsage::StorageRead);
+        empty_bounds.resize(cache.shadow_groups.groups.size() * 2);
+        add_upload(frame.canopy_bounds, empty_bounds, BufferUploadUsage::StorageReadWrite);
+      }
+      {
+        const ProfilerScope scope("EcoSysLab / Pack tree upload nodes", "EcoSysLab");
+        packed = cache.nodes;
+        for (auto& node : packed) {
+          const bool valid = node.links.z != UINT32_MAX;
+          node.links.z = valid && handles.has_branch ? static_cast<uint32_t>(branch_slot) : UINT32_MAX;
+          node.links.w =
+              valid && handles.has_foliage && node.foliage_meta.y ? static_cast<uint32_t>(leaf_slot) : UINT32_MAX;
+        }
+      }
+      add_upload(frame.nodes, packed, state ? BufferUploadUsage::StorageReadWrite : BufferUploadUsage::StorageRead);
+      if (state)
+        add_upload(frame.rest, packed, BufferUploadUsage::StorageRead);
+      frame.generation = cache.generation;
+      frame.branch_material = branch_slot;
+      frame.foliage_material = leaf_slot;
+      Profiler::GetInstance().RecordCounter(
+          "Tree node upload bytes", packed.size() * sizeof(GpuTreeNode) * (state ? 2 : 1), "EcoSysLab", "bytes");
+    }
+    if (!frame.params_ready || std::memcmp(&frame.params, &params, sizeof(params))) {
+      foliage_upload.push_back(params);
+      upload.AddVector(frame.foliage, foliage_upload,
+                       {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
+      frame.params = params;
+      frame.params_ready = true;
+    }
+    {
+      const ProfilerScope scope("EcoSysLab / Record tree uploads", "EcoSysLab");
+      upload.Record(upload_arena_);
+    }
+    frame.draw_set->UpdateBufferDescriptorBinding(0, frame.nodes);
+    frame.draw_set->UpdateBufferDescriptorBinding(1, frame.instances);
+    frame.draw_set->UpdateBufferDescriptorBinding(2, frame.foliage);
+    frame.draw_set->UpdateBufferDescriptorBinding(5, frame.shadow_groups);
+    frame.draw_set->UpdateBufferDescriptorBinding(6, frame.shadow_ranges);
+    frame.draw_set->UpdateBufferDescriptorBinding(7, frame.shadow_members);
+    frame.draw_set->UpdateBufferDescriptorBinding(8, frame.canopy_bounds);
+    if (state && cache.shoot_count) {
+      frame.deform_set->UpdateBufferDescriptorBinding(0, frame.nodes);
+      frame.deform_set->UpdateBufferDescriptorBinding(1, state->vertices[state->vertex_index]);
+      frame.deform_set->UpdateBufferDescriptorBinding(2, state->rods[state->rod_index]);
+      frame.deform_set->UpdateBufferDescriptorBinding(3, state->node_rods);
+      frame.deform_set->UpdateBufferDescriptorBinding(4, frame.rest);
+      const auto rotation = glm::inverse(transform.GetRotation());
+      const DeformPushConstant push{0,
+                                    cache.shoot_count,
+                                    0,
+                                    state->attribute_arrays ? 1u : 0u,
+                                    glm::vec4(transform.GetPosition(), 0),
+                                    glm::vec4(transform.GetScale(), 0),
+                                    {rotation.x, rotation.y, rotation.z, rotation.w}};
+      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+        deform_pipeline_->Bind(command);
+        deform_pipeline_->BindDescriptorSet(command, 0, frame.deform_set->GetVkDescriptorSet());
+        deform_pipeline_->PushConstant(command, 0, push);
+        deform_pipeline_->Dispatch(command, (cache.shoot_count + 63) / 64, 1, 1);
+        Platform::EverythingBarrier(command);
+      });
+    }
+    if (handles.has_branch && directional_shadow_impostors && !shadow_reference_ && frame.canopy_texels > 0 &&
+        !cache.shadow_groups.groups.empty()) {
+      Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+        const auto timing = Platform::BeginGpuTimestampScope(
+            command, {"EcoSysLabCanopyBounds", "EcoSysLab Canopy Bounds", "EcoSysLab", GpuTimestampQueue::Compute});
+        canopy_pipeline_->Bind(command);
+        canopy_pipeline_->BindDescriptorSet(command, 3, frame.draw_set->GetVkDescriptorSet());
+        canopy_pipeline_->Dispatch(command, static_cast<uint32_t>(cache.shadow_groups.groups.size()), 1, 1);
+        Platform::EverythingBarrier(command);
+        Platform::EndGpuTimestampScope(command, timing);
+      });
+    }
+    if (handles.has_branch) {
+      render->RawOpaqueRenderingAllCameras(
+          [self, cached](VkCommandBuffer command, const auto&, const RenderLayer::DeferredRenderingView& view) {
+            const auto count = self->Draw(cached, command, self->camera_pipeline_, view.viewport, 0, 0,
+                                          view.camera_index, 0, 0, VK_CULL_MODE_NONE);
+            if (self->impostor_pipeline_ && cached->frames[Platform::GetCurrentFrameIndex()].impostor_diameter > 0)
+              self->Draw(cached, command, self->impostor_pipeline_, view.viewport, 0, 0, view.camera_index, 0, 0,
+                         VK_CULL_MODE_NONE);
+            return count;
+          });
+      render->RenderOpaqueToPointLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+        return self->Draw(cached, command, self->shadow_pipeline_, view.viewport, 0, 1, 0, view.light_index,
+                          view.face_index, VK_CULL_MODE_NONE);
+      });
+      render->RenderOpaqueToSpotLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+        return self->Draw(cached, command, self->shadow_pipeline_, view.viewport, 0, 2, 0, view.light_index, 0,
+                          VK_CULL_MODE_NONE);
+      });
+      render->RenderOpaqueToDirectionalLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+        return self->Draw(
+            cached, command,
+            self->directional_shadow_impostors ? self->directional_shadow_pipeline_ : self->shadow_pipeline_,
+            view.viewport, 0, 3, 0, view.light_index, view.split_index, VK_CULL_MODE_NONE);
+      });
+    }
+    if (handles.has_foliage) {
+      if (leaf_class == GltfRasterMaterialClass::Opaque) {
+        render->RawOpaqueRenderingAllCameras(
+            [self, cached](VkCommandBuffer command, const auto&, const RenderLayer::DeferredRenderingView& view) {
+              return self->Draw(cached, command, self->foliage_opaque_pipeline_, view.viewport, 1, 0, view.camera_index,
+                                0, 0, VK_CULL_MODE_NONE);
+            });
+        render->RenderOpaqueToPointLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 1, 0,
+                            view.light_index, view.face_index, VK_CULL_MODE_NONE);
+        });
+        render->RenderOpaqueToSpotLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 2, 0,
+                            view.light_index, 0, VK_CULL_MODE_NONE);
+        });
+        render->RenderOpaqueToDirectionalLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 3, 0,
+                            view.light_index, view.split_index, VK_CULL_MODE_NONE);
+        });
+      } else {
+        render->AlphaMaskedRenderingAllCameras(
+            [self, cached](VkCommandBuffer command, const auto&, const RenderLayer::DeferredRenderingView& view) {
+              return self->Draw(cached, command, self->foliage_masked_pipeline_, view.viewport, 2, 0, view.camera_index,
+                                0, 0, VK_CULL_MODE_NONE);
+            });
+        render->RenderAlphaMaskedToPointLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 1, 0,
+                            view.light_index, view.face_index, VK_CULL_MODE_NONE);
+        });
+        render->RenderAlphaMaskedToSpotLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 2, 0,
+                            view.light_index, 0, VK_CULL_MODE_NONE);
+        });
+        render->RenderAlphaMaskedToDirectionalLightShadowMap([self, cached](VkCommandBuffer command, const auto& view) {
+          return self->Draw(cached, command, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 3, 0,
+                            view.light_index, view.split_index, VK_CULL_MODE_NONE);
+        });
+      }
     }
   }
   for (auto it = tree_node_cache_.begin(); it != tree_node_cache_.end();) {
-    if (tree_entities.find(it->first) != tree_entities.end())
+    if (entities.find(it->first) != entities.end() && !it->second->tree.expired()) {
       ++it;
-    else
-      it = tree_node_cache_.erase(it);
+      continue;
+    }
+    retired_trees_.emplace_back(frame_number, std::move(it->second));
+    it = tree_node_cache_.erase(it);
   }
   scene->SetBound(scene_bound);
-  node_count_ = static_cast<uint32_t>(nodes.size());
-  if (!node_count_)
-    return;
-  BufferUploadBatch upload;
-  auto& cached = cached_nodes_[frame];
-  std::vector<std::pair<uint32_t, uint32_t>> deform_ranges;
-  for (const auto& tree : deform_trees)
-    deform_ranges.emplace_back(tree.base, tree.count);
-  if (cached_deform_ranges_[frame] != deform_ranges || cached.size() != nodes.size() ||
-      std::memcmp(cached.data(), nodes.data(), nodes.size() * sizeof(GpuTreeNode))) {
-    upload.AddVector(node_buffers_[frame], nodes,
-                     {deform_trees.empty() ? BufferUploadUsage::StorageRead : BufferUploadUsage::StorageReadWrite,
-                      BufferUploadCapacityPolicy::GrowIfNeeded});
-    if (!deform_trees.empty())
-      upload.AddVector(rest_node_buffers_[frame], nodes,
-                       {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
-    cached = nodes;
-    cached_deform_ranges_[frame] = std::move(deform_ranges);
-  }
-  upload.AddVector(foliage_params_buffers_[frame], foliage_params,
-                   {BufferUploadUsage::StorageRead, BufferUploadCapacityPolicy::GrowIfNeeded});
-  upload.Record(upload_arena_);
-  descriptor_sets_[frame]->UpdateBufferDescriptorBinding(0, node_buffers_[frame], 0);
-  instance_index_buffers_[frame]->Resize(
-      std::max(sizeof(GpuTreeInstanceIndices), handles.size() * sizeof(GpuTreeInstanceIndices)));
-  descriptor_sets_[frame]->UpdateBufferDescriptorBinding(1, instance_index_buffers_[frame], 0);
-  descriptor_sets_[frame]->UpdateBufferDescriptorBinding(2, foliage_params_buffers_[frame], 0);
-  for (const auto& tree : deform_trees) {
-    auto set = std::make_shared<DescriptorSet>(deform_layout_);
-    set->UpdateBufferDescriptorBinding(0, node_buffers_[frame]);
-    set->UpdateBufferDescriptorBinding(1, tree.physics->GetVertexBuffer());
-    set->UpdateBufferDescriptorBinding(2, tree.physics->GetRodBuffer());
-    set->UpdateBufferDescriptorBinding(3, tree.physics->GetNodeRodBuffer());
-    set->UpdateBufferDescriptorBinding(4, rest_node_buffers_[frame]);
-    deform_sets.push_back(set);
-  }
-  if (!deform_trees.empty())
-    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
-      deform_pipeline_->Bind(command);
-      for (size_t i = 0; i < deform_trees.size(); ++i) {
-        const auto& tree = deform_trees[i];
-        deform_pipeline_->BindDescriptorSet(command, 0, deform_sets[i]->GetVkDescriptorSet());
-        deform_pipeline_->PushConstant(command, 0,
-                                       DeformPushConstant{tree.base, tree.count, tree.node_rods_base, 0, tree.position,
-                                                          tree.scale, tree.inverse_rotation});
-        deform_pipeline_->Dispatch(command, (tree.count + 63) / 64, 1, 1);
-      }
-      Platform::EverythingBarrier(command);
-    });
-  const auto self = shared_from_this();
-  if (any_branch)
-    render_layer->RawOpaqueRenderingAllCameras([self](VkCommandBuffer command_buffer, const auto& attachments,
-                                                      const RenderLayer::DeferredRenderingView& view) {
-      return self->Draw(command_buffer, self->camera_pipeline_, view.viewport, 0, 0, view.camera_index, 0, 0,
-                        VK_CULL_MODE_NONE);
-    });
-  if (any_branch)
-    render_layer->RenderOpaqueToPointLightShadowMap([self](VkCommandBuffer command_buffer, const auto& view) {
-      return self->Draw(command_buffer, self->shadow_pipeline_, view.viewport, 0, 1, 0, view.light_index,
-                        view.face_index, VK_CULL_MODE_NONE);
-    });
-  if (any_branch)
-    render_layer->RenderOpaqueToSpotLightShadowMap([self](VkCommandBuffer command_buffer, const auto& view) {
-      return self->Draw(command_buffer, self->shadow_pipeline_, view.viewport, 0, 2, 0, view.light_index, 0,
-                        VK_CULL_MODE_NONE);
-    });
-  if (any_branch)
-    render_layer->RenderOpaqueToDirectionalLightShadowMap([self](VkCommandBuffer command_buffer, const auto& view) {
-      return self->Draw(command_buffer, self->shadow_pipeline_, view.viewport, 0, 3, 0, view.light_index,
-                        view.split_index, VK_CULL_MODE_NONE);
-    });
-  if (any_foliage_opaque) {
-    render_layer->RawOpaqueRenderingAllCameras([self](VkCommandBuffer command_buffer, const auto&, const auto& view) {
-      return self->Draw(command_buffer, self->foliage_opaque_pipeline_, view.viewport, 1, 0, view.camera_index, 0, 0,
-                        VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderOpaqueToPointLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 1, 0, view.light_index,
-                        view.face_index, VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderOpaqueToSpotLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 2, 0, view.light_index, 0,
-                        VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderOpaqueToDirectionalLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_opaque_shadow_pipeline_, view.viewport, 1, 3, 0, view.light_index,
-                        view.split_index, VK_CULL_MODE_NONE);
-    });
-  }
-  if (any_foliage_masked) {
-    render_layer->AlphaMaskedRenderingAllCameras([self](VkCommandBuffer cb, const auto&, const auto& view) {
-      return self->Draw(cb, self->foliage_masked_pipeline_, view.viewport, 2, 0, view.camera_index, 0, 0,
-                        VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderAlphaMaskedToPointLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 1, 0, view.light_index,
-                        view.face_index, VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderAlphaMaskedToSpotLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 2, 0, view.light_index, 0,
-                        VK_CULL_MODE_NONE);
-    });
-    render_layer->RenderAlphaMaskedToDirectionalLightShadowMap([self](VkCommandBuffer cb, const auto& view) {
-      return self->Draw(cb, self->foliage_masked_shadow_pipeline_, view.viewport, 2, 3, 0, view.light_index,
-                        view.split_index, VK_CULL_MODE_NONE);
-    });
-  }
 }
 
-uint32_t GpuTreeMeshRenderer::Draw(VkCommandBuffer command_buffer, const std::shared_ptr<GraphicsPipeline>& pipeline,
-                                   const glm::ivec4& viewport, uint32_t geometry_pass, uint32_t pass, uint32_t camera,
-                                   uint32_t light, uint32_t face, VkCullModeFlags cull_mode) {
-  if (!node_count_)
+uint32_t GpuTreeMeshRenderer::Draw(const std::shared_ptr<TreeNodeCache>& tree, VkCommandBuffer command,
+                                   const std::shared_ptr<GraphicsPipeline>& pipeline, const glm::ivec4& viewport,
+                                   uint32_t geometry, uint32_t pass, uint32_t camera, uint32_t light, uint32_t face,
+                                   VkCullModeFlags cull_mode) {
+  auto& frame = tree->frames[Platform::GetCurrentFrameIndex()];
+  const auto count = geometry ? tree->shoot_count : frame.node_count;
+  if (!count)
     return 0;
-  const auto frame = Platform::GetCurrentFrameIndex();
-  if (!instance_indices_ready_[frame]) {
+  if (!frame.indices_ready) {
     const auto storage = ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
-    std::vector<GpuTreeInstanceIndices> indices;
-    indices.reserve(tree_handles_[frame].size());
-    for (const auto& handles : tree_handles_[frame])
-      indices.push_back(
-          {handles.has_branch ? static_cast<uint32_t>(storage->GetRenderInstanceIndex(handles.branch)) : 0u,
-           handles.has_foliage ? static_cast<uint32_t>(storage->GetRenderInstanceIndex(handles.foliage)) : 0u});
-    std::memcpy(instance_index_buffers_[frame]->GetVmaAllocationInfo().pMappedData, indices.data(),
-                indices.size() * sizeof(GpuTreeInstanceIndices));
-    instance_indices_ready_[frame] = true;
+    const GpuTreeInstanceIndices indices{
+        frame.handles.has_branch ? static_cast<uint32_t>(storage->GetRenderInstanceIndex(frame.handles.branch)) : 0u,
+        frame.handles.has_foliage ? static_cast<uint32_t>(storage->GetRenderInstanceIndex(frame.handles.foliage)) : 0u};
+    std::memcpy(frame.instances->GetVmaAllocationInfo().pMappedData, &indices, sizeof(indices));
+    frame.indices_ready = true;
   }
-  pipeline->Bind(command_buffer);
-  pipeline->BindDescriptorSet(command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-  pipeline->BindDescriptorSet(command_buffer, 3,
-                              descriptor_sets_[Platform::GetCurrentFrameIndex()]->GetVkDescriptorSet());
+  pipeline->Bind(command);
+  pipeline->BindDescriptorSet(command, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(command, 3, frame.draw_set->GetVkDescriptorSet());
   pipeline->states.ResetAllStates(pass == 0 ? 5 : 0);
   pipeline->states.SetViewportScissor(viewport);
   pipeline->states.cull_mode = cull_mode;
-  pipeline->states.ApplyAllStates(command_buffer);
-  const uint32_t limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
-  for (uint32_t base = 0; base < node_count_; base += limit) {
+  pipeline->states.ApplyAllStates(command);
+  const bool shadow = geometry == 0 && pass == 3;
+  const auto timing =
+      shadow && std::getenv("EVOENGINE_TREE_SHADOW_PROFILE")
+          ? Platform::BeginGpuTimestampScope(command, {"EcoSysLabBranchShadow" + std::to_string(face),
+                                                       "EcoSysLab Branch Shadow Cascade " + std::to_string(face),
+                                                       "EcoSysLab", GpuTimestampQueue::Graphics})
+          : GpuTimestampScopeToken{};
+  const auto geometry_timing =
+      geometry == 0 && pass == 0 && std::getenv("EVOENGINE_TREE_GEOMETRY_PROFILE")
+          ? Platform::BeginGpuTimestampScope(command, {"EcoSysLabBranchGeometry", "EcoSysLab Branch Geometry",
+                                                       "EcoSysLab", GpuTimestampQueue::Graphics})
+          : GpuTimestampScopeToken{};
+  const uint32_t batch = (pipeline == camera_pipeline_ || pipeline == impostor_pipeline_) ? camera_batch_
+                         : pipeline == directional_shadow_pipeline_ && !shadow_reference_ ? 32
+                                                                                          : 1;
+  const auto limit = Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxTaskWorkGroupCount[0];
+  for (uint32_t base = 0; base < count; base += limit * batch) {
     TreeMeshPushConstant push{};
     push.node_base = base;
-    push.node_count = node_count_;
+    push.node_count = count;
+    push.padding0 = batch;
     push.camera_index = camera;
     push.pass_index = pass;
     push.light_index = light;
     push.light_face = face;
-    push.geometry_pass = geometry_pass;
-    pipeline->PushConstant(command_buffer, 0, push);
-    pipeline->DrawMeshTasks(command_buffer, std::min(limit, node_count_ - base), 1, 1);
+    push.geometry_pass = geometry;
+    if (geometry == 0 && pass == 0 && impostor_pipeline_)
+      push.impostor = {frame.impostor_diameter, pipeline == impostor_pipeline_ ? 1.0f : 0.0f, 0.0f, 0.0f};
+    if (geometry == 0 && pass == 0)
+      push.tessellation = {static_cast<float>(viewport.z), static_cast<float>(viewport.w), frame.tessellation.x,
+                           frame.tessellation.y};
+    if (pipeline == directional_shadow_pipeline_ && !shadow_reference_)
+      push.impostor = {frame.canopy_texels, static_cast<float>(viewport.z), static_cast<float>(viewport.w), 0};
+    pipeline->PushConstant(command, 0, push);
+    pipeline->DrawMeshTasks(command, std::min(limit, (count - base + batch - 1) / batch), 1, 1);
   }
-  return node_count_;
+  Platform::EndGpuTimestampScope(command, geometry_timing);
+  Platform::EndGpuTimestampScope(command, timing);
+  return count;
 }

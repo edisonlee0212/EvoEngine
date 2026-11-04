@@ -3,6 +3,7 @@
 //
 
 #include "EcoSysLabEditorLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 
 #include "ClassRegistry.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -16,14 +17,12 @@ void EcoSysLabEditorLayer::SoilVisualization() {
   if (!runtime)
     return;
 
-  std::shared_ptr<Soil> soil;
-  if (const auto soil_candidate = runtime->FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-
-  if (!soil)
+  const auto scene = GetScene();
+  const auto system = scene ? scene->GetSystem<EcoSysLabSystem>() : nullptr;
+  if (!system)
     return;
-
-  const auto& soil_model = soil->soil_model;
+  system->environment.InitializeModels();
+  const auto& soil_model = system->environment.soil;
   if (soil_version_ != soil_model.m_version) {
     soil_visualization_settings_.update_vector_matrices = true;
     soil_visualization_settings_.update_scalar_matrices = true;

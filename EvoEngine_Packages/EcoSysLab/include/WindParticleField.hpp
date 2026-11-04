@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
 #include <unordered_map>
 
 #include "Climate.hpp"
@@ -16,7 +17,7 @@ class GpuTreePhysics;
 
 class WindParticleField : public std::enable_shared_from_this<WindParticleField> {
  public:
-  static constexpr uint32_t capacity = 65536;
+  static constexpr uint32_t capacity = 262144;
   static constexpr uint32_t grid_bucket_count = 32768;
   static constexpr float grid_cell_size = 1.0f;
 
@@ -25,8 +26,16 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
 
   void Step(const std::shared_ptr<Scene>& scene, float time_step, const std::shared_ptr<GpuTreePhysics>& physics);
   void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible);
-  void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees);
-  void RegisterTreeModels(const std::vector<glm::mat4>& models);
+  void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
+                            const std::vector<uint32_t>& ids = {});
+  struct TreeCoverage {
+    glm::mat4 model{1.0f};
+    glm::vec3 local_lower{}, local_upper{}, lower{}, upper{};
+  };
+  static std::optional<TreeCoverage> CalculateTreeCoverage(const ShootSkeleton& skeleton, const glm::mat4& model);
+  void RegisterTreeCoverage(const TreeCoverage& coverage, uint32_t id);
+  void RegisterTreeCoverage(const ShootSkeleton& skeleton, const glm::mat4& model, uint32_t id);
+  void RegisterTreeModels(const std::vector<glm::mat4>& models, const std::vector<uint32_t>& ids = {});
   void ResetAirGrid(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
                     const std::shared_ptr<GpuTreePhysics>& physics, const std::vector<glm::mat4>& models,
                     float cell_size = -1.0f);
@@ -48,6 +57,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   float ambient_pressure_pa = 101325.0f;
   float air_coupling_rate = 4.0f;
   float air_friction = 4.0f;
+  bool rod_driven_coupling = true;
 
  private:
   struct Particle {
@@ -136,6 +146,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
     glm::mat4 model{1.0f};
   };
 
+  void RegisterCoverageBounds(uint32_t id, const glm::mat4& model, const glm::vec3& local_lower,
+                              const glm::vec3& local_upper, glm::vec3 lower, glm::vec3 upper);
   bool Prepare();
   void InvalidateAirSets();
   uint32_t Draw(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,
@@ -150,6 +162,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<Buffer> rod_heads_;
   std::shared_ptr<Buffer> rod_next_;
   std::shared_ptr<Buffer> rod_max_extent_;
+  std::shared_ptr<Buffer> rod_air_sums_;
   std::shared_ptr<DescriptorSetLayout> layout_;
   std::shared_ptr<DescriptorSet> descriptor_set_;
   GpuSpatialGrid air_grid_;
@@ -172,6 +185,7 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<ComputePipeline> clear_rods_pipeline_;
   std::shared_ptr<ComputePipeline> build_rods_pipeline_;
   std::shared_ptr<ComputePipeline> rod_air_pipeline_;
+  std::shared_ptr<ComputePipeline> rod_air_scatter_pipeline_;
   std::vector<std::pair<uint32_t, std::shared_ptr<DescriptorSet>>> retired_air_sets_;
   std::shared_ptr<ComputePipeline> advect_pipeline_;
   std::shared_ptr<ComputePipeline> emit_pipeline_;
@@ -179,7 +193,11 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   std::shared_ptr<ComputePipeline> grid_pipeline_;
   std::shared_ptr<GraphicsPipeline> render_pipeline_;
   std::shared_ptr<GraphicsPipeline> grid_render_pipeline_;
-  std::unordered_map<uint64_t, float> emission_remainders_;
+  struct EmissionState {
+    float remainder = 0;
+    float time = 0;
+  };
+  std::unordered_map<uint64_t, EmissionState> emission_states_;
   uint64_t emitted_ = 0;
 };
 }  // namespace eco_sys_lab_package

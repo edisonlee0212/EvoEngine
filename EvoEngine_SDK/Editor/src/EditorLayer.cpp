@@ -3070,41 +3070,70 @@ void EditorLayer::OnDestroy() {
 
 void EditorLayer::PreUpdate() {
   ImGuizmo::BeginFrame();
-  RegisterSelectionPass();
-  PollConsoleMessages();
-  if (build_manager_panel_)
-    build_manager_panel_->Tick();
-  const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
-  const bool use_custom_title_bar = window_layer && window_layer->UsesCustomTitleBar();
-  const auto status_bar_height = DrawStatusBar();
-  DrawDockspace(use_custom_title_bar ? kCustomTitleBarHeight : 0.0f, status_bar_height);
-  if (use_custom_title_bar) {
-    DrawCustomTitleBar();
-  } else {
-    DrawMainMenuBar();
+  {
+    const ProfilerScope scope("Editor / Selection", "Editor");
+    RegisterSelectionPass();
   }
 
+  {
+    const ProfilerScope scope("Editor / Console and build", "Editor");
+    PollConsoleMessages();
+    if (build_manager_panel_)
+      build_manager_panel_->Tick();
+  }
+
+  {
+    const ProfilerScope scope("Editor / Window chrome", "Editor");
+    const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
+    const bool use_custom_title_bar = window_layer && window_layer->UsesCustomTitleBar();
+    const auto status_bar_height = DrawStatusBar();
+    DrawDockspace(use_custom_title_bar ? kCustomTitleBarHeight : 0.0f, status_bar_height);
+    if (use_custom_title_bar) {
+      DrawCustomTitleBar();
+    } else {
+      DrawMainMenuBar();
+    }
+  }
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  UpdateCameraTransition();
-  PrepareFrameState();
-  scene_viewport_input_ = {};
-  main_camera_viewport_input_ = {};
-  scene_viewport_input_.scene = scene;
-  main_camera_viewport_input_.scene = scene;
-  scene_viewport_input_.camera = GetSceneCamera();
-  if (scene)
-    main_camera_viewport_input_.camera = scene->main_camera.Get<Camera>();
-  CaptureSceneWindowMousePosition();
-  CaptureMainCameraWindowMousePosition();
-  UpdateSceneState(scene);
+  {
+    const ProfilerScope scope("Editor / Scene preparation", "Editor");
+    UpdateCameraTransition();
+    PrepareFrameState();
+    scene_viewport_input_ = {};
+    main_camera_viewport_input_ = {};
+    scene_viewport_input_.scene = scene;
+    main_camera_viewport_input_.scene = scene;
+    scene_viewport_input_.camera = GetSceneCamera();
+    if (scene)
+      main_camera_viewport_input_.camera = scene->main_camera.Get<Camera>();
+    CaptureSceneWindowMousePosition();
+    CaptureMainCameraWindowMousePosition();
+    UpdateSceneState(scene);
+  }
 
   const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
   HandleSceneDeleteShortcut(scene);
-  editor_panel_manager_.DrawExcept(EditorPanelCategory::View, editor_layer, "project");
-  DrawLayerInspectionWindows(scene, editor_layer);
-  editor_panel_manager_.DrawOnly(EditorPanelCategory::View, editor_layer, "project");
-  DrawAssetInspectorWindows();
-  DrawProjectLoadingPopup();
+  {
+    const ProfilerScope scope("Editor / Panels", "Editor");
+    editor_panel_manager_.DrawExcept(EditorPanelCategory::View, editor_layer, "project");
+  }
+
+  {
+    const ProfilerScope scope("Editor / Layer inspectors", "Editor");
+    DrawLayerInspectionWindows(scene, editor_layer);
+  }
+
+  {
+    const ProfilerScope scope("Editor / Views", "Editor");
+    editor_panel_manager_.DrawOnly(EditorPanelCategory::View, editor_layer, "project");
+  }
+
+  {
+    const ProfilerScope scope("Editor / Asset inspectors", "Editor");
+    DrawAssetInspectorWindows();
+    DrawProjectLoadingPopup();
+  }
+
   if (const auto gui = ApplicationContext::Get().GetLayer<ImGuiLayer>(); gui && scene) {
     const auto runtime = ApplicationContext::Get().GetLayer<RuntimeGuiLayer>();
     const auto proof = gui->GetRuntimeGuiProof();
@@ -6200,6 +6229,7 @@ void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene
     context.scene = scene;
     const auto& inspector_registry = InspectorRegistry::GetInstance();
     if (inspector_registry.FindInspector(typeid(*layer))) {
+      const ProfilerScope scope("Editor / Inspect " + layer->GetLayerName(), "Editor");
       inspector_registry.Inspect(context, *layer);
     }
   }

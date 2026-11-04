@@ -1253,6 +1253,11 @@ const std::shared_ptr<DescriptorSet>& GeometryStorage::PeekDescriptorSet(
   return storage.particle_info_list_data_list_[range_descriptor->offset].descriptor_set;
 }
 
+size_t GeometryStorage::GetRenderParticleCount(const std::shared_ptr<RangeDescriptor>& range_descriptor) {
+  const auto& data = GetInstance().particle_info_list_data_list_.at(range_descriptor->offset);
+  return std::min(data.uploaded_particle_count, data.particle_info_list.size());
+}
+
 const Meshlet& GeometryStorage::PeekMeshlet(const uint32_t meshlet_index) {
   const auto& storage = GetInstance();
   return storage.meshlets_[meshlet_index];

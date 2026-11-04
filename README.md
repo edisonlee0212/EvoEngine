@@ -175,3 +175,8 @@ include the OS, GPU/driver, reproduction steps, logs and captures when reporting
 EvoEngine is source-available for inspection, learning, and direct contribution only. It is not open source. You may not copy, reuse, redistribute, publish, sublicense, incorporate, or commercially use EvoEngine code, assets, documentation, or other repository content without prior written permission.
 
 Contributions are welcome. You may fork, clone, build, and modify EvoEngine solely to prepare contributions directly back to this repository. See [LICENSE](LICENSE) for the full terms.
+
+Shader binaries are cached across application builds and installs. Cache keys include shader contents, imported
+sources, defines and compiler information, so editing shaders does not require clearing the whole cache.
+Scene preparation requests the active rendering modes; unused ray/ReSTIR/denoising variants are prepared on demand.
+Set `ApplicationInitializationSettings::prewarm_optional_render_pipelines` to opt into background prewarming of unused modes.

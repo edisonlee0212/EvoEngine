@@ -64,6 +64,10 @@ TEST(ShaderPreparation, PrioritizesRequiredWorkAndPublishesOnlyWhenPolled) {
   EXPECT_EQ(*queue.GetResult<int>("selected"), 1);
   EXPECT_TRUE(queue.RequiredReady());
   EXPECT_EQ(queue.GetProgress().completed, 1u);
+  EXPECT_EQ(queue.GetProgress().total, 2u);
+  EXPECT_EQ(queue.GetProgress().required_completed, 1u);
+  EXPECT_EQ(queue.GetProgress().required_total, 1u);
+  EXPECT_TRUE(queue.GetProgress().required_error.empty());
   queue.Tick();
   queue.Wait();
   EXPECT_EQ(queue.GetProgress().completed, 2u);
@@ -520,4 +524,26 @@ TEST(RayCameraShaderVariantCache, DebugViewsSelectIndependentVariantsForEachTech
       }
     }
   }
+}
+
+TEST(ShaderPreparation, OptionalFailureDoesNotBlockRequiredWorkUntilPromoted) {
+  evo_engine::ShaderPreparationQueue queue(1);
+  queue.BeginRequests();
+  queue.SetOptional(true);
+  queue.Request<int>("unused mode", []() -> std::shared_ptr<int> {
+    throw std::runtime_error("unsupported variant");
+  });
+  queue.Tick();
+  queue.Wait();
+  EXPECT_FALSE(queue.GetProgress().error.empty());
+  EXPECT_TRUE(queue.GetProgress().required_error.empty());
+  EXPECT_EQ(queue.GetProgress().required_total, 0u);
+  EXPECT_TRUE(queue.RequiredReady());
+  queue.BeginRequests();
+  queue.SetOptional(false);
+  queue.Require("unused mode");
+  EXPECT_EQ(queue.GetProgress().required_total, 1u);
+  EXPECT_EQ(queue.GetProgress().required_completed, 1u);
+  EXPECT_FALSE(queue.GetProgress().required_error.empty());
+  EXPECT_FALSE(queue.RequiredReady());
 }

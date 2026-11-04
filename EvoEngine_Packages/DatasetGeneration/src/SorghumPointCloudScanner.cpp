@@ -2,6 +2,7 @@
 
 #include "CpuRayTracer.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "PointCloud.hpp"
 #include "Sorghum.hpp"
 #include "Tinyply.hpp"
@@ -96,13 +97,12 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
 
   const auto digital_agriculture_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Soil> soil;
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
+  const auto scene = GetScene();
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.EnsureConfiguration(scene);
   Bound plant_bound{};
   std::unordered_map<Handle, std::pair<Handle, int>> leaf_mesh_renderer_handles;
   std::unordered_map<Handle, Handle> stem_mesh_renderer_handles, panicle_mesh_renderer_handles;
-  const auto scene = GetScene();
   const std::vector<Entity>* sorghum_entities = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
   if (sorghum_entities == nullptr) {
     EVOENGINE_ERROR("No sorghums!");
@@ -151,8 +151,9 @@ void SorghumPointCloudScanner::Scan(const std::shared_ptr<PointCloudCaptureSetti
   }
 
   Handle ground_mesh_renderer_handle = 0;
-  if (soil) {
-    if (auto soil_entity = soil->GetOwner(); scene->IsEntityValid(soil_entity)) {
+  {
+    if (auto soil_entity = scene->GetEntity(system->environment.soil_visualization_owner);
+        scene->IsEntityValid(soil_entity)) {
       scene->ForEachChild(soil_entity, [&](Entity child) {
         if (scene->GetEntityName(child) == "Ground Mesh" && scene->HasPrivateComponent<MeshRenderer>(child)) {
           ground_mesh_renderer_handle = scene->GetOrSetPrivateComponent<MeshRenderer>(child).lock()->GetHandle();

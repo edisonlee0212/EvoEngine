@@ -97,16 +97,22 @@ bool RegisterEcoSysLabInspectors(EditorPackageRegistrar& registrar) {
       "Tree");
   registered &= registrar.RegisterInspector<BranchRenderer>(
       [](InspectorContext& context, BranchRenderer& target) {
-        return context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
+        bool changed = context.editor_layer->DragAndDropButton<Material>(target.material_ref, "Branch material");
+        return changed;
       },
       "BranchRenderer");
   registered &= registrar.RegisterInspector<Blower>(
       [](InspectorContext& context, Blower& target) {
         bool changed = false;
-        changed |= ImGui::DragFloat("Speed", &target.speed, 0.1f, 0.0f, 100.0f);
+        changed |= ImGui::DragFloat("Speed / minimum", &target.speed, 0.1f, 0.0f, 1000.0f);
+        changed |= ImGui::Checkbox("Perlin speed variation", &target.speed_noise);
+        if (target.speed_noise) {
+          changed |= ImGui::DragFloat("Maximum speed", &target.speed_max, 0.1f, 0.0f, 1000.0f);
+          changed |= ImGui::DragFloat("Noise frequency", &target.speed_noise_frequency, 0.01f, 0.0f, 10.0f);
+        }
         changed |= ImGui::DragFloat("Particle rate", &target.particle_rate, 1.0f, 0.0f, 100000.0f);
         changed |= ImGui::DragFloat("Particle influence radius", &target.particle_radius, 0.01f, 0.0f, 1.0f);
-        changed |= ImGui::DragFloat("Wind strength", &target.wind_strength, 0.05f, 0.0f, 20.0f);
+        changed |= ImGui::DragFloat("Wind strength", &target.wind_strength, 0.05f, 0.0f, 100.0f);
         changed |= ImGui::DragFloat("Temperature (C)", &target.temperature_c, 0.5f, -50.0f, 100.0f);
         changed |= ImGui::SliderFloat("Relative humidity", &target.relative_humidity, 0.0f, 1.0f);
         changed |= ImGui::DragFloat("Spread (degrees)", &target.spread_degrees, 0.1f, 0.0f, 90.0f);

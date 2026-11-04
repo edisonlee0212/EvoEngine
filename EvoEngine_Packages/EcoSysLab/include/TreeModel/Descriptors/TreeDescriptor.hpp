@@ -2,6 +2,7 @@
 #include "AssetRef.hpp"
 #include "IAsset.hpp"
 #include "TreeControllers.hpp"
+#include "TreePhysicsSettings.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -134,6 +135,7 @@ class IFlowerDescriptor : public IAsset {
  */
 class TreeDescriptor : public IAsset {
  public:
+  TreePhysicsProperties physics_properties;
   /**
    * @brief Reference to the shoot descriptor asset.
    */

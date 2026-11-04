@@ -1883,6 +1883,8 @@ ShaderPreparationProgress Shader::GetPreparationProgress() {
   ShaderPreparationProgress progress;
   progress.completed = preparations_completed.load();
   progress.total = preparations_started.load();
+  progress.required_completed = progress.completed;
+  progress.required_total = progress.total;
   return progress;
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <vector>
@@ -7,6 +8,50 @@
 #include "TreeMeshGenerator.hpp"
 
 namespace eco_sys_lab_package {
+
+struct GpuTreeDrawParameters {
+  uint32_t node_base = 0, node_count = 0, camera_index = 0, pass_index = 0;
+  uint32_t light_index = 0, light_face = 0, padding0 = 0, geometry_pass = 0;
+  glm::vec4 tessellation{};
+  glm::vec4 impostor{};
+};
+static_assert(sizeof(GpuTreeDrawParameters) == 64);
+
+struct GpuTreeDeformParameters {
+  uint32_t node_base = 0;
+  uint32_t node_count = 0;
+  uint32_t node_rods_base = 0;
+  uint32_t attribute_arrays = 0;
+  glm::vec4 model_position{};
+  glm::vec4 model_scale{};
+  glm::vec4 inverse_rotation{};
+};
+static_assert(sizeof(GpuTreeDeformParameters) == 64);
+
+inline std::array<float, 18> GpuTreeMeshParameters(const TreeMeshGeneratorSettings& settings,
+                                                   const BasicBarkDescriptor* bark) {
+  std::array<float, 18> values = {settings.trunk_thickness,
+                                  settings.x_subdivision,
+                                  settings.trunk_y_subdivision,
+                                  settings.branch_y_subdivision,
+                                  settings.radius_multiplier,
+                                  settings.radius,
+                                  settings.base_control_point_ratio,
+                                  settings.branch_control_point_ratio,
+                                  settings.override_radius ? 1.0f : 0.0f,
+                                  settings.smoothness ? 1.0f : 0.0f};
+  if (bark) {
+    values[10] = 1.0f;
+    values[11] = bark->bark_x_frequency;
+    values[12] = bark->bark_y_frequency;
+    values[13] = bark->bark_depth;
+    values[14] = bark->base_frequency;
+    values[15] = bark->base_max_distance;
+    values[16] = bark->base_distance_decrease_factor;
+    values[17] = bark->base_depth;
+  }
+  return values;
+}
 
 // Std430 layout shared with EcoSysLab.GpuTreeMesh. Parent indices address this packed buffer.
 struct GpuTreeNode {
@@ -40,7 +85,7 @@ struct GpuTreeInstanceIndices {
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skeleton,
                         const TreeMeshGeneratorSettings& settings, const BasicBarkDescriptor* bark, uint32_t tree_index,
-                        bool shoot, std::vector<GpuTreeNode>& output) {
+                        bool shoot, std::vector<GpuTreeNode>& output, bool connected_pose = false) {
   const auto& sorted = skeleton.PeekSortedNodeList();
   const uint32_t base = static_cast<uint32_t>(output.size());
   std::vector<uint32_t> packed_indices(skeleton.PeekRawNodes().size(), UINT32_MAX);
@@ -54,6 +99,17 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
     GpuTreeNode packed{};
     packed.position_thickness = glm::vec4(info.global_position, glm::max(0.0f, thickness));
     packed.direction_length = glm::vec4(info.GetGlobalDirection(), glm::max(0.0f, info.length));
+    if (connected_pose) {
+      if (packed.direction_length.w <= 1e-6f)
+        packed.direction_length.w = 0;
+      if (parent >= 0) {
+        const auto& parent_node = output[packed_indices[parent]];
+        packed.position_thickness =
+            glm::vec4(glm::vec3(parent_node.position_thickness) +
+                          glm::vec3(parent_node.direction_length) * parent_node.direction_length.w,
+                      packed.position_thickness.w);
+      }
+    }
     packed.radial_axis_distance = glm::vec4(info.regulated_global_rotation * glm::vec3(1, 0, 0), info.root_distance);
     packed.subdivisions = {
         glm::max(0.0001f, settings.x_subdivision),
@@ -66,23 +122,14 @@ void AppendGpuTreeNodes(const Skeleton<SkeletonData, FlowData, NodeData>& skelet
       packed.bark_base = {bark->base_max_distance, bark->base_distance_decrease_factor, bark->base_depth, 0.0f};
     }
     packed.links = {parent < 0 ? UINT32_MAX : packed_indices[parent], tree_index, UINT32_MAX, UINT32_MAX};
+    if (connected_pose)
+      while (packed.links.x != UINT32_MAX && output[packed.links.x].direction_length.w == 0)
+        packed.links.x = output[packed.links.x].links.x;
     packed.foliage = {info.leaves, info.end_distance, info.thickness, 0.0f};
     const auto rotation = info.global_rotation;
     packed.foliage_rotation = {rotation.x, rotation.y, rotation.z, rotation.w};
     packed.foliage_meta = {static_cast<uint32_t>(handle), shoot ? 1u : 0u, 0u, 0u};
     output.emplace_back(packed);
-  }
-}
-
-inline void AppendPackedGpuTreeNodes(const std::vector<GpuTreeNode>& packed, uint32_t tree_index,
-                                     std::vector<GpuTreeNode>& output) {
-  const auto base = static_cast<uint32_t>(output.size());
-  output.reserve(output.size() + packed.size());
-  for (auto node : packed) {
-    if (node.links.x != UINT32_MAX)
-      node.links.x += base;
-    node.links.y = tree_index;
-    output.emplace_back(node);
   }
 }
 

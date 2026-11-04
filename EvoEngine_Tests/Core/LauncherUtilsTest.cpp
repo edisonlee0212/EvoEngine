@@ -67,31 +67,34 @@ TEST(LauncherUtils, PackageAvailabilityTracksManifestAndLibraryState) {
 
 TEST(LauncherUtils, EcoSysLabDemoAnimatesFourYearAppleForestGrowth) {
   const auto source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                   "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
-  const auto growth_start = source.find("void EcoSysLabLayer::UpdateDemoTreeGrowth()");
-  const auto growth_end = source.find("void EcoSysLabLayer::Update()", growth_start);
+                                   "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayerDemo.cpp");
+  const auto growth_start = source.find("void EcoSysLabDemoBootstrap::Update(EcoSysLabLayer& layer)");
   ASSERT_NE(growth_start, std::string::npos);
-  ASSERT_NE(growth_end, std::string::npos);
-  const auto growth_source = source.substr(growth_start, growth_end - growth_start);
+  const auto growth_source = source.substr(growth_start);
 
   EXPECT_NE(source.find("project_path.parent_path().filename() != \"EcoSysLabProject\""), std::string::npos);
   EXPECT_NE(growth_source.find("AppleForest.forestpatch"), std::string::npos);
   EXPECT_NE(growth_source.find("patch->InstantiatePatch(patch->grid_size, false)"), std::string::npos);
-  EXPECT_NE(growth_source.find("shader_progress.completed != shader_progress.total"), std::string::npos);
+  EXPECT_NE(growth_source.find("shader_progress.required_completed != shader_progress.required_total"),
+            std::string::npos);
   EXPECT_NE(growth_source.find("AssetManager::GetAssetLoadSnapshot().Active()"), std::string::npos);
-  EXPECT_NE(growth_source.find("if (!demo_growth_enabled_)"), std::string::npos);
+  EXPECT_NE(growth_source.find("!layer.demo_growth_enabled_"), std::string::npos);
   const auto editor_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                                           "EvoEngine_Packages/EcoSysLab/Editor/src/TreeEditorState.cpp");
   EXPECT_NE(editor_source.find("runtime->demo_growth_enabled_ = editor->IsPlantVisualSplitLayoutReady()"),
             std::string::npos);
-  EXPECT_NE(growth_source.find("4.0f * 365.0f"), std::string::npos);
-  const auto simulate_call = growth_source.find("Simulate(growth_settings, simulation_stats)");
+  EXPECT_NE(growth_source.find(": 4.0f;"), std::string::npos);
+  EXPECT_NE(growth_source.find("target_growth_time = growth_years * 365.0f"), std::string::npos);
+  const auto simulate_call = growth_source.find("layer.Simulate(growth_settings, system->growth.stats)");
   ASSERT_NE(simulate_call, std::string::npos);
-  EXPECT_EQ(growth_source.find("Simulate(growth_settings, simulation_stats)", simulate_call + 1), std::string::npos);
+  EXPECT_EQ(growth_source.find("layer.Simulate(growth_settings, system->growth.stats)", simulate_call + 1),
+            std::string::npos);
   EXPECT_EQ(growth_source.find("for (float elapsed_time"), std::string::npos);
   EXPECT_LT(growth_source.find("gpu_tree_mesh_renderer_->Prepare()"), growth_source.find("Simulate(growth_settings"));
   EXPECT_NE(growth_source.find("demo_tree_entities_.assign("), std::string::npos);
-  EXPECT_NE(source.find("UpdateDemoTreeGrowth();"), std::string::npos);
+  const auto runtime_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                           "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
+  EXPECT_NE(runtime_source.find("UpdateDemoTreeGrowth();"), std::string::npos);
 }
 
 TEST(LauncherUtils, EcoSysLabDemoSplitsSceneAndPlantVisual) {
@@ -136,9 +139,16 @@ TEST(LauncherUtils, BuildsProjectMetadataFromSelectedPackages) {
 
 TEST(LauncherUtils, DemoProfilesExposeStableIdsAndPackageRequirements) {
   const auto& profiles = GetDemoProfiles();
-  ASSERT_EQ(profiles.size(), 11);
+  ASSERT_EQ(profiles.size(), 12);
+  const auto* windy_tree = FindDemoProfile("windy-tree");
+  ASSERT_NE(windy_tree, nullptr);
+  EXPECT_EQ(windy_tree->id, DemoProfileId::WindyTree);
+  EXPECT_STREQ(windy_tree->title, "Windy Tree");
+  EXPECT_EQ(windy_tree->startup_runtime_packages, std::vector<std::string>{"EcoSysLab"});
   EXPECT_EQ(profiles[1].id, DemoProfileId::SubsurfaceScattering);
   EXPECT_STREQ(profiles[1].id_name, "sss");
+  EXPECT_EQ(profiles[2].id, DemoProfileId::WindyTree);
+  EXPECT_STREQ(profiles[2].preview_image_path, "Launcher/DemoPreviews/windy-tree.png");
 
   EXPECT_EQ(profiles[0].id, DemoProfileId::Rendering);
   EXPECT_STREQ(profiles[0].id_name, "rendering");
@@ -147,69 +157,69 @@ TEST(LauncherUtils, DemoProfilesExposeStableIdsAndPackageRequirements) {
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[0].id, ApplicationMode::Player));
   EXPECT_TRUE(profiles[0].startup_runtime_packages.empty());
   EXPECT_STREQ(profiles[0].preview_image_path, "Launcher/DemoPreviews/rendering.png");
-  EXPECT_EQ(profiles[2].id, DemoProfileId::ProceduralGalaxy);
-  EXPECT_STREQ(profiles[2].id_name, "procedural-galaxy");
-  EXPECT_EQ(profiles[2].default_application_mode, ApplicationMode::Editor);
-  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[2].id, ApplicationMode::Editor));
-  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[2].id, ApplicationMode::Player));
-  EXPECT_EQ(profiles[2].startup_runtime_packages, std::vector<std::string>{"Universe"});
-  EXPECT_STREQ(profiles[2].preview_image_path, "Launcher/DemoPreviews/procedural-galaxy.png");
-  EXPECT_EQ(profiles[3].id, DemoProfileId::GaussianSplat);
-  EXPECT_STREQ(profiles[3].id_name, "3dgs");
+  EXPECT_EQ(profiles[3].id, DemoProfileId::ProceduralGalaxy);
+  EXPECT_STREQ(profiles[3].id_name, "procedural-galaxy");
   EXPECT_EQ(profiles[3].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[3].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[3].id, ApplicationMode::Player));
-  EXPECT_TRUE(profiles[3].startup_runtime_packages.empty());
-  EXPECT_STREQ(profiles[3].preview_image_path, "Launcher/DemoPreviews/3dgs.png");
-  EXPECT_EQ(profiles[4].id, DemoProfileId::Bicycle);
-  EXPECT_STREQ(profiles[4].id_name, "bicycle");
+  EXPECT_EQ(profiles[3].startup_runtime_packages, std::vector<std::string>{"Universe"});
+  EXPECT_STREQ(profiles[3].preview_image_path, "Launcher/DemoPreviews/procedural-galaxy.png");
+  EXPECT_EQ(profiles[4].id, DemoProfileId::GaussianSplat);
+  EXPECT_STREQ(profiles[4].id_name, "3dgs");
   EXPECT_EQ(profiles[4].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[4].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[4].id, ApplicationMode::Player));
   EXPECT_TRUE(profiles[4].startup_runtime_packages.empty());
-  EXPECT_STREQ(profiles[4].preview_image_path, "Launcher/DemoPreviews/bicycle.png");
-  EXPECT_EQ(profiles[5].id, DemoProfileId::Bistro);
-  EXPECT_STREQ(profiles[5].id_name, "bistro");
+  EXPECT_STREQ(profiles[4].preview_image_path, "Launcher/DemoPreviews/3dgs.png");
+  EXPECT_EQ(profiles[5].id, DemoProfileId::Bicycle);
+  EXPECT_STREQ(profiles[5].id_name, "bicycle");
   EXPECT_EQ(profiles[5].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[5].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[5].id, ApplicationMode::Player));
   EXPECT_TRUE(profiles[5].startup_runtime_packages.empty());
-  EXPECT_STREQ(profiles[5].preview_image_path, "Launcher/DemoPreviews/bistro.png");
-  EXPECT_EQ(profiles[6].id, DemoProfileId::EcoSysLab);
-  EXPECT_STREQ(profiles[6].id_name, "ecosyslab");
+  EXPECT_STREQ(profiles[5].preview_image_path, "Launcher/DemoPreviews/bicycle.png");
+  EXPECT_EQ(profiles[6].id, DemoProfileId::Bistro);
+  EXPECT_STREQ(profiles[6].id_name, "bistro");
   EXPECT_EQ(profiles[6].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[6].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[6].id, ApplicationMode::Player));
-  EXPECT_EQ(profiles[6].startup_runtime_packages, std::vector<std::string>{"EcoSysLab"});
-  EXPECT_STREQ(profiles[6].preview_image_path, "Launcher/DemoPreviews/ecosyslab.png");
-  EXPECT_EQ(profiles[7].id, DemoProfileId::LSystem);
-  EXPECT_STREQ(profiles[7].id_name, "lsystem");
+  EXPECT_TRUE(profiles[6].startup_runtime_packages.empty());
+  EXPECT_STREQ(profiles[6].preview_image_path, "Launcher/DemoPreviews/bistro.png");
+  EXPECT_EQ(profiles[7].id, DemoProfileId::EcoSysLab);
+  EXPECT_STREQ(profiles[7].id_name, "ecosyslab");
   EXPECT_EQ(profiles[7].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[7].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[7].id, ApplicationMode::Player));
-  EXPECT_EQ(profiles[7].startup_runtime_packages, (std::vector<std::string>{"LSystem", "DigitalAgriculture"}));
-  EXPECT_STREQ(profiles[7].preview_image_path, "Launcher/DemoPreviews/lsystem.png");
-  EXPECT_EQ(profiles[8].id, DemoProfileId::DigitalAgriculture);
-  EXPECT_STREQ(profiles[8].id_name, "digital-agriculture");
+  EXPECT_EQ(profiles[7].startup_runtime_packages, std::vector<std::string>{"EcoSysLab"});
+  EXPECT_STREQ(profiles[7].preview_image_path, "Launcher/DemoPreviews/ecosyslab.png");
+  EXPECT_EQ(profiles[8].id, DemoProfileId::LSystem);
+  EXPECT_STREQ(profiles[8].id_name, "lsystem");
   EXPECT_EQ(profiles[8].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[8].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[8].id, ApplicationMode::Player));
-  EXPECT_EQ(profiles[8].startup_runtime_packages, std::vector<std::string>{"DigitalAgriculture"});
-  EXPECT_STREQ(profiles[8].preview_image_path, "Launcher/DemoPreviews/digital-agriculture.png");
-  EXPECT_EQ(profiles[9].id, DemoProfileId::Ddgi);
-  EXPECT_STREQ(profiles[9].id_name, "ddgi");
+  EXPECT_EQ(profiles[8].startup_runtime_packages, (std::vector<std::string>{"LSystem", "DigitalAgriculture"}));
+  EXPECT_STREQ(profiles[8].preview_image_path, "Launcher/DemoPreviews/lsystem.png");
+  EXPECT_EQ(profiles[9].id, DemoProfileId::DigitalAgriculture);
+  EXPECT_STREQ(profiles[9].id_name, "digital-agriculture");
   EXPECT_EQ(profiles[9].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[9].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[9].id, ApplicationMode::Player));
-  EXPECT_TRUE(profiles[9].startup_runtime_packages.empty());
-  EXPECT_STREQ(profiles[9].preview_image_path, "Launcher/DemoPreviews/ddgi.png");
-  EXPECT_EQ(profiles[10].id, DemoProfileId::RenderingRegression);
-  EXPECT_STREQ(profiles[10].id_name, "rendering-regression");
+  EXPECT_EQ(profiles[9].startup_runtime_packages, std::vector<std::string>{"DigitalAgriculture"});
+  EXPECT_STREQ(profiles[9].preview_image_path, "Launcher/DemoPreviews/digital-agriculture.png");
+  EXPECT_EQ(profiles[10].id, DemoProfileId::Ddgi);
+  EXPECT_STREQ(profiles[10].id_name, "ddgi");
   EXPECT_EQ(profiles[10].default_application_mode, ApplicationMode::Editor);
   EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[10].id, ApplicationMode::Editor));
   EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[10].id, ApplicationMode::Player));
   EXPECT_TRUE(profiles[10].startup_runtime_packages.empty());
-  EXPECT_STREQ(profiles[10].preview_image_path, "Launcher/DemoPreviews/rendering-regression.png");
+  EXPECT_STREQ(profiles[10].preview_image_path, "Launcher/DemoPreviews/ddgi.png");
+  EXPECT_EQ(profiles[11].id, DemoProfileId::RenderingRegression);
+  EXPECT_STREQ(profiles[11].id_name, "rendering-regression");
+  EXPECT_EQ(profiles[11].default_application_mode, ApplicationMode::Editor);
+  EXPECT_TRUE(IsDemoProfileApplicationModeSupported(profiles[11].id, ApplicationMode::Editor));
+  EXPECT_FALSE(IsDemoProfileApplicationModeSupported(profiles[11].id, ApplicationMode::Player));
+  EXPECT_TRUE(profiles[11].startup_runtime_packages.empty());
+  EXPECT_STREQ(profiles[11].preview_image_path, "Launcher/DemoPreviews/rendering-regression.png");
 
   ASSERT_NE(FindDemoProfile("rendering"), nullptr);
   EXPECT_EQ(FindDemoProfile("rendering")->id, DemoProfileId::Rendering);
@@ -253,6 +263,9 @@ TEST(LauncherUtils, DemoProfileProjectPathsResolveFromResourcesRoot) {
       launcher::NormalizeProjectPath(resource_root / "EvoEngine-DemoProjects" / "CornellBox" / "CornellBox.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::EcoSysLab, resource_root),
             launcher::NormalizeProjectPath(resource_root / "EcoSysLabProject" / "test.eveproj"));
+  EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::WindyTree, resource_root),
+            launcher::NormalizeProjectPath(resource_root / ".generated" / "EvoEngine-DemoProjects" / "WindyTree" /
+                                           "WindyTree.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::DigitalAgriculture, resource_root),
             launcher::NormalizeProjectPath(resource_root / "DigitalAgricultureProject" / "test.eveproj"));
   EXPECT_EQ(ResolveDemoProfileProjectPath(DemoProfileId::LSystem, resource_root),
@@ -291,6 +304,7 @@ TEST(LauncherUtils, DemoResourceChecksIncludeRenderingLightingAssets) {
   EXPECT_EQ(missing_bistro_resources, (std::vector<std::string>{"Bistro.eveproj", "bistro.gltf", "bistro.bin",
                                                                 "textures", "objects", "bistro.gltf.evefilemeta"}));
   EXPECT_FALSE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::WindyTree, resource_root).empty());
 
   const auto sponza_lighting =
       resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza";
@@ -349,6 +363,7 @@ TEST(LauncherUtils, DemoResourceChecksIncludeRenderingLightingAssets) {
   project_file << "application_name: EcoSysLab\n";
   project_file.close();
   EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::EcoSysLab, resource_root).empty());
+  EXPECT_TRUE(MissingDemoProfileResourceRequirements(DemoProfileId::WindyTree, resource_root).empty());
 }
 
 TEST(LauncherUtils, SkinDemoRequiresSourceAssetsBeforeGeneratedProjectExists) {

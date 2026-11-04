@@ -6,12 +6,16 @@
 #include "AssetManager.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
+#include "BasicShootDescriptor.hpp"
 #include "BranchRenderer.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 #include "FoliageRenderer.hpp"
 #include "ForestDescriptor.hpp"
+#include "HeightField.hpp"
+#include "Jobs.hpp"
 #include "Material.hpp"
 #include "Scene.hpp"
 
@@ -32,12 +36,47 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
   application.RegisterAsset<BasicFoliageDescriptor>("BasicFoliageDescriptor", {".foliage"});
   application.RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
   application.RegisterAsset<ForestPatch>("ForestPatch", {".forestpatch"});
+  application.RegisterAsset<ClimateDescriptor>("ClimateDescriptor", {".climate"});
+  application.RegisterAsset<SoilDescriptor>("SoilDescriptor", {".soil"});
+  application.RegisterAsset<HeightField>("HeightField", {".heightfield"});
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
+  application.RegisterPrivateComponent<Climate>("Climate");
+  application.RegisterPrivateComponent<Soil>("Soil");
   application.RegisterPrivateComponent<Tree>("Tree");
   application.RegisterPrivateComponent<DynamicTreeSkeleton>("DynamicTreeSkeleton");
   application.RegisterPrivateComponent<BranchRenderer>("BranchRenderer");
   application.RegisterPrivateComponent<FoliageRenderer>("FoliageRenderer");
   const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
   application.Attach(scene);
+
+  const auto empty_scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto defaults = empty_scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  defaults->environment.EnsureConfiguration(empty_scene);
+  EXPECT_NE(defaults->environment.climate_descriptor.Get<ClimateDescriptor>(), nullptr);
+  const auto default_soil = defaults->environment.soil_descriptor.Get<SoilDescriptor>();
+  ASSERT_NE(default_soil, nullptr);
+  EXPECT_NE(default_soil->height_field.Get<HeightField>(), nullptr);
+
+  const auto climate_descriptor = AssetManager::CreateTemporaryAsset<ClimateDescriptor>();
+  const auto soil_descriptor = AssetManager::CreateTemporaryAsset<SoilDescriptor>();
+  const auto disabled_scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto disabled_entity = disabled_scene->CreateEntity("Legacy environment");
+  disabled_scene->GetOrSetPrivateComponent<Climate>(disabled_entity).lock()->climate_descriptor_ref =
+      climate_descriptor;
+  disabled_scene->GetOrSetPrivateComponent<Soil>(disabled_entity).lock()->soil_descriptor_ref = soil_descriptor;
+  disabled_scene->SetEnable(disabled_entity, false);
+  const auto disabled_system = disabled_scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  disabled_system->environment.EnsureConfiguration(disabled_scene);
+  EXPECT_EQ(disabled_system->environment.climate_descriptor.Get<ClimateDescriptor>(), climate_descriptor);
+  EXPECT_EQ(disabled_system->environment.soil_descriptor.Get<SoilDescriptor>(), soil_descriptor);
+  EXPECT_FALSE(disabled_scene->HasPrivateComponent<Climate>(disabled_entity));
+  EXPECT_FALSE(disabled_scene->HasPrivateComponent<Soil>(disabled_entity));
+  const auto climate_entity = scene->CreateEntity("Climate");
+  const auto soil_entity = scene->CreateEntity("Soil");
+  scene->GetOrSetPrivateComponent<Climate>(climate_entity).lock()->climate_descriptor_ref = climate_descriptor;
+  scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock()->soil_descriptor_ref = soil_descriptor;
+  const auto visualization = scene->CreateEntity("Ground Mesh");
+  scene->SetParent(visualization, soil_entity);
 
   const auto bark_material = AssetManager::CreateTemporaryAsset<Material>();
   const auto leaf_material = AssetManager::CreateTemporaryAsset<Material>();
@@ -67,6 +106,25 @@ TEST(ForestInstantiation, EveryPathAddsRenderersWithDescriptorMaterials) {
   patch.tree_descriptor = descriptor;
   patch.InstantiatePatch({1, 1}, false);
   check_last_tree(1);
+  const auto system = scene->GetSystem<EcoSysLabSystem>();
+  ASSERT_NE(system, nullptr);
+  EXPECT_EQ(system->environment.climate_descriptor.Get<ClimateDescriptor>(), climate_descriptor);
+  EXPECT_EQ(system->environment.soil_descriptor.Get<SoilDescriptor>(), soil_descriptor);
+  EXPECT_FALSE(scene->HasPrivateComponent<Climate>(climate_entity));
+  EXPECT_FALSE(scene->HasPrivateComponent<Soil>(soil_entity));
+  EXPECT_TRUE(scene->IsEntityValid(visualization));
+  EXPECT_EQ(system->environment.soil_visualization_owner, scene->GetEntityHandle(soil_entity));
+  system->growth.Queue(45.0f);
+  system->growth.simulated_time = 5.0f;
+  const auto runtime_scene = AssetManager::CreateTemporaryAsset<Scene>();
+  Scene::Clone(scene, runtime_scene);
+  const auto runtime_system = runtime_scene->GetSystem<EcoSysLabSystem>();
+  ASSERT_NE(runtime_system, nullptr);
+  EXPECT_FLOAT_EQ(runtime_system->growth.remaining_time, 0.0f);
+  EXPECT_FLOAT_EQ(runtime_system->growth.simulated_time, 0.0f);
+  EXPECT_EQ(runtime_system->environment.soil_descriptor.Get<SoilDescriptor>(), soil_descriptor);
+  system->growth.Stop();
+  system->growth.simulated_time = 0.0f;
 
   patch.InstantiatePatch({{TreeGrowthSettings{}, descriptor}}, {1, 1}, false);
   check_last_tree(2);
@@ -123,4 +181,77 @@ TEST(ForestPatch, AppleForestAssetUsesFourTrees) {
   const auto asset = YAML::LoadFile(path.string());
   EXPECT_EQ(asset["grid_size"].as<glm::ivec2>(), glm::ivec2(2, 2));
   EXPECT_FLOAT_EQ(asset["simulation_time"].as<float>(), 4.0f);
+}
+
+TEST(ForestGrowth, GrowingTreeResultSurvivesFollowingNonGrowingTrees) {
+  Application application;
+  ApplicationContextScope scope(application);
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterAsset<BasicShootDescriptor>("BasicShootDescriptor", {".shoot"});
+  application.RegisterAsset<TreeDescriptor>("TreeDescriptor", {".tree"});
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
+  application.RegisterPrivateComponent<Tree>("Tree");
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  application.Attach(scene);
+  const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+  system->environment.climate.Initialize(ClimateParameters{});
+  const auto empty = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+  const auto growing = AssetManager::CreateTemporaryAsset<TreeDescriptor>();
+  const auto shoot = AssetManager::CreateTemporaryAsset<BasicShootDescriptor>();
+  growing->shoot_descriptor = shoot;
+  std::shared_ptr<Tree> first;
+  for (size_t i = 0; i < 2 * Jobs::GetWorkerSize(); ++i) {
+    const auto tree = scene->GetOrSetPrivateComponent<Tree>(scene->CreateEntity()).lock();
+    tree->tree_descriptor_ref = i == 0 ? growing : empty;
+    if (i == 0)
+      first = tree;
+  }
+  SimulationSettings simulation;
+  simulation.soil_simulation = false;
+  SimulationStats stats;
+  EXPECT_TRUE(system->growth.Step(*system, simulation, stats));
+  EXPECT_FALSE(first->shoot_model.PeekShootSkeleton().PeekSortedNodeList().empty());
+  application.Terminate();
+}
+
+TEST(ForestInstantiation, NewSystemEnabledAndDisabledStateSurvivesRetrievalCloneAndLoad) {
+  Application application;
+  ApplicationContextScope scope(application);
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  application.Initialize(settings);
+  application.RegisterSystem<EcoSysLabSystem>("EcoSysLabSystem");
+  Serialization::RegisterSerializationHandler<EcoSysLabSystem>(SerializeEcoSysLabSystem, DeserializeEcoSysLabSystem);
+  for (const bool enabled : {true, false}) {
+    const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+    const auto system = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f);
+    ASSERT_TRUE(system->Enabled());
+    if (!enabled)
+      system->Disable();
+    EXPECT_EQ(scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f), system);
+    EXPECT_EQ(system->Enabled(), enabled);
+    const auto clone = AssetManager::CreateTemporaryAsset<Scene>();
+    Scene::Clone(scene, clone);
+    ASSERT_NE(clone->GetSystem<EcoSysLabSystem>(), nullptr);
+    EXPECT_EQ(clone->GetSystem<EcoSysLabSystem>()->Enabled(), enabled);
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    Serialization::SerializeObject(out, static_cast<IAsset&>(*scene));
+    out << YAML::EndMap;
+    const auto loaded = AssetManager::CreateTemporaryAsset<Scene>();
+    Serialization::DeserializeObject(YAML::Load(out.c_str()), static_cast<IAsset&>(*loaded));
+    ASSERT_NE(loaded->GetSystem<EcoSysLabSystem>(), nullptr);
+    EXPECT_EQ(loaded->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->Enabled(), enabled);
+  }
+  application.Terminate();
 }

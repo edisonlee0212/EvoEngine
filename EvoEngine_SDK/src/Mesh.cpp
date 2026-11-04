@@ -522,6 +522,10 @@ const std::vector<ParticleInfo>& ParticleInfoList::PeekParticleInfoList() const 
   return GeometryStorage::PeekParticleInfoList(range_descriptor_);
 }
 
+size_t ParticleInfoList::GetRenderParticleCount() const {
+  return GeometryStorage::GetRenderParticleCount(range_descriptor_);
+}
+
 const std::shared_ptr<DescriptorSet>& ParticleInfoList::GetDescriptorSet() const {
   return GeometryStorage::PeekDescriptorSet(range_descriptor_);
 }

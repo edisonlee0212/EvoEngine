@@ -2,18 +2,24 @@
 #include <unordered_map>
 #include "EcoSysLabLayer.hpp"
 #include "EditorLayer.hpp"
+#include "PlantVisualOrganBuffers.hpp"
 #include "TreeEditorState.hpp"
 namespace eco_sys_lab_package {
+class TreeDebugRenderer;
 class EcoSysLabEditorLayer : public evo_engine::ILayer {
   friend class ShootVisualizer;
   friend class RootVisualizer;
   struct Entry {
     std::weak_ptr<evo_engine::IPrivateComponent> owner;
     std::unique_ptr<TreeEditorState> state;
+    std::shared_ptr<TreeDebugRenderer> debug_renderer;
   };
   std::weak_ptr<evo_engine::Scene> scene_;
   std::unordered_map<const Tree*, Entry> trees_;
+  std::shared_ptr<TreeDebugRenderer> tree_debug_renderer_;
+  bool tree_debug_requested_ = false;
 
+  void ProfileWindyTreeDemo();
   void DrawDynamicStrandsSettingsGui(const std::shared_ptr<EditorLayer>& editor_layer);
   void DynamicStrandVisualization() const;
   void DynamicStrandsVisualization(const std::shared_ptr<EditorLayer>& editor_layer);
@@ -75,7 +81,8 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
      */
     bool DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);
   };
-  void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands);
+  void UpdateFlows(const std::vector<Entity>* tree_entities, const std::shared_ptr<Strands>& branch_strands,
+                   bool selection_only = false);
   void UpdateGroundFruitAndLeaves() const;
   bool auto_generate_mesh_after_editing_ = false;
   bool auto_generate_skeletal_graph_every_frame_ = false;
@@ -84,6 +91,8 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   std::shared_ptr<ParticleInfoList> bounding_box_matrices_;
   std::shared_ptr<ParticleInfoList> flower_matrices_;
   std::shared_ptr<ParticleInfoList> foliage_matrices_;
+  std::vector<PlantVisualOrganBuffers> organ_buffers_;
+  PlantVisualOrganBuffers organ_matrices_;
   std::shared_ptr<ParticleInfoList> fruit_matrices_;
   std::shared_ptr<ParticleInfoList> ground_flower_matrices_;
   std::shared_ptr<ParticleInfoList> ground_fruit_matrices_;
@@ -97,10 +106,26 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   std::vector<StrandPoint> shoot_stem_points_;
   std::vector<glm::uint> shoot_stem_segments_;
   AssetRef shoot_stem_strands_;
-  std::vector<int> shoot_versions_;
+  struct TreeVisualizationInput {
+    Entity entity;
+    uint64_t content_revision;
+    int skeleton_version;
+    glm::mat4 transform;
+    bool enabled;
+    bool operator==(const TreeVisualizationInput& other) const {
+      return entity == other.entity && content_revision == other.content_revision &&
+             skeleton_version == other.skeleton_version && transform == other.transform && enabled == other.enabled;
+    }
+  };
+  std::vector<TreeVisualizationInput> tree_visualization_inputs_;
   std::shared_ptr<ParticleInfoList> soil_matrices_;
   int soil_version_ = -1;
   SoilVisualizationSettings soil_visualization_settings_{};
+  float soil_cutout_x_ = 0.5f;
+  float soil_cutout_z_ = 0.5f;
+  float soil_water_factor_ = 0.0f;
+  float soil_nutrient_factor_ = 0.0f;
+  bool soil_ground_surface_ = true;
   unsigned tree_operator_mode = static_cast<unsigned>(TreeOperatorMode::Disabled);
   float tree_reduce_rate = 0.1f;
   TreeVisualizationSettings tree_visualization_settings_;
@@ -148,6 +173,8 @@ class EcoSysLabEditorLayer : public evo_engine::ILayer {
   void OnDestroy() override;
   void Update() override;
   void LateUpdate() override;
+  void OnPostRender() override;
+  [[nodiscard]] bool CanEditTree(const Tree& tree) const;
   TreeEditorState& GetTreeState(Tree& tree);
   const std::vector<glm::vec3>& RandomColors();
   void DrawGui(const std::shared_ptr<EditorLayer>& editor_layer);

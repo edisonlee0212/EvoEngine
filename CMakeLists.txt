@@ -135,15 +135,7 @@ function(evoengine_copy_resources dst_target dst_dir)
 	endforeach(folder_i)
 
 endfunction()
-function(evoengine_clear_shader_binaries dst_target)
-	set(dst_dir ${CMAKE_CURRENT_BINARY_DIR})
-	if(ARGC GREATER 1)
-		set(dst_dir ${ARGV1})
-	endif()
-	add_custom_command(TARGET ${dst_target} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E remove_directory ${dst_dir}/ShaderBinaries
-		VERBATIM)
-endfunction()
+
 
 function(evoengine_install_optional_files dst_dir)
 	foreach(file_i IN LISTS ARGN)

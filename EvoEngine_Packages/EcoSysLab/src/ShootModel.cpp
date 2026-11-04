@@ -2,6 +2,7 @@
 // Created by lllll on 10/21/2022.
 //
 #include "ShootModel.hpp"
+#include "Profiler.hpp"
 #include "SkeletonSerializer.hpp"
 #include "Soil.hpp"
 using namespace eco_sys_lab_package;
@@ -51,25 +52,33 @@ void ShootModel::CreateOrgansForInternode(SkeletonNode<InternodeGrowthData>& int
   }
 }
 
-void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
-  const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
-  auto& environment_grid = climate_model.environment_grid;
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    const auto& internode = shoot_skeleton_.RefNode(*it);
-    const auto& internode_info = internode.info;
-    const float biomass = internode_info.thickness;
-    const glm::vec3 world_position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
-    environment_grid.AddShadowValue(world_position, internode.data.shadow_size);
-    environment_grid.AddBiomass(world_position, biomass);
-    if (internode.IsEndNode()) {
-      InternodeVoxelRegistration registration;
-      registration.position = world_position;
-      registration.node_handle = *it;
-      registration.tree_skeleton_index = shoot_skeleton_.data.entity_index;
-      registration.thickness = internode_info.thickness;
-      environment_grid.AddNode(registration);
-    }
+void ShootModel::CollectVoxelRegistrations(const glm::mat4& global_transform,
+                                           std::vector<VoxelRegistration>& records) const {
+  const auto& nodes = shoot_skeleton_.PeekSortedNodeList();
+  records.resize(nodes.size());
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const auto handle = nodes[nodes.size() - 1 - i];
+    const auto& node = shoot_skeleton_.PeekNode(handle);
+    records[i] = {{global_transform * glm::vec4(node.info.global_position, 1.0f), node.IsEndNode() ? handle : -1,
+                   shoot_skeleton_.data.entity_index, node.info.thickness},
+                  node.data.shadow_size};
   }
+}
+
+void ShootModel::RegisterVoxel(const std::vector<VoxelRegistration>& records, ClimateModel& climate_model) {
+  for (const auto& record : records) {
+    auto& voxel = climate_model.environment_grid.voxel_grid.Ref(record.node.position);
+    voxel.self_shadow += record.shadow;
+    voxel.total_biomass += record.node.thickness;
+    if (record.node.node_handle != -1)
+      voxel.AddNode(record.node);
+  }
+}
+
+void ShootModel::RegisterVoxel(const glm::mat4& global_transform, ClimateModel& climate_model) {
+  std::vector<VoxelRegistration> records;
+  CollectVoxelRegistrations(global_transform, records);
+  RegisterVoxel(records, climate_model);
 }
 
 void ShootModel::HarvestFruits(const std::function<bool(const ShootOrgan& fruit)>& harvest_function) {
@@ -91,6 +100,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
                       const FoliageController& foliage_controller,
                       const ShootReproductionController& reproduction_controller,
                       const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Grow shoot", "EcoSysLab");
   if (!initialized_) {
     EVOENGINE_ERROR("ShootModel not initialized!")
     return false;
@@ -99,6 +109,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   shoot_skeleton_.data.age += current_delta_time_;
   bool structure_changed = false;
   {
+    const ProfilerScope scope("EcoSysLab / Growth internodes", "EcoSysLab");
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
       const bool graph_changed =
@@ -110,6 +121,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
     }
   }
   {
+    const ProfilerScope scope("EcoSysLab / Growth organs", "EcoSysLab");
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
     for (auto it = sorted_node_list.rbegin(); it != sorted_node_list.rend(); ++it) {
       if (foliage_controller.Initialized() &&
@@ -124,6 +136,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
   }
   const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
+    const ProfilerScope scope("EcoSysLab / Growth annual organs", "EcoSysLab");
     ResetOrgans();
     age_in_year_ = year;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
@@ -138,7 +151,7 @@ bool ShootModel::Grow(const float delta_time, const glm::mat4& global_transform,
     structure_changed = true;
   }
   if (pruning && shoot_pruning_controller.Initialized()) {
-    CalculateGrowthData(shoot_growth_controller);
+    CalculateGrowthData(shoot_growth_controller, false);
     if (PruneInternodes(global_transform, climate_model, soil_model, shoot_growth_controller,
                         shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
@@ -157,6 +170,7 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
                       const FoliageController& foliage_controller,
                       const ShootReproductionController& reproduction_controller,
                       const ShootPruningController& shoot_pruning_controller, const bool pruning) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Grow shoot", "EcoSysLab");
   if (!initialized_) {
     EVOENGINE_ERROR("ShootModel not initialized!")
     return false;
@@ -169,6 +183,7 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
   bool tree_structure_changed = false;
   auto sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
   {
+    const ProfilerScope scope("EcoSysLab / Growth internodes", "EcoSysLab");
     for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
       const bool graph_changed =
           GrowInternode(*it, shoot_growth_controller, foliage_controller, reproduction_controller);
@@ -179,16 +194,20 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
       sorted_sub_tree_internode_list = shoot_skeleton_.GetSubTree(base_internode_handle);
     }
   }
-  for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
-    if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
-      tree_structure_changed = true;
-    }
-    if (GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
-      tree_structure_changed = true;
+  {
+    const ProfilerScope scope("EcoSysLab / Growth organs", "EcoSysLab");
+    for (auto it = sorted_sub_tree_internode_list.rbegin(); it != sorted_sub_tree_internode_list.rend(); ++it) {
+      if (GrowFoliage(current_delta_time_, climate_model, global_transform, *it, foliage_controller)) {
+        tree_structure_changed = true;
+      }
+      if (GrowReproductiveModules(current_delta_time_, climate_model, global_transform, *it, reproduction_controller)) {
+        tree_structure_changed = true;
+      }
     }
   }
   const int year = climate_model.time / 365.f;
   if (year != age_in_year_) {
+    const ProfilerScope scope("EcoSysLab / Growth annual organs", "EcoSysLab");
     ResetOrgans();
     age_in_year_ = year;
     const auto& sorted_node_list = shoot_skeleton_.PeekSortedNodeList();
@@ -199,7 +218,7 @@ bool ShootModel::Grow(const float delta_time, const SkeletonNodeHandle base_inte
     tree_structure_changed = true;
   }
   if (pruning) {
-    CalculateGrowthData(shoot_growth_controller);
+    CalculateGrowthData(shoot_growth_controller, false);
     if (PruneInternodes(global_transform, climate_model, soil_model, shoot_growth_controller,
                         shoot_pruning_controller)) {
       shoot_skeleton_.SortLists();
@@ -243,6 +262,7 @@ void ShootModel::Initialize(const ShootGrowthController& shoot_growth_controller
 
 Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const ClimateModel& climate_model,
                                   const ShootGrowthController& shoot_growth_controller) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth shoot flux", "EcoSysLab");
   shoot_skeleton_.SortLists();
   auto& shoot_data = shoot_skeleton_.data;
   shoot_data.max_marker_count = 0;
@@ -304,61 +324,68 @@ Vigor ShootModel::SampleShootFlux(const glm::mat4& global_transform, const Clima
                          });
     }
   }
-  for (const auto& internode_handle : sorted_internode_list) {
-    auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    auto& internode_data = internode.data;
-    auto& internode_info = internode.info;
-    internode_data.light_intake = 0.0f;
-    internode_data.light_direction = -shoot_skeleton_.data.gravity_direction;
-    bool sample_light_intensity = false;
+  {
+    const ProfilerScope scope("EcoSysLab / Growth environment sampling", "EcoSysLab");
+    for (const auto& internode_handle : sorted_internode_list) {
+      auto& internode = shoot_skeleton_.RefNode(internode_handle);
+      auto& internode_data = internode.data;
+      auto& internode_info = internode.info;
+      internode_data.light_intake = 0.0f;
+      internode_data.light_direction = -shoot_skeleton_.data.gravity_direction;
+      bool sample_light_intensity = false;
 
-    for (const auto& bud : internode_data.buds) {
-      sample_light_intensity = true;
-      if (tree_growth_settings.use_space_colonization) {
-        shoot_data.max_marker_count = glm::max(shoot_data.max_marker_count, bud.marker_count);
+      for (const auto& bud : internode_data.buds) {
+        sample_light_intensity = true;
+        if (tree_growth_settings.use_space_colonization) {
+          shoot_data.max_marker_count = glm::max(shoot_data.max_marker_count, bud.marker_count);
+        }
       }
-    }
-    const glm::vec3 position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
-    if (sample_light_intensity) {
-      internode_data.light_intake =
-          glm::clamp(climate_model.environment_grid.Sample(position, internode_data.light_direction), 0.f, 1.f);
-      if (internode_data.light_intake <= glm::epsilon<float>()) {
-        internode_data.light_direction = glm::normalize(internode_info.GetGlobalDirection());
+      const glm::vec3 position = global_transform * glm::vec4(internode_info.global_position, 1.0f);
+      if (sample_light_intensity) {
+        internode_data.light_intake =
+            glm::clamp(climate_model.environment_grid.Sample(position, internode_data.light_direction), 0.f, 1.f);
+        if (internode_data.light_intake <= glm::epsilon<float>()) {
+          internode_data.light_direction = glm::normalize(internode_info.GetGlobalDirection());
+        }
       }
+      internode_data.space_occupancy = climate_model.environment_grid.voxel_grid.Peek(position).total_biomass;
     }
-    internode_data.space_occupancy = climate_model.environment_grid.voxel_grid.Peek(position).total_biomass;
-  }
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    auto& internode = shoot_skeleton_.RefNode(*it);
-    auto& internode_data = internode.data;
-    auto& internode_info = internode.info;
-    internode_data.temperature =
-        climate_model.GetHighTemp(global_transform * glm::translate(internode_info.global_position)[3]);
+    for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
+      auto& internode = shoot_skeleton_.RefNode(*it);
+      auto& internode_data = internode.data;
+      auto& internode_info = internode.info;
+      internode_data.temperature =
+          climate_model.GetHighTemp(global_transform * glm::translate(internode_info.global_position)[3]);
+    }
   }
   CalculateGrowthData(shoot_growth_controller);
 
   Vigor total_shoot_flux;
   total_shoot_flux.value = 0.0f;
-  for (const auto& internode_handle : sorted_internode_list) {
-    auto& internode = shoot_skeleton_.RefNode(internode_handle);
-    const auto& internode_data = internode.data;
-    total_shoot_flux.value += internode_data.light_intake;
-  }
+  {
+    const ProfilerScope scope("EcoSysLab / Growth light aggregation", "EcoSysLab");
+    for (const auto& internode_handle : sorted_internode_list) {
+      auto& internode = shoot_skeleton_.RefNode(internode_handle);
+      const auto& internode_data = internode.data;
+      total_shoot_flux.value += internode_data.light_intake;
+    }
 
-  for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
-    auto& internode = shoot_skeleton_.RefNode(*it);
-    auto& internode_data = internode.data;
-    internode_data.descendant_total_light_intake = glm::clamp(internode_data.light_intake, 0.f, 1.f);
-    for (const auto& child_handle : internode.PeekChildHandles()) {
-      const auto& child_internode_data = shoot_skeleton_.RefNode(child_handle).data;
-      internode_data.descendant_total_light_intake +=
-          child_internode_data.light_intake + child_internode_data.descendant_total_light_intake;
+    for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
+      auto& internode = shoot_skeleton_.RefNode(*it);
+      auto& internode_data = internode.data;
+      internode_data.descendant_total_light_intake = glm::clamp(internode_data.light_intake, 0.f, 1.f);
+      for (const auto& child_handle : internode.PeekChildHandles()) {
+        const auto& child_internode_data = shoot_skeleton_.RefNode(child_handle).data;
+        internode_data.descendant_total_light_intake +=
+            child_internode_data.light_intake + child_internode_data.descendant_total_light_intake;
+      }
     }
   }
   return total_shoot_flux;
 }
 
 void ShootModel::DistributeVigor(const ShootGrowthController& shoot_growth_controller, const Vigor vigor) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth vigor distribution", "EcoSysLab");
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   float max_grow_potential = 0.0f;
   for (const auto& internode_handle : sorted_internode_list) {
@@ -589,24 +616,39 @@ bool ShootModel::ElongateInternode(const float extended_length, const SkeletonNo
   return graph_changed;
 }
 
-void ShootModel::CalculateGrowthData(const ShootGrowthController& shoot_growth_controller) {
+void ShootModel::CalculateGrowthData(const ShootGrowthController& shoot_growth_controller, const bool update_counts) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth derived data", "EcoSysLab");
   const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
   {
+    const ProfilerScope scope("EcoSysLab / Growth thickness", "EcoSysLab");
     CalculateThickness(shoot_growth_controller);
+  }
 
+  {
+    const ProfilerScope scope("EcoSysLab / Growth hierarchy metrics", "EcoSysLab");
     shoot_skeleton_.CalculateDistanceVolumeLevel();
-    const auto volume_factor = 1.f / shoot_growth_controller.base_thickness / shoot_growth_controller.base_thickness /
-                               shoot_growth_controller.base_internode_length;
+  }
+  const auto volume_factor = 1.f / shoot_growth_controller.base_thickness / shoot_growth_controller.base_thickness /
+                             shoot_growth_controller.base_internode_length;
+  {
+    const ProfilerScope scope("EcoSysLab / Growth biomass", "EcoSysLab");
     for (auto it = sorted_internode_list.rbegin(); it != sorted_internode_list.rend(); ++it) {
       CalculateBiomassFactor(*it, shoot_growth_controller, volume_factor);
     }
+  }
+  {
+    const ProfilerScope scope("EcoSysLab / Growth transforms", "EcoSysLab");
     CalculateTransform(shoot_growth_controller, true);
   }
-  shoot_skeleton_.CalculateFlows();
+  {
+    const ProfilerScope scope("EcoSysLab / Growth flows", "EcoSysLab");
+    shoot_skeleton_.CalculateFlows();
+  }
 
-  internode_order_counts.clear();
-  internode_order_counts.resize(shoot_skeleton_.GetMaxOrder() + 1);
-  std::fill(internode_order_counts.begin(), internode_order_counts.end(), 0);
+  if (!update_counts)
+    return;
+  const ProfilerScope scope("EcoSysLab / Growth counts", "EcoSysLab");
+  internode_order_counts.assign(shoot_skeleton_.GetMaxOrder() + 1, 0);
 
   bud_count = 0;
   leaf_count_ = 0;
@@ -981,9 +1023,11 @@ int ShootModel::GetFruitCount() const {
 bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const ClimateModel& climate_model,
                                  const VoxelSoilModel& soil_model, const ShootGrowthController& shoot_growth_controller,
                                  const ShootPruningController& shoot_pruning_controller) {
+  const ProfilerScope scope("EcoSysLab / Growth pruning", "EcoSysLab");
   bool root_to_end_pruned = false;
 
   {
+    const ProfilerScope scope("EcoSysLab / Growth pruning base to tip", "EcoSysLab");
     const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
     std::vector<SkeletonNodeHandle> pruning_node_handles{};
     for (const auto& internode_handle : sorted_internode_list) {
@@ -1022,11 +1066,15 @@ bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const Climat
         root_to_end_pruned = true;
       }
     }
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    {
+      const ProfilerScope scope("EcoSysLab / Growth pruning removal", "EcoSysLab");
+      shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    }
   }
 
   bool end_to_root_pruned = false;
   {
+    const ProfilerScope scope("EcoSysLab / Growth pruning tip to base", "EcoSysLab");
     std::vector<SkeletonNodeHandle> pruning_node_handles{};
     const auto& sorted_internode_list = shoot_skeleton_.PeekSortedNodeList();
     const auto volume_factor = 1.f / shoot_growth_controller.base_thickness / shoot_growth_controller.base_thickness /
@@ -1067,7 +1115,10 @@ bool ShootModel::PruneInternodes(const glm::mat4& global_transform, const Climat
       }
     }
 
-    shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    {
+      const ProfilerScope scope("EcoSysLab / Growth pruning removal", "EcoSysLab");
+      shoot_skeleton_.RemoveNodes(pruning_node_handles);
+    }
   }
   shoot_skeleton_.CalculateDistanceVolumeLevel();
   return root_to_end_pruned || end_to_root_pruned;

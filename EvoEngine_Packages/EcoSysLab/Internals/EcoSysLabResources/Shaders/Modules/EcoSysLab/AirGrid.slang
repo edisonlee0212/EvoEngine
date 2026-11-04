@@ -43,3 +43,26 @@ public uint AirGridFind(StructuredBuffer<uint> heads, StructuredBuffer<AirGridAd
   }
   return 0xffffffffu;
 }
+
+public float4 AirGridSampleWind(StructuredBuffer<uint> wind_heads, StructuredBuffer<AirGridAddresses> wind_addresses,
+                                uint bucket_count, float cell_size, float3 midpoint) {
+  float3 position = midpoint / cell_size - 0.5;
+  int3 base = int3(floor(position));
+  float3 fraction = frac(position);
+  float4 result = 0;
+  float total = 0;
+  for (int z = 0; z < 2; ++z)
+    for (int y = 0; y < 2; ++y)
+      for (int x = 0; x < 2; ++x) {
+        uint index = AirGridFind(wind_heads, wind_addresses, base + int3(x, y, z), bucket_count);
+        if (index == 0xffffffffu) continue;
+        AirGridValue value = AirGridReadValue(wind_addresses, index);
+        float weight = (x != 0 ? fraction.x : 1.0 - fraction.x) *
+                       (y != 0 ? fraction.y : 1.0 - fraction.y) *
+                       (z != 0 ? fraction.z : 1.0 - fraction.z);
+        result += weight * float4(value.velocity_temperature.xyz,
+                                  value.humidity_strength_density.y * value.humidity_strength_density.z / 1.225);
+        total += weight;
+      }
+  return total > 0.0 ? result / total : 0;
+}

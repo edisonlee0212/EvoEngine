@@ -3,6 +3,7 @@
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabObjectInspectors.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "EditorLayer.hpp"
 #include "Tree.hpp"
 
@@ -14,9 +15,9 @@ bool ClimateDescriptorInspector::Inspect(InspectorContext& context, ClimateDescr
   bool changed = false;
   if (ImGui::Button("Instantiate")) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto climate_entity = scene->CreateEntity(target.GetTitle());
-    const auto climate = scene->GetOrSetPrivateComponent<Climate>(climate_entity).lock();
-    climate->climate_descriptor_ref = target.GetSelf();
+    auto& environment = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->environment;
+    environment.climate_descriptor = target.GetSelf();
+    environment.initialized = false;
   }
   return changed;
 }

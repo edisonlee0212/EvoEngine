@@ -240,12 +240,15 @@ void EditorLayer::OnPostRender() {
       }
     }
     for (const auto& i : gizmo_instanced_mesh_tasks_) {
+      const auto instance_count = i.particle_info_list->GetRenderParticleCount();
+      if (instance_count == 0)
+        continue;
       if (editor_cameras_.find(i.editor_camera_component->GetHandle()) == editor_cameras_.end()) {
         EVOENGINE_ERROR("Target camera not registered in editor!")
         return;
       }
       if (i.editor_camera_component && i.editor_camera_component->IsEnabled()) {
-        Platform::RecordCommandsMainQueue([this, i, current_frame_index,
+        Platform::RecordCommandsMainQueue([this, i, instance_count, current_frame_index,
                                            current_render_instances](VkCommandBuffer vk_command_buffer) {
           i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_instanced_colored->states);
           i.gizmo_settings.ApplySettings(gizmos_instanced_colored->states);
@@ -268,8 +271,7 @@ void EditorLayer::OnPostRender() {
                 push_constant.strand_color_mode = 0;
                 gizmos_instanced_colored->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
-                i.mesh->DrawIndexed(vk_command_buffer, gizmos_instanced_colored->states,
-                                    i.particle_info_list->PeekParticleInfoList().size());
+                i.mesh->DrawIndexed(vk_command_buffer, gizmos_instanced_colored->states, instance_count);
               });
         });
       }

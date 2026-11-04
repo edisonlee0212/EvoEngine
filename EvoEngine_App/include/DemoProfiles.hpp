@@ -23,7 +23,8 @@ enum class DemoProfileId {
   GaussianSplat,
   Bicycle,
   Bistro,
-  SubsurfaceScattering
+  SubsurfaceScattering,
+  WindyTree
 };
 
 struct DemoProfileDescriptor {

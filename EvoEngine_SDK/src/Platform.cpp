@@ -841,6 +841,12 @@ void Platform::CopyBuffer(const VkCommandBuffer vk_command_buffer, const Buffer&
   vkCmdCopyBuffer(vk_command_buffer, source.GetVkBuffer(), destination.GetVkBuffer(), 1, &region);
 }
 
+void Platform::CopyImageToBuffer(const VkCommandBuffer vk_command_buffer, const Image& source,
+                                 const Buffer& destination, const VkBufferImageCopy& region) {
+  vkCmdCopyImageToBuffer(vk_command_buffer, source.GetVkImage(), source.GetLayout(), destination.GetVkBuffer(), 1,
+                         &region);
+}
+
 void Platform::DrawIndexedIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
                                    const VkDeviceSize offset, const uint32_t draw_count, const uint32_t stride) {
   vkCmdDrawIndexedIndirect(vk_command_buffer, buffer.GetVkBuffer(), offset, draw_count, stride);
@@ -2747,6 +2753,17 @@ void Platform::AccumulateCpuTiming(const std::string& name, const double millise
 
 auto Platform::DivUp(const uint32_t a, uint32_t b) -> uint32_t {
   return (a + b - 1) / b;
+}
+
+void Platform::ComputeBarrier(const VkCommandBuffer command) {
+  VkMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+  barrier.srcStageMask = barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+  VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency.memoryBarrierCount = 1;
+  dependency.pMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command, &dependency);
 }
 
 void Platform::EverythingBarrier(const VkCommandBuffer vk_command_buffer) {

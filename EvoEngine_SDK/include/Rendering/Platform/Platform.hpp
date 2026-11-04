@@ -760,6 +760,10 @@ class EVOENGINE_API Platform final {
   static void CopyBuffer(VkCommandBuffer vk_command_buffer, const Buffer& source, const Buffer& destination,
                          VkDeviceSize size, VkDeviceSize source_offset = 0, VkDeviceSize destination_offset = 0);
 
+  /** Records an image readback through the SDK-owned Vulkan dispatch table. */
+  static void CopyImageToBuffer(VkCommandBuffer vk_command_buffer, const Image& source, const Buffer& destination,
+                                const VkBufferImageCopy& region);
+
   /**
    * @brief Records an indexed indirect draw through the SDK binary.
    */
@@ -881,6 +885,7 @@ class EVOENGINE_API Platform final {
    * @param vk_command_buffer Vulkan command buffer to record the barrier.
    */
   static void EverythingBarrier(VkCommandBuffer vk_command_buffer);
+  static void ComputeBarrier(VkCommandBuffer vk_command_buffer);
 
   /**
    * @brief Inserts a full pipeline memory barrier scoped to one buffer.

@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 #include "BasicPruningDescriptor.hpp"
-#include "PrivateComponentRef.hpp"
 #include "RootModel.hpp"
 #ifdef BILLBOARD_CLOUDS_PACKAGE
 #  include "BillboardCloud.hpp"
@@ -46,6 +45,8 @@ class Tree : public IPrivateComponent {
   const ModelRevision& GetRootModelRevision() const {
     return root_model_revision_;
   }
+  void NotifyShootModelChanged(bool topology_changed = true);
+  void NotifyRootModelChanged(bool topology_changed = true);
 
  private:
   ModelRevision shoot_model_revision_;
@@ -98,8 +99,6 @@ class Tree : public IPrivateComponent {
   std::vector<float> root_biomass_history;   ///< History record of root biomass over time.
   std::vector<float> shoot_biomass_history;  ///< History record of shoot biomass over time.
 
-  PrivateComponentRef soil;      ///< Reference to the associated soil component.
-  PrivateComponentRef climate;   ///< Reference to the associated climate component.
   AssetRef tree_descriptor_ref;  ///< Reference to the tree descriptor asset.
 
   bool enable_history = false;  ///< Flag to enable or disable history recording.
@@ -214,6 +213,8 @@ class Tree : public IPrivateComponent {
    * @return True if the subtree successfully grows, false otherwise.
    */
   bool TryGrow(const SimulationSettings& simulation_settings, SkeletonNodeHandle base_internode_handle, bool pruning);
+  bool TryGrow(const SimulationSettings& simulation_settings, SkeletonNodeHandle base_internode_handle, bool pruning,
+               ClimateModel& climate_model, VoxelSoilModel& soil_model);
 
   /**
    * @brief Parses a binvox file to generate a voxel grid.

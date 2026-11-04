@@ -699,8 +699,14 @@ const std::vector<SkeletonNodeHandle>& Skeleton<SkeletonData, FlowData, NodeData
 template <typename SkeletonData, typename FlowData, typename NodeData>
 void Skeleton<SkeletonData, FlowData, NodeData>::RemoveNodes(const std::vector<SkeletonNodeHandle>& node_handles) {
   SortLists();
-  std::unordered_map<SkeletonNodeHandle, uint32_t> sorted_node_indices;
-  std::unordered_map<SkeletonFlowHandle, uint32_t> sorted_flow_indices;
+  if (node_handles.empty()) {
+    // Preserve the existing version/list refresh contract without building removal indices.
+    new_version_++;
+    SortLists();
+    return;
+  }
+  std::vector<uint32_t> sorted_node_indices(nodes_.size());
+  std::vector<uint32_t> sorted_flow_indices(flows_.size());
 
   for (uint32_t i = 0; i < sorted_node_list_.size(); i++) {
     sorted_node_indices[sorted_node_list_[i]] = i;

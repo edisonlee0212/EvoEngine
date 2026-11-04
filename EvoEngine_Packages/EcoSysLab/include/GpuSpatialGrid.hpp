@@ -35,7 +35,7 @@ class GpuSpatialGrid {
   explicit GpuSpatialGrid(float cell_size = 1.0f, uint32_t value_stride = sizeof(glm::vec4) * 2)
       : cell_size_(cell_size), value_stride_(value_stride) {
   }
-  bool RegisterBox(const glm::vec3& lower, const glm::vec3& upper);
+  bool RegisterBox(const glm::vec3& lower, const glm::vec3& upper, uint32_t coverage_id = UINT32_MAX);
   void Reset();
   [[nodiscard]] uint32_t GetCellCount() const {
     return static_cast<uint32_t>(lookup_.size());
@@ -73,6 +73,10 @@ class GpuSpatialGrid {
   void Add(const Coordinate& coordinate);
   void Upload(uint32_t first_new_cell);
 
+  struct CellBox {
+    Coordinate first, last;
+  };
+  std::unordered_map<uint32_t, CellBox> registered_boxes_;
   float cell_size_;
   glm::ivec3 lower_cell_{INT32_MAX};
   glm::ivec3 upper_cell_{INT32_MIN};

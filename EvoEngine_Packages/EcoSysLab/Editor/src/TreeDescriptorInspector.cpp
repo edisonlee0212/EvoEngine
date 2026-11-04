@@ -27,19 +27,8 @@ bool eco_sys_lab_package::InspectTreeDescriptor(InspectorContext& context, TreeD
   const auto& editor_layer = context.editor_layer;
   bool changed = false;
   const auto eco_sys_lab_layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
-  std::shared_ptr<Climate> climate;
-  std::shared_ptr<Soil> soil;
-  if (const auto climate_candidate = EcoSysLabLayer::FindClimate(); !climate_candidate.expired())
-    climate = climate_candidate.lock();
-  if (const auto soil_candidate = EcoSysLabLayer::FindSoil(); !soil_candidate.expired())
-    soil = soil_candidate.lock();
-  if (soil && climate) {
-    if (ImGui::Button("Instantiate")) {
-      editor_layer->SetSelectedEntity(target.Instantiate());
-    }
-  } else {
-    ImGui::Text("Create soil and climate entity to instantiate!");
-  }
+  if (ImGui::Button("Instantiate"))
+    editor_layer->SetSelectedEntity(target.Instantiate());
   if (editor_layer->DragAndDropButton<IShootDescriptor>(target.shoot_descriptor, "Shoot Descriptor"))
     changed = true;
   if (editor_layer->DragAndDropButton<IRootDescriptor>(target.root_descriptor, "Root Descriptor"))
@@ -54,5 +43,16 @@ bool eco_sys_lab_package::InspectTreeDescriptor(InspectorContext& context, TreeD
 
   if (editor_layer->DragAndDropButton<IBarkDescriptor>(target.bark_descriptor, "Bark Descriptor"))
     changed = true;
+  if (ImGui::CollapsingHeader("Default physics properties")) {
+    auto& p = target.physics_properties;
+    changed |= ImGui::DragFloat("Stretch stiffness", &p.stretch_stiffness, 10, 0, 1000000);
+    changed |= ImGui::DragFloat("Bend stiffness", &p.bend_stiffness, 1, 0, 100000);
+    changed |= ImGui::DragFloat("Bend thickness exponent", &p.bend_thickness_exponent, 0.05f, 0.0f, 4.0f);
+    changed |= ImGui::DragFloat("Bend downstream exponent", &p.bend_downstream_exponent, 0.05f, 0.0f, 2.0f);
+    changed |= ImGui::DragFloat("Wood density", &p.density, 1, 0.001f, 2000);
+    changed |= ImGui::DragFloat("Damping", &p.damping, 0.001f, 0, 10);
+    changed |= ImGui::DragFloat("Wind drag", &p.wind_drag, 0.1f, 0, 100);
+    ImGui::TextDisabled("Copied into new trees; existing trees retain their own properties.");
+  }
   return changed;
 }

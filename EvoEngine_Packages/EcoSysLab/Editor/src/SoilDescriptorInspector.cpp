@@ -1,6 +1,7 @@
 #include "EcoSysLabLayer.hpp"
 #include "EcoSysLabObjectInspectors.hpp"
 #include "EcoSysLabSerializationAdapters.hpp"
+#include "EcoSysLabSystem.hpp"
 #include "EditorLayer.hpp"
 #include "HeightField.hpp"
 #include "Material.hpp"
@@ -188,10 +189,9 @@ bool SoilDescriptorInspector::Inspect(InspectorContext& context, SoilDescriptor&
 
   if (ImGui::Button("Instantiate")) {
     auto scene = ApplicationContext::Get().GetActiveScene();
-    auto soil_entity = scene->CreateEntity(target.GetTitle());
-    auto soil = scene->GetOrSetPrivateComponent<Soil>(soil_entity).lock();
-    soil->soil_descriptor_ref = target.GetSelf();
-    soil->InitializeSoilModel();
+    auto& environment = scene->GetOrCreateSystem<EcoSysLabSystem>(0.0f)->environment;
+    environment.soil_descriptor = target.GetSelf();
+    environment.initialized = false;
   }
 
   if (DrawSoilParametersGui(target.soil_parameters)) {

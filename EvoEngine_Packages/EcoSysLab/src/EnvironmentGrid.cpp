@@ -1,4 +1,5 @@
 #include "EnvironmentGrid.hpp"
+#include "Profiler.hpp"
 #include "SimulationSettings.hpp"
 using namespace eco_sys_lab_package;
 
@@ -34,6 +35,7 @@ void EnvironmentGrid::AddShadowValue(const glm::vec3& position, const float valu
 }
 
 void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_settings) {
+  const ProfilerScope growth_profile_scope("EcoSysLab / Growth light propagation", "EcoSysLab");
   const auto resolution = voxel_grid.GetResolution();
   const int shadow_disk_size = glm::ceil(simulation_settings.detection_radius / voxel_size);
   Jobs::RunParallelFor(resolution.x * resolution.z, [&](size_t i) {
@@ -117,40 +119,39 @@ void EnvironmentGrid::LightPropagation(const SimulationSettings& simulation_sett
     }
   }
   const int light_space_size = glm::ceil(simulation_settings.detection_radius / voxel_size);
-  for (int y = resolution.y - 1; y >= 0; y--) {
-    Jobs::RunParallelFor(resolution.x * resolution.z, [&](size_t i) {
-      const int x = i / resolution.z;
-      const int z = i % resolution.z;
-      glm::vec3 sum = glm::vec3(0.0f);
-      for (int x_offset = -light_space_size; x_offset <= light_space_size; x_offset++) {
-        for (int z_offset = -light_space_size; z_offset <= light_space_size; z_offset++) {
-          for (int y_offset = 1; y_offset <= light_space_size; y_offset++) {
-            if (y + y_offset < 0 || y + y_offset > resolution.y - 1)
-              continue;
-            const auto other_voxel_center = glm::ivec3(x + x_offset, y + y_offset, z + z_offset);
-            const auto position_diff =
-                voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
-            const float distance = glm::length(position_diff);
-            if (distance > simulation_settings.detection_radius)
-              continue;
+  const ProfilerScope direction_scope("EcoSysLab / Growth light direction", "EcoSysLab");
+  Jobs::RunParallelFor(voxel_grid.GetVoxelCount(), [&](size_t i) {
+    const auto coordinate = voxel_grid.GetCoordinate(static_cast<int>(i));
+    const int x = coordinate.x, y = coordinate.y, z = coordinate.z;
+    glm::vec3 sum = glm::vec3(0.0f);
+    for (int x_offset = -light_space_size; x_offset <= light_space_size; x_offset++) {
+      for (int z_offset = -light_space_size; z_offset <= light_space_size; z_offset++) {
+        for (int y_offset = 1; y_offset <= light_space_size; y_offset++) {
+          if (y + y_offset < 0 || y + y_offset > resolution.y - 1)
+            continue;
+          const auto other_voxel_center = glm::ivec3(x + x_offset, y + y_offset, z + z_offset);
+          const auto position_diff =
+              voxel_grid.GetPosition(other_voxel_center) - voxel_grid.GetPosition(glm::ivec3(x, y, z));
+          const float distance = glm::length(position_diff);
+          if (distance > simulation_settings.detection_radius)
+            continue;
 
-            if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 ||
-                z + z_offset > resolution.z - 1) {
-              sum += position_diff;
-            } else {
-              const auto& target_voxel = voxel_grid.Ref(other_voxel_center);
-              sum += target_voxel.light_intensity * position_diff;
-            }
+          if (x + x_offset < 0 || x + x_offset > resolution.x - 1 || z + z_offset < 0 ||
+              z + z_offset > resolution.z - 1) {
+            sum += position_diff;
+          } else {
+            const auto& target_voxel = voxel_grid.Ref(other_voxel_center);
+            sum += target_voxel.light_intensity * position_diff;
           }
         }
       }
-      auto& voxel = voxel_grid.Ref(glm::ivec3(x, y, z));
-      if (glm::length(sum) > glm::epsilon<float>())
-        voxel.light_direction = glm::normalize(sum);
-      else
-        voxel.light_direction = glm::vec3(0.0f, 1.0f, 0.0f);
-    });
-  }
+    }
+    auto& voxel = voxel_grid.Ref(glm::ivec3(x, y, z));
+    if (glm::length(sum) > glm::epsilon<float>())
+      voxel.light_direction = glm::normalize(sum);
+    else
+      voxel.light_direction = glm::vec3(0.0f, 1.0f, 0.0f);
+  });
 }
 
 void EnvironmentGrid::AddBiomass(const glm::vec3& position, const float value) {
@@ -160,5 +161,44 @@ void EnvironmentGrid::AddBiomass(const glm::vec3& position, const float value) {
 
 void EnvironmentGrid::AddNode(const InternodeVoxelRegistration& registration) {
   auto& data = voxel_grid.Ref(registration.position);
-  data.internode_voxel_registrations.emplace_back(registration);
+  data.AddNode(registration);
+}
+
+bool EnvironmentGrid::HasForeignNodeWithin(const glm::vec3& position, const float distance,
+                                           const unsigned tree_index) const {
+  if (distance <= 0.f || voxel_grid.GetVoxelCount() == 0)
+    return false;
+  const auto center = position - voxel_grid.GetMinBound();
+  const auto radius = glm::vec3(distance * 2.f);
+  const auto cell_size = glm::vec3(voxel_grid.GetVoxelSize());
+  const auto resolution = voxel_grid.GetResolution();
+  auto start = glm::max(glm::ivec3(0), glm::ivec3(glm::floor((center - radius) / cell_size)));
+  auto end = glm::min(resolution - glm::ivec3(1), glm::ivec3(glm::ceil((center + radius) / cell_size)));
+  // Round world bounds outward before using the same coordinate mapping as registrations.
+  const float infinity = std::numeric_limits<float>::infinity();
+  const auto reach = glm::vec3(std::nextafter(distance, infinity));
+  auto lower = position - reach;
+  auto upper = position + reach;
+  for (int axis = 0; axis < 3; ++axis) {
+    lower[axis] = std::nextafter(lower[axis], -infinity);
+    upper[axis] = std::nextafter(upper[axis], infinity);
+  }
+  start = glm::max(start, voxel_grid.GetCoordinate(lower));
+  end = glm::min(end, voxel_grid.GetCoordinate(upper));
+  for (int z = start.z; z <= end.z; ++z) {
+    for (int y = start.y; y <= end.y; ++y) {
+      auto index = voxel_grid.GetIndex(glm::ivec3(start.x, y, z));
+      for (int x = start.x; x <= end.x; ++x, ++index) {
+        const auto& cell = voxel_grid.Peek(index);
+        if (cell.tree_owner == tree_index)
+          continue;
+        for (const auto& registration : cell.internode_voxel_registrations) {
+          if (registration.tree_skeleton_index != tree_index &&
+              glm::distance(position, registration.position) < distance)
+            return true;
+        }
+      }
+    }
+  }
+  return false;
 }
