@@ -101,8 +101,10 @@ bool DynamicTreeSkeleton::InitializePhysics(Tree& tree, const GlobalTransform& m
     const float area_scale = thickness_ratio * thickness_ratio;
     rod.structural_length_scale = 0.5f * (structural_lengths[rod.start] + structural_lengths[rod.end]) * area_scale;
     rod_bend_scales[i] = std::pow(thickness_ratio, glm::max(0.0f, physics_settings.bend_thickness_exponent));
-    rod.mass = glm::max(
-        1e-6f, physics_density_ * 3.14159265f * reference_radius * reference_radius * rod.structural_length_scale);
+    const float volume_over_pi = physics_settings.use_local_rod_mass
+                                     ? rod.radius * rod.radius * rod.length
+                                     : reference_radius * reference_radius * rod.structural_length_scale;
+    rod.mass = glm::max(1e-6f, physics_density_ * 3.14159265f * volume_over_pi);
     physics_vertices_[rod.start].inverse_mass += 0.5f * rod.mass;
     physics_vertices_[rod.end].inverse_mass += 0.5f * rod.mass;
     physics_vertices_[rod.start].radius = glm::max(physics_vertices_[rod.start].radius, rod.radius);

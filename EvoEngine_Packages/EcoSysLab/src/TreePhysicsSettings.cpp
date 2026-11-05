@@ -27,8 +27,10 @@ void SerializeTreePhysicsProperties(YAML::Emitter& out, const TreePhysicsPropert
   out << YAML::Key << "bend_stiffness" << YAML::Value << p.bend_stiffness;
   out << YAML::Key << "bend_thickness_exponent" << YAML::Value << p.bend_thickness_exponent;
   out << YAML::Key << "bend_downstream_exponent" << YAML::Value << p.bend_downstream_exponent;
+  out << YAML::Key << "use_local_rod_mass" << YAML::Value << p.use_local_rod_mass;
   out << YAML::Key << "density" << YAML::Value << p.density;
   out << YAML::Key << "damping" << YAML::Value << p.damping;
+  out << YAML::Key << "cluster_bend_damping_time" << YAML::Value << p.cluster_bend_damping_time;
   out << YAML::Key << "wind_drag" << YAML::Value << p.wind_drag;
   out << YAML::Key << "contact_friction" << YAML::Value << p.contact_friction;
   out << YAML::Key << "gravity" << YAML::Value << p.gravity;
@@ -48,10 +50,14 @@ void DeserializeTreePhysicsProperties(const YAML::Node& in, TreePhysicsPropertie
     p.bend_thickness_exponent = in["bend_thickness_exponent"].as<float>();
   if (in["bend_downstream_exponent"])
     p.bend_downstream_exponent = in["bend_downstream_exponent"].as<float>();
+  if (in["use_local_rod_mass"])
+    p.use_local_rod_mass = in["use_local_rod_mass"].as<bool>();
   if (in["density"])
     p.density = in["density"].as<float>();
   if (in["damping"])
     p.damping = in["damping"].as<float>();
+  if (in["cluster_bend_damping_time"])
+    p.cluster_bend_damping_time = in["cluster_bend_damping_time"].as<float>();
   if (in["wind_drag"])
     p.wind_drag = in["wind_drag"].as<float>();
   if (in["contact_friction"])

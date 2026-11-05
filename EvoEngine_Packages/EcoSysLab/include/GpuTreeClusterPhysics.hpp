@@ -88,6 +88,7 @@ class GpuTreeClusterForest {
     TreeClusterLodSettings lod;
     uint32_t pose_revision = 0;
     float mass_scale = 1;
+    float bend_damping_time = 0;
     Scheduling scheduling = Scheduling::Automatic;
   };
   bool Initialize(const std::vector<std::shared_ptr<GpuTreeClusterPhysics>>& trees);

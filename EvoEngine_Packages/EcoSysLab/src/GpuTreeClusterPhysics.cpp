@@ -320,7 +320,7 @@ void GpuTreeClusterForest::Step(const std::vector<TreeStep>& steps, const GpuTre
                                static_cast<uint32_t>(trees_[i]->levels_.size()),
                                static_cast<uint32_t>(steps[i].scheduling)};
     records_[i].lod.rules = steps[i].lod.rules;
-    records_[i].lod.material = {std::max(steps[i].mass_scale, 1e-6f), 0, 0, 0};
+    records_[i].lod.material = {std::max(steps[i].mass_scale, 1e-6f), std::max(steps[i].bend_damping_time, 0.0f), 0, 0};
     substeps = std::max(substeps, records_[i].parameters.counts.w);
     active |= records_[i].parameters.counts.w != 0 || records_[i].addresses[8] != 0;
     dynamic_lod |= records_[i].addresses[8] != 0;

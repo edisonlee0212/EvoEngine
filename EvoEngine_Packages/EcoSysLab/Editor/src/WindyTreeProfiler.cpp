@@ -25,6 +25,69 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
     return;
   const auto scene = GetScene();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
+  if (std::getenv("EVOENGINE_REGROWTH_CHECK")) {
+    if (!system)
+      return;
+    static std::weak_ptr<Scene> last_scene;
+    static unsigned cycle = 0, idle = 0, wait = 0;
+    if (last_scene.lock() != scene) {
+      last_scene = scene;
+      cycle = idle = wait = 0;
+    }
+    constexpr unsigned watch_frames = 3600;
+    if (wait) {
+      if (--wait == 0) {
+        system->growth.Queue(4 * 365);
+        EVOENGINE_LOG("Queued four years after reset.")
+      }
+      return;
+    }
+    if (system->growth.remaining_time > 0 || system->growth.simulated_time < (cycle ? 4 : 5) * 365 ||
+        system->growth.grew_this_frame || !system->dynamics.cluster_forest)
+      return;
+    if (++idle == 1 && !system->dynamics.entries.empty()) {
+      const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+      editor->SetSceneCameraPosition({0, 13, 0});
+      editor->SetSceneCameraRotation(glm::quatLookAt(glm::vec3(0, -1, 0), glm::vec3(0, 0, -1)));
+      editor->SetSelectedEntity(system->dynamics.entries.front().entity);
+    }
+    if (idle % 60 == 0) {
+      std::filesystem::create_directories(directory);
+      if (idle == 60 || idle == watch_frames)
+        ApplicationContext::Get().GetLayer<EditorLayer>()->GetSceneCamera()->GetRenderTexture()->StoreToPng(
+            std::filesystem::path(directory) /
+            ("cycle-" + std::to_string(cycle) + "-" + std::to_string(idle) + ".png"));
+      std::ofstream log(std::filesystem::path(directory) / "regrowth.csv", std::ios::app);
+      for (const auto& entry : system->dynamics.entries) {
+        auto physics = entry.physics.lock();
+        std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> v;
+        physics->GetGpuPhysics()->DownloadVertices(v, entry.gpu_id);
+        const auto rest = physics->ExportGpuRestState();
+        float peak = 0;
+        unsigned bad = v.size() != rest.vertices.size();
+        for (size_t i = 0; i < std::min(v.size(), rest.vertices.size()); ++i) {
+          float d = glm::length(glm::vec3(v[i].position_inverse_mass - rest.vertices[i].position_inverse_mass));
+          if (!std::isfinite(d) || d > 10)
+            ++bad;
+          else
+            peak = std::max(peak, d);
+        }
+        log << cycle << ',' << idle << ',' << entry.gpu_id << ',' << v.size() << ',' << bad << ',' << peak << '\n';
+      }
+    }
+    if (idle == watch_frames && !cycle) {
+      const auto layer = ApplicationContext::Get().GetLayer<EcoSysLabLayer>();
+      layer->ResetAllTrees(scene->UnsafeGetPrivateComponentOwnersList<Tree>());
+      layer->ClearMeshes();
+      layer->ClearGroundFruitAndLeaf();
+      wait = 60;
+      ++cycle;
+      idle = 0;
+      EVOENGINE_LOG("Reset all trees.")
+    } else if (cycle && idle == watch_frames)
+      GetApplication().End();
+    return;
+  }
   const bool profile_growth = std::getenv("EVOENGINE_WINDY_TREE_GROWTH_PROFILE") != nullptr;
   static std::weak_ptr<Scene> growth_capture_scene, growth_ready_scene;
   if (system && profile_growth && growth_capture_scene.lock() != scene) {
@@ -170,6 +233,51 @@ void EcoSysLabEditorLayer::ProfileWindyTreeDemo() {
   if (capture.phase >= std::size(phases))
     return;
   const auto& phase = phases[capture.phase];
+  if (std::getenv("EVOENGINE_WIND_RESPONSE_PROFILE") && capture.frame % 8 == 0 && system->dynamics.wind &&
+      !capture.physics.empty()) {
+    // Read back one tree only in diagnostic runs. Its terminal rods are paired across frames by rod ID.
+    const auto physics = capture.physics.front().first;
+    const auto rest = physics->ExportGpuRestState();
+    std::vector<DynamicTreeSkeleton::GpuRestState::Vertex> vertices;
+    physics->GetGpuPhysics()->DownloadVertices(vertices, physics->GetGpuTreeIndex());
+    const auto& grid = system->dynamics.wind->GetAirGrid();
+    std::unordered_map<uint32_t, std::vector<glm::vec4>> chunks;
+    const auto path = std::filesystem::path(directory) / "wind-response.csv";
+    const bool first = capture.phase == 0 && capture.frame == 0;
+    std::ofstream output(path, first ? std::ios::trunc : std::ios::app);
+    if (first)
+      output << "phase,frame,rod,air_speed_m_s,tip_x_from_rest_m,tip_y_from_rest_m,tip_z_from_rest_m\n";
+    for (size_t i = 0; i < rest.rods.size(); i += 37) {
+      const auto links = rest.rods[i].links;
+      if (rest.vertices[links.y].incident_rods.y != 1)
+        continue;
+      const glm::vec3 tip(vertices[links.y].position_inverse_mass);
+      const glm::vec3 midpoint = 0.5f * (tip + glm::vec3(vertices[links.x].position_inverse_mass));
+      const glm::vec3 cell = midpoint / grid.GetCellSize() - 0.5f;
+      const glm::ivec3 base(glm::floor(cell));
+      const glm::vec3 fraction = glm::fract(cell);
+      glm::vec3 air{};
+      float total = 0;
+      for (int z = 0; z < 2; ++z)
+        for (int y = 0; y < 2; ++y)
+          for (int x = 0; x < 2; ++x) {
+            const uint32_t id = grid.Find({base.x + x, base.y + y, base.z + z});
+            if (id == UINT32_MAX)
+              continue;
+            const uint32_t chunk = id / GpuSpatialGrid::chunk_capacity;
+            auto& values = chunks[chunk];
+            if (values.empty())
+              grid.GetValueChunk(chunk)->DownloadVector(values, 2 * GpuSpatialGrid::chunk_capacity);
+            const float weight = (x ? fraction.x : 1 - fraction.x) * (y ? fraction.y : 1 - fraction.y) *
+                                 (z ? fraction.z : 1 - fraction.z);
+            air += weight * glm::vec3(values[2 * (id % GpuSpatialGrid::chunk_capacity)]);
+            total += weight;
+          }
+      const glm::vec3 delta = tip - glm::vec3(rest.vertices[links.y].position_inverse_mass);
+      output << phase.name << ',' << capture.frame << ',' << i << ',' << (total > 0 ? glm::length(air) / total : 0)
+             << ',' << delta.x << ',' << delta.y << ',' << delta.z << '\n';
+    }
+  }
   if (capture.frame == 0) {
     tree_visualization_settings_.enable = phase.plant_visual;
     for (const auto& entry : capture.branches)

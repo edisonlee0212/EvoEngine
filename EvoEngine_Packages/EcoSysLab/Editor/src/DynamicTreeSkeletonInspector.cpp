@@ -38,9 +38,11 @@ bool DynamicTreeSkeletonInspector::Inspect(InspectorContext&, DynamicTreeSkeleto
     changed |= ImGui::DragFloat("Bend stiffness", &physics.bend_stiffness, 1.0f, 0.0f, 100000.0f);
     changed |= ImGui::DragFloat("Bend thickness exponent", &physics.bend_thickness_exponent, 0.05f, 0.0f, 4.0f);
     changed |= ImGui::DragFloat("Bend downstream exponent", &physics.bend_downstream_exponent, 0.05f, 0.0f, 2.0f);
-    ImGui::TextDisabled("Scaling exponents apply on Reset GPU pose to growth or after regrowth.");
+    changed |= ImGui::Checkbox("Use local cylinder mass", &physics.use_local_rod_mass);
+    ImGui::TextDisabled("Mass model and scaling exponents apply after pose reset or regrowth.");
     changed |= ImGui::DragFloat("Wood density", &physics.density, 1.0f, 0.001f, 2000.0f);
     changed |= ImGui::DragFloat("Physics damping", &physics.damping, 0.001f, 0.0f, 10.0f);
+    changed |= ImGui::DragFloat("Cluster joint damping time (s)", &physics.cluster_bend_damping_time, 0.001f, 0, 1);
     changed |= ImGui::DragFloat("Wind drag", &physics.wind_drag, 0.1f, 0.0f, 100.0f);
     changed |= ImGui::DragFloat3("Gravity", &physics.gravity.x, 0.1f);
     changed |= ImGui::DragFloat3("Anchor offset", &physics.anchor_offset.x, 0.01f);

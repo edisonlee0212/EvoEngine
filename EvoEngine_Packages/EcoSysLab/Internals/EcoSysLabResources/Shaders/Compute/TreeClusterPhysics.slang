@@ -138,12 +138,6 @@ struct Solver {
     va-=dot(va,direction)*direction;vb-=dot(vb,direction)*direction;
     float drag=0.6*parameters.mechanics.y*air.w*rod.start_radius.w*rod.end_length.w;
     float3 fa=drag*length(va)*va,fb=drag*length(vb)*vb;
-#if CLUSTER_FOREST
-    if(buffers.values[8]!=0) {
-      float cap=25*lod.material.x*PhysicsRod(LoadTrees(0),0,rod.indices.x).length_scale_mass_radius.z;
-      fa*=min(1.0,cap/max(length(fa),1e-12));fb*=min(1.0,cap/max(length(fb),1e-12));
-    }
-#endif
     force=fa+fb;torque=cross(a,fa)+cross(b,fb);
   }
   void Loads(Body p,Motion m,out float3 force,out float3 torque) {
@@ -168,6 +162,8 @@ struct Solver {
 #endif
     return Stiffness(LodMultiply(parent.rotation,body.relative_rotation),k);
   }
+  // With C = damping_time * K, the implicit joint velocity term is (dt*dt*K + dt*C).
+  float JointVelocityFactor(float dt) { return dt*(dt+lod.material.y); }
   void Prepare(uint i,uint substep,float dt) {
     Body p=LoadBodies(i);Motion m=LoadMotions(i);Work w=(Work)0;
     if (p.links.w!=0) {
@@ -210,15 +206,17 @@ struct Solver {
     }
 #endif
     Motion parent=LoadMotions(p.links.z);
-    float3x3 k=JointSpring(p,parent),s=dt*dt*k;
+    float3x3 k=JointSpring(p,parent),s=JointVelocityFactor(dt)*k;
     float4 target=LodMultiply(parent.rotation,p.relative_rotation);
     float3 spring=dt*mul(k,RotationVector(LodMultiply(target,LodInverse(LoadMotions(i).rotation))));
+    float3 momentum=w.hw.xyz;
     w.hw.xyz+=spring;
-    float3x3 di=Inverse(D(w)+s),bb=B(w),bd=mul(bb,di);
+    float3x3 dd=D(w),di=Inverse(dd+s),bb=B(w),bd=mul(bb,di);
     StoreMatrix(w.d0,w.d1,w.d2,di);StoreWork(i,w);
     if (LoadBodies(p.links.z).links.w!=0) return;
-    float3x3 ga=A(w)-mul(bd,transpose(bb)),gb=mul(bd,s),gd=s-mul(s,mul(di,s));
-    float3 gv=w.hv.xyz-mul(bd,w.hw.xyz),gw=mul(s,mul(di,w.hw.xyz))-spring;
+    // Propagate the small inertia and spring reactions directly; subtraction loses them in stiff joints.
+    float3x3 ga=A(w)-mul(bd,transpose(bb)),gb=mul(bd,s),gd=mul(s,mul(di,dd));
+    float3 gv=w.hv.xyz-mul(bd,w.hw.xyz),gw=mul(s,mul(di,momentum))-mul(dd,mul(di,spring));
     float3x3 offset=-CrossMatrix(LodRotate(parent.rotation,p.parent_offset.xyz));
 #if CLUSTER_PASS == 3 || CLUSTER_PASS == 10
     Work result=(Work)0;
@@ -244,7 +242,7 @@ struct Solver {
     } else {
       Motion parent=LoadMotions(p.links.z);
       float3 v=parent.anchor_velocity.xyz+cross(parent.angular_velocity.xyz,LodRotate(parent.rotation,p.parent_offset.xyz));
-      float3 rhs=w.hw.xyz+dt*dt*mul(JointSpring(p,parent),parent.angular_velocity.xyz)-mul(transpose(B(w)),v);
+      float3 rhs=w.hw.xyz+JointVelocityFactor(dt)*mul(JointSpring(p,parent),parent.angular_velocity.xyz)-mul(transpose(B(w)),v);
       m.angular_velocity=float4(mul(D(w),rhs),0);
       m.anchor_velocity=float4(v,0);
     }

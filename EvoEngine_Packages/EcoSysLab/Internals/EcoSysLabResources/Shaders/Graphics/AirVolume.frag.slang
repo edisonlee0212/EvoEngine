@@ -40,10 +40,12 @@ float4 main(Input input) : SV_Target {
   if (near_distance >= far_distance) discard;
 
   float3 accumulated = 0;
+  const float max_opacity = 0.65;
+  float optical_depth = 0;
   float opacity = 0;
   float distance_along = near_distance;
   uint step_limit = min(1024u, uint(ceil(64.0 / parameters.cell_size)));
-  for (uint step = 0; step < step_limit && distance_along < far_distance && opacity < 0.97; ++step) {
+  for (uint step = 0; step < step_limit && distance_along < far_distance && opacity < max_opacity * 0.999; ++step) {
     float3 point = origin + direction * (distance_along + 1e-4);
     int3 cell = int3(floor(point / parameters.cell_size));
     float3 exit_position = (float3(cell) + select(direction >= 0, 1.0, 0.0)) * parameters.cell_size;
@@ -54,15 +56,18 @@ float4 main(Input input) : SV_Target {
     if (index != 0xffffffffu) {
       AirGridValue air = AirGridReadValue(addresses, index);
       float speed = length(air.velocity_temperature.xyz);
-      float alpha = 1.0 - exp(-max(speed * 0.09, parameters.lower.w) * (next_distance - distance_along));
+      optical_depth += max(speed * 0.09, parameters.lower.w) * (next_distance - distance_along);
+      // Zero-origin logistic: preserve weak-wind sensitivity and cap the entire ray, not each cell.
+      float transmission = exp(-2.0 * optical_depth / max_opacity);
+      float next_opacity = max_opacity * (1.0 - transmission) / (1.0 + transmission);
       float kelvin = air.velocity_temperature.w > 0.0 ? air.velocity_temperature.w : parameters.ambient_temperature;
       float temperature = clamp((kelvin - parameters.ambient_temperature) / 20.0, -1.0, 1.0);
       float3 neutral = float3(0.82, 0.84, 0.82);
       float3 color = temperature < 0.0 ? lerp(neutral, float3(0.12, 0.42, 1.0), -temperature)
                                        : lerp(neutral, float3(1.0, 0.38, 0.08), temperature);
       if (parameters.lower.w > 0.0 && speed < 0.05) color = float3(0.25, 0.85, 0.55);
-      accumulated += (1.0 - opacity) * alpha * color;
-      opacity += (1.0 - opacity) * alpha;
+      accumulated += (next_opacity - opacity) * color;
+      opacity = next_opacity;
     }
     distance_along = next_distance + 1e-4;
   }

@@ -57,6 +57,9 @@ def main():
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--analyze-only", action="store_true")
+    parser.add_argument("--wind-response", action="store_true", help="Sample air velocity and branch-tip motion (diagnostic readbacks affect timings)")
+    parser.add_argument("--verify-regrowth", action="store_true", help="Check all demo GPU trees before and after reset and four years of regrowth")
+    parser.add_argument("--wind-speed-scale", type=float, default=1.0, help="Scale both ends of the blower gust speed range")
     parser.add_argument("--growth", action="store_true", help="Capture CPU growth frames and final skeleton geometry")
     parser.add_argument("--canopy-texels", type=float, default=16, help="Maximum projected canopy diameter in shadow texels; zero disables")
     parser.add_argument("--impostor-pixels", type=float, default=3.0, help="Camera branch impostor diameter threshold; zero disables")
@@ -75,6 +78,8 @@ def main():
     parser.add_argument("--cluster-order", type=int, help="Enable subtree physics LOD at this minimum branch order")
     parser.add_argument("--validate-cluster-switches", action="store_true", help="Exercise live coarse/fine switches during warmup")
     args = parser.parse_args()
+    if not 0 <= args.wind_speed_scale <= 100:
+        parser.error("--wind-speed-scale must be between 0 and 100")
     if args.cluster_order is not None and not 0 <= args.cluster_order <= 64:
         parser.error("--cluster-order must be between 0 and 64")
     if not 0 <= args.physics_tolerance <= 2:
@@ -93,7 +98,15 @@ def main():
             parser.error("Choose a fresh output directory to avoid mixing captures")
         directory.mkdir(parents=True, exist_ok=True)
         editor = args.editor.resolve(strict=True)
+        (directory / "wind-speed-scale.txt").write_text(f"{args.wind_speed_scale:g}\n", encoding="utf-8")
         environment = os.environ.copy()
+        environment["EVOENGINE_WINDY_TREE_PROFILE_SPEED_SCALE"] = str(args.wind_speed_scale)
+        environment.pop("EVOENGINE_REGROWTH_CHECK", None)
+        if args.verify_regrowth:
+            environment["EVOENGINE_REGROWTH_CHECK"] = "1"
+        environment.pop("EVOENGINE_WIND_RESPONSE_PROFILE", None)
+        if args.wind_response:
+            environment["EVOENGINE_WIND_RESPONSE_PROFILE"] = "1"
         environment.pop("EVOENGINE_WINDY_TREE_GROWTH_PROFILE", None)
         if args.growth:
             environment["EVOENGINE_WINDY_TREE_GROWTH_PROFILE"] = "1"
@@ -133,6 +146,16 @@ def main():
         with (directory / "editor.log").open("w", encoding="utf-8") as log:
             subprocess.run([str(editor), "--demo", "windy-tree"], cwd=editor.parent, env=environment,
                            stdout=log, stderr=subprocess.STDOUT, timeout=1800, check=True)
+        if args.verify_regrowth:
+            with (directory / "regrowth.csv").open() as stream:
+                rows = [line.strip().split(",") for line in stream]
+            expected = {(cycle, frame, tree) for cycle in (0, 1) for frame in range(60, 3601, 60)
+                        for tree in range(16)}
+            actual = {(int(c), int(f), int(t)) for c, f, t, _, _, _ in rows}
+            if actual != expected or any(int(count) < 2 or int(invalid) for _, _, _, count, invalid, _ in rows):
+                raise RuntimeError(f"Missing or invalid tree poses in {directory / 'regrowth.csv'}")
+            print(f"All 16 trees retained valid poses across reset and regrowth. Captures: {directory}")
+            return
         with (directory / "configuration.txt").open("a", encoding="utf-8") as configuration:
             configuration.write(f"geometry_reference={int(args.geometry_reference)}\ngeometry_details={int(args.geometry_details)}\n")
             configuration.write(f"shadow_reference={int(args.shadow_reference)}\nshadow_details={int(args.shadow_details)}\n")

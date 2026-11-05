@@ -21,8 +21,10 @@ struct TreePhysicsProperties {
   float bend_stiffness = 512.0f;
   float bend_thickness_exponent = 3.5f;
   float bend_downstream_exponent = 1.5f;
+  bool use_local_rod_mass = false;
   float density = 700.0f;
   float damping = 0.0f;
+  float cluster_bend_damping_time = 0.0f;
   float wind_drag = 20.0f;
   float contact_friction = 0.6f;
   glm::vec3 gravity{0, -9.8f, 0};
@@ -31,13 +33,13 @@ struct TreePhysicsProperties {
   float fracture_angle_degrees = 45.0f;
   float fracture_duration = 0.05f;
   bool operator==(const TreePhysicsProperties& other) const {
-    return std::tie(stretch_stiffness, bend_stiffness, bend_thickness_exponent, bend_downstream_exponent, density,
-                    damping, wind_drag, contact_friction, gravity, anchor_offset, fracture_enabled,
-                    fracture_angle_degrees, fracture_duration) ==
+    return std::tie(stretch_stiffness, bend_stiffness, bend_thickness_exponent, bend_downstream_exponent,
+                    use_local_rod_mass, density, damping, cluster_bend_damping_time, wind_drag, contact_friction,
+                    gravity, anchor_offset, fracture_enabled, fracture_angle_degrees, fracture_duration) ==
            std::tie(other.stretch_stiffness, other.bend_stiffness, other.bend_thickness_exponent,
-                    other.bend_downstream_exponent, other.density, other.damping, other.wind_drag,
-                    other.contact_friction, other.gravity, other.anchor_offset, other.fracture_enabled,
-                    other.fracture_angle_degrees, other.fracture_duration);
+                    other.bend_downstream_exponent, other.use_local_rod_mass, other.density, other.damping,
+                    other.cluster_bend_damping_time, other.wind_drag, other.contact_friction, other.gravity,
+                    other.anchor_offset, other.fracture_enabled, other.fracture_angle_degrees, other.fracture_duration);
   }
 };
 struct TreePhysicsQuality {

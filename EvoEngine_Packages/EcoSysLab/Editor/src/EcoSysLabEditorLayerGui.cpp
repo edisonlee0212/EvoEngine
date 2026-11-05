@@ -100,6 +100,22 @@ void EcoSysLabEditorLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_la
       }
       if (ImGui::BeginTabItem("Wind & air")) {
         ImGui::Checkbox("Show wind particles", &runtime->visualize_wind_particles);
+        if (runtime->visualize_wind_particles) {
+          int mode = runtime->visualize_wind_trails ? 0 : 1;
+          if (ImGui::Combo("Particle display", &mode, "Trails\0Dots\0"))
+            runtime->visualize_wind_trails = mode == 0;
+          if (runtime->visualize_wind_trails) {
+            auto& trails = runtime->wind_trail_settings;
+            ImGui::SliderInt("Trail budget", &trails.budget, 1, WindTrailRenderer::capacity);
+            ImGui::SliderInt("One trail per N emissions", &trails.emission_stride, 1, 4096);
+            ImGui::SliderFloat("Trail history (s)", &trails.duration, 0.02f, 5.0f);
+            ImGui::SliderFloat("Trail length (m)", &trails.max_length, 0.01f, 20.0f);
+            ImGui::SliderFloat("Trail sample interval (s)", &trails.sample_interval, 0.0f, 0.1f, "%.3f");
+            ImGui::SliderFloat("Trail width (pixels)", &trails.width, 0.5f, 64.0f);
+            ImGui::SliderFloat("Trail opacity", &trails.opacity, 0.0f, 1.0f);
+            ImGui::TextDisabled("Up to 32 samples per trail. Retired trails drain before their slots are reused.");
+          }
+        }
         ImGui::Checkbox("Show air volume", &runtime->visualize_air_grid);
         if (runtime->visualize_air_grid) {
           ImGui::TextDisabled("Blue = cool, orange = warm; opacity = wind speed");

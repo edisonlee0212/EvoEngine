@@ -10,6 +10,7 @@
 #include "Soil.hpp"
 #include "Strands.hpp"
 #include "Tree.hpp"
+#include "WindTrailRenderer.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -23,6 +24,8 @@ class EcoSysLabLayer : public ILayer {
  public:
   EcoSysLabLayer();
   bool visualize_wind_particles = true;
+  bool visualize_wind_trails = true;
+  WindTrailSettings wind_trail_settings;
   bool visualize_air_grid = false;
   bool visualize_air_coverage = false;
   std::vector<glm::vec4> soil_layer_colors;

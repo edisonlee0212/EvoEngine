@@ -74,6 +74,7 @@ bool EcoSysLabSystem::Dynamics::StepClusters(const std::shared_ptr<Scene>& scene
     step.settings.gravity = p.gravity;
     step.settings.damping = p.damping;
     step.settings.wind_drag = p.wind_drag;
+    step.bend_damping_time = p.cluster_bend_damping_time;
     step.settings.angular_stiffness = step.settings.base_angular_stiffness = glm::vec3(p.bend_stiffness);
     step.model = scene->GetDataComponent<GlobalTransform>(entry.entity);
     auto& state = *tree_physics->GetTreeState(entry.gpu_id);

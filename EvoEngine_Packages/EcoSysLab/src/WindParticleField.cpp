@@ -125,6 +125,10 @@ bool WindParticleField::Prepare() {
   rod_air_pipeline_ = rod_pipeline("RodAir.slang", sizeof(RodAirParameters));
   rod_air_scatter_pipeline_ = rod_pipeline("RodAirScatter.slang", sizeof(RodAirParameters));
 
+  trails_ = std::make_shared<WindTrailRenderer>();
+  if (!trails_->Prepare(particles_, capacity))
+    return false;
+
   const auto graphics_shader = [](ShaderType type, const char* path) {
     return Shader::CreateTemporary(type, Platform::GetShaderGlobalDefines(),
                                    std::filesystem::path("./EcoSysLabResources/Shaders/Graphics") / path);
@@ -348,6 +352,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
     rod_air_scatter_pipeline_.reset();
     retired_air_sets_.clear();
     emission_states_.clear();
+    trails_.reset();
     emitted_ = 0;
     scene_ = scene;
   }
@@ -393,6 +398,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
       Platform::EverythingBarrier(command_buffer);
     });
   }
+  trails_->Advance(dt, static_cast<uint32_t>(emitted_));
   if (owners)
     for (const auto entity : *owners) {
       if (!scene->IsEntityEnabled(entity))
@@ -427,6 +433,7 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
         emit_pipeline_->Dispatch(command_buffer, (count + 63) / 64, 1, 1);
         Platform::EverythingBarrier(command_buffer);
       });
+      trails_->Emit(static_cast<uint32_t>(emitted_), count);
       emitted_ += count;
     }
   const auto build_particle_grid = [&] {
@@ -587,7 +594,11 @@ void WindParticleField::Step(const std::shared_ptr<Scene>& scene, const float ti
 }
 
 void WindParticleField::RegisterRender(const bool particles_visible, const bool grid_visible,
-                                       const bool coverage_visible) {
+                                       const bool coverage_visible, const bool trails_visible,
+                                       const WindTrailSettings& trail_settings) {
+  trails_visible_ = trails_visible;
+  if (trails_)
+    trails_->settings = trail_settings;
   if ((!particles_visible || !emitted_) && (!grid_visible || !air_grid_.GetCellCount()))
     return;
   if (!render_pipeline_ || !render_pipeline_->Initialized() || !grid_render_pipeline_ ||
@@ -637,7 +648,9 @@ uint32_t WindParticleField::Draw(VkCommandBuffer command_buffer, const std::shar
   rendering.pDepthAttachment = &depth;
   Platform::BeginRendering(command_buffer, rendering);
   uint32_t primitives = 0;
-  if (emitted_) {
+  if (emitted_ && trails_visible_ && trails_) {
+    primitives += trails_->Draw(command_buffer, viewport, camera_index);
+  } else if (emitted_) {
     render_pipeline_->states.ResetAllStates(1);
     render_pipeline_->states.SetViewportScissor(viewport);
     render_pipeline_->states.cull_mode = VK_CULL_MODE_NONE;

@@ -10,6 +10,7 @@
 #include "GpuSpatialGrid.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Scene.hpp"
+#include "WindTrailRenderer.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -25,7 +26,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   }
 
   void Step(const std::shared_ptr<Scene>& scene, float time_step, const std::shared_ptr<GpuTreePhysics>& physics);
-  void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible);
+  void RegisterRender(bool particles_visible, bool grid_visible, bool coverage_visible, bool trails_visible = true,
+                      const WindTrailSettings& trail_settings = {});
   void RegisterTreeCoverage(const std::vector<DynamicTreeSkeleton::GpuRestState>& trees,
                             const std::vector<uint32_t>& ids = {});
   struct TreeCoverage {
@@ -47,6 +49,9 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   }
   [[nodiscard]] uint32_t GetAirCellCount() const {
     return air_grid_.GetCellCount();
+  }
+  [[nodiscard]] const GpuSpatialGrid& GetAirGrid() const {
+    return air_grid_;
   }
   [[nodiscard]] float GetAirCellSize() const {
     return air_grid_.GetCellSize();
@@ -155,6 +160,8 @@ class WindParticleField : public std::enable_shared_from_this<WindParticleField>
   uint32_t DrawVolume(VkCommandBuffer command_buffer, const std::shared_ptr<Camera>& camera, const glm::ivec4& viewport,
                       uint32_t camera_index, bool coverage_visible);
 
+  std::shared_ptr<WindTrailRenderer> trails_;
+  bool trails_visible_ = true;
   std::weak_ptr<Scene> scene_;
   std::shared_ptr<Buffer> particles_;
   std::shared_ptr<Buffer> grid_heads_;
