@@ -1,5 +1,7 @@
 #include "EcoSysLabLayer.hpp"
 
+#include <cstdlib>
+
 #include "AssetManager.hpp"
 #include "BasicBarkDescriptor.hpp"
 #include "BasicFoliageDescriptor.hpp"
@@ -42,6 +44,7 @@ struct WindyTreeDemoSettings {
   uint32_t tree_seed = 42;
   float acacia_growth_years = 8.0f;
   float spruce_growth_years = 5.0f;
+  float spruce_wood_density = 900.0f;  // Fresh wood, kg/m³.
   float growth_step_days = 3.0f;
   float shoot_growth_rate = 0.2f;
   glm::vec2 leaf_size{0.03f, 0.06f};
@@ -57,11 +60,11 @@ struct WindyTreeDemoSettings {
   glm::vec3 ambient_color{0.65f, 0.72f, 0.8f};
   glm::vec3 blower_position{-5.0f, 2.5f, 0.0f};
   glm::vec3 blower_size{8.0f, 6.0f, 1.0f};
-  float wind_speed = 100.0f;
-  float wind_speed_max = 500.0f;
-  float wind_noise_frequency = 10.0f;
+  float wind_speed = 24.0f;
+  float wind_speed_max = 60.0f;
+  float wind_noise_frequency = 1.0f;
   float wind_particle_rate = 60000.0f;
-  float wind_strength = 100.0f;
+  float wind_strength = 2.0f;
   float wind_particle_radius = 0.25f;
   float air_cell_size = 0.1f;
   bool show_wind_particles = false;
@@ -124,6 +127,7 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   soil->texture_resolution = {64, 64};
   soil->height_field = AssetManager::CreateTemporaryAsset<HeightField>();
   system->environment.soil_descriptor = soil;
+  system->dynamics.use_subtree_clusters = spruce;
   system->environment.air_cell_size = settings.air_cell_size;
   system->environment.initialized = false;
   system->growth.settings.delta_time = settings.growth_step_days;
@@ -145,8 +149,17 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   shoot->straight_trunk = 0.0f;
   shoot->phototropism = spruce ? 0.02f : 0.05f;
   shoot->horizontal_tropism = spruce ? 0.01f : 0.1f;
-  if (spruce)
+  if (spruce) {
+    auto& physics = descriptor->physics_properties;
+    physics.density = settings.spruce_wood_density;
+    physics.use_local_rod_mass = true;
+    physics.bend_downstream_exponent = 0.0f;
+    physics.bend_stiffness = 32.0f;
+    physics.wind_drag = 1.0f;
+    physics.damping = 1.0f;
+    physics.cluster_bend_damping_time = 0.04f;
     shoot->gravity_bending_strength = 5.0f;
+  }
   shoot->internode_length = spruce ? 0.03f : 0.045f;
   shoot->internode_length_thickness_factor = spruce ? 0.2f : 0.25f;
   shoot->end_node_thickness = 0.002f;
@@ -232,6 +245,11 @@ std::vector<Entity> BuildWindyTreeScene(const std::shared_ptr<Scene>& scene) {
   blower->speed = settings.wind_speed;
   blower->speed_noise = true;
   blower->speed_max = settings.wind_speed_max;
+  if (const auto scale = std::getenv("EVOENGINE_WINDY_TREE_PROFILE_SPEED_SCALE")) {
+    const float multiplier = std::max(0.0f, std::strtof(scale, nullptr));
+    blower->speed *= multiplier;
+    blower->speed_max *= multiplier;
+  }
   blower->speed_noise_frequency = settings.wind_noise_frequency;
   blower->particle_rate = settings.wind_particle_rate;
   blower->wind_strength = settings.wind_strength;
@@ -305,7 +323,8 @@ void EcoSysLabDemoBootstrap::Update(EcoSysLabLayer& layer) {
     }
     if (windy_tree_) {
       demo_tree_entities_ = BuildWindyTreeScene(scene);
-      layer.visualize_wind_particles = windy_tree_settings.show_wind_particles;
+      layer.visualize_wind_particles =
+          windy_tree_settings.show_wind_particles || std::getenv("EVOENGINE_WIND_TRAILS_PREVIEW") != nullptr;
       demo_tree_initialized_ = true;
       return;
     }

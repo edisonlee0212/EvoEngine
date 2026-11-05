@@ -49,8 +49,10 @@ bool eco_sys_lab_package::InspectTreeDescriptor(InspectorContext& context, TreeD
     changed |= ImGui::DragFloat("Bend stiffness", &p.bend_stiffness, 1, 0, 100000);
     changed |= ImGui::DragFloat("Bend thickness exponent", &p.bend_thickness_exponent, 0.05f, 0.0f, 4.0f);
     changed |= ImGui::DragFloat("Bend downstream exponent", &p.bend_downstream_exponent, 0.05f, 0.0f, 2.0f);
+    changed |= ImGui::Checkbox("Use local cylinder mass", &p.use_local_rod_mass);
     changed |= ImGui::DragFloat("Wood density", &p.density, 1, 0.001f, 2000);
     changed |= ImGui::DragFloat("Damping", &p.damping, 0.001f, 0, 10);
+    changed |= ImGui::DragFloat("Cluster joint damping time (s)", &p.cluster_bend_damping_time, 0.001f, 0, 1);
     changed |= ImGui::DragFloat("Wind drag", &p.wind_drag, 0.1f, 0, 100);
     ImGui::TextDisabled("Copied into new trees; existing trees retain their own properties.");
   }

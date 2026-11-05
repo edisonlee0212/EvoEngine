@@ -71,6 +71,7 @@ branch, foliage, and shadow draws.
 The launcher also offers **Windy Tree** (`EvoEngineEditor --demo windy-tree --editor`). It creates an empty generated
 project and enters Play automatically. `WindyTreeDemoSettings` in `src/EcoSysLabLayerDemo.cpp` controls the script-built
 16 Spruce trees in a 4×4 grid, ground, materials, lighting, air grid, and Blower without relying on `Default.evescene` or tree assets.
+The spruce descriptor uses a fresh wood density of 900 kg/m³, rounded from a [field measurement of 906 kg/m³ for spruce logs](https://crojfe.com/archive/volume-43-no.1/field-setup-and-assessment-of-a-cloud-data-based-crane-scale-ccs-considering-weight-and-local-green-wood-density-related-volume/).
 `WindyTreeDemoSettings::TreePreset` can switch between the script-defined Spruce and Acacia presets. The Spruce growth
 parameters match the project's Spruce descriptor, while the demo supplies its own materials and smaller foliage cards
 to keep branches visible (Spruce cards are 0.0075 × 0.03 m). Windy Tree appears immediately after Subsurface Scattering in the launcher, with its own demo capture. The scripted scene uses sky-colored environment fill and sunlight so foliage remains readable in shadow.
@@ -81,7 +82,20 @@ the generated project's empty starting scene.
 
 The **EcoSysLab** panel groups scene-wide controls into Growth, Environment, Wind & air, Visualization, Geometry, and
 Strands (advanced) tabs. Growth shows the tree count and simulated time. **Grow** adds the requested years to a runtime queue; each Play frame advances one configured growth step, including a shorter final step. **Stop growth** clears the queue, and Pause retains it. Environment selects the scene climate and soil descriptors, ambient air settings, and soil geometry controls. Wind & air contains the air-volume
-display and grid reset. **Show tree overlay** controls the editor's tree visualization; it does not hide procedural
+display and grid reset. **Show wind particles** defaults to **Trails**, with **Dots** available in the particle-display
+selector. Trails appear as soft, pale smoke wisps with feathered ends, widening tails and coherent procedural density
+noise; this is a visualization of particle history, not an additional smoke simulation. The default width is 12 pixels
+and opacity is 0.3. Trails retain a deterministic subset of emitted particles in preallocated GPU history: at most 2,048 trails
+and 32 samples per trail. Controls set the admission budget, emission stride, history duration (default 0.2 s),
+world-space length (default 2 m), sampling interval, pixel width and opacity. Duration, distance and sample count all
+limit the visible history. Dead or overwritten particles stop recording; the tail advances along the saved path until
+it clears, without connecting to a newly emitted particle. Occupied trail slots skip admission until fully drained.
+For scripted Windy Tree captures, set `EVOENGINE_WIND_TRAILS_PREVIEW=1` to enable trails without interacting with the UI.
+History advances only with wind simulation, freezes when paused, and resets with the scene. Changing the air grid does
+not clear trails. These controls affect visualization only.
+
+Wind-volume opacity uses a zero-origin sigmoid of accumulated optical depth, capped at
+65% opacity (at least 35% transparency) even when strong wind overlaps along the view. Temperature still controls color. **Show tree overlay** controls the editor's tree visualization; it does not hide procedural
 BranchRenderer or FoliageRenderer draws. Select a tree entity to edit its own components in the inspector.
 On mesh-shader devices, the selected tree's shoot and root overlays use the procedural branch surface with debug
 colors. Live shoots follow the current GPU physics pose; historical checkpoints show their saved poses, and roots
@@ -229,6 +243,9 @@ reinitializes GPU physics from the growth pose.
 GPU branches sample the local air-cell velocity through the component's **Wind drag** setting. Air cells retain
 momentum briefly after the emitting particles move away; growing trees receive no wind force.
 The initial wind drag value is 20 and can be adjusted per tree.
+The forest cluster solver applies drag at each rod endpoint in proportion to squared relative crosswind speed.
+The resulting force and torque have no mass-based ceiling. To compare gusts, use the Windy Tree profiler's
+`--wind-speed-scale 2` option to double both blower speed bounds.
 The renderer caches packed growth nodes and uploads them only when they change. GPU physics deforms a separate draw
 buffer using the cached rest nodes; there is no CPU readback of the bent pose.
 
@@ -566,9 +583,13 @@ Growth light intensity retains its dependent top-to-bottom passes. Once intensit
 
 Plant Visual organ packing composes local transforms by scaling the rotation basis and assigning translation directly, avoiding full translation/rotation/scale matrix products. World transforms, organ scale factors, visibility, ordering and colors are unchanged.
 
-Bending uses per-tree `bend_thickness_exponent` and `bend_downstream_exponent` properties, available in DynamicTreeSkeleton and TreeDescriptor inspectors. Defaults are 3.5 and 1.5 (previous hardcoded values: 4 and 1.8); older serialized properties without these fields adopt the new defaults. The coefficient remains `4 * downstream_length^exponent * min(thickness_ratio^exponent)`, with thickness normalized by 0.05 m. Mass, stretch scaling and bend stiffness are unchanged. These rest-data settings apply on **Reset GPU pose to growth**, loading, or physics initialization after regrowth; changing them does not alter an already-running pose. Both rod and subtree-cluster solvers consume the resulting coefficients.
+Bending uses per-tree `bend_thickness_exponent` and `bend_downstream_exponent` properties, available in DynamicTreeSkeleton and TreeDescriptor inspectors. Defaults are 3.5 and 1.5 (previous hardcoded values: 4 and 1.8); older serialized properties without these fields adopt the new defaults. The coefficient remains `4 * downstream_length^exponent * min(thickness_ratio^exponent)`, with thickness normalized by 0.05 m. Trees use downstream-scaled mass by default. Descriptors and individual trees can select **Use local cylinder mass** for inertia while retaining their independent stiffness settings. These rest-data settings apply on **Reset GPU pose to growth**, loading, or physics initialization after regrowth; changing them does not alter an already-running pose. Both rod and subtree-cluster solvers consume the resulting coefficients.
 
-The scripted Windy Tree demo uses Perlin-varying wind bounded between 100 and 500 m/s, emitting 60,000 particles/s at wind strength 100. Noise frequency is 10 units per simulated second. It still enables the blower only after growth finishes. These values are adjustable in `WindyTreeDemoSettings` in `EcoSysLabLayerDemo.cpp`.
+The scripted Windy Tree spruce demo uses the branch-order cluster solver and local cylinder masses (wood density × π × radius² × length). Its bend stiffness is 32, thickness exponent 3.5, downstream exponent 0, damping 1, joint damping time 0.04 s, and branch drag 1. Joint damping resists relative rotation between adjacent cluster bodies in proportion to their bend stiffness; other descriptors default to zero joint damping. The blower emits 60,000 particles/s at strength 2 with Perlin-varying speed bounded between 24 and 60 m/s and noise frequency 1. The grid integrates the emitted wind, so air speed at a branch depends on its location and recent gusts. It still enables the blower only after growth finishes. These values are adjustable in `WindyTreeDemoSettings` in `EcoSysLabLayerDemo.cpp`.
+
+Use `--verify-regrowth` with `Scripts/profile_windy_tree.py` for a lifecycle check. It samples all 16 GPU trees for 3,600 frames after five-year growth, selects a tree, resets the forest, waits 60 frames, and queues four years of regrowth. It repeats the pose checks and saves overhead views before and after reset.
+
+Use `--wind-response` with `Scripts/profile_windy_tree.py` to record interpolated grid speeds at sampled terminal rods and their tip displacements from rest in `wind-response.csv`. The diagnostic reads GPU data back to the CPU, so use a separate run for frame timings.
 
 Blower Perlin speed variation is optional and saved with its minimum/maximum speed and frequency. The seeded noise clock advances only during enabled emission updates, pauses with simulation, and resets with the wind field/scene. Existing blowers retain constant speed. The particle pool holds 262,144 entries (enough for one 60,000/s blower with the existing three-second lifetime); per-update emission is bounded by pool capacity rather than 2,048. Strength supports 0–100.
 

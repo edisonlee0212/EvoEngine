@@ -218,7 +218,8 @@ void EcoSysLabLayer::Update() {
   }
   if (system->dynamics.wind) {
     const ProfilerScope scope("EcoSysLab / Register wind rendering", "EcoSysLab");
-    system->dynamics.wind->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage);
+    system->dynamics.wind->RegisterRender(visualize_wind_particles, visualize_air_grid, visualize_air_coverage,
+                                          visualize_wind_trails, wind_trail_settings);
   }
   if (Platform::MeshShaderEnabled()) {
     if (!gpu_tree_mesh_renderer_)

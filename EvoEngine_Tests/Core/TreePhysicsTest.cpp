@@ -148,6 +148,22 @@ TEST(TreePhysics, GpuRestStatePreservesForkTopologyAndDownstreamScaling) {
     EXPECT_GT(angle.bend_scale.x, 0.0f);
 }
 
+TEST(TreePhysics, LocalCylinderMassUsesEachRodsGeometry) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope scope(application);
+  Tree tree;
+  tree.shoot_model.Initialize(MakeFork());
+  DynamicTreeSkeleton physics;
+  physics.physics_settings.use_local_rod_mass = true;
+  ASSERT_TRUE(physics.InitializePhysics(tree));
+  const auto state = physics.ExportGpuRestState();
+  ASSERT_FALSE(state.rods.empty());
+  for (const auto& rod : state.rods) {
+    const auto& data = rod.length_scale_mass_radius;
+    EXPECT_FLOAT_EQ(data.z, state.density * glm::pi<float>() * (data.w * data.w * data.x));
+  }
+}
+
 TEST(TreePhysics, ZeroLengthShootNodeHasNoRodButItsChildDoes) {
   evo_engine::Application application;
   evo_engine::ApplicationContextScope scope(application);

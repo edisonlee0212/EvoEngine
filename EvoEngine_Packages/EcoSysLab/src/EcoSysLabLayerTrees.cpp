@@ -365,6 +365,7 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto system = scene->GetSystem<EcoSysLabSystem>();
   if (system) {
+    system->dynamics.Reset();
     system->growth.Stop();
     system->growth.simulated_time = 0.0f;
     system->growth.stats = {};
@@ -379,7 +380,6 @@ void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
     }
   }
   if (system) {
-    system->dynamics.wind.reset();
     ++system->interactions.revision;
   }
 }
