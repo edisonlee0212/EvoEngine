@@ -4,7 +4,17 @@
 
 ## Integrator modes
 
-**Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
+ReSTIR is an optional build feature. Configure with `-DEVOENGINE_ENABLE_RESTIR=ON` to enable it.
+The option defaults to `OFF`, which excludes ReSTIR shader algorithms and skips their pipeline preparation,
+including optional background prewarming. Both builds expose Rasterization, RayTracing, and RayQuery camera modes.
+In an OFF build, both ray modes use ordinary path tracing and the integrator selector offers Path Tracing only.
+
+A saved ReSTIR selection falls back to ordinary path tracing in an OFF build. The inspector shows the fallback,
+and saving preserves the original selection for an ON build. Use **Use Path Tracing in saved scene** to replace it
+explicitly. ReSTIR preview captures require an ON build so validation cannot silently capture the fallback.
+Ordinary subsurface scattering and NRD denoising remain available through their usual settings.
+
+In an ON build, **Ray Integrator** selects Path Tracing or ReSTIR PT Candidate Only, Spatial Only, Temporal Only, or Enhanced.
 ReSTIR runs through inline RayQuery. Candidate Only generates a path reservoir; Spatial Only adds same-frame reuse;
 Temporal Only reprojects previous-frame reservoirs; Enhanced combines temporal and spatial reuse. These reuse modes
 remain experimental and have not established a broad equal-GPU-time quality advantage over ordinary PT.

@@ -165,6 +165,27 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(Camera::NormalizeRayIntegrator(99u), CameraSettings::RayIntegrator::PathTracing);
 }
 
+TEST(CameraRenderTechnique, BuildCapabilityResolvesSavedIntegratorsWithoutChangingThem) {
+  EXPECT_EQ(Camera::GetCameraRenderModeNames().size(), 3u);
+#ifdef EVOENGINE_ENABLE_RESTIR
+  EXPECT_TRUE(Camera::RestirAvailable());
+#else
+  EXPECT_FALSE(Camera::RestirAvailable());
+#endif
+  EXPECT_EQ(Camera::GetAvailableRayIntegratorNames().size(),
+            Camera::RestirAvailable() ? Camera::kRayIntegratorCount : 1u);
+  for (uint32_t i = 0; i < Camera::kRayIntegratorCount; ++i) {
+    CameraSettings settings;
+    settings.ray_integrator = static_cast<CameraSettings::RayIntegrator>(i);
+    const auto effective = Camera::ResolveRayIntegrator(settings.ray_integrator);
+    EXPECT_EQ(effective,
+              Camera::RestirAvailable() ? settings.ray_integrator : CameraSettings::RayIntegrator::PathTracing);
+    EXPECT_EQ(static_cast<uint32_t>(settings.ray_integrator), i);
+    EXPECT_EQ(Camera::ParseRayIntegrator(Camera::GetRayIntegratorName(settings.ray_integrator)),
+              settings.ray_integrator);
+  }
+}
+
 TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
   EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Albedo), 0u);
   EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Normal), 1u);
@@ -201,14 +222,16 @@ TEST(CameraRenderTechnique, RestirPtReservoirUsesStableByteAddressedLayout) {
   EXPECT_EQ(RestirPtPathReservoir{}.version, 1u);
   EXPECT_EQ(RestirPtPathReservoir{}.instance_id, RestirPtPathReservoir::kInvalidInstance);
 
-  const auto shader =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/RestirPt.slang"));
+  const auto shader = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/CameraRaySamples.slang"));
   EXPECT_NE(shader.find("EE_RESTIR_PT_RESERVOIR_VERSION = 1u"), std::string::npos);
   EXPECT_NE(shader.find("EE_RESTIR_PT_RESERVOIR_BYTES = 128u"), std::string::npos);
   EXPECT_NE(shader.find("EE_RESTIR_PT_RESOLVED_BYTES = 16u"), std::string::npos);
   EXPECT_NE(shader.find("EE_RESTIR_PT_PRIMARY_SURFACE_BYTES = 48u"), std::string::npos);
   EXPECT_NE(shader.find("EE_RESTIR_PT_SPATIAL_SHIFT_BYTES = 32u"), std::string::npos);
-  EXPECT_NE(shader.find("buffer.Store4(base + 112u"), std::string::npos);
+  const auto storage =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/RestirPt.slang"));
+  EXPECT_NE(storage.find("buffer.Store4(base + 112u"), std::string::npos);
 }
 
 TEST(CameraRenderTechnique, RigidInstanceComparisonRejectsMaterialChanges) {
@@ -378,6 +401,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
                                  Camera::CameraRenderMode::RayQuery}) {
     Camera camera;
     camera.camera_render_mode = render_mode;
+    camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.pt_display_firefly_strength = 0.75f;
@@ -438,6 +462,10 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_specular_prepass_radius, 12.0f);
     EXPECT_EQ(restored.camera_settings.nrd_relax_diffuse_history_frames, 16);
     EXPECT_EQ(restored.camera_settings.nrd_relax_specular_history_frames, 24);
+    EXPECT_EQ(restored.camera_settings.ray_integrator, CameraSettings::RayIntegrator::RestirPtEnhanced);
+    EXPECT_EQ(Camera::ResolveRayIntegrator(restored.camera_settings.ray_integrator),
+              Camera::RestirAvailable() ? CameraSettings::RayIntegrator::RestirPtEnhanced
+                                        : CameraSettings::RayIntegrator::PathTracing);
     EXPECT_EQ(restored.camera_settings.nrd_relax_atrous_iterations, 4);
     EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_lobe_angle_fraction, 0.3f);
     EXPECT_FLOAT_EQ(restored.camera_settings.nrd_relax_roughness_fraction, 0.2f);

@@ -4,6 +4,10 @@
 
 EvoEngine uses a Vulkan renderer built around `RenderLayer`.
 
+ReSTIR camera integrators are disabled by default at build time. Set `EVOENGINE_ENABLE_RESTIR=ON` in CMake to
+enable them. Rasterization, RayTracing, and RayQuery remain separate camera modes, with ordinary path tracing
+available in both ray modes. See [ReSTIR build configuration and saved-scene fallback](restir-path-tracing.md).
+
 Focused guides:
 
 - [Materials and geometry](rendering-materials.md)

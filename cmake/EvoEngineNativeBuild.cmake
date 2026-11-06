@@ -116,7 +116,7 @@ function(evoengine_finalize_native_build)
 			list(APPEND package_options "\"${key}\":${value}")
 		elseif(key MATCHES "^CMAKE_(CXX_FLAGS|C_FLAGS|SHARED_LINKER_FLAGS|MSVC_RUNTIME_LIBRARY)" OR
 			key MATCHES "^EVOENGINE_ENABLE_.*_SERVICE$" OR
-			key MATCHES "^EVOENGINE_ENABLE_(RUNTIME_PACKAGES|GRAPHICS_VALIDATION|NRD)$")
+			key MATCHES "^EVOENGINE_ENABLE_(RUNTIME_PACKAGES|GRAPHICS_VALIDATION|NRD|RESTIR)$")
 			evoengine_json_string(value "${${key}}")
 			list(APPEND options "\"${key}\":${value}")
 		endif()

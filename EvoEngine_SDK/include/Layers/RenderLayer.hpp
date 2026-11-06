@@ -63,7 +63,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   ShaderPreparationQueue shader_preparation_;
   bool scene_shader_background_complete_ = false;
   void PrepareRayCameraFallbacks(bool ray_tracing, bool ray_query, bool sss, bool temporal, bool spatial);
-  std::shared_ptr<ComputePipeline> RequestRestirPipeline(
+  std::shared_ptr<ComputePipeline> RequestRayCameraComputePipeline(
       const std::shared_ptr<DescriptorSetLayout>& per_frame, const std::shared_ptr<DescriptorSetLayout>& ray_tracing,
       const std::shared_ptr<DescriptorSetLayout>& output, const std::string& name, bool generated = false,
       uint32_t mask = kGltfSceneAllFeatures & ~static_cast<uint32_t>(GltfSceneFeature::Dispersion), bool nrd = true);

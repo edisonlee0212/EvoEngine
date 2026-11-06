@@ -15,6 +15,7 @@
 #include <thread>
 #include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
+#include "Camera.hpp"
 #include "Console.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
@@ -350,6 +351,7 @@ ShaderCacheKey MakeShaderCacheKey(const ShaderCompileRequest& request, const std
   ShaderCacheKey key{14695981039346656037ull, 1099511628211ull ^ 0xd6e8feb86659fd93ull};
   const std::array<uint32_t, 2> descriptor = {kShaderCacheSchema, static_cast<uint32_t>(request.shader_type)};
   HashKeyBytes(key, descriptor.data(), descriptor.size() * sizeof(uint32_t));
+  HashKeyString(key, Camera::RestirAvailable() ? "ReSTIR=1" : "ReSTIR=0");
   HashKeyString(key, compiler_version);
   HashKeyString(key, MakeShaderTargetProfileString(request));
   HashKeyString(key, request.entry_point.empty() ? kDefaultShaderEntryPoint : request.entry_point);
@@ -1075,6 +1077,7 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   session_desc.searchPaths = include_paths.empty() ? nullptr : include_paths.data();
   session_desc.searchPathCount = static_cast<SlangInt>(include_paths.size());
   const slang::PreprocessorMacroDesc preprocessor_macros[] = {
+      {"EE_ENABLE_RESTIR", Camera::RestirAvailable() ? "1" : "0"},
       {"EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED", RequiresLinearSweptSphereCapability(request) ? "1" : "0"},
       {"EE_CAMERA_SUBSURFACE_HIT_GROUP",
        SourceDefinesEnabled(request.source, "EE_CAMERA_SUBSURFACE_HIT_GROUP") ? "1" : "0"}};

@@ -25,6 +25,7 @@ option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build EvoEngine runtime package suppor
 option(EVOENGINE_WITH_EDITOR "Build editor tooling and inspection interfaces." ON)
 option(EVOENGINE_ENABLE_GRAPHICS_VALIDATION "Enable Vulkan validation in Debug and RelWithDebInfo builds." OFF)
 option(EVOENGINE_ENABLE_NRD "Build the optional NRD denoiser integration." OFF)
+option(EVOENGINE_ENABLE_RESTIR "Build experimental ReSTIR camera integrators." OFF)
 set(EVOENGINE_NRD_SOURCE_DIR "" CACHE PATH "Path to a local NVIDIA NRD source checkout.")
 
 # ------------------------------------------------------------------

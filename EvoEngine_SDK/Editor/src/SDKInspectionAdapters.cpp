@@ -566,20 +566,32 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     changed = true;
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
-    uint32_t integrator = static_cast<uint32_t>(camera.camera_settings.ray_integrator);
-    if (ImGui::Combo("Ray Integrator", Camera::GetRayIntegratorNames(), integrator)) {
+    const auto effective_integrator = Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator);
+    uint32_t integrator = static_cast<uint32_t>(effective_integrator);
+    if (ImGui::Combo("Ray Integrator", Camera::GetAvailableRayIntegratorNames(), integrator)) {
       camera.camera_settings.ray_integrator = Camera::NormalizeRayIntegrator(integrator);
       camera.ResetFrameCount();
       changed = true;
     }
-    if (ImGui::Checkbox("SSS delayed reconnection", &camera.camera_settings.restir_sss_delayed_reconnection)) {
-      camera.ResetFrameCount();
-      changed = true;
+    if (effective_integrator != camera.camera_settings.ray_integrator) {
+      ImGui::TextWrapped("ReSTIR is disabled in this build. Using Path Tracing; saved selection: %s.",
+                         Camera::GetRayIntegratorName(camera.camera_settings.ray_integrator));
+      if (ImGui::Button("Use Path Tracing in saved scene")) {
+        camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::PathTracing;
+        camera.ResetFrameCount();
+        changed = true;
+      }
     }
-    if (ImGui::IsItemHovered())
-      ImGui::SetTooltip(
-          "Replay the SSS disk/intersection and reconnect to the same light. Direct BSDF hits and finite-radius "
-          "punctual lights use fixed-point reuse.");
+    if (Camera::RestirAvailable()) {
+      if (ImGui::Checkbox("SSS delayed reconnection", &camera.camera_settings.restir_sss_delayed_reconnection)) {
+        camera.ResetFrameCount();
+        changed = true;
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Replay the SSS disk/intersection and reconnect to the same light. Direct BSDF hits and finite-radius "
+            "punctual lights use fixed-point reuse.");
+    }
     if (Camera::NrdDenoisingAvailable() && ImGui::Checkbox("NRD Denoising", &camera.camera_settings.nrd_denoising)) {
       camera.ResetDenoiserHistory();
       changed = true;
@@ -707,28 +719,37 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     if (ImGui::SliderInt("Samples/frame", &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
-    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
-         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced) &&
+    if ((Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+         Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtEnhanced) &&
         ImGui::SliderInt("Spatial neighbors", &camera.camera_settings.restir_spatial_neighbors, 1,
                          CameraSettings::kMaxRestirSpatialNeighbors)) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
+    if ((Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
         ImGui::SliderInt("Temporal history cap", &camera.camera_settings.restir_temporal_history_cap, 1, 32)) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
+    if ((Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtEnhanced ||
+         Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtTemporalOnly) &&
         ImGui::Checkbox("Adaptive duplication cap", &camera.camera_settings.restir_temporal_adaptive_cap)) {
       camera.ResetFrameCount();
       changed = true;
     }
-    if ((camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
-         camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced) &&
-        ImGui::Checkbox(camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced
+    if ((Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtSpatialOnly ||
+         Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+             CameraSettings::RayIntegrator::RestirPtEnhanced) &&
+        ImGui::Checkbox(Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+                                CameraSettings::RayIntegrator::RestirPtEnhanced
                             ? "Temporal hybrid shifts"
                             : "Hybrid shifts",
                         &camera.camera_settings.restir_spatial_hybrid)) {
@@ -740,7 +761,8 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     }
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
-    if (camera.camera_settings.ray_integrator == CameraSettings::RayIntegrator::PathTracing &&
+    if (Camera::ResolveRayIntegrator(camera.camera_settings.ray_integrator) ==
+            CameraSettings::RayIntegrator::PathTracing &&
         (!Camera::NrdDenoisingAvailable() || !camera.camera_settings.nrd_denoising) &&
         camera.camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty) {
       changed |= ImGui::SliderFloat("Display firefly strength", &camera.camera_settings.pt_display_firefly_strength,

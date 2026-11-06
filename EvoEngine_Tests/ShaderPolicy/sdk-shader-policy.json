@@ -1,8 +1,8 @@
 {
   "counts": {
-    "files": 265,
-    "imports": 487,
-    "macro_control_files": 65
+    "files": 267,
+    "imports": 491,
+    "macro_control_files": 67
   },
   "macro_adapters": [
     {
@@ -230,7 +230,7 @@
       "path": "Modules/EvoEngine/CameraRayGeometry.slang"
     },
     {
-      "macro_controls": 12,
+      "macro_controls": 62,
       "path": "Modules/EvoEngine/CameraRayIntegrator.slang"
     },
     {
@@ -250,6 +250,14 @@
       "path": "Modules/EvoEngine/RayTracingBasic.slang"
     },
     {
+      "macro_controls": 2,
+      "path": "Modules/EvoEngine/RestirPt.slang"
+    },
+    {
+      "macro_controls": 2,
+      "path": "Modules/EvoEngine/RestirSss.slang"
+    },
+    {
       "macro_controls": 5,
       "path": "RayTracing/AnyHit/Camera.slang"
     },
@@ -267,6 +275,18 @@
     }
   ],
   "module_names": [
+    {
+      "module": "EvoEngine.EntryPoints.Compute.CameraNrdComposite",
+      "path": "Compute/CameraNrdComposite.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.CameraNrdGuides",
+      "path": "Compute/CameraNrdGuides.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.CameraNrdReblurPack",
+      "path": "Compute/CameraNrdReblurPack.slang"
+    },
     {
       "module": "EvoEngine.EntryPoints.Compute.DDGIProbeClassification",
       "path": "Compute/DDGIProbeClassification.slang"
@@ -470,18 +490,6 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.RestirPtEnhancedSpatialHybrid",
       "path": "Compute/RestirPtEnhancedSpatialHybrid.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdComposite",
-      "path": "Compute/RestirPtNrdComposite.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdGuides",
-      "path": "Compute/RestirPtNrdGuides.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.RestirPtNrdReblurPack",
-      "path": "Compute/RestirPtNrdReblurPack.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.RestirPtResolve",
@@ -948,6 +956,10 @@
       "path": "Modules/EvoEngine/CameraRayQueryTraversal.slang"
     },
     {
+      "module": "EvoEngine.CameraRaySamples",
+      "path": "Modules/EvoEngine/CameraRaySamples.slang"
+    },
+    {
       "module": "EvoEngine.CameraRayTracingPayload",
       "path": "Modules/EvoEngine/CameraRayTracingPayload.slang"
     },
@@ -966,6 +978,10 @@
     {
       "module": "EvoEngine.Cameras",
       "path": "Modules/EvoEngine/Cameras.slang"
+    },
+    {
+      "module": "EvoEngine.CameraSubsurfaceSample",
+      "path": "Modules/EvoEngine/CameraSubsurfaceSample.slang"
     },
     {
       "module": "EvoEngine.DDGI",

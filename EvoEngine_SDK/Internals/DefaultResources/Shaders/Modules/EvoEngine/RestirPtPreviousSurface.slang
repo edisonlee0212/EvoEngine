@@ -1,4 +1,4 @@
-import EvoEngine.RestirPt;
+import EvoEngine.CameraRaySamples;
 import EvoEngine.Instances;
 
 public struct RestirPtPreviousInstance {

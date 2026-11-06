@@ -126,3 +126,59 @@ TEST(RuntimeStartup, PreparesOnlyRequestedRayModesAndWaitsForModeChanges) {
   renderer.reset();
   app.Terminate();
 }
+
+TEST(RuntimeStartup, DisabledRestirPreservesSavedRequestsAcrossModesAndOptionalPrewarming) {
+  if (!std::getenv("EVOENGINE_RUNTIME_GUI_PROOF"))
+    GTEST_SKIP() << "Set EVOENGINE_RUNTIME_GUI_PROOF=1 to run the graphics fixture.";
+  if (Camera::RestirAvailable())
+    GTEST_SKIP() << "Exercises the ReSTIR-disabled build.";
+  for (const bool optional_prewarm : {false, true}) {
+    Application app;
+    ApplicationContextScope scope(app);
+    auto renderer = app.PushLayer<RenderLayer>("Rendering");
+    app.PushLayer<WindowLayer>("Window");
+    ApplicationInitializationSettings settings;
+    settings.application_mode = ApplicationMode::Editor;
+    settings.allow_empty_project = true;
+    settings.default_window_size = {64, 64};
+    settings.load_project_assets = settings.load_project_start_scene = false;
+    settings.redirect_standard_streams_to_console = false;
+    settings.graphics_settings.use_ray_tracing = true;
+    settings.graphics_settings.use_mesh_shader = false;
+    settings.defer_window_show = true;
+    settings.window_mode = WindowDisplayMode::Windowed;
+    settings.prewarm_optional_render_pipelines = optional_prewarm;
+    app.Initialize(settings);
+    {
+      const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+      const auto camera = scene->main_camera.Get<Camera>();
+      camera->camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtEnhanced;
+      ProjectManager::SetStartScene(scene);
+      app.Attach(scene);
+      for (const auto mode : {Camera::CameraRenderMode::Rasterization, Camera::CameraRenderMode::RayQuery,
+                              Camera::CameraRenderMode::RayTracing}) {
+        camera->camera_render_mode = mode;
+        camera->ResetFrameCount();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(360);
+        bool ready = false;
+        do {
+          EXPECT_TRUE(app.Loop());
+          const auto progress = renderer->GetShaderPreparationProgress();
+          EXPECT_TRUE(progress.error.empty()) << progress.error;
+          EXPECT_EQ(progress.current.find("Restir"), std::string::npos) << progress.current;
+          ready = renderer->IsSceneShaderPrewarmComplete(scene) && progress.completed == progress.total &&
+                  camera->GetFrameCount() > 0 &&
+                  (!optional_prewarm || mode != Camera::CameraRenderMode::RayQuery || !Platform::RayQueryEnabled() ||
+                   progress.total > progress.required_total);
+          if (ready || !progress.error.empty())
+            break;
+          std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < deadline);
+        EXPECT_TRUE(ready) << Camera::GetCameraRenderModeName(mode);
+        EXPECT_EQ(camera->camera_settings.ray_integrator, CameraSettings::RayIntegrator::RestirPtEnhanced);
+      }
+    }
+    renderer.reset();
+    app.Terminate();
+  }
+}
