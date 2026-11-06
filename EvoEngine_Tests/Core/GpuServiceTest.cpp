@@ -4152,6 +4152,8 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
       closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.slang"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.slang"));
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
+  if (!Camera::RestirAvailable())
+    return;
   Shader subsurface_candidate;
   for (const uint32_t mask : {kGltfSceneAllFeatures, static_cast<uint32_t>(GltfSceneFeature::Subsurface),
                               static_cast<uint32_t>(GltfSceneFeature::Subsurface) |
@@ -4165,6 +4167,8 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
 }
 
 TEST(GpuService, SubsurfaceDuplicationTracksFramePixelOriginsAndClearsInvalidHistory) {
+  if (!Camera::RestirAvailable())
+    GTEST_SKIP() << "ReSTIR is disabled in this build.";
   ScopedGpuPlatform platform;
   const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                     "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RestirSssDuplication.slang";
@@ -4248,6 +4252,8 @@ TEST(GpuService, SubsurfaceDuplicationTracksFramePixelOriginsAndClearsInvalidHis
 }
 
 TEST(GpuService, SubsurfaceSamplingAndDirectReservoirMatchExpectedDistributions) {
+  if (!Camera::RestirAvailable())
+    GTEST_SKIP() << "ReSTIR is disabled in this build.";
   ScopedGpuPlatform platform;
   constexpr size_t value_count = 163;
   VkBufferCreateInfo buffer_info{};
@@ -5126,6 +5132,8 @@ TEST(GpuService, SsrRoughnessFilterPreservesMirrorsAndSurfaceBoundaries) {
 }
 
 TEST(GpuService, RestirResolvePreservesAccumulation) {
+  if (!Camera::RestirAvailable())
+    GTEST_SKIP() << "ReSTIR is disabled in this build.";
   ScopedGpuPlatform platform;
   constexpr uint32_t size = 9, count = size * size;
   auto layout = std::make_shared<DescriptorSetLayout>();
@@ -5234,7 +5242,7 @@ TEST(GpuService, NrdAccumulatedInputDiscardsPoisonedHistoryOnResetAndResize) {
       ShaderType::Compute,
       Platform::GetShaderGlobalDefines() +
           "\n#define EE_ENABLE_NRD_SIGNALS 1\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n",
-      root / "Compute/RestirPtNrdReblurPack.slang"));
+      root / "Compute/CameraNrdReblurPack.slang"));
   pipeline.descriptor_set_layouts = {empty_layout, empty_layout, layout};
   pipeline.push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(RayTracingCameraPushConstant)}};
   pipeline.Initialize();
@@ -5388,12 +5396,14 @@ TEST(GpuService, RgbNrdCameraShadersCompile) {
                           "RestirSssSpatialCandidate",
                           "RestirSssSpatialResolve",
                           "RestirSssDuplication",
-                          "RestirPtNrdGuides",
-                          "RestirPtNrdReblurPack",
-                          "RestirPtNrdComposite",
+                          "CameraNrdGuides",
+                          "CameraNrdReblurPack",
+                          "CameraNrdComposite",
                           "NrdTemporalAa",
                           "NrdTemporalAaResolve",
                           "PtDisplayFirefly"}) {
+    if (!Camera::RestirAvailable() && std::string(name).rfind("Restir", 0) == 0)
+      continue;
     SCOPED_TRACE(name);
     Shader shader;
     EXPECT_TRUE(

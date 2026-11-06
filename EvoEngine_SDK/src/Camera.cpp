@@ -398,6 +398,24 @@ const std::vector<std::string>& Camera::GetRayIntegratorNames() {
   return names;
 }
 
+bool Camera::RestirAvailable() {
+#ifdef EVOENGINE_ENABLE_RESTIR
+  return true;
+#else
+  return false;
+#endif
+}
+
+const std::vector<std::string>& Camera::GetAvailableRayIntegratorNames() {
+  static const std::vector<std::string> path_tracing{"Path Tracing"};
+  return RestirAvailable() ? GetRayIntegratorNames() : path_tracing;
+}
+
+CameraSettings::RayIntegrator Camera::ResolveRayIntegrator(const CameraSettings::RayIntegrator requested) {
+  return RestirAvailable() ? NormalizeRayIntegrator(static_cast<uint32_t>(requested))
+                           : CameraSettings::RayIntegrator::PathTracing;
+}
+
 const char* Camera::GetRayIntegratorName(const CameraSettings::RayIntegrator integrator) {
   return GetRayIntegratorNames()[static_cast<uint32_t>(NormalizeRayIntegrator(static_cast<uint32_t>(integrator)))]
       .c_str();
@@ -724,7 +742,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   auto ray_outputs = camera_settings.ray_outputs;
   camera_info_block.ray_output_flags =
       RayCameraOptionalOutputMask(ray_outputs) |
-      (camera_settings.restir_sss_delayed_reconnection ? CameraInfoBlock::kDelayedSss : 0u);
+      (RestirAvailable() && camera_settings.restir_sss_delayed_reconnection ? CameraInfoBlock::kDelayedSss : 0u);
   camera_info_block.raster_lighting_flags = 0u;
   if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
       post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
@@ -734,16 +752,16 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.accumulate_samples = camera_settings.accumulate_samples ? 1u : 0u;
   camera_info_block.restir_spatial_neighbors =
       glm::clamp(camera_settings.restir_spatial_neighbors, 1, CameraSettings::kMaxRestirSpatialNeighbors);
-  camera_info_block.restir_spatial_hybrid =
-      camera_settings.restir_spatial_hybrid &&
-              camera_settings.ray_integrator != CameraSettings::RayIntegrator::RestirPtTemporalOnly
-          ? 1u
-          : 0u;
+  camera_info_block.restir_spatial_hybrid = RestirAvailable() && camera_settings.restir_spatial_hybrid &&
+                                                    ResolveRayIntegrator(camera_settings.ray_integrator) !=
+                                                        CameraSettings::RayIntegrator::RestirPtTemporalOnly
+                                                ? 1u
+                                                : 0u;
   camera_info_block.restir_temporal_history_cap = glm::clamp(camera_settings.restir_temporal_history_cap, 1, 32);
   camera_info_block.restir_temporal_adaptive_cap = camera_settings.restir_temporal_adaptive_cap ? 1u : 0u;
   camera_info_block.restir_enhanced_mode =
-      (camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-       camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
+      (ResolveRayIntegrator(camera_settings.ray_integrator) == CameraSettings::RayIntegrator::RestirPtEnhanced ||
+       ResolveRayIntegrator(camera_settings.ray_integrator) == CameraSettings::RayIntegrator::RestirPtTemporalOnly)
           ? 1u
           : 0u;
 }
@@ -1258,7 +1276,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
       history.radiance_view = CreateGraphImageMipView(history.radiance_image, 0);
     }
     history.technique = technique;
-    history.integrator = camera_settings.ray_integrator;
+    history.integrator = ResolveRayIntegrator(camera_settings.ray_integrator);
     history.restir_sss_delayed_reconnection = camera_settings.restir_sss_delayed_reconnection;
     history.scene_handle = scene_handle;
     history.temporal_history_version = temporal_history_version_;
@@ -1269,7 +1287,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
   } else {
     ++ray_camera_history_counters_.reuse_count;
     const bool technique_changed = history.technique != technique;
-    const bool integrator_changed = history.integrator != camera_settings.ray_integrator;
+    const bool integrator_changed = history.integrator != ResolveRayIntegrator(camera_settings.ray_integrator);
     const bool sss_reconnection_changed =
         history.restir_sss_delayed_reconnection != camera_settings.restir_sss_delayed_reconnection;
     if (technique_changed || integrator_changed || sss_reconnection_changed || history.scene_handle != scene_handle ||
@@ -1278,7 +1296,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
         frame_count_ = 0;
       }
       history.technique = technique;
-      history.integrator = camera_settings.ray_integrator;
+      history.integrator = ResolveRayIntegrator(camera_settings.ray_integrator);
       history.restir_sss_delayed_reconnection = camera_settings.restir_sss_delayed_reconnection;
       history.scene_handle = scene_handle;
       history.temporal_history_version = temporal_history_version_;

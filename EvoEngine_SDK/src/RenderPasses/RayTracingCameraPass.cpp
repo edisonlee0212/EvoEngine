@@ -269,8 +269,9 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
       push_constant.frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
     } else if (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser) {
       push_constant.frame_id = history_resources.restir_nrd_history_frame_count;
-    } else if (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-               parameters.camera->camera_settings.ray_integrator ==
+    } else if (Camera::ResolveRayIntegrator(parameters.camera->camera_settings.ray_integrator) ==
+                   CameraSettings::RayIntegrator::RestirPtEnhanced ||
+               Camera::ResolveRayIntegrator(parameters.camera->camera_settings.ray_integrator) ==
                    CameraSettings::RayIntegrator::RestirPtTemporalOnly) {
       push_constant.frame_id = history_resources.restir_history_frame_id;
     } else {
@@ -526,8 +527,9 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
       frame_id = static_cast<uint32_t>(Platform::GetFrameCount());
     } else if (parameters.camera->camera_settings.nrd_denoising && history_resources.restir_nrd_denoiser) {
       frame_id = history_resources.restir_nrd_history_frame_count;
-    } else if (parameters.camera->camera_settings.ray_integrator == CameraSettings::RayIntegrator::RestirPtEnhanced ||
-               parameters.camera->camera_settings.ray_integrator ==
+    } else if (Camera::ResolveRayIntegrator(parameters.camera->camera_settings.ray_integrator) ==
+                   CameraSettings::RayIntegrator::RestirPtEnhanced ||
+               Camera::ResolveRayIntegrator(parameters.camera->camera_settings.ray_integrator) ==
                    CameraSettings::RayIntegrator::RestirPtTemporalOnly) {
       frame_id = history_resources.restir_history_frame_id;
     } else {

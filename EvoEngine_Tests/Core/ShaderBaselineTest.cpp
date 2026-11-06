@@ -1,6 +1,7 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include "Application.hpp"
+#include "Camera.hpp"
 #include "Platform.hpp"
 #include "Shader.hpp"
 
@@ -195,7 +196,8 @@ std::vector<std::filesystem::path> CollectShaderEntryPoints(const std::filesyste
   std::vector<std::filesystem::path> paths;
   for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
     if (entry.is_regular_file() && entry.path().extension() == ".slang" && InferShaderType(entry.path())) {
-      paths.emplace_back(entry.path());
+      if (Camera::RestirAvailable() || entry.path().filename().string().rfind("Restir", 0) != 0)
+        paths.emplace_back(entry.path());
     }
   }
   std::sort(paths.begin(), paths.end());

@@ -234,6 +234,12 @@ TEST(RayCameraHistory, SwitchingRestirModesInvalidatesAccumulation) {
   camera.camera_settings.ray_integrator = CameraSettings::RayIntegrator::RestirPtSpatialOnly;
   auto& spatial = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RestirPt, 11, extent, factory);
   EXPECT_EQ(spatial.radiance_image, radiance);
+  if (!Camera::RestirAvailable()) {
+    EXPECT_EQ(spatial.integrator, CameraSettings::RayIntegrator::PathTracing);
+    EXPECT_TRUE(spatial.valid);
+    EXPECT_EQ(spatial.frame_id, 7u);
+    return;
+  }
   EXPECT_EQ(spatial.integrator, CameraSettings::RayIntegrator::RestirPtSpatialOnly);
   EXPECT_FALSE(spatial.valid);
   EXPECT_EQ(spatial.frame_id, 0u);
@@ -495,7 +501,7 @@ TEST(RayCameraHistory, TransientStoreKeepsImportedImageAliveIndependentlyOfItsVi
 
 TEST(RayCameraHistory, NrdDepthMotionReconstructsPositivePreviousDepth) {
   const auto guides =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RestirPtNrdGuides.slang"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/CameraNrdGuides.slang"));
   EXPECT_NE(guides.find("abs(previous_view_z) - abs(view_z)"), std::string::npos);
 
   const glm::vec4 surface(2.0f, 1.0f, -10.0f, 1.0f);

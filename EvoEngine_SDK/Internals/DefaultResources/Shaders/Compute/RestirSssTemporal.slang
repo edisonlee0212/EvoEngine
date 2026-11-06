@@ -18,7 +18,7 @@ import EvoEngine.CameraRayTraversalPolicies;
   if (any(pixel >= uint2(width, height))) return;
   CameraRayNrdPixel nrd_pixel;
   EE_CAMERA_RENDER_SUBSURFACE_PIXEL<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
-      EE_GLTF_COMPILED_FEATURE_MASK, true>(pixel, uint2(width, height), nrd_pixel);
+      EE_GLTF_COMPILED_FEATURE_MASK, true, false>(pixel, uint2(width, height), nrd_pixel);
 #ifdef EE_ENABLE_NRD_SIGNALS
   nrd_diffuse_signal_image[pixel] = nrd_pixel.diffuse;
   nrd_specular_signal_image[pixel] = nrd_pixel.specular;

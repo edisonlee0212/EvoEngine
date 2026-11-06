@@ -274,6 +274,9 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
       CameraSettings::ShaderExecutionReorderingMode mode);
   [[nodiscard]] static const std::vector<std::string>& GetRayDebugViewNames();
   [[nodiscard]] static const std::vector<std::string>& GetRayIntegratorNames();
+  [[nodiscard]] static bool RestirAvailable();
+  [[nodiscard]] static const std::vector<std::string>& GetAvailableRayIntegratorNames();
+  [[nodiscard]] static CameraSettings::RayIntegrator ResolveRayIntegrator(CameraSettings::RayIntegrator requested);
   [[nodiscard]] static const char* GetRayIntegratorName(CameraSettings::RayIntegrator integrator);
   [[nodiscard]] static CameraSettings::RayIntegrator ParseRayIntegrator(
       const std::string& value, CameraSettings::RayIntegrator fallback = CameraSettings::RayIntegrator::PathTracing);

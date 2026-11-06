@@ -1018,6 +1018,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_ray_integrator && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-integrator requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_ray_integrator &&
+      *command_line.preview_capture_ray_integrator != CameraSettings::RayIntegrator::PathTracing &&
+      !Camera::RestirAvailable()) {
+    throw std::invalid_argument("ReSTIR preview capture requires a build configured with EVOENGINE_ENABLE_RESTIR=ON.");
+  }
   if (command_line.preview_capture_ray_outputs && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-outputs requires --capture-demo-preview.");
   }
@@ -2681,8 +2686,8 @@ void CaptureDemoPreview(
     scene_camera->ResetFrameCount();
   }
   scene_camera->restir_pt_profile_generated =
-      preview_restir_generated_profile &&
-      scene_camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
+      preview_restir_generated_profile && Camera::ResolveRayIntegrator(scene_camera->camera_settings.ray_integrator) !=
+                                              CameraSettings::RayIntegrator::PathTracing;
   if (preview_ray_outputs) {
     scene_camera->camera_settings.ray_outputs = *preview_ray_outputs;
     scene_camera->ResetFrameCount();
@@ -2939,8 +2944,8 @@ void CaptureDemoPreview(
   size_t capture_frame_count = 0;
   size_t stalled_restir_frames = 0;
   uint32_t previous_camera_frames = scene_camera->GetFrameCount();
-  const bool restir_capture =
-      scene_camera->camera_settings.ray_integrator != CameraSettings::RayIntegrator::PathTracing;
+  const bool restir_capture = Camera::ResolveRayIntegrator(scene_camera->camera_settings.ray_integrator) !=
+                              CameraSettings::RayIntegrator::PathTracing;
   std::vector<double> cpu_frame_samples;
   cpu_frame_samples.reserve(warmup_frames);
   const auto capture_start_time = std::chrono::steady_clock::now();

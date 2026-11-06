@@ -5,8 +5,12 @@ import EvoEngine.CameraRayTracingPayload;
 import EvoEngine.EmissiveTriangleSampling;
 import EvoEngine.GltfRayTracingBsdf;
 import EvoEngine.Random;
+__exported import EvoEngine.CameraRaySamples;
+__exported import EvoEngine.CameraSubsurfaceSample;
+#if EE_ENABLE_RESTIR
 __exported import EvoEngine.RestirPt;
 __exported import EvoEngine.RestirSss;
+#endif
 
 struct CameraRayPushConstants {
   uint camera_index;
@@ -1048,6 +1052,7 @@ float3 EE_CAMERA_RESOLVE_DIRECT_LIGHTING<T : ICameraRayTraversal>(inout T traver
   }
   return EE_CAMERA_SANITIZE_RADIANCE(bounce.contribution * shadow_transmission);
 }
+#if EE_ENABLE_RESTIR
 float3 EE_CAMERA_SUBSURFACE_AXIS(RestirSssDirectSample receiver, uint axis) {
   if (axis == 0u) return receiver.receiver_normal;
   if (axis == 1u) return receiver.receiver_tangent;
@@ -1083,6 +1088,7 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_SUBSURFACE_POINT<let feature_mask : uint>(Restir
   return point;
 }
 
+#endif
 float3 EE_CAMERA_SUBSURFACE_DIRECT_HIT<T : ICameraRayTraversal, let feature_mask : uint>(
     inout T traversal, EE_CAMERA_SURFACE_HIT point, uint seed, GltfRayTracingBsdfSampleData sample, inout uint ray_count) {
   const Camera camera = EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index];
@@ -1135,6 +1141,7 @@ GltfRayTracingPbrMaterial EE_CAMERA_ORDINARY_SUBSURFACE_MATERIAL<let feature_mas
   return material;
 }
 
+#if EE_ENABLE_RESTIR
 bool EE_CAMERA_SUBSURFACE_DELAYED(RestirSssDirectSample sample) {
   if (!EE_CAMERA_DELAYED_SSS_ENABLED(EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index])) return false;
   if (sample.light_technique == 1u) return true;
@@ -1340,6 +1347,7 @@ float3 EE_CAMERA_RESOLVE_SUBSURFACE_SAMPLE<T : ICameraRayTraversal, let feature_
   return EE_CAMERA_SANITIZE_RADIANCE(EE_CAMERA_RESOLVE_DIRECT_LIGHTING(traversal, selected, shadow_seed, visibility) * sample.resolve_weight);
 }
 
+#endif
 float3 EE_CAMERA_RESOLVE_SUBSURFACE_DIRECT_LIGHTING<T : ICameraRayTraversal, let feature_mask : uint,
     let record_sss : bool, let temporal_sss : bool>(
     inout T traversal, const EE_CAMERA_BOUNCE_SCRATCH direct, const EE_CAMERA_BOUNCE_SCRATCH emissive,
@@ -1349,12 +1357,17 @@ float3 EE_CAMERA_RESOLVE_SUBSURFACE_DIRECT_LIGHTING<T : ICameraRayTraversal, let
   SubsurfaceDirectReservoir reservoir = EE_SSS_DIRECT_EMPTY_RESERVOIR();
   EE_SSS_DIRECT_UPDATE(reservoir, 0u, direct.contribution, EE_PCG_RANDOM(resampling_seed));
   EE_SSS_DIRECT_UPDATE(reservoir, 1u, emissive.contribution, EE_PCG_RANDOM(resampling_seed));
-  if (reservoir.candidate_index == 0xffffffffu)
-    return temporal_sss && EE_CAMERA_TEMPORAL_SUBSURFACE
-        ? EE_CAMERA_REUSE_SUBSURFACE_DIRECT<T, feature_mask>(traversal, resampling_seed, ray_count) : float3(0);
+  if (reservoir.candidate_index == 0xffffffffu) {
+#if EE_ENABLE_RESTIR
+    if (temporal_sss && EE_CAMERA_TEMPORAL_SUBSURFACE)
+      return EE_CAMERA_REUSE_SUBSURFACE_DIRECT<T, feature_mask>(traversal, resampling_seed, ray_count);
+#endif
+    return float3(0);
+  }
   EE_CAMERA_BOUNCE_SCRATCH selected = reservoir.candidate_index == 0u ? direct : emissive;
   float resolve_weight = EE_SSS_DIRECT_RESOLVE_WEIGHT(reservoir);
   // Ineligible temporal receivers shade the fresh estimate and leave history empty.
+#if EE_ENABLE_RESTIR
   if (record_sss && EE_CAMERA_RECORD_SUBSURFACE && (!EE_CAMERA_SUBSURFACE_HISTORY_FORMAT || EE_CAMERA_TEMPORAL_SUBSURFACE)) {
     EE_CAMERA_SUBSURFACE_SAMPLE.light_technique = reservoir.candidate_index;
     EE_CAMERA_SUBSURFACE_SAMPLE.light_seed = reservoir.candidate_index == 0u ? light_seeds.x : light_seeds.z;
@@ -1377,6 +1390,7 @@ float3 EE_CAMERA_RESOLVE_SUBSURFACE_DIRECT_LIGHTING<T : ICameraRayTraversal, let
     else
       EE_CAMERA_PREPARE_EMISSIVE_LIGHTING<feature_mask>(point, point.normal, sample.throughput, true, false, light_seed, bsdf_seed, selected);
   }
+#endif
   ray_count += uint(selected.next_event_valid && selected.cast_shadow == 1.0f);
   float3 visibility;
   const float3 contribution = reservoir.candidate_index == 0u
@@ -1755,6 +1769,7 @@ EE_CAMERA_RESTIR_RECONNECTION_VERTEX EE_CAMERA_EMPTY_RESTIR_RECONNECTION_VERTEX(
   return vertex;
 }
 
+#if EE_ENABLE_RESTIR
 void EE_CAMERA_RECORD_RESTIR_CANDIDATE<let profile_generated : bool, let target_only : bool>(
                                        inout RestirPtPathReservoir reservoir, const uint sample_seed,
                                        const uint path_type, const uint path_length, const uint instance_id,
@@ -1823,6 +1838,7 @@ void EE_CAMERA_RECORD_RESTIR_CANDIDATE<let profile_generated : bool, let target_
   }
   reservoir.weight_sum = next_sum;
 }
+#endif
 bool EE_CAMERA_SAMPLE_SUBSURFACE<T : ICameraRayTraversal, let feature_mask : uint>(
     inout T traversal, const EE_CAMERA_SURFACE_HIT receiver, const uint instance_id,
     inout uint seed, out EE_CAMERA_SURFACE_HIT entry, out float3 profile_over_pdf,
@@ -1992,11 +2008,13 @@ float3 EE_CAMERA_APPLY_SOLID_SUBSURFACE<T : ICameraRayTraversal, let feature_mas
             subsurface_entry, direct_seed, sample_data, ray_count);
         radiance += contribution;
       } else {
+#if EE_ENABLE_RESTIR
         if (temporal_sss && EE_CAMERA_TEMPORAL_SUBSURFACE) {
           uint resampling_seed = EE_CAMERA_RANDOM_STREAM(sample_seed, 0x53535344u, current_segment);
           const float3 contribution = EE_CAMERA_REUSE_SUBSURFACE_DIRECT<T, feature_mask>(traversal, resampling_seed, ray_count);
           radiance += contribution;
         }
+#endif
       }
       sample_data = ordinary_sample;
       suppress_next_hit_light = true;
@@ -2126,6 +2144,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
             throughput * EE_CAMERA_BACKGROUND_RADIANCE(miss_direction);
         radiance += background_contribution;
         EE_CAMERA_NRD_ADD_RADIANCE(ray_outputs, 2u, background_contribution);
+#if EE_ENABLE_RESTIR
         if (collect_candidates) {
           EE_CAMERA_RECORD_RESTIR_CANDIDATE<profile_generated, target_only>(
               candidate_reservoir, sample_seed, EE_RESTIR_PT_PATH_PRIMARY_BACKGROUND, 0u,
@@ -2134,6 +2153,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
               match_type, match_length, matched_contribution,
               pixel_index, generated_count);
         }
+#endif
         if (debug_view == EE_CAMERA_DEBUG_DIRECT_ENVIRONMENT) {
           debug_radiance += background_contribution;
         }
@@ -2149,6 +2169,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
       const float3 environment_contribution = throughput * mis_weight * environment_irradiance;
       radiance += environment_contribution;
       EE_CAMERA_NRD_ADD_RADIANCE(ray_outputs, ray_outputs.secondary_lobe, environment_contribution);
+#if EE_ENABLE_RESTIR
       if (collect_candidates) {
         EE_CAMERA_RECORD_RESTIR_CANDIDATE<profile_generated, target_only>(
             candidate_reservoir, sample_seed, EE_RESTIR_PT_PATH_BSDF_ENVIRONMENT, surface_depth + 1u,
@@ -2175,6 +2196,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
           }
         }
       }
+#endif
       if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE) {
         debug_radiance += environment_contribution;
       }
@@ -2200,6 +2222,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
       primary_surface.material_id = surface_hit.material_index;
       primary_surface.instance_index = hit_value.instance_index;
       primary_surface.entity_index = EE_INSTANCES[hit_value.instance_index].entity_index;
+#if EE_ENABLE_RESTIR
       if (collect_candidates && camera.restir_enhanced_mode != 0u) {
         const float incoming_cosine = abs(dot(ray_direction, surface_hit.normal));
         if (incoming_cosine > EE_CAMERA_PDF_EPSILON)
@@ -2207,6 +2230,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
                               hit_value.hit_t * hit_value.hit_t *
                               (4.0f * EE_CAMERA_PI) / incoming_cosine;
       }
+#endif
     }
     const uint surface_instance_id = hit_value.instance_index;
     const uint surface_primitive_id = hit_value.primitive_id;
@@ -2252,6 +2276,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
     if (volume_scattered) {
       EE_CAMERA_NRD_ADD_RADIANCE(ray_outputs, ray_outputs.secondary_lobe, radiance - pre_volume_radiance);
       suffix_path_valid = false;
+#if EE_ENABLE_RESTIR
       if (collect_candidates) {
         EE_CAMERA_RECORD_RESTIR_CANDIDATE<profile_generated, target_only>(
             candidate_reservoir, sample_seed, EE_RESTIR_PT_PATH_VOLUME_SCATTER_NEE, current_segment + 1u,
@@ -2262,6 +2287,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
           break;
         }
       }
+#endif
       last_environment_intensity = max(EE_ENVIRONMENT.diffuse_sky_intensity, 0.0f);
       diffuse_indirect_path = true;
       if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
@@ -2292,6 +2318,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
       radiance += unlit_contribution;
       EE_CAMERA_NRD_ADD_RADIANCE(ray_outputs, surface_depth == 0u ? 2u : ray_outputs.secondary_lobe,
                                  unlit_contribution);
+#if EE_ENABLE_RESTIR
       if (collect_candidates) {
         EE_CAMERA_RECORD_RESTIR_CANDIDATE<profile_generated, target_only>(
             candidate_reservoir, sample_seed, EE_RESTIR_PT_PATH_UNLIT, surface_depth + 1u,
@@ -2300,6 +2327,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
             unlit_contribution, reconnection, match_type, match_length, matched_contribution,
             pixel_index, generated_count);
       }
+#endif
       if (debug_view == EE_CAMERA_DEBUG_EMISSION && surface_depth == 0u) {
         debug_radiance += unlit_contribution;
       } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
@@ -2350,6 +2378,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
     radiance += emissive_contribution;
     EE_CAMERA_NRD_ADD_RADIANCE(ray_outputs, surface_depth == 0u ? 2u : ray_outputs.secondary_lobe,
                                emissive_contribution);
+#if EE_ENABLE_RESTIR
     if (collect_candidates) {
       EE_CAMERA_RECORD_RESTIR_CANDIDATE<profile_generated, target_only>(
           candidate_reservoir, sample_seed,
@@ -2378,11 +2407,14 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
         }
       }
     }
+#endif
+#if EE_ENABLE_RESTIR
     if (collect_candidates && match_type == (surface_depth == 0u ? EE_RESTIR_PT_PATH_PRIMARY_EMISSION
                                                                    : EE_RESTIR_PT_PATH_BSDF_EMISSION) &&
         match_length == surface_depth + 1u) {
       break;
     }
+#endif
     if (debug_view == EE_CAMERA_DEBUG_EMISSION && surface_depth == 0u) {
       debug_radiance += emissive_contribution;
     } else if (debug_view == EE_CAMERA_DEBUG_INDIRECT_RADIANCE && surface_depth > 0u) {
@@ -2477,6 +2509,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
       EE_GLTF_RT_BSDF_SAMPLE(sample_data, ordinary_material);
       suppress_next_hit_light = true;
     }
+#if EE_ENABLE_RESTIR
     if (collect_candidates && sample_data.pdf != EE_GLTF_RT_BSDF_DIRAC_PDF &&
         (sample_data.event_type & (EE_GLTF_RT_BSDF_EVENT_DIFFUSE | EE_GLTF_RT_BSDF_EVENT_GLOSSY)) != 0) {
       const float alpha = (sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_DIFFUSE) != 0
@@ -2484,11 +2517,13 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
       const float sigma = sqrt(0.5f * alpha * alpha / max(1.0f - alpha * alpha, 1e-3f));
       path_spread_angle = max(path_spread_angle, min(0.25f * sigma, 0.003f));
     }
+#endif
     if (surface_depth == 0u) {
       primary_diffuse_lobe = (sample_data.event_type & EE_GLTF_RT_BSDF_EVENT_DIFFUSE) != 0u;
       if (sample_data.event_type != EE_GLTF_RT_BSDF_EVENT_ABSORB)
         ray_outputs.secondary_lobe = primary_diffuse_lobe ? 0u : 1u;
     }
+#if EE_ENABLE_RESTIR
     if (collect_candidates && camera.restir_enhanced_mode != 0u && surface_depth > 0u &&
         reconnection.index == 0u && primary_footprint > 0.0f && !previous_delta &&
         sample_data.pdf > EE_CAMERA_PDF_EPSILON && last_sample_pdf > EE_CAMERA_PDF_EPSILON &&
@@ -2509,6 +2544,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
                                          incoming_cosine / distance_squared;
       }
     }
+#endif
     if ((profile_generated || camera.restir_spatial_hybrid != 0u) && surface_depth == 0u) {
       first_bsdf_factor = sample_data.bsdf_over_pdf;
       first_bsdf_pdf = sample_data.pdf;
@@ -2545,10 +2581,12 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
         }
       }
     }
+#if EE_ENABLE_RESTIR
     if (collect_candidates && match_type != EE_RESTIR_PT_PATH_INVALID) {
       ray_outputs.ray_count += uint(bounce.next_event_valid && bounce.cast_shadow == 1.0f);
       ray_outputs.ray_count += uint(emissive_bounce.next_event_valid && emissive_bounce.cast_shadow == 1.0f);
     }
+#endif
     float3 direct_visibility;
     float3 emissive_visibility;
     const float3 direct_contribution =
@@ -2566,6 +2604,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
                                                            ? 0u : 1u)
                                                    : ray_outputs.secondary_lobe,
                                direct_emissive_contribution);
+#if EE_ENABLE_RESTIR
     if (collect_candidates) {
       if (bounce.light_kind == EE_CAMERA_LIGHT_KIND_ENVIRONMENT ||
           bounce.light_kind == EE_CAMERA_LIGHT_KIND_PUNCTUAL) {
@@ -2676,11 +2715,14 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
         }
       }
     }
+#endif
+#if EE_ENABLE_RESTIR
     if (collect_candidates && match_length == surface_depth + 2u &&
         (match_type == EE_RESTIR_PT_PATH_NEE_ENVIRONMENT || match_type == EE_RESTIR_PT_PATH_NEE_EMISSION ||
          match_type == EE_RESTIR_PT_PATH_NEE_PUNCTUAL)) {
       break;
     }
+#endif
     if (surface_depth == 0u) {
       if (debug_view == EE_CAMERA_DEBUG_DIRECT_PUNCTUAL && bounce.light_kind == EE_CAMERA_LIGHT_KIND_PUNCTUAL) {
         debug_radiance += direct_contribution;
@@ -2731,6 +2773,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
     ray_outputs.debug = EE_CAMERA_SANITIZE_RADIANCE(debug_radiance);
     return EE_CAMERA_SANITIZE_RADIANCE(debug_radiance);
   }
+#if EE_ENABLE_RESTIR
   if (collect_candidates) {
     EE_RESTIR_PT_FINALIZE_CANDIDATES(candidate_reservoir);
     if (profile_generated &&
@@ -2738,6 +2781,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint, le
                                       EE_RESTIR_PT_FLAG_LONG_SUFFIX_DESCRIPTOR)) == 0u)
       candidate_reservoir.primary_position = primary_surface_position;
   }
+#endif
   ray_outputs.debug = EE_CAMERA_SANITIZE_RADIANCE(radiance);
   return EE_CAMERA_SANITIZE_RADIANCE(radiance);
 }
@@ -2791,11 +2835,13 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
     // Keep one temporal chain per pixel; other SPP contribute fresh estimates.
     EE_CAMERA_RECORD_SUBSURFACE = record_subsurface && (!temporal_subsurface || i + 1u == sample_size);
     EE_CAMERA_TEMPORAL_SUBSURFACE = temporal_subsurface && EE_CAMERA_RECORD_SUBSURFACE;
+#if EE_ENABLE_RESTIR
     if (EE_CAMERA_RECORD_SUBSURFACE) {
       EE_CAMERA_SUBSURFACE_SHADOW_SEED = 0u;
       EE_CAMERA_SUBSURFACE_SAMPLE = EE_RESTIR_SSS_EMPTY_SAMPLE();
       EE_RESTIR_SSS_STORE(EE_CAMERA_SUBSURFACE_BUFFER, EE_CAMERA_SUBSURFACE_PIXEL_INDEX, EE_CAMERA_SUBSURFACE_SAMPLE, temporal_subsurface);
     }
+#endif
     const uint global_sample_index = sample_index_base + i;
     const uint sample_seed = EE_XXHASH32(uint3(pixel_coordinate, global_sample_index));
     uint camera_seed = EE_CAMERA_RANDOM_STREAM(sample_seed, EE_CAMERA_RANDOM_DOMAIN_CAMERA, 0u);
@@ -2818,6 +2864,7 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
                                                      unused_candidate_reservoir, unused_primary_surface,
                                                      0u, unused_generated_count);
     // Compose the canonical direct estimate with its PT residual before NRD scaling.
+#if EE_ENABLE_RESTIR
     if (EE_CAMERA_TEMPORAL_SUBSURFACE && !spatial_subsurface) {
       const float3 direct = EE_CAMERA_RESOLVE_SUBSURFACE_SAMPLE<T, feature_mask>(traversal,
           EE_RESTIR_SSS_LOAD(EE_CAMERA_SUBSURFACE_BUFFER, EE_CAMERA_SUBSURFACE_PIXEL_INDEX),
@@ -2826,14 +2873,18 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
       EE_CAMERA_NRD_ADD_RADIANCE(sample_outputs, 0u, direct);
       sample_outputs.debug = EE_CAMERA_SANITIZE_RADIANCE(traced_radiance);
     }
+#endif
     float3 sample_radiance = float3(0);
+#if EE_ENABLE_RESTIR
     if (spatial_subsurface && i + 1u == sample_size && EE_CAMERA_SUBSURFACE_SAMPLE.confidence > 0.0f) {
       const uint offset = EE_CAMERA_SUBSURFACE_PIXEL_INDEX * EE_RESTIR_SSS_RESIDUAL_BYTES;
       EE_CAMERA_SUBSURFACE_RESIDUAL_BUFFER.Store4(offset, uint4(asuint(traced_radiance), EE_CAMERA_SUBSURFACE_SHADOW_SEED));
       EE_CAMERA_SUBSURFACE_RESIDUAL_BUFFER.Store4(offset + 16u, asuint(float4(sample_outputs.nrd_diffuse_radiance, 0)));
       EE_CAMERA_SUBSURFACE_RESIDUAL_BUFFER.Store4(offset + 32u, asuint(float4(sample_outputs.nrd_specular_radiance, 0)));
       EE_CAMERA_SUBSURFACE_RESIDUAL_BUFFER.Store4(offset + 48u, asuint(float4(sample_outputs.nrd_excluded_radiance, 0)));
-    } else {
+    } else
+#endif
+    {
       sample_radiance = EE_CAMERA_REJECT_INVALID_RADIANCE(traced_radiance, invalid_radiance_rejections);
     }
     const float traced_max = max(traced_radiance.x, max(traced_radiance.y, traced_radiance.z));
@@ -2882,9 +2933,10 @@ void EE_CAMERA_RENDER_PIXEL_IMPL<T : ICameraRayTraversal, let feature_mask : uin
 
 public void EE_CAMERA_RENDER_PIXEL<T : ICameraRayTraversal, let feature_mask : uint>(
     const uint2 pixel_coordinate, const uint2 image_size, out CameraRayNrdPixel nrd_pixel) {
-  EE_CAMERA_RENDER_PIXEL_IMPL<T, feature_mask, false, false>(pixel_coordinate, image_size, nrd_pixel);
+  EE_CAMERA_RENDER_PIXEL_IMPL<T, feature_mask, false, false, false>(pixel_coordinate, image_size, nrd_pixel);
 }
 
+#if EE_ENABLE_RESTIR
 public void EE_CAMERA_RENDER_SUBSURFACE_PIXEL<T : ICameraRayTraversal, let feature_mask : uint,
     let temporal_subsurface : bool = false, let spatial_subsurface : bool = false>(
     const uint2 pixel_coordinate, const uint2 image_size, out CameraRayNrdPixel nrd_pixel) {
@@ -3027,7 +3079,7 @@ public void EE_CAMERA_RENDER_RESTIR_CANDIDATE_PIXEL<T : ICameraRayTraversal, let
   RestirPtPrimarySurface surface;
   float3 unused_matched_contribution;
   uint generated_count = 0u;
-  EE_CAMERA_TRACE_PATH<T, feature_mask, true, profile_generated, false>(
+  EE_CAMERA_TRACE_PATH<T, feature_mask, true, profile_generated, false, false, false>(
       traversal, sample_seed, ray.origin, ray.direction, ray_spread_angle, EE_CAMERA_DEBUG_BEAUTY,
       hit_distance, diagnostics, EE_RESTIR_PT_PATH_INVALID, 0u, unused_matched_contribution,
       reservoir, surface, pixel_index, generated_count);
@@ -3074,7 +3126,7 @@ public void EE_CAMERA_REPLAY_RESTIR_EVENT_AT_CAMERA<T : ICameraRayTraversal, let
   CameraRayOutputDiagnostics diagnostics = EE_CAMERA_INIT_RAY_OUTPUT_DIAGNOSTICS();
   float hit_distance;
   uint unused_generated_count = 0u;
-  EE_CAMERA_TRACE_PATH<T, feature_mask, true, false, target_only>(
+  EE_CAMERA_TRACE_PATH<T, feature_mask, true, false, target_only, false, false>(
       traversal, source.sample_seed, ray.origin, ray.direction, EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y)),
       EE_CAMERA_DEBUG_BEAUTY, hit_distance, diagnostics, source.path_type, source.path_length,
       matched_contribution, replay, primary_surface, 0u, unused_generated_count);
@@ -3559,6 +3611,7 @@ public float3 EE_CAMERA_RESTIR_RECONNECTION_POSITION(const RestirPtPathReservoir
       rejection_reason, first_bsdf_factor, first_bsdf_pdf, first_roughness);
 }
 
+#endif
 public uint EE_CAMERA_RESTIR_FRAME_ID() {
   return EE_CAMERA_CONSTANTS.seed_frame_id;
 }
@@ -3587,6 +3640,7 @@ public Camera EE_CAMERA_RESTIR_ACTIVE_CAMERA() {
   return EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index];
 }
 
+#if EE_ENABLE_RESTIR
 public uint EE_CAMERA_RESTIR_NEIGHBOR_COUNT() {
   return clamp(EE_CAMERAS[EE_CAMERA_CONSTANTS.camera_index].restir_spatial_neighbors, 1u, 16u);
 }
@@ -3636,3 +3690,5 @@ public void EE_CAMERA_RESOLVE_RESTIR_CANDIDATE_PIXEL(const uint2 pixel_coordinat
       EE_RESTIR_PT_LOAD(candidate_buffer, pixel_coordinate.y * image_size.x + pixel_coordinate.x);
   EE_CAMERA_RESOLVE_RESTIR_RADIANCE_PIXEL(pixel_coordinate, EE_RESTIR_PT_RESOLVE_CANDIDATE(candidate));
 }
+
+#endif
