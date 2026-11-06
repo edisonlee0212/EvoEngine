@@ -61,6 +61,7 @@ class PyDigitalAgriculture {
    * @param m The target python binding module to register functions and classes.
    */
   static void Initialize(pybind11::module& m);
+  static void RegisterSorghumFieldBindings(pybind11::module& m);
 };
 }  // namespace py_digital_agriculture_package
 

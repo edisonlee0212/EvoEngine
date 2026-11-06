@@ -13,9 +13,9 @@ void digital_agriculture_package::PARSensorGroup::CalculateIllumination(const Ra
                                                                         float push_normal_distance) {
   if (samplers.empty())
     return;
-  CudaModule::EstimateIlluminationRayTracing(
-      ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, samplers, seed,
-      push_normal_distance);
+  const auto layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
+  CudaModule::EstimateIlluminationRayTracing(layer->environment_properties, ray_properties, samplers, seed,
+                                            push_normal_distance, layer->GetIlluminationClouds());
 }
 bool digital_agriculture_package::InspectPARSensorGroup(InspectorContext& context, PARSensorGroup& group) {
   const auto& editor_layer = context.editor_layer;

@@ -7,7 +7,9 @@
 namespace evo_engine {
 class Camera;
 class EditorLayer;
+class PrefabField;
 struct DrawSettings;
+struct InspectorContext;
 namespace procedural_noise {
 class IProceduralNoise;
 }
@@ -16,5 +18,6 @@ EVOENGINE_API void DrawCameraDebugViews(const Camera& camera, float debug_scale)
 EVOENGINE_API bool DrawProceduralNoiseGraph(procedural_noise::IProceduralNoise& noise, const std::string& window_title,
                                             const std::shared_ptr<EditorLayer>& editor_layer);
 EVOENGINE_API bool DrawSettingsGui(DrawSettings& draw_settings);
+EVOENGINE_API bool DrawPrefabFieldGui(InspectorContext& context, PrefabField& field);
 void RegisterSdkInspectionAdapters();
 }  // namespace evo_engine

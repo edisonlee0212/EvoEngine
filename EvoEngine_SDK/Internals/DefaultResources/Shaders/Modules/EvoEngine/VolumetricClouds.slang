@@ -5,6 +5,12 @@ public static const float EE_VOLUMETRIC_CLOUD_MIN_TRANSMITTANCE = 0.003f;
 public static const float EE_VOLUMETRIC_CLOUD_EPSILON = 0.00001f;
 
 public struct VolumetricCloudSettingsGpu {
+#ifdef EE_OPTIX_CAMERA_CLOUDS
+  public Sampler3D baseShape;
+  public Sampler3D detailErosion;
+  public Sampler2D weatherCoverage;
+  public Sampler2D curlNoise;
+#endif
   public int enabled;
   public float coverage;
   public float density;
@@ -72,6 +78,12 @@ public struct EeVolumetricCloudConstants {
   public int4 flags;
 };
 
+#ifdef EE_OPTIX_CAMERA_CLOUDS
+#define EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE settings.baseShape
+#define EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE settings.detailErosion
+#define EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE settings.weatherCoverage
+#define EE_VOLUMETRIC_CLOUD_CURL_NOISE settings.curlNoise
+#else
 [[vk::push_constant]]
 public ConstantBuffer<EeVolumetricCloudConstants> EE_VOLUMETRIC_CLOUD_CONSTANTS;
 
@@ -79,6 +91,7 @@ public ConstantBuffer<EeVolumetricCloudConstants> EE_VOLUMETRIC_CLOUD_CONSTANTS;
 [[vk::binding(7, 1)]] Sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE;
 [[vk::binding(8, 1)]] Sampler2D EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE;
 [[vk::binding(9, 1)]] Sampler2D EE_VOLUMETRIC_CLOUD_CURL_NOISE;
+#endif
 
 public float EE_VOLUMETRIC_CLOUD_Saturate(in float value) {
   return clamp(value, 0.0f, 1.0f);
@@ -309,7 +322,7 @@ float EE_VOLUMETRIC_CLOUD_SampleDensity(in VolumetricCloudSettingsGpu settings, 
       .final_density;
 }
 
-VolumetricCloudRayInterval EE_VOLUMETRIC_CLOUD_IntersectLayer(in float3 ray_origin, in float3 ray_direction,
+public VolumetricCloudRayInterval EE_VOLUMETRIC_CLOUD_IntersectLayer(in float3 ray_origin, in float3 ray_direction,
                                                               in VolumetricCloudSettingsGpu settings,
                                                               in float max_distance) {
   VolumetricCloudRayInterval interval;
@@ -535,7 +548,7 @@ public VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSe
                                                      in float3 ray_direction, in float max_distance,
                                                      in float scene_distance, in float3 sun_direction,
                                                      in float3 sun_radiance, in float3 ambient_radiance,
-                                                     in float time_seconds, in float jitter) {
+                                                     in float time_seconds, in float jitter, bool transmittance_only = false) {
   VolumetricCloudMarchResult result;
   result.radiance = float3(0.0f);
   result.transmittance = 1.0f;
@@ -564,7 +577,8 @@ public VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSe
   float fine_step_length = max(coarse_step_length * clamp(settings.fine_step_scale, 0.01f, 1.0f),
                                interval_length / float(max_steps));
   float step_length = coarse_step_length;
-  float t = interval.t_min + EE_VOLUMETRIC_CLOUD_Saturate(jitter) * step_length;
+  float sample_phase = EE_VOLUMETRIC_CLOUD_Saturate(jitter);
+  float t = interval.t_min + sample_phase * step_length;
   float cos_theta = dot(ray_direction, sun_direction);
   float phase = EE_VOLUMETRIC_CLOUD_DirectionalPhase(cos_theta, settings.phase_anisotropy);
   float density_sum = 0.0f;
@@ -593,7 +607,8 @@ public VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSe
     if (density_sample.low_resolution_density > 0.0001f) {
       misses = 0;
       if (high_resolution_march == 0) {
-        t = max(interval.t_min, t - step_length);
+        // Keep the ray's sample phase when the coarse search rewinds to the cloud boundary.
+        t = max(interval.t_min + sample_phase * fine_step_length, t - step_length);
         step_length = fine_step_length;
         high_resolution_march = 1;
         continue;
@@ -603,21 +618,23 @@ public VolumetricCloudMarchResult EE_VOLUMETRIC_CLOUD_March(in VolumetricCloudSe
       if (density > 0.0001f) {
         float sample_extinction = density * step_length * max(settings.extinction_scale, 0.00001f);
         float sample_transmittance = exp(-sample_extinction);
-        float light_transmittance = EE_VOLUMETRIC_CLOUD_LightTransmittance(
-            settings, sample_position, interval.atmosphere_center, sun_direction, time_seconds, step_length, cos_theta);
-        float in_scattering =
-            0.09f + pow(max(density_sample.low_resolution_density, 0.0f),
-                        EE_VOLUMETRIC_CLOUD_Remap(density_sample.relative_height, 0.3f, 0.85f, 0.5f, 2.0f));
-        in_scattering *= pow(EE_VOLUMETRIC_CLOUD_Remap(density_sample.relative_height, 0.07f, 0.34f, 0.1f, 1.0f),
-                             0.8f);
-        float powder = EE_VOLUMETRIC_CLOUD_PowderEffect(density);
-        float edge_lighting = EE_VOLUMETRIC_CLOUD_EdgeLighting(density, light_transmittance, cos_theta);
-        float3 ambient_lighting = ambient_radiance * settings.ambient_lighting_strength * lerp(1.0f, 0.55f, density);
-        float3 sun_lighting =
-            sun_radiance * settings.lighting_intensity *
-            (light_transmittance * phase * in_scattering * powder + edge_lighting);
-        result.radiance += result.transmittance * (1.0f - sample_transmittance) *
-                           (ambient_lighting + sun_lighting);
+        if (!transmittance_only) {
+          float light_transmittance = EE_VOLUMETRIC_CLOUD_LightTransmittance(
+              settings, sample_position, interval.atmosphere_center, sun_direction, time_seconds, step_length, cos_theta);
+          float in_scattering =
+              0.09f + pow(max(density_sample.low_resolution_density, 0.0f),
+                          EE_VOLUMETRIC_CLOUD_Remap(density_sample.relative_height, 0.3f, 0.85f, 0.5f, 2.0f));
+          in_scattering *= pow(EE_VOLUMETRIC_CLOUD_Remap(density_sample.relative_height, 0.07f, 0.34f, 0.1f, 1.0f),
+                               0.8f);
+          float powder = EE_VOLUMETRIC_CLOUD_PowderEffect(density);
+          float edge_lighting = EE_VOLUMETRIC_CLOUD_EdgeLighting(density, light_transmittance, cos_theta);
+          float3 ambient_lighting = ambient_radiance * settings.ambient_lighting_strength * lerp(1.0f, 0.55f, density);
+          float3 sun_lighting =
+              sun_radiance * settings.lighting_intensity *
+              (light_transmittance * phase * in_scattering * powder + edge_lighting);
+          result.radiance += result.transmittance * (1.0f - sample_transmittance) *
+                             (ambient_lighting + sun_lighting);
+        }
         result.transmittance *= sample_transmittance;
         result.march_distance = t;
       }

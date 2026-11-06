@@ -5,6 +5,32 @@ build/
 # Local branch task notes for coding agents
 tasks/
 
+# Local assistant configuration, caches and scratch files
+.codex/
+.codex_tmp/
+
+# Local runtime layout and developer settings
+/imgui.ini
+*.DotSettings.user
+*.suo
+*.vcxproj.user
+CMakeUserPresets.json
+
+# Local Python environments, tool caches and notebook checkpoints
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Local environment values (keep reusable examples)
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
 # Docs
 docs/*
 !docs/
@@ -38,6 +64,10 @@ PipelineCache/
 # Precompiled Headers
 *.gch
 *.pch
+
+# Generated debug symbols and linker state
+*.pdb
+*.ilk
 
 # Compiled Dynamic libraries
 *.so

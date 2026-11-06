@@ -164,7 +164,7 @@ register_evoengine_app(EvoEngineLauncher ON)
 register_evoengine_app(DemoApp OFF)
 register_evoengine_app(DDGIApp OFF)
 register_evoengine_app(EcoSysLabApp OFF)
-register_evoengine_app(DigitalAgricultureApp OFF)
+register_evoengine_app(DigitalAgricultureApp ON)
 register_evoengine_app(LSystemApp OFF)
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})

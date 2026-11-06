@@ -1,8 +1,10 @@
 #include "EvoEngine_SDK_PCH.hpp"
+#include "../../EvoEngine_Services/CudaModule/include/RayTracer/CloudReprojection.cuh"
 
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <regex>
 #include <string>
 
 #include <gtest/gtest.h>
@@ -24,6 +26,71 @@ size_t CountOccurrences(const std::string& source, const std::string& pattern) {
   return count;
 }
 }  // namespace
+
+TEST(VolumetricCloudShader, OptixViewportExposesEveryCameraCloudField) {
+  const std::filesystem::path root(EVOENGINE_TEST_SOURCE_DIR);
+  const auto settings = ReadTextFile(root / "EvoEngine_SDK/include/Rendering/VolumetricCloudSettings.hpp");
+  const auto cuda = root / "EvoEngine_Services/CudaModule/src";
+  const auto inspector = ReadTextFile(cuda / "RayTracerLayer.cpp");
+  const auto host = ReadTextFile(cuda / "OptiXRayTracer.cu");
+  const auto render_frame = host.find("void OptiXRayTracer::RenderCloudFrame");
+  ASSERT_NE(render_frame, std::string::npos);
+  const auto camera = ReadTextFile(cuda / "ptx/CameraRendering.cu") + ReadTextFile(cuda / "ptx/OptixCloud.cuh") +
+                      host.substr(render_frame);
+  const std::regex field(R"(\n  (?:bool|int|float|glm::vec2) (\w+) =)");
+  ASSERT_NE(std::sregex_iterator(settings.begin(), settings.end(), field), std::sregex_iterator());
+  for (std::sregex_iterator it(settings.begin(), settings.end(), field), end; it != end; ++it) {
+    const std::string name = (*it)[1];
+    SCOPED_TRACE(name);
+    const std::regex use("\\bs\\." + name + "\\b");
+    EXPECT_TRUE(std::regex_search(inspector, use));
+    EXPECT_TRUE(std::regex_search(camera, use));
+  }
+}
+
+TEST(VolumetricCloudShader, ProjectsCloudBeyondFarPlaneAndRejectsBehindCameraOrOffscreen) {
+  const auto projection = glm::perspective(glm::radians(90.f), 1.f, 0.1f, 10.f);
+  glm::vec2 uv;
+  ASSERT_TRUE(evo_engine::ProjectCloudUv(projection, {500.f, 0.f, -1000.f}, uv));
+  EXPECT_NEAR(uv.x, 0.75f, 1e-5f);
+  EXPECT_NEAR(uv.y, 0.5f, 1e-5f);
+  EXPECT_FALSE(evo_engine::ProjectCloudUv(projection, {0.f, 0.f, 1.f}, uv));
+  EXPECT_FALSE(evo_engine::ProjectCloudUv(projection, {20.f, 0.f, -10.f}, uv));
+}
+
+TEST(VolumetricCloudShader, OptixProbesMarchWorldSegmentsAndAttenuateVisibleSun) {
+  const auto cuda = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Services/CudaModule/src";
+  const auto probe = ReadTextFile(cuda / "ptx/IlluminationEstimation.cu");
+  EXPECT_NE(probe.find("ApplyProbeCloud(optixGetRayTmax(), false)"), std::string::npos);
+  EXPECT_NE(probe.find("optixGetWorldRayOrigin(), optixGetWorldRayDirection()"), std::string::npos);
+  EXPECT_NE(probe.find("prd.visibility = cloud.w"), std::string::npos);
+  EXPECT_NE(probe.find("per_ray_data.visibility * environment.sun_color"), std::string::npos);
+  EXPECT_NE(probe.find("prd.energy += glm::vec3(cloud)"), std::string::npos);
+  EXPECT_EQ(probe.find("cloud_frame"), std::string::npos);
+  EXPECT_EQ(probe.find("debug_mode"), std::string::npos);
+}
+
+TEST(VolumetricCloudShader, CloudUpsamplingClampsEdgesAndRejectsIncompatibleHistoryTaps) {
+  using namespace evo_engine;
+  const CloudTexel image[] = {{{1, 0, 0, 0.5f}, 100.f}, {{0, 1, 0, 0.5f}, 160.f},
+                              {{0, 0, 1, 0.95f}, 100.f}, {{0, 0, 0, 1.f}, 0.f}};
+  const glm::vec4 current(0.2f, 0.2f, 0.2f, 0.5f);
+  EXPECT_EQ(FilterCloud(image, {2, 2}, {0, 0}, current), image[0].light_transmittance);
+  EXPECT_EQ(FilterCloud(image, {2, 2}, {1, 1}, current), image[3].light_transmittance);
+  EXPECT_FLOAT_EQ(FilterCloud(image, {2, 2}, {0.5f, 0.5f}, current).r, 0.25f);
+  EXPECT_EQ(FilterCloud(image, {2, 2}, {0.5f, 0.5f}, current, 99.f), image[0].light_transmittance);
+  EXPECT_EQ(FilterCloud(image, {2, 2}, {0.5f, 0.5f}, current, 30.f), current);
+}
+
+TEST(VolumetricCloudShader, FineMarchKeepsItsSamplePhaseAtCloudEntry) {
+  const std::filesystem::path root(EVOENGINE_TEST_SOURCE_DIR);
+  const auto shader =
+      ReadTextFile(root / "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang");
+  const auto camera = ReadTextFile(root / "EvoEngine_Services/CudaModule/src/ptx/CameraRendering.cu");
+  EXPECT_NE(shader.find("interval.t_min + sample_phase * step_length"), std::string::npos);
+  EXPECT_NE(shader.find("max(interval.t_min + sample_phase * fine_step_length, t - step_length)"), std::string::npos);
+  EXPECT_NE(camera.find("(sampleID + cloud_random()) / samples"), std::string::npos);
+}
 
 TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   const auto shader_source =

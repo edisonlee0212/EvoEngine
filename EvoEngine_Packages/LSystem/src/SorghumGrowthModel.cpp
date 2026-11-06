@@ -161,7 +161,13 @@ void SorghumGrowthModel::Initialize(const SorghumLSDescriptor& descriptor, const
   apex.node_random = SampleUnit01(rng_);
   // Phyllotaxis phase carried across phytomers; randomised per plant so
   // identical seeds reproduce identical leaf azimuth offsets.
-  apex.phyllotaxis_phase = std::fmod(apex.node_random * 360.0f, 360.0f);
+  // Keep node_random and its draw unchanged so fixing the phase preserves other stochastic traits.
+  initial_leaf_azimuth_degrees = descriptor.randomize_initial_leaf_azimuth
+                                    ? std::fmod(descriptor.initial_leaf_azimuth_degrees +
+                                                    apex.node_random * descriptor.initial_leaf_azimuth_range_degrees,
+                                                360.0f)
+                                    : std::fmod(descriptor.initial_leaf_azimuth_degrees, 360.0f);
+  apex.phyllotaxis_phase = initial_leaf_azimuth_degrees;
   apex.age_gdd = 0.0f;
   apex.sampled_plastochron_gdd = ComputePlastochronGdd(sampled, /*order=*/0);
   apex.axis_id = 0;
@@ -426,4 +432,5 @@ bool SorghumGrowthModel::UpdateNodeAgingOnlyImpl(LGraphNode<SorghumModuleData>& 
 void SorghumGrowthModel::Reset() {
   ResetBase();
   sampled = SampledSorghumParams();
+  initial_leaf_azimuth_degrees = 0.0f;
 }

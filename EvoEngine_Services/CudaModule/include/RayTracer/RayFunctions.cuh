@@ -91,17 +91,17 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
         const float n_dot_l = glm::dot(hit_info.normal, sun_direction);
         if (n_dot_l > 0.0f) {
           perRayData.energy = glm::vec3(0.0f);
-          optixTrace(
-              optixTraversableHandle,
-              make_float3(hit_info.position.x + hit_info.normal.x * 1e-3f,
-                          hit_info.position.y + hit_info.normal.y * 1e-3f,
-                          hit_info.position.z + hit_info.normal.z * 1e-3f),
-              make_float3(sun_direction.x, sun_direction.y, sun_direction.z), 0.0f, 1e20f, 0.0f,
-              static_cast<OptixVisibilityMask>(255),
-              OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
-              static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
-              static_cast<int>(RayType::Radiance), u0, u1);
-          energy += perRayData.energy * environment.sun_color * environment.sun_intensity * n_dot_l * albedoColor;
+          perRayData.visibility = 0.f;
+          optixTrace(optixTraversableHandle,
+                     make_float3(hit_info.position.x + hit_info.normal.x * 1e-3f,
+                                 hit_info.position.y + hit_info.normal.y * 1e-3f,
+                                 hit_info.position.z + hit_info.normal.z * 1e-3f),
+                     make_float3(sun_direction.x, sun_direction.y, sun_direction.z), 0.0f, 1e20f, 0.0f,
+                     static_cast<OptixVisibilityMask>(255),
+                     OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+                     static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
+                     static_cast<int>(RayType::Radiance), u0, u1);
+          energy += perRayData.visibility * environment.sun_color * environment.sun_intensity * n_dot_l * albedoColor;
         }
       }
       bool needSample = false;
@@ -166,7 +166,9 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
       perRayData.position = hit_info.position;
     }
     const float emissionIndirectScale =
-        incomingDiffuseIndirectPath ? glm::max(environment.ambient_light_intensity, 0.0f) : 1.0f;
+        incomingDiffuseIndirectPath && environment.environmental_lighting_type != EnvironmentalLightingType::Scene
+            ? glm::max(environment.ambient_light_intensity, 0.0f)
+            : 1.0f;
     perRayData.energy = energy + static_cast<SurfaceMaterial *>(sbtData.material)->material_properties.emission *
                                      albedoColor * emissionIndirectScale;
 
@@ -237,16 +239,12 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
 
 static __forceinline__ __device__ void MissFunc(const RayTracerProperties &rayTracerProperties) {
   PerRayData<glm::vec3> &perRayData = *GetRayDataPointer<PerRayData<glm::vec3>>();
+  perRayData.visibility = 1.f;
   const float3 rayDir = optixGetWorldRayDirection();
   float3 rayOrigin = optixGetWorldRayOrigin();
   glm::vec3 rayOrig = glm::vec3(rayOrigin.x, rayOrigin.y, rayOrigin.z);
   glm::vec3 rayDirection = glm::vec3(rayDir.x, rayDir.y, rayDir.z);
   auto &environment = rayTracerProperties.environment;
-  const bool primaryBackground = perRayData.primary_background_visible && perRayData.hit_count == 0u;
-  glm::vec3 environmentalLightColor =
-      primaryBackground
-          ? CalculateEnvironmentSourceRadiance(rayOrig, rayDirection, environment)
-          : CalculateEnvironmentalLight(rayOrig, rayDirection, environment, perRayData.diffuse_indirect_path);
-  perRayData.albedo = perRayData.energy = environmentalLightColor;
+  perRayData.albedo = perRayData.energy = CalculateEnvironmentSourceRadiance(rayOrig, rayDirection, environment);
 }
 }  // namespace evo_engine

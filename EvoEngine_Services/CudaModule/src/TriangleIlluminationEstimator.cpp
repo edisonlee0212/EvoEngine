@@ -8,6 +8,8 @@
 #include "ProjectManager.hpp"
 #include "RayTracerLayer.hpp"
 #include "Scene.hpp"
+
+#include <cctype>
 using namespace evo_engine;
 
 void ColorDescendentsVertices(const std::shared_ptr<Scene>& scene, const Entity& owner,
@@ -121,8 +123,8 @@ bool TriangleIlluminationEstimator::DrawGui(const std::shared_ptr<EditorLayer>& 
   }
 
   ImGui::Text("%s", ("Surface area: " + std::to_string(total_area)).c_str());
-  ImGui::Text("%s", ("Total energy: " + std::to_string(glm::length(total_flux))).c_str());
-  ImGui::Text("%s", ("Radiant flux: " + std::to_string(glm::length(average_flux))).c_str());
+  ImGui::Text("%s", ("Total incident flux: " + std::to_string(glm::length(total_flux))).c_str());
+  ImGui::Text("%s", ("Face-mean irradiance: " + std::to_string(glm::length(average_flux))).c_str());
 
   return changed;
 }
@@ -131,19 +133,43 @@ const LightProbeGroup& TriangleIlluminationEstimator::PeekProbes() const {
   return light_probe_group_;
 }
 
+const std::map<std::string, SurfaceIlluminationResult>& TriangleIlluminationEstimator::PeekMeshIllumination() const {
+  return mesh_illumination_;
+}
+
 void TriangleIlluminationEstimator::SampleLightProbeGroup(const RayProperties& ray_properties, int seed,
                                                           float push_normal_distance) {
   light_probe_group_.CalculateIllumination(ray_properties, seed, push_normal_distance);
   total_flux = glm::vec3(0.0f);
-  for (const auto& probe : light_probe_group_.light_probes) {
-    total_flux += probe.energy * probe.GetArea();
+  average_flux = glm::vec3(0.0f);
+  for (auto& [name, result] : mesh_illumination_) {
+    result.total_flux = glm::vec3(0.0f);
+    result.average_flux = glm::vec3(0.0f);
   }
-  average_flux = total_flux / total_area;
+  // Reuse the sampled probes for every mesh group, so organ reporting adds no extra rays.
+  for (size_t index = 0; index < light_probe_group_.light_probes.size(); ++index) {
+    const auto& probe = light_probe_group_.light_probes[index];
+    const auto weighted_average = probe.energy * probe.GetArea();
+    // energy averages all enabled faces; recover their sum without doubling geometric area.
+    const float face_count = static_cast<float>(probe.front_face) + static_cast<float>(probe.back_face);
+    const auto incident_flux = weighted_average * face_count;
+    total_flux += incident_flux;
+    average_flux += weighted_average;
+    auto& mesh_result = mesh_illumination_.at(probe_entity_names_[index]);
+    mesh_result.total_flux += incident_flux;
+    mesh_result.average_flux += weighted_average;
+  }
+  average_flux = total_area > 0.0f ? average_flux / total_area : glm::vec3(0.0f);
+  for (auto& [name, result] : mesh_illumination_)
+    result.average_flux = result.total_area > 0.0f ? result.average_flux / result.total_area : glm::vec3(0.0f);
 }
 
-void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
+void TriangleIlluminationEstimator::PrepareLightProbeGroup(
+    const std::unordered_set<std::string>& double_sided_entity_names) {
   total_area = 0.0f;
   light_probe_group_.light_probes.clear();
+  probe_entity_names_.clear();
+  mesh_illumination_.clear();
   const auto scene = GetScene();
   auto entities = scene->GetDescendants(GetOwner());
   entities.push_back(GetOwner());
@@ -155,6 +181,12 @@ void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
       const auto material = mesh_renderer->material.Get<Material>();
       if (!mesh || !material)
         continue;
+      auto entity_name = scene->GetEntityName(entity);
+      std::transform(entity_name.begin(), entity_name.end(), entity_name.begin(), [](const unsigned char value) {
+        return static_cast<char>(std::tolower(value));
+      });
+      const bool force_named_sides = !double_sided_entity_names.empty();
+      const bool sample_both_faces = double_sided_entity_names.find(entity_name) != double_sided_entity_names.end();
       for (const auto& triangle : mesh->UnsafeGetTriangles()) {
         auto& vertices = mesh->UnsafeGetVertices();
         IlluminationSampler<glm::vec3> light_probe;
@@ -168,12 +200,22 @@ void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
         light_probe.v_1.normal = global_transform.value * glm::vec4(light_probe.v_1.normal, 0.0f);
         light_probe.v_2.normal = global_transform.value * glm::vec4(light_probe.v_2.normal, 0.0f);
         auto area = light_probe.GetArea();
+        probe_entity_names_.push_back(entity_name);
+        auto& mesh_result = mesh_illumination_[entity_name];
         light_probe.direction = glm::vec3(0.0f);
         light_probe.energy = glm::vec3(0.0f);
+        if (force_named_sides) {
+          light_probe.front_face = true;
+          light_probe.back_face = sample_both_faces;
+          total_area += area;
+          mesh_result.total_area += area;
+          light_probe_group_.light_probes.push_back(light_probe);
+          continue;
+        }
         switch (material->draw_settings.cull_mode) {
           case VK_CULL_MODE_NONE: {
             light_probe.front_face = light_probe.back_face = true;
-            total_area += 2.0f * area;
+            total_area += area;
           } break;
           case VK_CULL_MODE_FRONT_BIT: {
             light_probe.back_face = true;
@@ -189,6 +231,8 @@ void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
             light_probe.front_face = light_probe.back_face = false;
           } break;
         }
+        if (light_probe.front_face || light_probe.back_face)
+          mesh_result.total_area += area;
         light_probe_group_.light_probes.push_back(light_probe);
       }
     }

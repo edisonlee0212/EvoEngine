@@ -32,6 +32,9 @@ class SorghumLSDescriptor : public evo_engine::IAsset, public ILSystemExplorable
   // ===== Culm topology =====
   evo_engine::SingleDistribution<float> total_phytomer_count{14.0f};
   evo_engine::SingleDistribution<float> phyllotaxis_angle{180.0f};  ///< distichous
+  bool randomize_initial_leaf_azimuth = true;
+  float initial_leaf_azimuth_degrees = 0.0f;
+  float initial_leaf_azimuth_range_degrees = 360.0f;
   evo_engine::SingleDistribution<float> branch_azimuth_offset{0.0f};
   evo_engine::SingleDistribution<float> main_culm_lean_angle{0.0f};
 

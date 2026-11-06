@@ -55,6 +55,26 @@ python EvoEngine_Packages\build_package.py EcoSysLab --config RelWithDebInfo --s
 python EvoEngine_Packages\build_package.py DigitalAgriculture --config Debug --skip-configure
 ```
 
+## Visual Studio Scene Preview
+
+For this checkout's standalone DigitalAgriculture app, select `x64-RelWithDebInfo` and the
+`DigitalAgricultureApp.exe` startup target, not a package DLL. Use **Debug > Start Without Debugging**
+(`Ctrl+F5`) for routine scene previews; use `F5` when breakpoints are needed. This separates debugger
+overhead from rendering performance, but does not disable graphics validation in the build.
+
+To open a soybean scene directly instead of first loading the default GrowthStage03 sorghum scene,
+add these arguments to the existing app configuration in `.vs/launch.vs.json`:
+
+```json
+"args": ["--startup-scene", "GeneratedAssets/Scenes/Soybean_Narrow_4x10.evescene"]
+```
+
+The scene path is relative to the project's `Assets` directory. The corresponding build-tree executable is
+`out/build/vs2026-x64/EvoEngine_App/RelWithDebInfo/DigitalAgricultureApp.exe`; its containing directory
+can be used as the working directory. This launch override does not modify the saved project or scene.
+See Microsoft's [CMake debugging settings](https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions)
+for configuring `launch.vs.json`.
+
 ## Linux Requirements
 
 - `clang-14`

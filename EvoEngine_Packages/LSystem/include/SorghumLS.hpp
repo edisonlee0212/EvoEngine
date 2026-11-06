@@ -125,6 +125,7 @@ class SorghumLS final : public LSystemComponentBase<SorghumLS> {
   void PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeometrySnapshot>& snapshot,
                                bool update_render_geometry = true, bool preserve_existing_geometry = false);
   std::size_t FlushGeometryUpdates() const;
+  [[nodiscard]] std::size_t CountPendingGeometryUpdates() const;
   void RebuildGeometry();
   void ClearGeometryEntities() const;
   [[nodiscard]] const std::shared_ptr<const SorghumGeometrySnapshot>& GetGeometrySnapshot() const;

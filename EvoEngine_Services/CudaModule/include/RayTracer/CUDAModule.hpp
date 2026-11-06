@@ -47,7 +47,8 @@ class CudaModule {
   static void EstimateIlluminationRayTracing(const EnvironmentProperties &environmentProperties,
                                              const RayProperties &rayProperties,
                                              std::vector<IlluminationSampler<glm::vec3>> &lightProbes, unsigned seed,
-                                             float pushNormalDistance);
+                                             float pushNormalDistance, const VolumetricCloudSettings& clouds = {},
+                                             std::vector<glm::vec3>* direct_sun = nullptr);
 
   static void SamplePointCloud(const EnvironmentProperties &environmentProperties,
                                std::vector<PointCloudSample> &samples);

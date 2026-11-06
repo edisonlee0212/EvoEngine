@@ -63,16 +63,27 @@ void CudaModule::Terminate() {
 void CudaModule::EstimateIlluminationRayTracing(const EnvironmentProperties& environmentProperties,
                                                 const RayProperties& rayProperties,
                                                 std::vector<IlluminationSampler<glm::vec3>>& lightProbes, unsigned seed,
-                                                float pushNormalDistance) {
+                                                float pushNormalDistance, const VolumetricCloudSettings& clouds,
+                                                std::vector<glm::vec3>* direct_sun) {
   auto& cudaModule = GetInstance();
 #pragma region Prepare light probes
   size_t size = lightProbes.size();
+  if (direct_sun)
+    direct_sun->assign(size, glm::vec3(0.f));
+  if (!size)
+    return;
   CudaBuffer deviceLightProbes;
   deviceLightProbes.Upload(lightProbes);
+  CudaBuffer device_direct;
+  if (direct_sun)
+    device_direct.Upload(*direct_sun);
 #pragma endregion
   cudaModule.ray_tracer_->EstimateIllumination(size, environmentProperties, rayProperties, deviceLightProbes, seed,
-                                               pushNormalDistance);
+                                               pushNormalDistance, clouds, static_cast<glm::vec3*>(device_direct.d_ptr));
   deviceLightProbes.Download(lightProbes.data(), size);
+  if (direct_sun)
+    device_direct.Download(direct_sun->data(), size);
+  device_direct.Free();
   deviceLightProbes.Free();
 }
 

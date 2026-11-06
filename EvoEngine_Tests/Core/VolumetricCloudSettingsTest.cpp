@@ -1,7 +1,8 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include "DdgiSettings.hpp"
-#include "VolumetricCloudSettings.hpp"
+#include "VolumetricCloudNoise.hpp"
+#include "VolumetricCloudPresets.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -68,8 +69,45 @@ void ExpectDefaultVolumetricCloudSettings(const VolumetricCloudSettings& setting
 }
 }  // namespace
 
+TEST(VolumetricCloudSettings, NoiseTexturesMatchTheOptixSamplerDimensions) {
+  const auto noise = BuildVolumetricCloudNoise();
+  for (size_t i = 0; i < noise.size(); ++i) {
+    const auto& texture = noise[i];
+    const size_t width = texture.width;
+    ASSERT_GT(width, 1u);
+    EXPECT_EQ(texture.volume, i < 2);
+    ASSERT_EQ(texture.rgba.size(), width * width * (texture.volume ? width : 1) * 4);
+    bool varies = false;
+    for (size_t j = 4; j < texture.rgba.size(); j += 4)
+      varies |= texture.rgba[j] != texture.rgba[0];
+    EXPECT_TRUE(varies) << "Constant red channel for cloud sampler " << i;
+  }
+}
+
 TEST(VolumetricCloudSettings, DefaultsAreDisabledWhileUnowned) {
   ExpectDefaultVolumetricCloudSettings(VolumetricCloudSettings{});
+}
+
+TEST(VolumetricCloudSettings, BroadBankEnlargesFeaturesAndScatteredRestoresFormationDefaults) {
+  VolumetricCloudSettings settings, defaults;
+  settings.bottom_altitude = 42.0f;
+  settings.wind_speed = 3.0f;
+  settings.resolution_divisor = 4;
+  ApplyCloudFormation(settings, CloudFormation::BroadBank);
+  settings.ClampSettings();
+  EXPECT_LT(settings.base_noise_scale, defaults.base_noise_scale / 20.0f);
+  EXPECT_LT(settings.detail_noise_scale, defaults.detail_noise_scale / 10.0f);
+  EXPECT_GT(settings.coverage, defaults.coverage);
+  EXPECT_GT(settings.density, defaults.density);
+  EXPECT_GT(settings.extinction_scale, defaults.extinction_scale);
+  ApplyCloudFormation(settings, CloudFormation::Scattered);
+  EXPECT_FLOAT_EQ(settings.bottom_altitude, 42.0f);
+  EXPECT_FLOAT_EQ(settings.wind_speed, 3.0f);
+  EXPECT_EQ(settings.resolution_divisor, 4);
+  settings.bottom_altitude = defaults.bottom_altitude;
+  settings.wind_speed = defaults.wind_speed;
+  settings.resolution_divisor = defaults.resolution_divisor;
+  ExpectDefaultVolumetricCloudSettings(settings);
 }
 
 TEST(VolumetricCloudSettings, ClampSettingsKeepsValuesSupported) {
@@ -156,7 +194,9 @@ TEST(VolumetricCloudSettings, CloudSettingsRemainImplementedButSceneUnowned) {
 
   EXPECT_EQ(scene_header.find("Scene::Environment"), std::string::npos);
   EXPECT_EQ(scene_header.find("VolumetricCloudSettings"), std::string::npos);
-  EXPECT_EQ(scene_source.find("\"environment\""), std::string::npos);
+  const auto scene_writer = ExtractBetween(scene_source, "void evo_engine::SerializeScene(",
+                                           "void evo_engine::DeserializeScene(");
+  EXPECT_EQ(scene_writer.find("\"environment\""), std::string::npos);
   EXPECT_EQ(scene_source.find("volumetric_cloud_settings"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("scene->environment."), std::string::npos);
   EXPECT_NE(render_layer_source.find("VolumetricCloudSettings volumetric_cloud_settings{}"), std::string::npos);

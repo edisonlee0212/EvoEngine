@@ -59,6 +59,7 @@ class SorghumGrowthModel : public LSystemGrowthModelBase<SorghumGrowthModel, Sor
 
   // -- Plant-specific public state --
   SampledSorghumParams sampled;
+  float initial_leaf_azimuth_degrees = 0.0f;
 };
 
 }  // namespace l_system_package

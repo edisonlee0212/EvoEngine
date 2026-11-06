@@ -29,6 +29,7 @@
 #include "PointCloudScanner.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "PrefabField.hpp"
 #include "ProceduralNoise.hpp"
 #include "ProceduralNoiseGenerators.hpp"
 #include "ProceduralNoiseOperators.hpp"
@@ -3681,6 +3682,53 @@ bool InspectWayPoints(InspectorContext& context, WayPoints& way_points) {
   return changed;
 }
 
+bool InspectPrefabField(InspectorContext&, PrefabField& field) {
+  bool changed = false;
+
+  std::array<char, 512> folder_buffer{};
+  const auto folder = field.asset_folder.generic_string();
+  const auto displayed_folder = folder.substr(0, folder_buffer.size() - 1);
+  std::copy(displayed_folder.begin(), displayed_folder.end(), folder_buffer.begin());
+  if (ImGui::InputText("Asset folder (relative to Assets)", folder_buffer.data(), folder_buffer.size())) {
+    field.asset_folder = folder_buffer.data();
+    changed = true;
+  }
+
+  changed = ImGui::DragInt("Rows", &field.rows, 1.0f, 1, 10000) || changed;
+  changed = ImGui::DragInt("Columns", &field.columns, 1.0f, 1, 10000) || changed;
+  changed = ImGui::DragFloat2("Spacing (column, row)", &field.spacing.x, 0.01f, 0.0f, 1000.0f) || changed;
+  int seed = static_cast<int>(field.seed);
+  if (ImGui::DragInt("Seed", &seed, 1.0f, 0)) {
+    field.seed = static_cast<uint32_t>(std::max(seed, 0));
+    changed = true;
+  }
+  changed = ImGui::DragFloat3("Model rotation (degrees)", &field.model_rotation_degrees.x, 0.5f) || changed;
+  changed = ImGui::DragFloat3("Model scale", &field.model_scale.x, 0.01f, 0.0001f, 1000.0f) || changed;
+  changed = ImGui::DragFloat("Random yaw (+/- degrees)", &field.random_yaw_degrees, 0.5f, 0.0f, 180.0f) || changed;
+  changed = ImGui::Checkbox("Scan subfolders", &field.recursive) || changed;
+
+  if (ImGui::SliderFloat("Measurement ROI (each dimension)", &field.illumination_roi, 0.01f, 1.0f, "%.3f")) {
+    field.last_illumination = {};
+    changed = true;
+  }
+  const auto region = field.GetMeasurementRegion();
+  ImGui::Text("Measurement: %d x %d plants, starting at row %d, column %d", region.rows, region.columns,
+              region.row_start, region.column_start);
+  ImGui::TextUnformatted("Outer plants remain in the scene for occlusion and reflection.");
+
+  const auto asset_count = field.CollectAssetPaths().size();
+  ImGui::Text("Models found: %zu", asset_count);
+  ImGui::Text("Generated models: %zu", field.GetGeneratedEntities().size());
+  if (ImGui::Button("Generate / replace field")) {
+    (void)field.GenerateField();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Clear field")) {
+    field.ClearField();
+  }
+  return changed;
+}
+
 void RenderMeshRendererBound(const std::shared_ptr<EditorLayer>& editor_layer, MeshRenderer& renderer,
                              const glm::vec4& color) {
   const auto mesh = renderer.mesh.Get<Mesh>();
@@ -4340,6 +4388,10 @@ bool evo_engine::DrawSettingsGui(DrawSettings& draw_settings) {
   return InspectDrawSettings(draw_settings);
 }
 
+bool evo_engine::DrawPrefabFieldGui(InspectorContext& context, PrefabField& field) {
+  return InspectPrefabField(context, field);
+}
+
 void evo_engine::RegisterWayPointsHandlers() {
   InspectorRegistry::GetInstance().RegisterInspector<WayPoints>(InspectWayPoints, {}, "WayPoints");
 }
@@ -4371,6 +4423,7 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<PointCloudScanner>(InspectPointCloudScanner, {},
                                                                         "PointCloudScanner");
   InspectorRegistry::GetInstance().RegisterInspector<Prefab>(InspectPrefab, {}, "Prefab");
+  InspectorRegistry::GetInstance().RegisterInspector<PrefabField>(DrawPrefabFieldGui, {}, "PrefabField");
   InspectorRegistry::GetInstance().RegisterInspector<PostProcessingStack>(InspectPostProcessingStack, {},
                                                                           "PostProcessingStack");
   InspectorRegistry::GetInstance().RegisterInspector<pn::ProceduralNoise2D>(InspectProceduralNoise2D, {},

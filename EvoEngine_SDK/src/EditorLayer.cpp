@@ -1192,6 +1192,7 @@ void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& doc
   const ImGuiID bottom_node = ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Down, 0.30f, nullptr, &center_node);
 
   ImGui::DockBuilderDockWindow("Scene", center_node);
+  ImGui::DockBuilderDockWindow("Scene (RT)", center_node);
   ImGui::DockBuilderDockWindow("Camera", center_node);
   ImGui::DockBuilderDockWindow("Plant Visual", center_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
@@ -1204,8 +1205,8 @@ void BuildDefaultEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& doc
   ImGui::DockBuilderFinish(dock_space_id);
 }
 
-void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size,
-                                 const EditorDockLayoutSettings& settings) {
+ImGuiID BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock_size,
+                                    const EditorDockLayoutSettings& settings) {
   ImGui::DockBuilderRemoveNode(dock_space_id);
   ImGui::DockBuilderAddNode(dock_space_id, ImGuiDockNodeFlags_DockSpace);
   ImGui::DockBuilderSetNodeSize(dock_space_id, dock_size);
@@ -1215,6 +1216,11 @@ void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock
       ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Left, settings.left_fraction, nullptr, &center_node);
   ImGuiID right_node =
       ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, settings.right_fraction, nullptr, &center_node);
+  const ImGuiID asset_inspector_node =
+      settings.asset_inspector_fraction
+          ? ImGui::DockBuilderSplitNode(right_node, ImGuiDir_Down, *settings.asset_inspector_fraction, nullptr,
+                                        &right_node)
+          : 0;
   const ImGuiID bottom_node =
       ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Down, settings.bottom_fraction, nullptr, &center_node);
   const ImGuiID camera_node =
@@ -1228,6 +1234,7 @@ void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock
           : center_node;
 
   ImGui::DockBuilderDockWindow("Scene", center_node);
+  ImGui::DockBuilderDockWindow("Scene (RT)", center_node);
   ImGui::DockBuilderDockWindow("Camera", camera_node);
   ImGui::DockBuilderDockWindow("Plant Visual", plant_visual_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
@@ -1236,6 +1243,7 @@ void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock
   ImGui::DockBuilderDockWindow("Project", bottom_node);
   ImGui::DockBuilderDockWindow("Console", bottom_node);
   ImGui::DockBuilderFinish(dock_space_id);
+  return asset_inspector_node;
 }
 
 ImVec2 ResolveFloatingWindowPosition(const EditorFloatingWindowLayout& layout) {
@@ -1992,6 +2000,10 @@ void EditorLayer::DrawAssetInspectorWindows() {
       ImGui::SetNextWindowPos(ResolveFloatingWindowPosition(window_layout), ImGuiCond_Always);
       ImGui::SetNextWindowSize(ImVec2(window_layout.size.x, window_layout.size.y), ImGuiCond_Always);
       asset_inspector_window_layout_pending_ = false;
+    }
+    if (asset_inspector_dock_id_ != 0 && inspecting_assets_[i].dock_requested) {
+      ImGui::SetNextWindowDockID(asset_inspector_dock_id_, ImGuiCond_Always);
+      inspecting_assets_[i].dock_requested = false;
     }
 
     const auto window_title =
@@ -4612,6 +4624,7 @@ void EditorLayer::RequestDefaultEditorLayout() {
   editor_panel_manager_.ResetPanelOpenStatesToDefaults();
   custom_layout_settings_.reset();
   asset_inspector_window_layout_pending_ = false;
+  asset_inspector_dock_id_ = 0;
   runtime_package_manager_layout_pending_ = false;
   dock_layout_reset_pending_ = true;
 }
@@ -4653,6 +4666,10 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
 
   custom_layout_settings_ = settings;
   asset_inspector_window_layout_pending_ = settings.asset_inspector_window.has_value();
+  asset_inspector_dock_id_ = 0;
+  for (auto& inspector : inspecting_assets_) {
+    inspector.dock_requested = true;
+  }
   runtime_package_manager_layout_pending_ = settings.runtime_package_manager.has_value();
   dock_layout_reset_pending_ = true;
 }
@@ -4715,9 +4732,11 @@ void EditorLayer::DrawDockspace(const float top_offset) {
   const ImVec2 dock_size = ImGui::GetContentRegionAvail();
   if (dock_layout_reset_pending_ && dock_size.x > 1.0f && dock_size.y > 1.0f) {
     if (custom_layout_settings_ && custom_layout_settings_->dock_layout) {
-      BuildCustomEditorDockLayout(dock_space_id, dock_size, *custom_layout_settings_->dock_layout);
+      const auto& settings = *custom_layout_settings_->dock_layout;
+      asset_inspector_dock_id_ = BuildCustomEditorDockLayout(dock_space_id, dock_size, settings);
     } else {
       BuildDefaultEditorDockLayout(dock_space_id, dock_size);
+      asset_inspector_dock_id_ = 0;
     }
     dock_layout_reset_pending_ = false;
     ImGui::MarkIniSettingsDirty();

@@ -107,16 +107,17 @@ class GraphicsInitializationSettings {
 struct ApplicationInitializationSettings {
   ApplicationMode application_mode = ApplicationMode::Editor; /**< The runtime mode for layer setup and startup. */
   std::filesystem::path project_path;                         /**< The path to the application's project. */
-  std::string application_name = "Evo Engine";                /**< The name of the application. */
-  std::vector<std::filesystem::path> icon_paths;              /**< Paths to application icons. */
-  glm::ivec2 default_window_size = {1920, 1080};              /**< The default size of the application window. */
-  bool allow_empty_project = false;  /**< Whether initialization may proceed without a project path. */
-  bool enable_docking = true;        /**< Whether to enable docking in the application. */
-  bool enable_viewport = true;       /**< Whether to enable the viewport feature. */
-  bool full_screen = false;          /**< Whether the application starts in full-screen mode. */
-  bool use_custom_title_bar = false; /**< Whether supported platforms should use app-rendered chrome. */
-  bool window_resizable = true;      /**< Whether the application window can be resized by the user. */
-  bool hide_console_window = true;   /**< Whether to hide an owned OS console window on supported platforms. */
+  std::filesystem::path startup_scene_path;      /**< Optional project-assets-relative startup scene override. */
+  std::string application_name = "Evo Engine";   /**< The name of the application. */
+  std::vector<std::filesystem::path> icon_paths; /**< Paths to application icons. */
+  glm::ivec2 default_window_size = {1920, 1080}; /**< The default size of the application window. */
+  bool allow_empty_project = false;              /**< Whether initialization may proceed without a project path. */
+  bool enable_docking = true;                    /**< Whether to enable docking in the application. */
+  bool enable_viewport = true;                   /**< Whether to enable the viewport feature. */
+  bool full_screen = false;                      /**< Whether the application starts in full-screen mode. */
+  bool use_custom_title_bar = false;             /**< Whether supported platforms should use app-rendered chrome. */
+  bool window_resizable = true;                  /**< Whether the application window can be resized by the user. */
+  bool hide_console_window = true; /**< Whether to hide an owned OS console window on supported platforms. */
   bool redirect_standard_streams_to_console =
       true;                                  /**< Whether C++ stdout/stderr should be mirrored to Evo's console. */
   bool load_default_resources = true;        /**< Whether to load built-in default rendering resources. */

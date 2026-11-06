@@ -188,12 +188,5 @@ static __forceinline__ __device__ glm::vec3 CalculateEnvironmentSourceRadiance(
   return glm::max(glm::vec3(0.0f), environmentalLightColor);
 }
 
-static __forceinline__ __device__ glm::vec3 CalculateEnvironmentalLight(const glm::vec3 &position,
-                                                                        const glm::vec3 &rayDir,
-                                                                        const EnvironmentProperties &environment,
-                                                                        const bool diffuseIndirectPath) {
-  return CalculateEnvironmentSourceRadiance(position, rayDir, environment);
-}
-
 #pragma endregion
 }  // namespace evo_engine

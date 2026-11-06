@@ -50,6 +50,7 @@ struct EditorDockLayoutSettings {
   float bottom_fraction = 0.30f;
   std::optional<float> camera_fraction;
   std::optional<float> plant_visual_fraction;
+  std::optional<float> asset_inspector_fraction;
 };
 
 struct EditorPanelVisibilitySettings {
@@ -902,6 +903,7 @@ class EditorLayer : public ILayer {
     std::shared_ptr<IAsset> asset;
     bool open = true;
     bool focus_requested = true;
+    bool dock_requested = true;
   };
 
   std::vector<AssetInspectorWindow> inspecting_assets_;
@@ -1051,6 +1053,7 @@ class EditorLayer : public ILayer {
   bool dock_layout_reset_pending_ = false;
   std::optional<EditorLayoutSettings> custom_layout_settings_;
   bool asset_inspector_window_layout_pending_ = false;
+  ImGuiID asset_inspector_dock_id_ = 0;
   bool runtime_package_manager_layout_pending_ = false;
   std::optional<glm::uvec2> scene_camera_preview_window_size_;
   std::string pending_imgui_ini_settings_;

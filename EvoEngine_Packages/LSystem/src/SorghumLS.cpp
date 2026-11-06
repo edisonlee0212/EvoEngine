@@ -1044,6 +1044,10 @@ std::size_t SorghumLS::FlushGeometryUpdates() const {
   return render_target_ ? render_target_->FlushPending() : 0;
 }
 
+std::size_t SorghumLS::CountPendingGeometryUpdates() const {
+  return render_target_ ? render_target_->CountPending() : 0;
+}
+
 void SorghumLS::RebuildGeometry() {
   PublishGeometrySnapshot(BuildGeometrySnapshot());
 }

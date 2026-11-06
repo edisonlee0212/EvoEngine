@@ -1,5 +1,6 @@
 #include "PyDigitalAgriculture.hpp"
 #include "Serialization.hpp"
+#include "EcoSysLabSerializationAdapters.hpp"
 
 #ifdef DATASET_GENERATION_PACKAGE
 #  include "DatasetGenerationSerializationAdapters.hpp"
@@ -8,26 +9,14 @@
 #ifdef DIGITAL_AGRICULTURE_PACKAGE
 namespace py = pybind11;
 using namespace py_digital_agriculture_package;
-namespace {
-template <typename T>
-void RegisterSerializationHandler(const std::string& type_name) {
-  Serialization::RegisterSerializationHandler<T>(
-      [](YAML::Emitter& out, const T& target) {
-        target.Serialize(out);
-      },
-      [](const YAML::Node& in, T& target) {
-        target.Deserialize(in);
-      },
-      {}, type_name);
-}
-}  // namespace
 void PyDigitalAgriculture::PushSorghumLayer() {
   ApplicationContext::Get().PushLayer<SorghumLayer>("Sorghum Layer");
 }
 void PyDigitalAgriculture::RegisterClasses() {
   auto& application = PyEvoEngine::GetRuntime().GetApplication();
   application.RegisterPrivateComponent<ObjectRotator>("ObjectRotator");
-  RegisterSerializationHandler<ObjectRotator>("ObjectRotator");
+  Serialization::RegisterSerializationHandler<ObjectRotator>(SerializeObjectRotator, DeserializeObjectRotator, {},
+                                                             "ObjectRotator");
 #  ifdef DATASET_GENERATION_PACKAGE
   application.RegisterPrivateComponent<SorghumPointCloudScanner>("SorghumPointCloudScanner");
   Serialization::RegisterSerializationHandler<SorghumPointCloudScanner>(
@@ -78,6 +67,10 @@ void PyDigitalAgriculture::ApplySorghumGrid(const Handle& sorghum_field_handle, 
 }
 void PyDigitalAgriculture::Initialize(pybind11::module& m) {
   PyEvoEngine::Initialize(m);
+  PyEvoEngine::RegisterFieldIlluminationBindings(m);
+#if defined(LSYSTEM_PACKAGE) && defined(CUDA_MODULE_SERVICE)
+  RegisterSorghumFieldBindings(m);
+#endif
   m.def("RegisterClasses", &RegisterClasses);
   m.def("PushSorghumLayer", &PushSorghumLayer);
   m.def("CreateEntityFromSorghumState", &CreateEntityFromSorghumState);

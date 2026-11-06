@@ -35,6 +35,7 @@
 #include "PointCloudScanner.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "PrefabField.hpp"
 #include "PrivateComponentRef.hpp"
 #include "ProceduralNoise.hpp"
 #include "Profiler.hpp"
@@ -1963,6 +1964,54 @@ void DeserializePlayerController(const YAML::Node& in, PlayerController& control
     controller.RefSceneCameraPitchAngle() = in["scene_camera_pitch_angle_"].as<float>();
 }
 
+void SerializePrefabField(YAML::Emitter& out, const PrefabField& field) {
+  out << YAML::Key << "asset_folder" << YAML::Value << field.asset_folder.generic_string();
+  out << YAML::Key << "rows" << YAML::Value << field.rows;
+  out << YAML::Key << "columns" << YAML::Value << field.columns;
+  out << YAML::Key << "spacing" << YAML::Value << field.spacing;
+  out << YAML::Key << "seed" << YAML::Value << field.seed;
+  out << YAML::Key << "model_rotation_degrees" << YAML::Value << field.model_rotation_degrees;
+  out << YAML::Key << "model_scale" << YAML::Value << field.model_scale;
+  out << YAML::Key << "random_yaw_degrees" << YAML::Value << field.random_yaw_degrees;
+  out << YAML::Key << "recursive" << YAML::Value << field.recursive;
+  out << YAML::Key << "illumination_roi" << YAML::Value << field.illumination_roi;
+  out << YAML::Key << "illumination_samples" << YAML::Value << field.illumination_settings.samples;
+  out << YAML::Key << "illumination_bounces" << YAML::Value << field.illumination_settings.bounces;
+  out << YAML::Key << "illumination_seed" << YAML::Value << field.illumination_settings.seed;
+  out << YAML::Key << "illumination_push_normal_distance" << YAML::Value
+      << field.illumination_settings.push_normal_distance;
+}
+
+void DeserializePrefabField(const YAML::Node& in, PrefabField& field) {
+  field.illumination_roi = in["illumination_roi"] ? in["illumination_roi"].as<float>() : 1.0f;
+  if (in["asset_folder"])
+    field.asset_folder = in["asset_folder"].as<std::string>();
+  if (in["rows"])
+    field.rows = in["rows"].as<int>();
+  if (in["columns"])
+    field.columns = in["columns"].as<int>();
+  if (in["spacing"])
+    field.spacing = in["spacing"].as<glm::vec2>();
+  if (in["seed"])
+    field.seed = in["seed"].as<uint32_t>();
+  if (in["model_rotation_degrees"])
+    field.model_rotation_degrees = in["model_rotation_degrees"].as<glm::vec3>();
+  if (in["model_scale"])
+    field.model_scale = in["model_scale"].as<glm::vec3>();
+  if (in["random_yaw_degrees"])
+    field.random_yaw_degrees = in["random_yaw_degrees"].as<float>();
+  if (in["recursive"])
+    field.recursive = in["recursive"].as<bool>();
+  if (in["illumination_samples"])
+    field.illumination_settings.samples = in["illumination_samples"].as<int>();
+  if (in["illumination_bounces"])
+    field.illumination_settings.bounces = in["illumination_bounces"].as<int>();
+  if (in["illumination_seed"])
+    field.illumination_settings.seed = in["illumination_seed"].as<int>();
+  if (in["illumination_push_normal_distance"])
+    field.illumination_settings.push_normal_distance = in["illumination_push_normal_distance"].as<float>();
+}
+
 void SerializeLodGroup(YAML::Emitter& out, const LodGroup& group) {
   out << YAML::Key << "override_lod_factor" << YAML::Value << group.override_lod_factor;
   out << YAML::Key << "lod_factor" << YAML::Value << group.lod_factor;
@@ -2148,6 +2197,8 @@ void RegisterBuiltInSerializationHandlers() {
                                                                  DeserializePointCloudScanner, {}, "PointCloudScanner");
   Serialization::RegisterSerializationHandler<PlayerController>(SerializePlayerController, DeserializePlayerController,
                                                                 {}, "PlayerController");
+  Serialization::RegisterSerializationHandler<PrefabField>(SerializePrefabField, DeserializePrefabField, {},
+                                                           "PrefabField");
   Serialization::RegisterSerializationHandler<LodGroup>(SerializeLodGroup, DeserializeLodGroup, {}, "LodGroup");
   Serialization::RegisterSerializationHandler<UnknownPrivateComponent>(
       SerializeUnknownPrivateComponent, DeserializeUnknownPrivateComponent, {}, "UnknownPrivateComponent");
@@ -2474,6 +2525,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<SpotLight>("SpotLight");
   RegisterPrivateComponent<DirectionalLight>("DirectionalLight");
   RegisterPrivateComponent<WayPoints>("WayPoints");
+  RegisterPrivateComponent<PrefabField>("PrefabField");
   RegisterWayPointsHandlers();
   RegisterPrivateComponent<LodGroup>("LodGroup");
   RegisterPrivateComponent<PointCloudScanner>("PointCloudScanner");

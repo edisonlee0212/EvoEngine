@@ -36,6 +36,7 @@
 #include "PointCloudScanner.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "PrefabField.hpp"
 #include "ProceduralNoise.hpp"
 #include "ProjectManager.hpp"
 #include "RenderInstanceStorage.hpp"
@@ -615,6 +616,37 @@ TEST(SerializationRegistry, RegisteredTypesDoNotInstallDefaultSerializationHandl
   Serialization::DeserializeObject(YAML::Load("{value: 20}"), static_cast<ISystem&>(system));
   EXPECT_EQ(system.deserialize_count, 0);
   EXPECT_EQ(system.value, 10);
+}
+
+TEST(SerializationRegistry, PrefabFieldRoiRoundTripsAndLegacyDataDefaultsToFullField) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  PrefabField field;
+  field.rows = 8;
+  field.columns = 20;
+  field.illumination_roi = 0.5f;
+  field.illumination_settings = {256, 2, 101, 0.0001f};
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  Serialization::SerializeObject(out, static_cast<IPrivateComponent&>(field));
+  out << YAML::EndMap;
+  const auto node = YAML::Load(out.c_str());
+  ASSERT_TRUE(node["illumination_roi"]);
+  EXPECT_FLOAT_EQ(node["illumination_roi"].as<float>(), 0.5f);
+
+  PrefabField restored;
+  Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
+  EXPECT_FLOAT_EQ(restored.illumination_roi, 0.5f);
+  EXPECT_EQ(restored.GetMeasurementRegion().rows, 4);
+  EXPECT_EQ(restored.GetMeasurementRegion().columns, 10);
+  EXPECT_EQ(restored.illumination_settings.samples, 256);
+  EXPECT_EQ(restored.illumination_settings.bounces, 2);
+  EXPECT_EQ(restored.illumination_settings.seed, 101);
+  Serialization::DeserializeObject(YAML::Load("{rows: 4, columns: 10}"), static_cast<IPrivateComponent&>(restored));
+  EXPECT_FLOAT_EQ(restored.illumination_roi, 1.0f);
+  EXPECT_EQ(restored.GetMeasurementRegion().rows, 4);
+  EXPECT_EQ(restored.GetMeasurementRegion().columns, 10);
 }
 
 TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSerializationHandlers) {

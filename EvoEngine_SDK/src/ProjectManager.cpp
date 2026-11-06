@@ -662,13 +662,18 @@ void ProjectManager::SetupDefaultScene() {
     string_stream << stream.rdbuf();
     YAML::Node in = YAML::Load(string_stream.str());
     LogLoadingDuration("Project manifest read", project_file_read_start, project_absolute_path.filename().string());
+    const auto& startup_scene_path = ApplicationContext::Get().GetApplicationInfo().startup_scene_path;
     const uint64_t scene_handle = ReadStartSceneHandle(in);
     RequestDefaultEditorLayoutIfProjectHasNoSavedLayout(in);
-    if (scene_handle != 0) {
+    if (!startup_scene_path.empty() || scene_handle != 0) {
       project_manager.loading_status_ = "Loading start scene asset...";
       const auto scene_load_start = LoadingClock::now();
-      if (auto temp = AssetManager::GetAssetImpl(scene_handle)) {
+      const auto temp =
+          startup_scene_path.empty() ? AssetManager::GetAssetImpl(scene_handle) : GetOrCreateAsset(startup_scene_path);
+      if (temp) {
         scene = std::dynamic_pointer_cast<Scene>(temp);
+      }
+      if (scene) {
         SetStartScene(scene);
         LogLoadingDuration("Start scene asset load", scene_load_start);
         project_manager.loading_status_ = "Attaching start scene...";

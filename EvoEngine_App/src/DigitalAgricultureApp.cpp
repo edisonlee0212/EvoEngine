@@ -5,6 +5,7 @@
 
 #ifdef CUDA_MODULE_SERVICE
 #  include <CUDAModule.hpp>
+#  include <RayTracerCamera.hpp>
 #  include <RayTracerLayer.hpp>
 #endif
 #include "AppBootstrap.hpp"
@@ -25,9 +26,9 @@ EditorLayoutSettings CreateSorghumEditorLayout() {
   settings.panels.scene_info = false;
   settings.panels.camera_info = false;
   settings.panels.entity_explorer = true;
-  settings.panels.entity_inspector = false;
+  settings.panels.entity_inspector = true;
   settings.panels.console = false;
-  settings.panels.project = false;
+  settings.panels.project = true;
   settings.panels.resources = false;
   settings.panels.profiler = false;
   settings.panels.runtime_package_manager = false;
@@ -36,17 +37,64 @@ EditorLayoutSettings CreateSorghumEditorLayout() {
   EditorDockLayoutSettings dock_layout;
   dock_layout.left_fraction = 0.18f;
   dock_layout.right_fraction = 0.30f;
-  dock_layout.bottom_fraction = 0.05f;
+  dock_layout.bottom_fraction = 0.25f;
+  dock_layout.asset_inspector_fraction = 0.40f;
   settings.dock_layout = dock_layout;
   return settings;
 }
 
-void UseRayTracing(const std::shared_ptr<Scene>& scene) {
-  if (scene) {
-    if (const auto camera = scene->main_camera.Get<Camera>()) {
-      camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
+struct DigitalAgricultureArguments {
+  ApplicationMode application_mode = ApplicationMode::Editor;
+  std::filesystem::path startup_scene;
+};
+
+DigitalAgricultureArguments ParseArguments(const int argc, char** argv) {
+  constexpr auto default_scene = "GeneratedAssets/Scenes/Sorghum_4x10_GrowthStage03.evescene";
+  DigitalAgricultureArguments arguments{ApplicationMode::Editor, default_scene};
+  for (int index = 1; index < argc; ++index) {
+    if (ConsumeApplicationModeArgument(argc, argv, index, arguments.application_mode)) {
+      continue;
     }
+    if (std::string_view(argv[index]) == "--startup-scene") {
+      if (index + 1 >= argc) {
+        throw std::invalid_argument("--startup-scene requires an Assets-relative .evescene path.");
+      }
+      arguments.startup_scene = argv[++index];
+      continue;
+    }
+    throw std::invalid_argument("Unknown application argument: " + std::string(argv[index] ? argv[index] : ""));
   }
+  return arguments;
+}
+
+void ConfigureScenePresentation(const std::shared_ptr<Scene>& scene) {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!scene || !editor_layer || !main_camera || !scene->IsEntityValid(main_camera->GetOwner())) {
+    return;
+  }
+
+  // The Vulkan viewport should remain the fast, color-accurate preview for field editing.
+  main_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  main_camera->ResetFrameCount();
+  const auto editor_camera = editor_layer->GetSceneCamera();
+  editor_camera->camera_settings = main_camera->camera_settings;
+  editor_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  editor_camera->ResetFrameCount();
+
+  // Both editor viewports use the editor camera transform, so seed it from the scene's saved main camera.
+  const auto main_camera_transform = scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner()).value;
+  const glm::vec3 camera_position = main_camera_transform[3];
+  const glm::quat camera_rotation = glm::quat_cast(main_camera_transform);
+  editor_layer->default_scene_camera_position = camera_position;
+  editor_layer->default_scene_camera_rotation = camera_rotation;
+  editor_layer->SetSceneCameraPosition(camera_position);
+  editor_layer->SetSceneCameraRotation(camera_rotation);
+#ifdef CUDA_MODULE_SERVICE
+  if (const auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>()) {
+    ray_tracer_layer->scene_camera->ApplyCameraSettings(main_camera->camera_settings);
+  }
+#endif
 }
 
 void ConfigureSorghumEditor() {
@@ -54,20 +102,27 @@ void ConfigureSorghumEditor() {
   if (!editor_layer) {
     return;
   }
+  editor_layer->ClearAssetInspectors();
   editor_layer->velocity = 2.f;
-  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  editor_layer->GetSceneCamera()->camera_render_mode = Camera::CameraRenderMode::RayTracing;
-  UseRayTracing(ApplicationContext::Get().GetActiveScene());
+  ConfigureScenePresentation(ApplicationContext::Get().GetActiveScene());
   for (const auto& layer : ApplicationContext::Get().GetLayers()) {
-    layer->enable_inspection = layer->GetLayerName() == "LSystem Layer";
+    const auto& name = layer->GetLayerName();
+    layer->enable_inspection = name == "Sorghum Layer" || name == "LSystem Layer" || name == "Ray Tracer Layer";
   }
+#ifdef CUDA_MODULE_SERVICE
+  if (const auto ray_tracer_layer = ApplicationContext::Get().GetLayer<RayTracerLayer>()) {
+    ray_tracer_layer->show_scene_window = true;
+    ray_tracer_layer->focus_scene_window = true;
+  }
+#endif
   editor_layer->RequestEditorLayout(CreateSorghumEditorLayout());
 }
 }  // namespace
 
 int main(const int argc, char** argv) {
   Application application;
-  const auto application_mode = ParseApplicationModeArguments(argc, argv);
+  const auto arguments = ParseArguments(argc, argv);
+  const auto application_mode = arguments.application_mode;
   auto resource_folder_path = path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
   if (resource_folder_path.empty()) {
     resource_folder_path = path_utils::NormalizeAbsolutePath("Resources");
@@ -103,7 +158,9 @@ int main(const int argc, char** argv) {
   }
 
   EngineSetup();
-  ApplicationContext::Get().RegisterPostAttachSceneFunction(UseRayTracing);
+  ApplicationContext::Get().RegisterPostAttachSceneFunction(ConfigureScenePresentation);
+  // Project editor state is restored after Attach(), so repeat camera synchronization once loading is complete.
+  ProjectManager::SetActionAfterSceneLoad(ConfigureScenePresentation);
 
   if (application_mode != ApplicationMode::Headless) {
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
@@ -118,6 +175,7 @@ int main(const int argc, char** argv) {
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path = std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" /
                                                                "test_lsystem_sorghum_genotype_c_aug11_2x10.eveproj");
+  application_configs.startup_scene_path = arguments.startup_scene;
   application_configs.enable_runtime_packages = true;
   application_configs.use_custom_title_bar = true;
   application_configs.startup_runtime_packages = {"DigitalAgriculture", "LSystem"};
@@ -126,7 +184,6 @@ int main(const int argc, char** argv) {
   application_configs.load_project_assets = false;
   ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
-  ApplicationContext::Get().RemoveLayersOwnedByPackage("DigitalAgriculture");
   ConfigureSorghumEditor();
 
 #pragma region Engine Loop

@@ -6,7 +6,6 @@
 namespace evo_engine {
 class CudaImage {
  public:
-  int mipmap_levels = 1;
   cudaExternalMemory_t image_external_memory = nullptr;
   cudaArray_t base_image_array = nullptr;
   cudaMipmappedArray_t mipmapped_image_array = nullptr;

@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include "AnimationPlayer.hpp"
 #include "Application.hpp"
 #include "ClassRegistry.hpp"
@@ -8,12 +9,14 @@
 #include "PlayerController.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "PrefabField.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Scene.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
 #include "pybind11/pybind11.h"
+#include "pybind11/stl.h"
 #include "pybind11/stl/filesystem.h"
 
 namespace py_evo_engine {
@@ -94,6 +97,7 @@ class PyEvoEngine {
    * @param m The target python binding module to register functions and classes.
    */
   static void Initialize(pybind11::module& m);
+  static void RegisterFieldIlluminationBindings(pybind11::module& m);
   /**
    * @brief Add RenderLayer to the framework.
    */
@@ -159,6 +163,10 @@ class PyEvoEngine {
                                                                  float sun_intensity, const glm::vec3& sun_color,
                                                                  float sky_light_intensity,
                                                                  float ambient_light_intensity, float gamma);
+  /** @brief Use a linear lat-long HDR for both OptiX background and incoming environmental light. */
+  static bool ConfigureCurrentSceneCudaEnvironmentMapForCapture(const std::filesystem::path& hdr_path,
+                                                               float intensity = 1.0f, float rotation_degrees = 0.0f,
+                                                               float gamma = 2.2f);
   /**
    * @brief Position the active scene's main camera using a world-space look-at transform.
    * @param position Camera position in world space.
@@ -193,7 +201,7 @@ class PyEvoEngine {
    */
   static bool CaptureCurrentSceneCuda(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
                                       int samples = 64, int bounces = 4, float gamma = 2.2f,
-                                      float denoiser_strength = 0.0f);
+                                      float denoiser_strength = 0.0f, bool use_layer_clouds = false);
   /**
    * @brief Check whether the active scene is configured to render with DDGI.
    * @return True when DDGI runtime is enabled, indirect rendering is enabled, and an enabled DDGI volume exists.
@@ -225,5 +233,48 @@ class PyEvoEngine {
   static Entity CreateEntity(const std::string& name);
   static void DeleteEntity(const Entity& entity);
   static bool IsEntityValid(const Entity& entity);
+  static size_t DeleteCurrentSceneEntitiesByName(const std::string& name);
+  static size_t GetCurrentSceneEntityCountByName(const std::string& name);
+
+  /** Creates a field component and immediately populates it from an Assets subfolder. */
+  static Entity CreatePrefabField(const std::filesystem::path& asset_folder, int rows, int columns,
+                                  float column_spacing, float row_spacing, uint32_t seed, float rotation_x_degrees,
+                                  float rotation_y_degrees, float rotation_z_degrees, float uniform_scale,
+                                  float random_yaw_degrees = 0.0f, bool recursive = false, float roi = 1.0f);
+
+  /** Updates all field parameters and replaces the generated model hierarchy. */
+  static size_t ConfigurePrefabField(const Entity& field_entity, const std::filesystem::path& asset_folder, int rows,
+                                     int columns, float column_spacing, float row_spacing, uint32_t seed,
+                                     float rotation_x_degrees, float rotation_y_degrees, float rotation_z_degrees,
+                                     float uniform_scale, float random_yaw_degrees = 0.0f, bool recursive = false,
+                                     float roi = 1.0f);
+
+  /** Rebuilds a configured field and returns the generated model count. */
+  static size_t RegeneratePrefabField(const Entity& field_entity);
+  static size_t GetPrefabFieldModelCount(const Entity& field_entity);
+  static PrefabFieldMeasurementRegion GetPrefabFieldMeasurementRegion(const Entity& field_entity);
+  static void ClearPrefabField(const Entity& field_entity);
+
+  static Entity CreateVoxelIlluminationEstimator(const std::string& name, const std::array<float, 3>& center,
+                                                 const std::array<float, 3>& rotation_degrees);
+  /** Measures through the existing component and returns an owned, C-order (x,y,z) NumPy snapshot. */
+  static pybind11::dict EstimateVoxelIllumination(const Entity& entity, const std::array<float, 3>& volume_size,
+                                                  const std::array<int, 3>& resolution, int samples_per_voxel,
+                                                  int rays_per_point, int bounces, int seed,
+                                                  float push_normal_distance);
+
+  /** Runs the CUDA triangle illumination estimator independently on each generated model. */
+  static std::vector<PrefabFieldIlluminationResult> EstimatePrefabFieldIllumination(
+      const Entity& field_entity, int samples = 64, int bounces = 4, int seed = 0,
+      float push_normal_distance = 0.0001f);
+
+  /** Runs the same field estimator and also returns field-level aggregate values. */
+  static PrefabFieldIlluminationSummary EstimatePrefabFieldIlluminationSummary(const Entity& field_entity,
+                                                                               int samples = 64, int bounces = 4,
+                                                                               int seed = 0,
+                                                                               float push_normal_distance = 0.0001f);
+
+  /** Saves a clone of the active scene to an Assets-relative .evescene path. */
+  static bool SaveCurrentSceneAs(const std::filesystem::path& project_relative_path);
 };
 }  // namespace py_evo_engine

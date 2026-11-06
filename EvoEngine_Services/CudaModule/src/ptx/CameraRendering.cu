@@ -1,6 +1,36 @@
+#include "OptixCloud.cuh"
 #include "RayFunctions.cuh"
 
 namespace evo_engine {
+static __forceinline__ __device__ glm::vec3 Unproject(const glm::mat4& inverse_vp, glm::vec2 screen, float z) {
+  const glm::vec4 point = inverse_vp * glm::vec4(screen, z, 1.f);
+  return glm::vec3(point) / point.w;
+}
+
+static __forceinline__ __device__ void RenderCloudTexel(const CameraRenderingLaunchParams& params, glm::ivec2 pixel) {
+  const auto& frame = params.cloud_frame;
+  const auto& camera = params.camera_properties;
+  const auto& s = params.clouds;
+  const auto uv = (glm::vec2(pixel) + 0.5f) / glm::vec2(frame.size);
+  const glm::vec2 screen = 2.f * uv - 1.f;
+  const auto origin = Unproject(camera.inverse_projection_view, screen, -1.f);
+  const auto direction = glm::normalize(Unproject(camera.inverse_projection_view, screen, 1.f) - origin);
+  const int index = pixel.x + pixel.y * frame.size.x;
+  Random random;
+  random.Init(index, frame.sequence);
+  float distance;
+  auto cloud = EvaluateCloud(params, CloudFloat3(origin), CloudFloat3(direction), s.max_march_distance,
+                             random(), glm::vec4(0.f), false, false, glm::vec4(0.f), distance, true,
+                             s.debug_visualization ? s.debug_mode : 0, 0.f);
+  const auto world = origin + direction * distance;
+  glm::vec2 previous_uv;
+  if (frame.previous && distance > 0.f && ProjectCloudUv(frame.previous_view_projection, world, previous_uv)) {
+    const auto history = FilterCloud(frame.previous, frame.size, previous_uv, cloud,
+                                     glm::distance(world, frame.previous_origin));
+    cloud = glm::mix(cloud, history, s.temporal_blend_factor);
+  }
+  frame.current[index] = {cloud, distance > 0.f ? glm::distance(world, camera.camera_position) : 0.f};
+}
 extern "C" __constant__ CameraRenderingLaunchParams cameraRenderingLaunchParams;
 #pragma region Closest hit functions
 extern "C" __global__ void __closesthit__CR_R() {
@@ -30,6 +60,10 @@ extern "C" __global__ void __miss__CR_SS() {
 #pragma endregion
 #pragma region Main ray generation
 extern "C" __global__ void __raygen__CR() {
+  if (cameraRenderingLaunchParams.cloud_frame.prepass) {
+    RenderCloudTexel(cameraRenderingLaunchParams, glm::ivec2(optixGetLaunchIndex().x, optixGetLaunchIndex().y));
+    return;
+  }
   float ix = optixGetLaunchIndex().x;
   float iy = optixGetLaunchIndex().y;
   const uint32_t fbIndex = ix + iy * cameraRenderingLaunchParams.camera_properties.target_frame.size.x;
@@ -38,7 +72,6 @@ extern "C" __global__ void __raygen__CR() {
 
   PerRayData<glm::vec3> camera_ray_data;
   camera_ray_data.hit_count = 0;
-  camera_ray_data.primary_background_visible = true;
   camera_ray_data.diffuse_indirect_path = false;
   camera_ray_data.random.Init(ix + cameraRenderingLaunchParams.camera_properties.target_frame.size.x * iy,
                               cameraRenderingLaunchParams.camera_properties.target_frame.frame_id);
@@ -61,14 +94,9 @@ extern "C" __global__ void __raygen__CR() {
   for (int sampleID = 0; sampleID < samples; sampleID++) {
     glm::vec2 screen =
         glm::vec2((ix + camera_ray_data.random() - halfX) / halfX, (iy + camera_ray_data.random() - halfY) / halfY);
-    glm::vec4 start = cameraRenderingLaunchParams.camera_properties.inverse_projection_view *
-                      glm::vec4(screen.x, screen.y, -1.0f, 1.0f);
-    glm::vec4 end = cameraRenderingLaunchParams.camera_properties.inverse_projection_view *
-                    glm::vec4(screen.x, screen.y, 1.0f, 1.0f);
-    start /= start.w;
-    end /= end.w;
-    glm::vec3 rayStart = start;
-    glm::vec3 rayEnd = end;
+    const auto& inverse_vp = cameraRenderingLaunchParams.camera_properties.inverse_projection_view;
+    const auto rayStart = Unproject(inverse_vp, screen, -1.f);
+    const auto rayEnd = Unproject(inverse_vp, screen, 1.f);
     glm::vec3 primaryRayDir = glm::normalize(rayEnd - rayStart);
     glm::vec3 convergence = rayStart + primaryRayDir * cameraRenderingLaunchParams.camera_properties.focal_length;
     float angle = camera_ray_data.random() * 3.1415927f * 2.0f;
@@ -90,21 +118,40 @@ extern "C" __global__ void __raygen__CR() {
                static_cast<int>(RayType::RayTypeCount),  // SBT stride
                static_cast<int>(RayType::Radiance),      // missSBTIndex
                u0, u1);
-    if (camera_ray_data.hit_count > 0) {
-      pixel_color += glm::vec4(camera_ray_data.energy, 1.0f);
-    } else {
-      switch (cameraRenderingLaunchParams.camera_properties.background_type) {
-        case BackgroundType::Environment: {
-          pixel_color += glm::vec4(camera_ray_data.energy, 1.0f);
-          break;
+    const auto &params = cameraRenderingLaunchParams;
+    const bool hit = camera_ray_data.hit_count > 0;
+    glm::vec4 color(0.0f);
+    if (hit || params.camera_properties.background_type == BackgroundType::Environment)
+      color = glm::vec4(camera_ray_data.energy, 1.0f);
+    else if (params.camera_properties.background_type == BackgroundType::Color)
+      color = params.camera_properties.background_color;
+
+    const auto &s = params.clouds;
+    if (s.enabled && params.camera_properties.output_type == OutputType::Color) {
+      const float distance = hit ? glm::distance(aperturePoint, camera_ray_data.position) : s.max_march_distance;
+      const auto& frame = params.cloud_frame;
+      glm::vec2 uv = screen * 0.5f + 0.5f;
+      bool use_cache = frame.current != nullptr;
+      // A lens sample may look into a different texel. Outside the cached view, march its actual ray.
+      if (use_cache && params.camera_properties.aperture != 0.f) {
+        use_cache = ProjectCloudUv(frame.view_projection, aperturePoint + rayDir * s.max_march_distance, uv);
+        if (use_cache) {
+          const auto p = glm::clamp(glm::ivec2(uv * glm::vec2(frame.size)), glm::ivec2(0), frame.size - 1);
+          const float depth = frame.current[p.x + p.y * frame.size.x].depth;
+          if (depth > 0.f)
+            use_cache = ProjectCloudUv(frame.view_projection, aperturePoint + rayDir * depth, uv);
         }
-        case BackgroundType::Color: {
-          pixel_color += cameraRenderingLaunchParams.camera_properties.background_color;
-        }
-        default:
-          break;
       }
+      const glm::vec4 cached = use_cache ? FilterCloud(frame.current, frame.size, uv, glm::vec4(0, 0, 0, 1))
+                                         : glm::vec4(0.f);
+      auto cloud_random = camera_ray_data.random;
+      const float cloud_jitter = (sampleID + cloud_random()) / samples;
+      float unused_depth;
+      color = EvaluateCloud(params, rayOrigin, rayDirection, distance, cloud_jitter, color, hit,
+                            use_cache, cached, unused_depth, false, s.debug_visualization ? s.debug_mode : 0,
+                            s.enable_cloud_shadows ? s.cloud_shadow_strength : 0.f);
     }
+    pixel_color += color;
 
     pixel_normal += glm::vec4(camera_ray_data.normal, 1.0f);
     pixel_albedo += glm::vec4(camera_ray_data.albedo, 1.0f);

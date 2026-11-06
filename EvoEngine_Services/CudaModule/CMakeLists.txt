@@ -13,7 +13,7 @@ endif()
 
 message("Found CUDA.")
 
-set(CMAKE_CUDA_ARCHITECTURES 75-real 75-virtual)
+set(CMAKE_CUDA_ARCHITECTURES 75-real 120-real 75-virtual)
 mark_as_advanced(CUDA_SDK_ROOT_DIR)
 enable_language(CUDA)
 
@@ -54,12 +54,23 @@ set(CUDA_MODULE_INCLUDES
 include_directories(${EVOENGINE_SDK_INCLUDES})
 include_directories(${CUDA_MODULE_INCLUDES})
 
-cuda_compile_and_embed(camera_rendering_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/CameraRendering.cu)
-cuda_compile_and_embed(illumination_estimation_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu)
+set(cloud_shader_modules ${EVOENGINE_SDK_DIR}/Internals/DefaultResources/Shaders/Modules)
+set(cloud_cuda_header ${CMAKE_CURRENT_BINARY_DIR}/CameraCloud.generated.cuh)
+add_custom_command(
+  OUTPUT ${cloud_cuda_header}
+  COMMAND $<TARGET_FILE:slangc> ${RAY_TRACER_DIRECTORY}/src/ptx/CameraCloud.slang
+          -I ${cloud_shader_modules} -DEE_OPTIX_CAMERA_CLOUDS=1 -target cuda -O3 -o ${cloud_cuda_header}
+  DEPENDS slangc ${RAY_TRACER_DIRECTORY}/src/ptx/CameraCloud.slang
+          ${cloud_shader_modules}/EvoEngine/VolumetricClouds.slang
+  VERBATIM)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+cuda_compile_and_embed(camera_rendering_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/CameraRendering.cu ${cloud_cuda_header} ${RAY_TRACER_DIRECTORY}/src/ptx/OptixCloud.cuh)
+cuda_compile_and_embed(illumination_estimation_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/IlluminationEstimation.cu ${cloud_cuda_header} ${RAY_TRACER_DIRECTORY}/src/ptx/OptixCloud.cuh)
 cuda_compile_and_embed(point_cloud_scanning_ptx ${RAY_TRACER_DIRECTORY}/src/ptx/PointCloudScanning.cu)
 
 add_library(CudaModuleService
 	STATIC
+	${cloud_cuda_header}
 	#Default
 	${camera_rendering_ptx}
 	${illumination_estimation_ptx}
@@ -71,7 +82,7 @@ add_library(CudaModuleService
 	${RAY_TRACER_CUDA_SOURCES}
 	)
 
-set_property(TARGET CudaModuleService PROPERTY CUDA_ARCHITECTURES 75-real 75-virtual)
+set_property(TARGET CudaModuleService PROPERTY CUDA_ARCHITECTURES 75-real 120-real 75-virtual)
 
 if (NOT WIN32)
 	message(STATUS CUDALIB=${CUDA_TOOLKIT_ROOT_DIR})

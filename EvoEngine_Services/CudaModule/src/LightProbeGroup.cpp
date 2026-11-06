@@ -8,9 +8,9 @@ using namespace evo_engine;
 void LightProbeGroup::CalculateIllumination(const RayProperties& ray_properties, int seed, float push_normal_distance) {
   if (light_probes.empty())
     return;
-  CudaModule::EstimateIlluminationRayTracing(
-      ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, light_probes, seed,
-      push_normal_distance);
+  const auto layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
+  CudaModule::EstimateIlluminationRayTracing(layer->environment_properties, ray_properties, light_probes, seed,
+                                            push_normal_distance, layer->GetIlluminationClouds());
 }
 
 bool LightProbeGroup::DrawGui() {

@@ -8,13 +8,15 @@
 #include "RayTracerLayer.hpp"
 
 #include "Application.hpp"
+#include "Platform.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
 using namespace evo_engine;
 
 void RayTracerCamera::Ready(const glm::vec3 &position, const glm::quat &rotation) {
+  frame_size = glm::max(glm::uvec2(512, 512), frame_size);
   if (camera_properties_.target_frame.size != frame_size) {
-    frame_size = glm::max(glm::uvec2(512, 512), frame_size);
+    Platform::WaitForFrameSubmissions("OptiX Camera Resize Fence Wait");
     camera_properties_.Resize(frame_size);
     VkExtent3D extent;
     extent.width = frame_size.x;
@@ -70,16 +72,21 @@ void RayTracerCamera::OnCreate() {
 }
 
 void RayTracerCamera::OnDestroy() {
-  camera_properties_.target_image.reset();
+  if (const auto &tracer = CudaModule::GetRayTracer(); tracer && tracer->cloud_camera_ == &camera_properties_)
+    tracer->cloud_camera_ = nullptr;
   camera_properties_.frame_buffer_color.Free();
   camera_properties_.frame_buffer_normal.Free();
   camera_properties_.frame_buffer_albedo.Free();
 #if ENABLE_OPTIX_DENOISER
-  OPTIX_CHECK(optixDenoiserDestroy(camera_properties_.denoiser));
+  if (camera_properties_.denoiser)
+    OPTIX_CHECK(optixDenoiserDestroy(camera_properties_.denoiser));
+  camera_properties_.denoised_buffer.Free();
   camera_properties_.denoiser_scratch.Free();
   camera_properties_.denoiser_state.Free();
   camera_properties_.denoiser_intensity.Free();
 #endif
+  // Scene components are pooled. The next capture must allocate fresh frame buffers even at the same resolution.
+  camera_properties_ = CameraProperties{};
 }
 
 void evo_engine::DeserializeRayTracerCamera(const YAML::Node &in, RayTracerCamera &target) {
@@ -173,11 +180,13 @@ void RayTracerCamera::Render(const RayProperties &ray_properties) {
   }
 }
 
-void RayTracerCamera::Render(const RayProperties &ray_properties, const EnvironmentProperties &environment_properties) {
+void RayTracerCamera::Render(const RayProperties &ray_properties, const EnvironmentProperties &environment_properties,
+                             const VolumetricCloudSettings &clouds) {
   if (!CudaModule::GetRayTracer()->instances.empty()) {
     auto global_transform = GetScene()->GetDataComponent<GlobalTransform>(GetOwner()).value;
     Ready(global_transform[3], glm::quat_cast(global_transform));
-    rendered_ = CudaModule::GetRayTracer()->RenderToCamera(environment_properties, camera_properties_, ray_properties);
+    rendered_ = CudaModule::GetRayTracer()->RenderToCamera(environment_properties, camera_properties_, ray_properties,
+                                                          clouds);
   }
 }
 

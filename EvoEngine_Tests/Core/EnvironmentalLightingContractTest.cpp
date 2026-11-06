@@ -350,6 +350,22 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   EXPECT_EQ(render_instance_storage_source.find("GetPrivateComponentOwnersList<ReflectionProbe>"), std::string::npos);
 }
 
+TEST(EnvironmentalLightingContract, OptixIncomingLightUsesUnfilteredEnvironmentSource) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_Services/CudaModule/src/RayTracerLayer.cpp"));
+  EXPECT_NE(source.find("env_map->EnsureEnvironmentSource()"), std::string::npos);
+  EXPECT_NE(source.find("env_map->environment_cubemap.Get<Cubemap>()"), std::string::npos);
+  EXPECT_NE(source.find("CudaModule::ImportCubemap(source_cubemap)"), std::string::npos);
+  EXPECT_EQ(source.find("GetGlobalReflectionProbeFallback"), std::string::npos);
+  EXPECT_EQ(source.find("GetDefaultGlobalReflectionProbe"), std::string::npos);
+}
+
+TEST(EnvironmentalLightingContract, OptixMissingCubemapHasStableCacheKey) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_Services/CudaModule/src/RayTracerLayer.cpp"));
+  EXPECT_NE(source.find("source_cubemap ? source_cubemap->GetHandle() : Handle(0)"), std::string::npos);
+  EXPECT_EQ(source.find("source_cubemap ? source_cubemap->GetHandle() : Handle{}"), std::string::npos);
+  EXPECT_EQ(Handle(0).GetValue(), 0u);
+}
+
 TEST(EnvironmentalLightingContract, EnvironmentalMapNoLongerOwnsGlobalSpecularFallback) {
   const auto environmental_map_header =
       ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalMap.hpp"));

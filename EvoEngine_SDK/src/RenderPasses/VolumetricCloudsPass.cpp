@@ -1,5 +1,6 @@
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 
+#include "VolumetricCloudNoise.hpp"
 #include "Camera.hpp"
 #include "ComputePipeline.hpp"
 #include "GraphicsResources.hpp"
@@ -412,6 +413,13 @@ RenderPassDescriptor CreateDescriptor(const char* dependency, const char* depth_
           {dependency}};
 }
 }  // namespace
+
+std::array<CloudNoiseTexture, 4> evo_engine::BuildVolumetricCloudNoise() {
+  return {{{kCloudBaseShapeResolution, true, BuildBaseShapeNoiseBytes()},
+           {kCloudDetailErosionResolution, true, BuildDetailErosionNoiseBytes()},
+           {kCloudWeatherResolution, false, BuildWeatherCoverageNoiseBytes()},
+           {kCloudCurlResolution, false, BuildCurlNoiseBytes()}}};
+}
 
 RenderPassDescriptor VolumetricCloudsPass::CreateRasterDescriptor(const char* dependency) {
   return CreateDescriptor(dependency ? dependency : RenderPassNames::deferred_camera,

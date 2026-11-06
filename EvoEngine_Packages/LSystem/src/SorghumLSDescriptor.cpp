@@ -248,6 +248,8 @@ void ClampPlottedDistributionRange(evo_engine::PlottedDistribution<float>& distr
 void ClampDescriptorValues(SorghumLSDescriptor& descriptor) {
   ClampSingleDistribution(descriptor.total_phytomer_count, 1.0f, 128.0f, 64.0f);
   ClampSingleDistribution(descriptor.phyllotaxis_angle, 0.0f, 360.0f, 180.0f);
+  descriptor.initial_leaf_azimuth_degrees = std::clamp(descriptor.initial_leaf_azimuth_degrees, 0.0f, 360.0f);
+  descriptor.initial_leaf_azimuth_range_degrees = std::clamp(descriptor.initial_leaf_azimuth_range_degrees, 0.0f, 360.0f);
   ClampSingleDistribution(descriptor.branch_azimuth_offset, -180.0f, 180.0f, 180.0f);
   ClampSingleDistribution(descriptor.main_culm_lean_angle, 0.0f, 30.0f, 20.0f);
 
@@ -840,6 +842,10 @@ bool SorghumLSDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   if (ImGui::TreeNodeEx("Culm Topology")) {
     changed |= total_phytomer_count.Draw("Total Phytomer Count", 0.5f);
     changed |= phyllotaxis_angle.Draw("Phyllotaxis Angle (deg)", 1.0f);
+    changed |= ImGui::Checkbox("Random Initial Leaf Azimuth", &randomize_initial_leaf_azimuth);
+    changed |= ImGui::DragFloat("Initial Leaf Azimuth / Arc Start (deg)", &initial_leaf_azimuth_degrees, 1.0f, 0.0f, 360.0f);
+    if (randomize_initial_leaf_azimuth)
+      changed |= ImGui::DragFloat("Initial Leaf Azimuth Range (deg)", &initial_leaf_azimuth_range_degrees, 1.0f, 0.0f, 360.0f);
     changed |= branch_azimuth_offset.Draw("Branch Azimuth Offset (deg)", 0.5f);
     changed |= main_culm_lean_angle.Draw("Main Culm Lean (deg)", 0.25f);
     ImGui::TreePop();
@@ -1161,6 +1167,9 @@ void l_system_package::SerializeSorghumLSDescriptor(YAML::Emitter& out, const So
   // Culm topology.
   target.total_phytomer_count.Save("total_phytomer_count", out);
   target.phyllotaxis_angle.Save("phyllotaxis_angle", out);
+  out << YAML::Key << "randomize_initial_leaf_azimuth" << YAML::Value << target.randomize_initial_leaf_azimuth;
+  out << YAML::Key << "initial_leaf_azimuth_degrees" << YAML::Value << target.initial_leaf_azimuth_degrees;
+  out << YAML::Key << "initial_leaf_azimuth_range_degrees" << YAML::Value << target.initial_leaf_azimuth_range_degrees;
   target.branch_azimuth_offset.Save("branch_azimuth_offset", out);
   target.main_culm_lean_angle.Save("main_culm_lean_angle", out);
 
@@ -1492,6 +1501,12 @@ void l_system_package::DeserializeSorghumLSDescriptor(const YAML::Node& in, Sorg
 
   LoadSingleDistributionWithScalarFallback(in, "total_phytomer_count", total_phytomer_count);
   LoadSingleDistributionWithScalarFallback(in, "phyllotaxis_angle", phyllotaxis_angle);
+  if (in["randomize_initial_leaf_azimuth"])
+    target.randomize_initial_leaf_azimuth = in["randomize_initial_leaf_azimuth"].as<bool>();
+  if (in["initial_leaf_azimuth_degrees"])
+    target.initial_leaf_azimuth_degrees = in["initial_leaf_azimuth_degrees"].as<float>();
+  if (in["initial_leaf_azimuth_range_degrees"])
+    target.initial_leaf_azimuth_range_degrees = in["initial_leaf_azimuth_range_degrees"].as<float>();
   LoadSingleDistributionWithScalarFallback(in, "branch_azimuth_offset", branch_azimuth_offset);
   LoadSingleDistributionWithScalarFallback(in, "main_culm_lean_angle", main_culm_lean_angle);
 

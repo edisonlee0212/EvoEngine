@@ -57,11 +57,22 @@ function(configure_python_binding_target target_name)
 		target_compile_options(${target_name} PRIVATE -Werror)
 	elseif (MSVC)
 		target_compile_options(${target_name} PRIVATE /EHsc /W2 /c)
+		# Keep debug information in objects to avoid the VS 2026 PDB manager mismatch.
+		target_compile_options(${target_name} PRIVATE "$<$<CONFIG:RelWithDebInfo>:/Z7>")
 	elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 		target_compile_options(${target_name} PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)
 	endif ()
 
 	add_dependencies(${target_name} PyResourceCopy)
+	if(EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
+		# Headless runs must see the same project packages as the desktop apps.
+		list(GET EvoEngine_RuntimePackages 0 package_anchor_target)
+		add_dependencies(${target_name} ${EvoEngine_RuntimePackages})
+		add_custom_command(TARGET ${target_name} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"$<TARGET_FILE_DIR:${package_anchor_target}>" "${EVOENGINE_PYTHON_BUILD_RUNTIME_DIR}/Packages"
+			VERBATIM)
+	endif()
 	install(TARGETS ${target_name}
 		RUNTIME DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}"
 		LIBRARY DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
@@ -88,11 +99,21 @@ function(register_python_binding target_name default_enable)
 		set(option_name PythonBinding-${target_name})
 		option(${option_name} "Add Python binding for ${target_name}" ${default_enable})
 		if(${option_name})
+			if(target_name STREQUAL "PyDigitalAgriculture" AND NOT TARGET DatasetGenerationPackage)
+				message(FATAL_ERROR "PyDigitalAgriculture requires DatasetGenerationPackage")
+			endif()
 			pybind11_add_module(${target_name} 
 				${CMAKE_CURRENT_SOURCE_DIR}/src/PyEvoEngine.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}.cpp
 				${CMAKE_CURRENT_SOURCE_DIR}/src/${target_name}Module.cpp)
 			configure_python_binding_target(${target_name})
+			if(target_name STREQUAL "PyDigitalAgriculture")
+				target_link_libraries(${target_name} PRIVATE DatasetGenerationPackage)
+				if(TARGET LSystemPackage AND NOT CUDA_SUBSTRING_INDEX EQUAL -1)
+					target_sources(${target_name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/PySorghumField.cpp)
+					target_link_libraries(${target_name} PRIVATE LSystemPackage DigitalAgriculturePackage)
+				endif()
+			endif()
 			message("Enabled [${target_name}] PythonBinding.")
 		endif()
 	endif ()
@@ -101,13 +122,17 @@ endfunction()
 register_core_python_binding()
 
 set("PythonBinding-PyEcoSysLab" OFF CACHE BOOL "Package-specific Python bindings are disabled during runtime package migration." FORCE)
-set("PythonBinding-PyDigitalAgriculture" OFF CACHE BOOL
-	"Package-specific Python bindings are disabled during runtime package migration." FORCE)
 register_python_binding(PyEcoSysLab OFF)
-register_python_binding(PyDigitalAgriculture OFF)
+register_python_binding(PyDigitalAgriculture ON)
 
 if (${CMAKE_BINARY_DIR} STREQUAL ${PROJECT_BINARY_DIR})
 	evoengine_install_runtime_payload("${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
+	if(EVOENGINE_ENABLE_RUNTIME_PACKAGES AND EvoEngine_RuntimePackages)
+		list(GET EvoEngine_RuntimePackages 0 package_anchor_target)
+		install(DIRECTORY "$<TARGET_FILE_DIR:${package_anchor_target}>/"
+			DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}/Packages"
+			FILES_MATCHING PATTERN "*.dll" PATTERN "*.evepackage" PATTERN "*.pdb")
+	endif()
 	install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/imgui.ini
 		DESTINATION "${EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR}")
 	file(GLOB EVOENGINE_PYTHON_SCRIPTS CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.py)

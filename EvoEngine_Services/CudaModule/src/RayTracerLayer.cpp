@@ -5,21 +5,211 @@
 #include "EditorLayer.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
-#include "GlobalReflectionProbe.hpp"
 #include "InspectorRegistry.hpp"
 #include "MeshRenderer.hpp"
 #include "OptiXRayTracer.hpp"
 #include "Particles.hpp"
+#include "PrefabFieldIllumination.hpp"
 #include "RayTracerCamera.hpp"
 #include "Resources.hpp"
+#include "SDKInspectionAdapters.hpp"
 #include "Serialization.hpp"
 #include "SkinnedMeshRenderer.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "TriangleIlluminationEstimator.hpp"
+#include "VolumetricCloudPresets.hpp"
+#include "VoxelIlluminationEstimator.hpp"
 using namespace evo_engine;
 
 std::shared_ptr<RayTracerCamera> RayTracerLayer::ray_tracer_camera_;
+
+namespace {
+bool DrawViewportCloudSettings(VolumetricCloudSettings& s) {
+  bool changed = ImGui::Checkbox("Volumetric clouds", &s.enabled);
+  if (!s.enabled || !ImGui::TreeNodeEx("Cloud settings", ImGuiTreeNodeFlags_DefaultOpen))
+    return changed;
+
+  if (ImGui::Button("Broad cloud bank")) {
+    ApplyCloudFormation(s, CloudFormation::BroadBank);
+    changed = true;
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Scattered clouds")) {
+    ApplyCloudFormation(s, CloudFormation::Scattered);
+    changed = true;
+  }
+  ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
+  changed |= ImGui::SliderFloat("Cloud coverage", &s.coverage, 0.f, 1.f);
+  changed |= ImGui::SliderFloat("Density", &s.density, 0.f, 10.f);
+  changed |= ImGui::SliderFloat("Extinction scale", &s.extinction_scale, 0.00001f, 1.f, "%.5f",
+                                ImGuiSliderFlags_Logarithmic);
+  changed |= ImGui::DragFloat("Bottom altitude", &s.bottom_altitude, 1.f);
+  changed |= ImGui::DragFloat("Top altitude", &s.top_altitude, 1.f);
+  changed |= ImGui::SliderFloat("Cloud type (stratus to cumulus)", &s.cloud_type, 0.f, 1.f);
+
+  if (ImGui::TreeNode("Shape and wind")) {
+    changed |= ImGui::SliderFloat("Base noise scale", &s.base_noise_scale, 0.00001f, 10.f, "%.5f",
+                                  ImGuiSliderFlags_Logarithmic);
+    changed |= ImGui::SliderFloat("Detail noise scale", &s.detail_noise_scale, 0.00001f, 10.f, "%.5f",
+                                  ImGuiSliderFlags_Logarithmic);
+    changed |= ImGui::DragFloat("Curl strength", &s.curl_strength, 0.1f);
+    float angle = glm::atan(s.wind_direction.y, s.wind_direction.x);
+    if (ImGui::SliderAngle("Wind direction", &angle)) {
+      s.wind_direction = {glm::cos(angle), glm::sin(angle)};
+      changed = true;
+    }
+    changed |= ImGui::DragFloat("Wind speed", &s.wind_speed, 0.1f);
+    ImGui::TextDisabled("Wind offsets are sampled at a fixed time for accumulation.");
+    changed |= ImGui::Checkbox("Spherical atmosphere", &s.use_spherical_atmosphere);
+    if (s.use_spherical_atmosphere)
+      changed |= ImGui::DragFloat("Atmosphere radius", &s.atmosphere_radius, 10.f);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Cloud lighting")) {
+    changed |= ImGui::DragFloat("Sun lighting intensity", &s.lighting_intensity, 0.05f);
+    changed |= ImGui::DragFloat("Ambient lighting strength", &s.ambient_lighting_strength, 0.01f);
+    changed |= ImGui::SliderFloat("Phase anisotropy", &s.phase_anisotropy, -0.99f, 0.99f);
+    changed |= ImGui::Checkbox("Surface shadow preview", &s.enable_cloud_shadows);
+    if (s.enable_cloud_shadows) {
+      changed |= ImGui::SliderFloat("Shadow strength", &s.cloud_shadow_strength, 0.f, 1.f);
+      changed |= ImGui::SliderInt("Shadow steps", &s.cloud_shadow_step_count, 1, 64);
+    }
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Ray marching")) {
+    changed |= ImGui::DragFloat("Maximum march distance", &s.max_march_distance, 1.f);
+    changed |= ImGui::SliderInt("Primary steps", &s.primary_step_count, 1, 512);
+    changed |= ImGui::SliderInt("Light steps", &s.light_step_count, 1, 128);
+    changed |= ImGui::SliderFloat("Coarse step fraction", &s.coarse_step_fraction, 0.0001f, 1.f, "%.4f",
+                                  ImGuiSliderFlags_Logarithmic);
+    changed |= ImGui::SliderFloat("Fine step scale", &s.fine_step_scale, 0.01f, 1.f);
+    changed |= ImGui::SliderInt("Empty steps before fallback", &s.empty_step_fallback_count, 1, 64);
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Diagnostics")) {
+    changed |= ImGui::Checkbox("Debug visualization", &s.debug_visualization);
+    if (s.debug_visualization) {
+      const char* modes[] = {"Composite", "Mean density", "Transmittance", "March distance",
+                             "Base shape", "Detail erosion", "Weather coverage"};
+      changed |= ImGui::Combo("Debug view", &s.debug_mode, modes, IM_ARRAYSIZE(modes));
+    }
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Cloud resolution and history")) {
+    const char* resolutions[] = {"Full", "Half", "Quarter"};
+    int index = s.resolution_divisor == 4 ? 2 : s.resolution_divisor == 2 ? 1 : 0;
+    if (ImGui::Combo("Cloud resolution", &index, resolutions, IM_ARRAYSIZE(resolutions))) {
+      s.resolution_divisor = 1 << index;
+      changed = true;
+    }
+    changed |= ImGui::Checkbox("Temporal reprojection", &s.enable_temporal_reprojection);
+    if (s.enable_temporal_reprojection)
+      changed |= ImGui::SliderFloat("History blend", &s.temporal_blend_factor, 0.f, 0.98f);
+    ImGui::TreePop();
+  }
+  ImGui::PopItemWidth();
+  ImGui::TreePop();
+  return changed;
+}
+
+uint64_t MakeRayTracedInstanceKey(const Handle entity_handle, const Handle component_handle) {
+  auto key = entity_handle.GetValue();
+  key ^= component_handle.GetValue() + 0x9e3779b97f4a7c15ULL + (key << 6U) + (key >> 2U);
+  return key;
+}
+
+bool InspectPrefabFieldWithIllumination(InspectorContext& context, PrefabField& field) {
+  bool changed = DrawPrefabFieldGui(context, field);
+  ImGui::Separator();
+  ImGui::TextUnformatted("OptiX illumination");
+
+  auto& settings = field.illumination_settings;
+  changed = ImGui::DragInt("Illumination samples", &settings.samples, 1.0f, 1, 1000000) || changed;
+  changed = ImGui::DragInt("Illumination bounces", &settings.bounces, 1.0f, 0, 100) || changed;
+  changed = ImGui::DragInt("Illumination seed", &settings.seed) || changed;
+  changed = ImGui::DragFloat("Normal offset", &settings.push_normal_distance, 0.00001f, 0.0f, 1.0f, "%.6f") || changed;
+  settings.samples = std::max(settings.samples, 1);
+  settings.bounces = std::max(settings.bounces, 0);
+  settings.push_normal_distance = std::max(settings.push_normal_distance, 0.0f);
+
+  if (ImGui::Button("Measure plants in ROI")) {
+    field.last_illumination = EstimatePrefabFieldIllumination(field, settings);
+  }
+
+  const auto& summary = field.last_illumination;
+  ImGui::Text("Measured plants: %zu", summary.models.size());
+  ImGui::Text("Total surface area: %.6g", summary.total_area);
+  ImGui::Text("Total flux RGB: %.6g, %.6g, %.6g", summary.total_flux.x, summary.total_flux.y, summary.total_flux.z);
+  ImGui::Text("Area-weighted average RGB: %.6g, %.6g, %.6g", summary.area_weighted_average_flux.x,
+              summary.area_weighted_average_flux.y, summary.area_weighted_average_flux.z);
+  ImGui::Text("Plant-mean average RGB: %.6g, %.6g, %.6g", summary.mean_model_average_flux.x,
+              summary.mean_model_average_flux.y, summary.mean_model_average_flux.z);
+
+  if (ImGui::TreeNode("Per-organ results (field)")) {
+    for (const auto& [name, organ] : summary.organs) {
+      ImGui::Text("%s: area %.6g", name.c_str(), organ.total_area);
+      ImGui::Text("  Total incident flux RGB: %.6g, %.6g, %.6g", organ.total_flux.x, organ.total_flux.y,
+                  organ.total_flux.z);
+      ImGui::Text("  Average RGB: %.6g, %.6g, %.6g", organ.average_flux.x, organ.average_flux.y, organ.average_flux.z);
+    }
+    ImGui::TreePop();
+  }
+  if (ImGui::TreeNode("Per-organ results (plants)")) {
+    for (const auto& model : summary.models) {
+      ImGui::PushID(static_cast<int>(model.model_index));
+      if (ImGui::TreeNode("Plant", "Plant %zu (row %d, column %d)", model.model_index, model.row, model.column)) {
+        for (const auto& [name, organ] : model.organs) {
+          ImGui::Text("%s: area %.6g, average RGB %.6g, %.6g, %.6g", name.c_str(), organ.total_area,
+                      organ.average_flux.x, organ.average_flux.y, organ.average_flux.z);
+          ImGui::Text("  Total incident flux RGB: %.6g, %.6g, %.6g", organ.total_flux.x, organ.total_flux.y,
+                      organ.total_flux.z);
+        }
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+    ImGui::TreePop();
+  }
+
+  if (!summary.models.empty() && ImGui::TreeNode("Per-plant results")) {
+    if (ImGui::BeginTable("PrefabFieldIlluminationResults", 8,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
+      ImGui::TableSetupColumn("Index");
+      ImGui::TableSetupColumn("Asset");
+      ImGui::TableSetupColumn("Row");
+      ImGui::TableSetupColumn("Column");
+      ImGui::TableSetupColumn("Area");
+      ImGui::TableSetupColumn("Average R");
+      ImGui::TableSetupColumn("Average G");
+      ImGui::TableSetupColumn("Average B");
+      ImGui::TableHeadersRow();
+      for (const auto& model : summary.models) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("%zu", model.model_index);
+        ImGui::TableNextColumn();
+        ImGui::Text("%zu", model.asset_index);
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", model.row);
+        ImGui::TableNextColumn();
+        ImGui::Text("%d", model.column);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.6g", model.total_area);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.6g", model.average_flux.x);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.6g", model.average_flux.y);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.6g", model.average_flux.z);
+      }
+      ImGui::EndTable();
+    }
+    ImGui::TreePop();
+  }
+  return changed;
+}
+}  // namespace
 
 void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
                                          std::unordered_map<uint64_t, RayTracedMaterial>& material_storage,
@@ -52,7 +242,8 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       auto entity_handle = scene->GetEntityHandle(entity);
       auto geometry_handle = strands->GetHandle();
       auto material_handle = material->GetHandle();
-      auto& ray_traced_instance = instance_storage[strands_renderer_renderer->GetHandle().GetValue()];
+      auto& ray_traced_instance =
+          instance_storage[MakeRayTracedInstanceKey(entity_handle, strands_renderer_renderer->GetHandle())];
       auto& ray_traced_geometry = geometry_storage[geometry_handle];
       auto& ray_traced_material = material_storage[material_handle];
       ray_traced_instance.remove_flag = false;
@@ -108,7 +299,7 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       auto entity_handle = scene->GetEntityHandle(entity);
       auto geometry_handle = mesh->GetHandle();
       auto material_handle = material->GetHandle();
-      auto& ray_traced_instance = instance_storage[mesh_renderer->GetHandle().GetValue()];
+      auto& ray_traced_instance = instance_storage[MakeRayTracedInstanceKey(entity_handle, mesh_renderer->GetHandle())];
       auto& ray_traced_geometry = geometry_storage[geometry_handle];
       auto& ray_traced_material = material_storage[material_handle];
       ray_traced_instance.remove_flag = false;
@@ -166,7 +357,8 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       auto entity_handle = scene->GetEntityHandle(entity);
       auto geometry_handle = skinned_mesh_renderer->GetHandle().GetValue();
       auto material_handle = material->GetHandle();
-      auto& ray_traced_instance = instance_storage[geometry_handle];
+      auto& ray_traced_instance =
+          instance_storage[MakeRayTracedInstanceKey(entity_handle, skinned_mesh_renderer->GetHandle())];
       auto& ray_traced_geometry = geometry_storage[geometry_handle];
       auto& ray_traced_material = material_storage[material_handle];
       ray_traced_instance.remove_flag = false;
@@ -229,7 +421,7 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       auto entity_handle = scene->GetEntityHandle(entity);
       auto geometry_handle = particles->GetHandle().GetValue();
       auto material_handle = material->GetHandle();
-      auto& ray_traced_instance = instance_storage[geometry_handle];
+      auto& ray_traced_instance = instance_storage[MakeRayTracedInstanceKey(entity_handle, particles->GetHandle())];
       auto& ray_traced_geometry = geometry_storage[geometry_handle];
       auto& ray_traced_material = material_storage[material_handle];
       ray_traced_instance.remove_flag = false;
@@ -292,28 +484,25 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
     auto environmental_map_ref = source.environmental_map;
     const auto requested_environmental_map = environmental_map_ref.GetAssetHandle();
     auto env_map = environmental_map_ref.Get<EnvironmentalMap>();
-    auto reflection_probe = scene->GetGlobalReflectionProbeFallback(false);
-    if (!reflection_probe || !reflection_probe->IsRuntimeReady()) {
+    if (!env_map && use_env_map) {
       env_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
-      reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe();
     }
-    if (reflection_probe && !reflection_probe->IsRuntimeReady()) {
-      reflection_probe.reset();
+    if (env_map) {
+      env_map->EnsureEnvironmentSource();
     }
-    const Handle requested_reflection_probe = reflection_probe ? reflection_probe->GetHandle() : Handle{};
-    const uint64_t requested_payload_hash = reflection_probe ? reflection_probe->GetPayloadHash() : 0u;
-    if (environmental_map_handle != requested_environmental_map ||
-        global_reflection_probe_handle != requested_reflection_probe ||
-        global_reflection_probe_payload_hash != requested_payload_hash) {
+    // Incoming radiance must use the unfiltered source, not a scene-baked reflection probe.
+    const auto source_cubemap = env_map ? env_map->environment_cubemap.Get<Cubemap>() : nullptr;
+    // Handle{} generates a new ID; a missing source must keep a stable cache key across frames.
+    const Handle requested_cubemap = source_cubemap ? source_cubemap->GetHandle() : Handle(0);
+    if (environmental_map_handle != requested_environmental_map || environment_cubemap_handle != requested_cubemap) {
       environmental_map_handle = requested_environmental_map;
-      global_reflection_probe_handle = requested_reflection_probe;
-      global_reflection_probe_payload_hash = requested_payload_hash;
+      environment_cubemap_handle = requested_cubemap;
       environment_properties.environmental_map = 0;
       environmental_map_image.reset();
       update_shader_binding_table = true;
     }
     if (use_env_map && !environmental_map_image) {
-      const auto imported = reflection_probe ? CudaModule::ImportCubemap(reflection_probe->GetCubemap()) : nullptr;
+      const auto imported = source_cubemap ? CudaModule::ImportCubemap(source_cubemap) : nullptr;
       if (imported) {
         environmental_map_image = imported;
         environment_properties.environmental_map = imported->texture_object;
@@ -336,11 +525,6 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
     const float skylight_intensity = std::max(lighting.environment_lighting_intensity, 0.0f);
     if (environment_properties.skylight_intensity != skylight_intensity) {
       environment_properties.skylight_intensity = skylight_intensity;
-      update_shader_binding_table = true;
-    }
-    const float ambient_light_intensity = std::max(lighting.diffuse_fallback_intensity, 0.0f);
-    if (environment_properties.ambient_light_intensity != ambient_light_intensity) {
-      environment_properties.ambient_light_intensity = ambient_light_intensity;
       update_shader_binding_table = true;
     }
     if (environment_properties.environment_rotation != source.rotation) {
@@ -367,11 +551,14 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
 
 void RayTracerLayer::RegisterTypes(Application& application) {
   application.RegisterPrivateComponent<TriangleIlluminationEstimator>("TriangleIlluminationEstimator");
+  application.RegisterPrivateComponent<VoxelIlluminationEstimator>("VoxelIlluminationEstimator");
   application.RegisterPrivateComponent<RayTracerCamera>("RayTracerCamera");
   application.RegisterPrivateComponent<BasicPointCloudScanner>("BasicPointCloudScanner");
   Serialization::RegisterSerializationHandler<TriangleIlluminationEstimator>(SerializeTriangleIlluminationEstimator,
                                                                              DeserializeTriangleIlluminationEstimator,
                                                                              {}, "TriangleIlluminationEstimator");
+  Serialization::RegisterSerializationHandler<VoxelIlluminationEstimator>(
+      SerializeVoxelIlluminationEstimator, DeserializeVoxelIlluminationEstimator, {}, "VoxelIlluminationEstimator");
   Serialization::RegisterSerializationHandler<RayTracerCamera>(SerializeRayTracerCamera, DeserializeRayTracerCamera, {},
                                                                "RayTracerCamera");
   Serialization::RegisterSerializationHandler<BasicPointCloudScanner>(
@@ -381,6 +568,13 @@ void RayTracerLayer::RegisterTypes(Application& application) {
         return estimator.DrawGui(context.editor_layer);
       },
       {}, "TriangleIlluminationEstimator");
+  InspectorRegistry::GetInstance().RegisterInspector<VoxelIlluminationEstimator>(
+      [](InspectorContext& context, VoxelIlluminationEstimator& estimator) {
+        return estimator.DrawGui(context.editor_layer);
+      },
+      {}, "VoxelIlluminationEstimator");
+  InspectorRegistry::GetInstance().RegisterInspector<PrefabField>(InspectPrefabFieldWithIllumination, {},
+                                                                  "PrefabField");
   InspectorRegistry::GetInstance().RegisterInspector<RayTracerCamera>(
       [](InspectorContext& context, RayTracerCamera& camera) {
         return camera.DrawGui(context.editor_layer);
@@ -399,11 +593,23 @@ void RayTracerLayer::RegisterTypes(Application& application) {
       {}, "RayTracerLayer");
 }
 
+void RayTracerLayer::SetCloudSettings(VolumetricCloudSettings settings, bool affect_illumination_probes) {
+  settings.ClampSettings();
+  viewport_clouds = settings;
+  clouds_affect_illumination = affect_illumination_probes;
+  if (scene_camera)
+    scene_camera->camera_properties_.modified = true;
+}
+
 void RayTracerLayer::OnCreate() {
   CudaModule::Init();
 
   scene_camera = Serialization::ProduceSerializable<RayTracerCamera>();
   scene_camera->OnCreate();
+  viewport_clouds.enabled = true;
+  viewport_clouds.resolution_divisor = 1;
+  viewport_clouds.enable_temporal_reprojection = false;
+  viewport_clouds.enable_cloud_shadows = false;
   ApplicationContext::Get().RegisterPostAttachSceneFunction([&](const std::shared_ptr<Scene>& scene) {
     ray_tracer_camera_.reset();
   });
@@ -425,7 +631,7 @@ void RayTracerLayer::LateUpdate() {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
         show_scene_window && editor_layer && rendering_enabled) {
       scene_camera->rendered_ = CudaModule::GetRayTracer()->RenderToCamera(
-          environment_properties, scene_camera->camera_properties_, scene_camera->ray_properties);
+          environment_properties, scene_camera->camera_properties_, scene_camera->ray_properties, viewport_clouds);
     }
     const auto* entities = scene->UnsafeGetPrivateComponentOwnersList<RayTracerCamera>();
     ray_tracer_camera_.reset();
@@ -456,6 +662,15 @@ void RayTracerLayer::LateUpdate() {
 }
 
 void RayTracerLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (show_camera_window)
+    RayCameraWindow();
+  if (show_scene_window)
+    SceneCameraWindow();
+
+  if (!ImGui::Begin(GetLayerName().c_str(), &enable_inspection)) {
+    ImGui::End();
+    return;
+  }
   if (ImGui::TreeNode("Editor")) {
     if (ImGui::TreeNode("Scene")) {
       ImGui::TreePop();
@@ -467,9 +682,11 @@ void RayTracerLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   }
 
   ImGui::Checkbox("Scene (RT) Window", &show_scene_window);
-  if (show_scene_window) {
+  if (show_scene_window)
     ImGui::Checkbox("Scene (RT) Window Info", &show_scene_info);
-  }
+  ImGui::Checkbox("Clouds affect illumination probes", &clouds_affect_illumination);
+  if ((show_scene_window || clouds_affect_illumination) && DrawViewportCloudSettings(viewport_clouds))
+    SetCloudSettings(viewport_clouds, clouds_affect_illumination);
   ImGui::Checkbox("Camera (RT) Window", &show_camera_window);
 
   ImGui::Checkbox("Mesh Renderer", &render_mesh_renderer);
@@ -486,10 +703,7 @@ void RayTracerLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
     ImGui::TreePop();
   }
 
-  if (show_camera_window)
-    RayCameraWindow();
-  if (show_scene_window)
-    SceneCameraWindow();
+  ImGui::End();
 }
 
 void RayTracerLayer::OnDestroy() {
@@ -506,6 +720,11 @@ void RayTracerLayer::SceneCameraWindow() {
   auto scene_camera_position = editor_layer->GetSceneCameraPosition();
   const auto scene = GetScene();
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
+  if (focus_scene_window) {
+    ImGui::SetNextWindowFocus();
+    focus_scene_window = false;
+  }
+  ImGui::SetNextWindowSize(ImVec2(640, 400), ImGuiCond_FirstUseEver);
   if (ImGui::Begin("Scene (RT)")) {
     if (ImGui::BeginChild("RaySceneRenderer", ImVec2(0, 0), false)) {
       static int corner = 1;

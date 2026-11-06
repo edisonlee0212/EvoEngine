@@ -58,6 +58,9 @@ set(EVOENGINE_TEST_SOURCES
 	Core/SerializationRegistryTest.cpp
 	Core/LSystemLeafAtlasUvTest.cpp
 	Core/LSystemInteractivePublishTest.cpp
+	Core/SorghumInitialLeafAzimuthTest.cpp
+	Core/IlluminationVoxelGridTest.cpp
+	Core/PrefabFieldTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoProfiles.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
@@ -77,6 +80,7 @@ target_include_directories(EvoEngine_Tests
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/include
+	${CMAKE_SOURCE_DIR}/EvoEngine_Services/CudaModule/include/Utilities
 	${3RDPARTY_DIR}/stb/stb
 	)
 target_compile_definitions(EvoEngine_Tests
@@ -99,10 +103,28 @@ add_custom_target(EvoEngine_RenderTests)
 add_dependencies(EvoEngine_RenderTests EvoEngine_Tests)
 set_property(TARGET EvoEngine_RenderTests PROPERTY FOLDER Tests)
 
+if(TARGET CudaModuleService)
+	foreach(binding IN ITEMS PyEvoEngine PyDigitalAgriculture)
+		if(TARGET ${binding})
+			add_test(NAME VolumetricCloudPython.${binding}
+				COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Rendering/python_cloud_settings.py"
+					"$<TARGET_FILE_DIR:${binding}>" "${binding}")
+			set_tests_properties(VolumetricCloudPython.${binding} PROPERTIES LABELS "render,python,volumetric-cloud"
+				RUN_SERIAL TRUE)
+			add_dependencies(EvoEngine_RenderTests ${binding})
+		endif()
+	endforeach()
+endif()
+
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER TaskRuntime.*
 	PROPERTIES LABELS "core,jobs"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER PrefabField.*
+	PROPERTIES LABELS "core,field"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
@@ -309,8 +331,13 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-	TEST_FILTER LSystemLeafAtlasUv.*:LSystemLeafMorphology.*:LSystemSorghumTillers.*:LSystemSorghumPanicle.*:LSystemInteractivePublish.*
+	TEST_FILTER LSystemLeafAtlasUv.*:LSystemLeafMorphology.*:LSystemSorghumTillers.*:LSystemSorghumPanicle.*:LSystemInteractivePublish.*:SorghumInitialLeafAzimuthTest.*
 	PROPERTIES LABELS "core,lsystem,geometry,sorghum"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER IlluminationVoxelGrid.*
+	PROPERTIES LABELS "core,render,illumination"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

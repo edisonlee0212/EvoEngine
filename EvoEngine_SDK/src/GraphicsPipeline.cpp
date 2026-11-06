@@ -375,7 +375,7 @@ void PipelineDepthStencilState::Apply(
   depth_compare_op = vk_pipeline_depth_stencil_state_create_info.depthCompareOp;
   depth_bounds_test_enable = vk_pipeline_depth_stencil_state_create_info.depthBoundsTestEnable;
   stencil_test_enable = vk_pipeline_depth_stencil_state_create_info.stencilTestEnable;
-  front = vk_pipeline_depth_stencil_state_create_info.front;
+  front = vk_pipeline_depth_stencil_state_create_info.front;  
   back = vk_pipeline_depth_stencil_state_create_info.back;
   min_depth_bounds = vk_pipeline_depth_stencil_state_create_info.minDepthBounds;
   max_depth_bounds = vk_pipeline_depth_stencil_state_create_info.maxDepthBounds;
@@ -407,3 +407,4 @@ GraphicsPipeline::~GraphicsPipeline() {
   }
 }
 #pragma endregion
+ 

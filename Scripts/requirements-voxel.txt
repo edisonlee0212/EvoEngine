@@ -1,0 +1,4 @@
+numpy>=1.26
+scipy>=1.11
+pyvista>=0.44
+pyyaml>=6

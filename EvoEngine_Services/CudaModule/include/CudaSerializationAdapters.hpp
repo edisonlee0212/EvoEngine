@@ -5,6 +5,7 @@
 #include "BtfMeshRenderer.hpp"
 #include "RayTracerCamera.hpp"
 #include "TriangleIlluminationEstimator.hpp"
+#include "VoxelIlluminationEstimator.hpp"
 
 namespace evo_engine {
 void SerializeBtfMeshRenderer(YAML::Emitter& out, const BtfMeshRenderer& target);
@@ -13,6 +14,8 @@ void SerializeBasicPointCloudScanner(YAML::Emitter& out, const BasicPointCloudSc
 void DeserializeBasicPointCloudScanner(const YAML::Node& in, BasicPointCloudScanner& target);
 void SerializeTriangleIlluminationEstimator(YAML::Emitter& out, const TriangleIlluminationEstimator& target);
 void DeserializeTriangleIlluminationEstimator(const YAML::Node& in, TriangleIlluminationEstimator& target);
+void SerializeVoxelIlluminationEstimator(YAML::Emitter& out, const VoxelIlluminationEstimator& target);
+void DeserializeVoxelIlluminationEstimator(const YAML::Node& in, VoxelIlluminationEstimator& target);
 void SerializeRayTracerCamera(YAML::Emitter& out, const RayTracerCamera& target);
 void DeserializeRayTracerCamera(const YAML::Node& in, RayTracerCamera& target);
 void SerializeBtfMaterial(YAML::Emitter& out, const BtfMaterial& target);

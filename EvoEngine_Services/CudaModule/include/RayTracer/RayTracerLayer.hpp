@@ -31,6 +31,12 @@ class RayTracerLayer : public ILayer {
   glm::ivec2 scene_camera_resolution_ = glm::ivec2(0);
 
  public:
+  VolumetricCloudSettings viewport_clouds;
+  bool clouds_affect_illumination = false;
+  void SetCloudSettings(VolumetricCloudSettings settings, bool affect_illumination_probes);
+  [[nodiscard]] VolumetricCloudSettings GetIlluminationClouds() const {
+    return clouds_affect_illumination ? viewport_clouds : VolumetricCloudSettings{};
+  }
   bool show_scene_info = false;
   bool render_mesh_renderer = true;
   bool render_strands_renderer = true;
@@ -40,10 +46,10 @@ class RayTracerLayer : public ILayer {
   EnvironmentProperties environment_properties;
   std::shared_ptr<CudaImage> environmental_map_image;
   Handle environmental_map_handle = 0;
-  Handle global_reflection_probe_handle = 0;
-  uint64_t global_reflection_probe_payload_hash = 0;
+  Handle environment_cubemap_handle = 0;
 
   bool show_scene_window = false;
+  bool focus_scene_window = false;
   bool show_camera_window = false;
 
   bool rendering_enabled = true;

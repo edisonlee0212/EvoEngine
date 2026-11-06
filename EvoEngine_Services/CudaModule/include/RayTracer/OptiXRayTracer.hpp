@@ -3,11 +3,13 @@
 #include "BtfBase.cuh"
 
 #include "CUDABuffer.hpp"
+#include "CloudReprojection.cuh"
 
 #include "Optix7.hpp"
 
 #include "Vertex.hpp"
 
+#include <array>
 #include "cuda.h"
 #include "unordered_map"
 
@@ -18,6 +20,7 @@
 #include "map"
 
 #include "Enums.hpp"
+#include "VolumetricCloudSettings.hpp"
 #include "MaterialProperties.hpp"
 #include "PointCloudSample.hpp"
 #include "VulkanInterlop.hpp"
@@ -171,7 +174,21 @@ struct RayTracerProperties {
 
 enum class RayType { Radiance, SpacialSampling, RayTypeCount };
 
+struct CloudFrame {
+  glm::ivec2 size{};
+  CloudTexel* current = nullptr;
+  const CloudTexel* previous = nullptr;
+  glm::mat4 view_projection{1.f};
+  glm::mat4 previous_view_projection{1.f};
+  glm::vec3 previous_origin{};
+  unsigned sequence = 0;
+  bool prepass = false;
+};
+
 struct CameraRenderingLaunchParams {
+  VolumetricCloudSettings clouds;
+  CloudFrame cloud_frame;
+  cudaTextureObject_t cloud_noise[4]{};
   CameraProperties camera_properties;
   RayTracerProperties ray_tracer_properties;
   OptixTraversableHandle traversable;
@@ -208,6 +225,9 @@ struct IlluminationSampler {
 };
 
 struct IlluminationEstimationLaunchParams {
+  VolumetricCloudSettings clouds;
+  cudaTextureObject_t cloud_noise[4]{};
+  glm::vec3* direct_sun = nullptr;
   unsigned seed = 0;
   float push_normal_distance = 0.001f;
   size_t size;
@@ -343,11 +363,13 @@ class OptiXRayTracer {
   // internal helper functions
   // ------------------------------------------------------------------
   [[nodiscard]] bool RenderToCamera(const EnvironmentProperties& environment_properties,
-                                    CameraProperties& camera_properties, const RayProperties& ray_properties);
+                                    CameraProperties& camera_properties, const RayProperties& ray_properties,
+                                    const VolumetricCloudSettings& clouds = {});
 
   void EstimateIllumination(const size_t& size, const EnvironmentProperties& environment_properties,
                             const RayProperties& ray_properties, const CudaBuffer& light_probes, unsigned seed,
-                            float push_normal_distance);
+                            float push_normal_distance, const VolumetricCloudSettings& clouds = {},
+                            glm::vec3* direct_sun = nullptr);
 
   void ScanPointCloud(const size_t& size, const EnvironmentProperties& environment_properties,
                       const CudaBuffer& samples);
@@ -380,6 +402,17 @@ class OptiXRayTracer {
 #pragma endregion
 #pragma region Pipeline setup
 
+  std::array<std::shared_ptr<CudaImage>, 4> cloud_noise_;
+  void EnsureCloudNoise();
+  CudaBuffer cloud_images_[2], cloud_launch_params_;
+  const CameraProperties* cloud_camera_ = nullptr;
+  glm::uvec2 cloud_target_size_{};
+  VolumetricCloudSettings previous_cloud_settings_{};
+  EnvironmentProperties previous_cloud_light_{};
+  glm::mat4 previous_cloud_vp_{1.f};
+  glm::vec3 previous_cloud_origin_{};
+  unsigned cloud_sequence_ = 0;
+  void RenderCloudFrame(const CameraProperties& camera, const EnvironmentProperties& light);
   CameraRenderingLaunchParams camera_rendering_launch_params_;
   IlluminationEstimationLaunchParams illumination_estimation_launch_params_;
   PointCloudScanningLaunchParams point_cloud_scanning_launch_params_;

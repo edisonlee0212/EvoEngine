@@ -13,6 +13,7 @@
 #include <cuda_gl_interop.h>
 
 #include <iostream>
+#include <tuple>
 
 #include <RayDataDefinations.hpp>
 
@@ -24,6 +25,7 @@
 #include <CUDAModule.hpp>
 
 #include "Console.hpp"
+#include "VolumetricCloudNoise.hpp"
 using namespace evo_engine;
 
 void CameraProperties::Set(const glm::vec3 &position, const glm::quat &rotation) {
@@ -254,8 +256,100 @@ void RayTracerProperties::DrawGui() {
   ray_properties.DrawGui();
 }
 
+static std::shared_ptr<CudaImage> UploadCloudNoise(const CloudNoiseTexture &source) {
+  auto image = std::make_shared<CudaImage>();
+  const auto format = cudaCreateChannelDesc<uchar4>();
+  const auto n = source.width;
+  CUDA_CHECK(MallocMipmappedArray(&image->mipmapped_image_array, &format, make_cudaExtent(n, n, source.volume ? n : 0), 1));
+  CUDA_CHECK(GetMipmappedArrayLevel(&image->base_image_array, image->mipmapped_image_array, 0));
+  cudaMemcpy3DParms copy{};
+  copy.srcPtr = make_cudaPitchedPtr(const_cast<uint8_t *>(source.rgba.data()), n * sizeof(uchar4), n, n);
+  copy.dstArray = image->base_image_array;
+  copy.extent = make_cudaExtent(n, n, source.volume ? n : 1);
+  copy.kind = cudaMemcpyHostToDevice;
+  CUDA_CHECK(Memcpy3D(&copy));
+  cudaResourceDesc resource{};
+  resource.resType = cudaResourceTypeMipmappedArray;
+  resource.res.mipmap.mipmap = image->mipmapped_image_array;
+  cudaTextureDesc sampler{};
+  sampler.normalizedCoords = 1;
+  sampler.readMode = cudaReadModeNormalizedFloat;
+  sampler.filterMode = cudaFilterModeLinear;
+  for (auto &mode : sampler.addressMode)
+    mode = cudaAddressModeWrap;
+  CUDA_CHECK(CreateTextureObject(&image->texture_object, &resource, &sampler, nullptr));
+  return image;
+}
+
+void OptiXRayTracer::EnsureCloudNoise() {
+  if (cloud_noise_.back())
+    return;
+  const auto textures = BuildVolumetricCloudNoise();
+  for (size_t i = 0; i < textures.size(); ++i) {
+    cloud_noise_[i] = UploadCloudNoise(textures[i]);
+    camera_rendering_launch_params_.cloud_noise[i] = cloud_noise_[i]->texture_object;
+    illumination_estimation_launch_params_.cloud_noise[i] = cloud_noise_[i]->texture_object;
+  }
+}
+
+// Compare values rather than padding. Camera motion alone must keep the cloud history alive.
+static auto CloudSettingsKey(const VolumetricCloudSettings &s) {
+  return std::tie(s.enabled, s.coverage, s.density, s.bottom_altitude, s.top_altitude, s.max_march_distance,
+                  s.wind_direction, s.wind_speed, s.primary_step_count, s.light_step_count, s.resolution_divisor,
+                  s.lighting_intensity, s.ambient_lighting_strength, s.phase_anisotropy, s.base_noise_scale,
+                  s.detail_noise_scale, s.extinction_scale, s.use_spherical_atmosphere, s.atmosphere_radius,
+                  s.cloud_type, s.curl_strength, s.coarse_step_fraction, s.fine_step_scale, s.empty_step_fallback_count,
+                  s.enable_temporal_reprojection, s.temporal_blend_factor, s.enable_cloud_shadows,
+                  s.cloud_shadow_strength, s.cloud_shadow_step_count, s.debug_visualization, s.debug_mode);
+}
+
+void OptiXRayTracer::RenderCloudFrame(const CameraProperties &camera, const EnvironmentProperties &light) {
+  auto &params = camera_rendering_launch_params_;
+  auto &frame = params.cloud_frame;
+  frame = {};
+  const auto &s = params.clouds;
+  if (!s.enabled || camera.output_type != OutputType::Color ||
+      (s.resolution_divisor == 1 && !s.enable_temporal_reprojection)) {
+    if (cloud_camera_ == &camera) {
+      cloud_camera_ = nullptr;
+      cloud_images_[0].Free();
+      cloud_images_[1].Free();
+      cloud_launch_params_.Free();
+    }
+    return;
+  }
+
+  const auto target = camera.target_frame.size;
+  if (cloud_camera_ != &camera || cloud_target_size_ != target || previous_cloud_light_.Changed(light) ||
+      CloudSettingsKey(previous_cloud_settings_) != CloudSettingsKey(s))
+    cloud_sequence_ = 0;
+  cloud_camera_ = nullptr;  // A failed launch cannot supply history to the next frame.
+  const unsigned divisor = static_cast<unsigned>(glm::clamp(s.resolution_divisor, 1, 4));
+  frame.size = glm::ivec2((target + (divisor - 1u)) / divisor);
+  frame.view_projection = glm::inverse(camera.inverse_projection_view);
+  const size_t bytes = size_t(frame.size.x) * frame.size.y * sizeof(CloudTexel);
+  const int index = s.enable_temporal_reprojection ? cloud_sequence_ % 2 : 0;
+  cloud_images_[index].Resize(bytes);
+  frame.current = static_cast<CloudTexel *>(cloud_images_[index].d_ptr);
+  if (s.enable_temporal_reprojection && cloud_sequence_ != 0) {
+    frame.previous = static_cast<const CloudTexel *>(cloud_images_[1 - index].d_ptr);
+    frame.previous_view_projection = previous_cloud_vp_;
+    frame.previous_origin = previous_cloud_origin_;
+  }
+  if (!s.enable_temporal_reprojection)
+    cloud_images_[1].Free();
+  frame.sequence = s.enable_temporal_reprojection ? cloud_sequence_ : params.camera_properties.target_frame.frame_id;
+  frame.prepass = true;
+  cloud_launch_params_.Upload(&params, 1);
+  OPTIX_CHECK(optixLaunch(camera_rendering_pipeline_.pipeline, stream_, cloud_launch_params_.DevicePointer(),
+                          cloud_launch_params_.size_in_bytes, &camera_rendering_pipeline_.sbt, frame.size.x,
+                          frame.size.y, 1));
+  frame.prepass = false;
+}
+
 bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_properties,
-                                    CameraProperties &camera_properties, const RayProperties &ray_properties) {
+                                    CameraProperties &camera_properties, const RayProperties &ray_properties,
+                                    const VolumetricCloudSettings &clouds) {
   if (camera_properties.target_frame.size.x == 0 | camera_properties.target_frame.size.y == 0)
     return true;
   if (!has_acceleration_structure_)
@@ -264,6 +358,9 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
   bool status_changed = false;
   if (scene_modified)
     status_changed = true;
+  if (clouds.enabled)
+    EnsureCloudNoise();
+  camera_rendering_launch_params_.clouds = clouds;
   camera_rendering_launch_params_.camera_properties = camera_properties;
   status_changed = status_changed || camera_properties.modified;
   camera_properties.modified = false;
@@ -280,6 +377,7 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
     camera_properties.target_frame.frame_id = 0;
   }
 #pragma region Upload parameters
+  RenderCloudFrame(camera_properties, environment_properties);
   camera_rendering_pipeline_.launch_params_buffer.Upload(&camera_rendering_launch_params_, 1);
   camera_rendering_launch_params_.camera_properties.target_frame.frame_id++;
   camera_properties.target_frame.frame_id++;
@@ -296,6 +394,15 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
                           camera_rendering_launch_params_.camera_properties.target_frame.size.y, 1));
 #pragma endregion
   CUDA_SYNC_CHECK();
+  if (camera_rendering_launch_params_.cloud_frame.current) {
+    cloud_camera_ = &camera_properties;
+    cloud_target_size_ = camera_properties.target_frame.size;
+    previous_cloud_light_ = environment_properties;
+    previous_cloud_settings_ = clouds;
+    previous_cloud_vp_ = camera_rendering_launch_params_.cloud_frame.view_projection;
+    previous_cloud_origin_ = camera_properties.camera_position;
+    ++cloud_sequence_;
+  }
 #pragma region Bind output texture
   cudaArray_t output_array;
   CUDA_CHECK(GetMipmappedArrayLevel(
@@ -457,7 +564,8 @@ bool OptiXRayTracer::RenderToCamera(const EnvironmentProperties &environment_pro
 
 void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentProperties &environment_properties,
                                           const RayProperties &ray_properties, const CudaBuffer &light_probes,
-                                          const unsigned seed, const float push_normal_distance) {
+                                          const unsigned seed, const float push_normal_distance,
+                                          const VolumetricCloudSettings &clouds, glm::vec3 *direct_sun) {
   if (!has_acceleration_structure_)
     return;
   if (size == 0) {
@@ -466,7 +574,10 @@ void OptiXRayTracer::EstimateIllumination(const size_t &size, const EnvironmentP
   }
   BuildSbt();
 
-  illumination_estimation_launch_params_.ray_tracer_properties.environment = environment_properties;
+  if (clouds.enabled)
+    EnsureCloudNoise();
+  illumination_estimation_launch_params_.clouds = clouds;
+  illumination_estimation_launch_params_.direct_sun = direct_sun;
   illumination_estimation_launch_params_.ray_tracer_properties.ray_properties = ray_properties;
 #pragma region Upload parameters
   illumination_estimation_launch_params_.seed = seed;
@@ -550,6 +661,9 @@ OptiXRayTracer::OptiXRayTracer() {
 }
 
 OptiXRayTracer::~OptiXRayTracer() {
+  cloud_images_[0].Free();
+  cloud_images_[1].Free();
+  cloud_launch_params_.Free();
   materials.clear();
   geometries.clear();
   instances.clear();

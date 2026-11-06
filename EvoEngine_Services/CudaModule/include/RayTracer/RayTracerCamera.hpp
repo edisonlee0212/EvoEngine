@@ -46,6 +46,7 @@ class RayTracerCamera : public IPrivateComponent {
   RayTracerCamera& operator=(const RayTracerCamera& source);
   void Render();
   void Render(const RayProperties& ray_properties);
-  void Render(const RayProperties& ray_properties, const EnvironmentProperties& environment_properties);
+  void Render(const RayProperties& ray_properties, const EnvironmentProperties& environment_properties,
+              const VolumetricCloudSettings& clouds = {});
 };
 }  // namespace evo_engine
